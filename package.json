@@ -1,0 +1,27 @@
+{
+  "name": "skul",
+  "version": "0.1.0",
+  "description": "AI configuration layer manager for project-scoped bundles (project setup only)",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/index.ts"
+  },
+  "keywords": [
+    "cli",
+    "ai",
+    "tooling",
+    "worktree"
+  ],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.6.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
