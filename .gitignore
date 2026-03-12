@@ -1,4 +1,13 @@
+# OS
+.DS_Store
+
+# Node
 node_modules/
 dist/
-.DS_Store
 *.log
+
+# AI Agents
+.agents/
+
+# Personal Docs
+TASKS.md

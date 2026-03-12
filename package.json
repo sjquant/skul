@@ -4,6 +4,8 @@
   "description": "AI configuration layer manager for project-scoped bundles (project setup only)",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx src/index.ts"
   },
@@ -22,6 +24,7 @@
   "devDependencies": {
     "@types/node": "^25.4.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }
