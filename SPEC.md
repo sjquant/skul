@@ -5,7 +5,6 @@ AI coding tools rely on configuration assets such as:
 - skills
 - commands
 - agents
-- prompt instructions
 
 These assets are frequently:
 
@@ -17,6 +16,8 @@ However, AI tools require these files to exist in **tool-specific directories** 
 
 - `.claude/skills`
 - `.cursor/commands`
+- `.opencode/commands`
+- `.agents/skills`
 
 Skul provides a CLI that allows developers to:
 
@@ -37,10 +38,12 @@ AI configuration assets must exist in tool-native directories.
 
 Examples:
 
-| Tool        | Directory  |
-| ----------- | ---------- |
+| Tool        | Directory / Entry Point |
+| ----------- | ----------------------- |
 | Claude Code | `.claude/` |
 | Cursor      | `.cursor/` |
+| OpenCode    | `.opencode/` |
+| Codex       | `.agents/skills` |
 
 Skul writes files directly into these locations.
 
@@ -93,7 +96,7 @@ Only one active bundle per tool per project should exist by default.
 
 This prevents:
 
-- prompt context bloat
+- instruction context bloat
 - conflicting AI instructions
 
 ---
@@ -303,10 +306,33 @@ targets:
     path: ".cursor/commands"
 ```
 
+Example:
+
+```yaml
+name: opencode
+targets:
+  skills:
+    path: ".opencode/skills"
+  commands:
+    path: ".opencode/commands"
+  agents:
+    path: ".opencode/agents"
+```
+
+Example:
+
+```yaml
+name: codex
+targets:
+  skills:
+    path: ".agents/skills"
+```
+
 Rules:
 
 - follow tool directory conventions exactly
 - do not normalize tool structures
+- defer deprecated or non-project-scoped tool surfaces until Skul defines explicit support for them
 
 ---
 
@@ -480,7 +506,7 @@ Available Bundles
 react-expert
 nextjs-minimal
 go-backend
-prompt-debug
+review-debug
 ```
 
 ---
