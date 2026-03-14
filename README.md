@@ -1,6 +1,6 @@
 # Skul
 
-Skul is a TypeScript CLI for managing project-scoped AI configuration bundles (skills, commands, agents) with support for stealth (`.git/info/exclude`) and tracked installs.
+Skul is a TypeScript CLI for managing project-scoped AI configuration bundles (skills, commands, agents) with support for stealth materialization via `.git/info/exclude`.
 
 ## Current Setup Status
 

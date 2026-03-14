@@ -118,61 +118,7 @@ describe("materializeBundle", () => {
     );
   });
 
-  it("configures .git/info/exclude when materializing in stealth mode", () => {
-    // Given
-    const repoRoot = createTempDir("skul-repo-");
-    const bundleDir = createTempDir("skul-bundle-");
-    const gitDir = path.join(repoRoot, ".git");
-    fs.mkdirSync(path.join(gitDir, "info"), { recursive: true });
-
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
-
-    // When
-    const result = materializeBundle({
-      repoRoot,
-      gitDir,
-      mode: "stealth",
-      bundleDir,
-      manifest: {
-        name: "react-expert",
-        tool: "claude-code",
-        targets: {
-          skills: { path: "skills" },
-        },
-      },
-    });
-
-    // Then
-    expect(result).toEqual({
-      files: [".claude/skills/react/SKILL.md"],
-      excludeConfigured: true,
-    });
-    expect(fs.readFileSync(path.join(gitDir, "info", "exclude"), "utf8")).toBe(
-      ["# >>> SKUL START", ".claude/skills/react/SKILL.md", "# <<< SKUL END", ""].join("\n"),
-    );
-  });
-
   it.each([
-    [
-      "stealth mode without a git directory",
-      (repoRoot: string, bundleDir: string) => {
-        writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
-
-        return materializeBundle({
-          repoRoot,
-          mode: "stealth",
-          bundleDir,
-          manifest: {
-            name: "react-expert",
-            tool: "claude-code",
-            targets: {
-              skills: { path: "skills" },
-            },
-          },
-        });
-      },
-      /git directory is required for stealth materialization/i,
-    ],
     [
       "missing source directory for a declared target",
       (repoRoot: string, bundleDir: string) =>

@@ -1,7 +1,7 @@
 import { isCancel, select } from "@clack/prompts";
 import { Command, CommanderError } from "commander";
 
-export type CommandName = "use" | "install" | "list" | "status" | "clean";
+export type CommandName = "use" | "list" | "status" | "clean";
 
 export type CliParseResult =
   | { kind: "help" }
@@ -10,18 +10,13 @@ export type CliParseResult =
       kind: "command";
       command: "use";
       options: { mode: "stealth"; bundle: string; source?: string };
-    }
-  | {
-      kind: "command";
-      command: "install";
-      options: { mode: "tracked"; bundle: string };
     };
 
 export interface PromptClient {
   selectBundle(source?: string): Promise<string>;
 }
 
-const COMMANDS: CommandName[] = ["use", "install", "list", "status", "clean"];
+const COMMANDS: CommandName[] = ["use", "list", "status", "clean"];
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   return {
@@ -128,18 +123,6 @@ function createProgram(
       };
     });
 
-  program
-    .command("install")
-    .description("Apply bundle with Git tracking")
-    .argument("<bundle>")
-    .action((bundle: string) => {
-      context.result = {
-        kind: "command",
-        command: "install",
-        options: { mode: "tracked", bundle },
-      };
-    });
-
   for (const command of ["list", "status", "clean"] as const) {
     program
       .command(command)
@@ -163,10 +146,6 @@ function normalizeParseError(error: unknown, command: string): Error {
     }
 
     return new Error(`Command ${command} does not accept positional arguments`);
-  }
-
-  if (error.code === "commander.missingArgument" && command === "install") {
-    return new Error("Command install requires a bundle name");
   }
 
   return new Error(error.message.replace(/^error: /, ""));

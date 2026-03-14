@@ -1,11 +1,8 @@
 import path from "node:path";
 
-export type InstallMode = "stealth" | "tracked";
-
 export interface DesiredState {
   tool: string;
   bundle: string;
-  mode: InstallMode;
 }
 
 export interface RepoState {
@@ -99,7 +96,6 @@ function parseDesiredState(input: unknown, label: string): DesiredState {
   return {
     tool: expectNonEmptyString(desiredState.tool, `${label}.tool`),
     bundle: expectNonEmptyString(desiredState.bundle, `${label}.bundle`),
-    mode: parseInstallMode(desiredState.mode, `${label}.mode`),
   };
 }
 
@@ -118,14 +114,6 @@ function parseMaterializedState(input: unknown, label: string): MaterializedStat
       `${label}.exclude_configured`,
     ),
   };
-}
-
-function parseInstallMode(input: unknown, label: string): InstallMode {
-  if (input === "stealth" || input === "tracked") {
-    return input;
-  }
-
-  throw new Error(`${label} must be "stealth" or "tracked"`);
 }
 
 function expectRecord(input: unknown, label: string): UnknownRecord {
