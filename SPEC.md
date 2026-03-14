@@ -67,7 +67,7 @@ Example:
 
 ```gitignore
 # >>> SKUL START
-.claude/skills/react.md
+.claude/skills/react/SKILL.md
 .claude/commands/review.md
 # <<< SKUL END
 ```
@@ -268,7 +268,7 @@ Example:
         "tool": "claude-code",
         "bundle": "react-expert",
         "mode": "stealth",
-        "files": [".claude/skills/react.md", ".claude/commands/review.md"],
+        "files": [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
         "exclude_configured": true
       }
     }
@@ -372,7 +372,7 @@ Skul does **not apply prefixes by default.**
 Example:
 
 ```text
-.claude/skills/react.md
+.claude/skills/react/SKILL.md
 .claude/commands/review.md
 ```
 
@@ -386,7 +386,7 @@ Example:
 
 ```text
 Conflict detected:
-.claude/skills/react.md already exists
+.claude/skills/react/SKILL.md already exists
 
 Options:
 1) Rename incoming file
@@ -397,7 +397,7 @@ Options:
 Suggested prefix:
 
 ```text
-p-react.md
+.claude/skills/p-react/SKILL.md
 ```
 
 ---
@@ -528,7 +528,7 @@ Path: /Users/dev/project-feature-a
 Materialized: yes
 
 Files:
-  .claude/skills/react.md
+  .claude/skills/react/SKILL.md
   .claude/commands/review.md
 
 Git Exclude:

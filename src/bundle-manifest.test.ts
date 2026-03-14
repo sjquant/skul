@@ -133,7 +133,7 @@ describe("resolveCachedBundleLayout", () => {
         "manifest.json",
       ),
     });
-    expect(layout.resolveBundlePath("skills", "react.md")).toBe(
+    expect(layout.resolveBundlePath("skills", "react", "SKILL.md")).toBe(
       path.join(
         "/Users/dev/.skul/library",
         "github.com",
@@ -141,7 +141,8 @@ describe("resolveCachedBundleLayout", () => {
         "ai-vault",
         "react-expert",
         "skills",
-        "react.md",
+        "react",
+        "SKILL.md",
       ),
     );
   });
