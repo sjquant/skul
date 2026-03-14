@@ -67,18 +67,6 @@ describe("parseCliArgs", () => {
     });
   });
 
-  it("parses install with tracked mode", async () => {
-    // Given
-    const argv = ["install", "react-expert"];
-
-    // When / Then
-    await expect(parseCliArgs(argv)).resolves.toEqual({
-      kind: "command",
-      command: "install",
-      options: { mode: "tracked", bundle: "react-expert" },
-    });
-  });
-
   it("rejects unknown commands and invalid arity", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["deploy"])).rejects.toThrowError(/Unknown command: deploy/);
@@ -90,9 +78,6 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["clean", "extra"])).rejects.toThrowError(
       /Command clean does not accept positional arguments/,
-    );
-    await expect(parseCliArgs(["install"])).rejects.toThrowError(
-      /Command install requires a bundle name/,
     );
     await expect(parseCliArgs(["use", "a", "b", "c"])).rejects.toThrowError(
       /Command use accepts at most 2 positional arguments/,

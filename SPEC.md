@@ -21,8 +21,7 @@ However, AI tools require these files to exist in **tool-specific directories** 
 
 Skul provides a CLI that allows developers to:
 
-- apply AI configuration bundles into tool-native directories
-- optionally exclude them from Git tracking (stealth mode)
+- apply AI configuration bundles into tool-native directories in stealth mode
 - switch bundles per project
 - maintain a cached bundle catalog
 - prevent context bloat
@@ -51,9 +50,7 @@ Skul **never requires tools to read from `.skul/` directories.**
 
 ---
 
-## 2.2 Optional Stealth Mode
-
-Two installation modes exist.
+## 2.2 Stealth Mode
 
 ### Stealth Mode
 
@@ -71,14 +68,6 @@ Example:
 .claude/commands/review.md
 # <<< SKUL END
 ```
-
-### Tracked Mode
-
-Files are written normally and tracked by Git.
-
-Useful when teams intentionally want shared AI configs.
-
----
 
 ## 2.3 Deterministic Ownership
 
@@ -107,7 +96,6 @@ Skul must not modify:
 
 - `.gitignore`
 - repository configuration
-- tracked files
 
 Stealth behavior relies solely on `.git/info/exclude`.
 
@@ -160,12 +148,6 @@ Examples:
 ### Stealth Files
 
 Files injected by Skul but excluded from Git tracking.
-
----
-
-### Installed Files
-
-Files injected normally and tracked by Git.
 
 ---
 
@@ -238,15 +220,14 @@ Example:
 {
   "repos": {
     "repo_fingerprint_abc123": {
-      "repo_root": "/Users/dev/project",
-      "remote_url": "git@github.com:org/repo.git",
-      "desired_state": {
-        "tool": "claude-code",
-        "bundle": "react-expert",
-        "mode": "stealth"
-      }
+    "repo_root": "/Users/dev/project",
+    "remote_url": "git@github.com:org/repo.git",
+    "desired_state": {
+      "tool": "claude-code",
+      "bundle": "react-expert"
     }
   }
+}
 }
 ```
 
@@ -267,7 +248,6 @@ Example:
       "materialized_state": {
         "tool": "claude-code",
         "bundle": "react-expert",
-        "mode": "stealth",
         "files": [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
         "exclude_configured": true
       }
@@ -424,11 +404,10 @@ CLI focuses on three main actions:
 
 | Command   | Purpose                            |
 | --------- | ---------------------------------- |
-| `use`     | Apply bundle in stealth mode       |
-| `install` | Apply bundle with Git tracking     |
-| `list`    | List cached bundles                |
-| `status`  | Show repository and worktree state |
-| `clean`   | Remove Skul-managed files          |
+| `use`    | Apply bundle in stealth mode       |
+| `list`   | List cached bundles                |
+| `status` | Show repository and worktree state |
+| `clean`  | Remove Skul-managed files          |
 
 ---
 
@@ -474,21 +453,7 @@ If cached bundles exist:
 
 ---
 
-# 11.2 `skul install`
-
-Install bundle without stealth.
-
-Files remain tracked by Git.
-
-Example:
-
-```bash
-skul install react-expert
-```
-
----
-
-# 11.3 `skul list`
+# 11.2 `skul list`
 
 Display cached bundles.
 
@@ -511,7 +476,7 @@ review-debug
 
 ---
 
-# 11.4 `skul status`
+# 11.3 `skul status`
 
 Show both repository and worktree state.
 
@@ -521,7 +486,6 @@ Example output:
 Repository Desired State
 Tool: claude-code
 Bundle: react-expert
-Mode: stealth
 
 Current Worktree
 Path: /Users/dev/project-feature-a
@@ -547,14 +511,14 @@ Suggested Action: run "skul use"
 
 ---
 
-# 11.5 `skul clean`
+# 11.4 `skul clean`
 
 Remove Skul-managed files from the current worktree.
 
 Behavior:
 
 1. read registry
-2. delete tracked files
+2. delete managed files
 3. remove exclusion block
 4. clear worktree state
 
@@ -667,7 +631,7 @@ Potential enhancements:
 - automatic bundle recommendation
 - bundle version pinning
 - bundle inheritance
-- multi-tool installs
+- multi-tool materialization
 - remote bundle registry
 - AI model configuration bundles
 

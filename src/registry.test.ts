@@ -22,7 +22,6 @@ describe("parseRegistry", () => {
             desired_state: {
               tool: "claude-code",
               bundle: "react-expert",
-              mode: "stealth",
             },
           },
         },
@@ -33,7 +32,6 @@ describe("parseRegistry", () => {
             materialized_state: {
               tool: "claude-code",
               bundle: "react-expert",
-              mode: "stealth",
               files: [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
               exclude_configured: true,
             },
@@ -48,7 +46,6 @@ describe("parseRegistry", () => {
           desired_state: {
             tool: "claude-code",
             bundle: "react-expert",
-            mode: "stealth",
           },
         },
       },
@@ -59,7 +56,6 @@ describe("parseRegistry", () => {
           materialized_state: {
             tool: "claude-code",
             bundle: "react-expert",
-            mode: "stealth",
             files: [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
             exclude_configured: true,
           },
@@ -77,24 +73,22 @@ describe("parseRegistry", () => {
             desired_state: {
               tool: "cursor",
               bundle: "nextjs-minimal",
-              mode: "tracked",
             },
           },
         },
         worktrees: {},
       }),
     ).toEqual({
-      repos: {
-        repo_abc123: {
-          repo_root: "/Users/dev/project",
-          desired_state: {
-            tool: "cursor",
-            bundle: "nextjs-minimal",
-            mode: "tracked",
+        repos: {
+          repo_abc123: {
+            repo_root: "/Users/dev/project",
+            desired_state: {
+              tool: "cursor",
+              bundle: "nextjs-minimal",
+            },
           },
         },
-      },
-      worktrees: {},
+        worktrees: {},
     });
   });
 
@@ -110,23 +104,6 @@ describe("parseRegistry", () => {
 
   it.each([
     [
-      "repo desired state with an invalid mode",
-      {
-        repos: {
-          repo_abc123: {
-            repo_root: "/Users/dev/project",
-            desired_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-              mode: "hidden",
-            },
-          },
-        },
-        worktrees: {},
-      },
-      /repos\.repo_abc123\.desired_state\.mode must be "stealth" or "tracked"/i,
-    ],
-    [
       "worktree materialized state with a missing file list",
       {
         repos: {
@@ -135,7 +112,6 @@ describe("parseRegistry", () => {
             desired_state: {
               tool: "claude-code",
               bundle: "react-expert",
-              mode: "stealth",
             },
           },
         },
@@ -146,7 +122,6 @@ describe("parseRegistry", () => {
             materialized_state: {
               tool: "claude-code",
               bundle: "react-expert",
-              mode: "stealth",
               exclude_configured: true,
             },
           },
@@ -163,7 +138,6 @@ describe("parseRegistry", () => {
             desired_state: {
               tool: "claude-code",
               bundle: "react-expert",
-              mode: "stealth",
             },
           },
         },
@@ -174,7 +148,6 @@ describe("parseRegistry", () => {
             materialized_state: {
               tool: "claude-code",
               bundle: "react-expert",
-              mode: "stealth",
               files: ["/Users/dev/project/.claude/skills/react/SKILL.md"],
               exclude_configured: true,
             },
@@ -198,7 +171,6 @@ describe("parseRegistry", () => {
             materialized_state: {
               tool: "claude-code",
               bundle: "react-expert",
-              mode: "stealth",
               files: [".claude/skills/react/SKILL.md"],
               exclude_configured: true,
             },

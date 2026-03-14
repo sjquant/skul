@@ -10,15 +10,14 @@ export interface RunOptions {
 
 export async function run(argv: string[], options: RunOptions = {}): Promise<string> {
   const parsed = await parseCliArgs(argv);
+  const stateLayout = resolveGlobalStateLayout({ homeDir: options.homeDir ?? os.homedir() });
 
   if (parsed.kind === "help") {
     return createHelpText();
   }
 
   if (parsed.command === "list") {
-    return renderBundleList({
-      libraryDir: resolveGlobalStateLayout({ homeDir: options.homeDir ?? os.homedir() }).libraryDir,
-    });
+    return renderBundleList({ libraryDir: stateLayout.libraryDir });
   }
 
   return `Command ${parsed.command} is defined but not implemented yet.`;
@@ -33,7 +32,6 @@ function renderBundleList(options: { libraryDir: string }): string {
 
   return ["Available Bundles", "", ...bundles.map((bundle) => bundle.bundle)].join("\n");
 }
-
 if (require.main === module) {
   void run(process.argv.slice(2))
     .then((output) => {
