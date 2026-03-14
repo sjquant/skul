@@ -1,22 +1,46 @@
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseCliArgs } from "./cli";
 import { run } from "./index";
 
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 describe("parseCliArgs", () => {
   it("returns help when no command is provided", async () => {
-    await expect(parseCliArgs([])).resolves.toEqual({ kind: "help" });
+    // Given
+    const argv: string[] = [];
+
+    // When / Then
+    await expect(parseCliArgs(argv)).resolves.toEqual({ kind: "help" });
   });
 
   it("parses non-mutating commands without arguments", async () => {
-    await expect(parseCliArgs(["list"])).resolves.toEqual({ kind: "command", command: "list" });
-    await expect(parseCliArgs(["status"])).resolves.toEqual({ kind: "command", command: "status" });
-    await expect(parseCliArgs(["clean"])).resolves.toEqual({ kind: "command", command: "clean" });
+    // Given
+    const listArgs = ["list"];
+    const statusArgs = ["status"];
+    const cleanArgs = ["clean"];
+
+    // When / Then
+    await expect(parseCliArgs(listArgs)).resolves.toEqual({ kind: "command", command: "list" });
+    await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status" });
+    await expect(parseCliArgs(cleanArgs)).resolves.toEqual({ kind: "command", command: "clean" });
   });
 
   it("parses use in interactive, cached, and explicit source modes", async () => {
+    // Given
     const selectBundle = vi.fn().mockResolvedValue("react-expert");
 
+    // When / Then
     await expect(parseCliArgs([], { selectBundle })).resolves.toEqual({ kind: "help" });
 
     await expect(parseCliArgs(["use"], { selectBundle })).resolves.toEqual({
@@ -44,7 +68,11 @@ describe("parseCliArgs", () => {
   });
 
   it("parses install with tracked mode", async () => {
-    await expect(parseCliArgs(["install", "react-expert"])).resolves.toEqual({
+    // Given
+    const argv = ["install", "react-expert"];
+
+    // When / Then
+    await expect(parseCliArgs(argv)).resolves.toEqual({
       kind: "command",
       command: "install",
       options: { mode: "tracked", bundle: "react-expert" },
@@ -52,6 +80,7 @@ describe("parseCliArgs", () => {
   });
 
   it("rejects unknown commands and invalid arity", async () => {
+    // Given / When / Then
     await expect(parseCliArgs(["deploy"])).rejects.toThrowError(/Unknown command: deploy/);
     await expect(parseCliArgs(["list", "extra"])).rejects.toThrowError(
       /Command list does not accept positional arguments/,
@@ -73,6 +102,53 @@ describe("parseCliArgs", () => {
 
 describe("run", () => {
   it("renders usage for bare invocations", async () => {
-    await expect(run([])).resolves.toMatch(/^Usage: skul /);
+    // Given
+    const argv: string[] = [];
+
+    // When / Then
+    await expect(run(argv)).resolves.toMatch(/^Usage: skul /);
+  });
+
+  it("lists cached bundles from the global library", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tool: "codex",
+      targets: { skills: { path: "skills" } },
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+
+    // When / Then
+    await expect(run(["list"], { homeDir })).resolves.toBe(renderBundleListOutput("react-expert", "repo-standards"));
+  });
+
+  it("reports when no cached bundles are available", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    // When / Then
+    await expect(run(["list"], { homeDir })).resolves.toBe(renderBundleListOutput("No cached bundles found."));
   });
 });
+
+function createHomeDir(): string {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-home-"));
+  tempDirs.push(homeDir);
+  return homeDir;
+}
+
+function writeManifest(homeDir: string, source: string, bundle: string, manifest: object): void {
+  const bundleDir = path.join(homeDir, ".skul", "library", ...source.split("/"), bundle);
+  fs.mkdirSync(bundleDir, { recursive: true });
+  fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+}
+
+function renderBundleListOutput(...lines: string[]): string {
+  return ["Available Bundles", "", ...lines].join("\n");
+}

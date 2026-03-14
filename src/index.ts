@@ -1,13 +1,37 @@
-import { createHelpText, parseCliArgs } from "./cli";
+import os from "node:os";
 
-export async function run(argv: string[]): Promise<string> {
+import { listCachedBundles } from "./bundle-discovery";
+import { createHelpText, parseCliArgs } from "./cli";
+import { resolveGlobalStateLayout } from "./state-layout";
+
+export interface RunOptions {
+  homeDir?: string;
+}
+
+export async function run(argv: string[], options: RunOptions = {}): Promise<string> {
   const parsed = await parseCliArgs(argv);
 
   if (parsed.kind === "help") {
     return createHelpText();
   }
 
+  if (parsed.command === "list") {
+    return renderBundleList({
+      libraryDir: resolveGlobalStateLayout({ homeDir: options.homeDir ?? os.homedir() }).libraryDir,
+    });
+  }
+
   return `Command ${parsed.command} is defined but not implemented yet.`;
+}
+
+function renderBundleList(options: { libraryDir: string }): string {
+  const bundles = listCachedBundles(options);
+
+  if (bundles.length === 0) {
+    return ["Available Bundles", "", "No cached bundles found."].join("\n");
+  }
+
+  return ["Available Bundles", "", ...bundles.map((bundle) => bundle.bundle)].join("\n");
 }
 
 if (require.main === module) {

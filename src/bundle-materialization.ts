@@ -2,14 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { type BundleManifest } from "./bundle-manifest";
+import { configureSkulExcludeBlock } from "./git-exclude";
+import { type InstallMode } from "./registry";
 import { resolveToolTargetPath, type ToolTargetName } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
   files: string[];
+  excludeConfigured: boolean;
 }
 
 export function materializeBundle(options: {
   repoRoot: string;
+  gitDir?: string;
+  mode?: InstallMode;
   bundleDir: string;
   manifest: BundleManifest;
 }): MaterializeBundleResult {
@@ -27,13 +32,7 @@ export function materializeBundle(options: {
       continue;
     }
 
-    if (!fs.existsSync(sourceDir)) {
-      throw new Error(`Bundle target path does not exist: ${target.path}`);
-    }
-
-    if (!fs.statSync(sourceDir).isDirectory()) {
-      throw new Error(`Bundle target path must be a directory: ${target.path}`);
-    }
+    assertBundleTargetDirectory(sourceDir, target.path);
 
     copyDirectory(sourceDir, destinationDir, writtenFiles, options.repoRoot);
   }
@@ -44,7 +43,11 @@ export function materializeBundle(options: {
     return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
   });
 
-  return { files: writtenFiles };
+  return finalizeMaterialization({
+    files: writtenFiles,
+    gitDir: options.gitDir,
+    mode: options.mode ?? "tracked",
+  });
 }
 
 function copyDirectory(
@@ -74,4 +77,40 @@ function copyDirectory(
 
 function pathDepth(value: string): number {
   return value.split(path.sep).length;
+}
+
+function assertBundleTargetDirectory(sourceDir: string, targetPath: string): void {
+  if (!fs.existsSync(sourceDir)) {
+    throw new Error(`Bundle target path does not exist: ${targetPath}`);
+  }
+
+  if (!fs.statSync(sourceDir).isDirectory()) {
+    throw new Error(`Bundle target path must be a directory: ${targetPath}`);
+  }
+}
+
+function finalizeMaterialization(options: {
+  files: string[];
+  gitDir?: string;
+  mode: InstallMode;
+}): MaterializeBundleResult {
+  if (options.mode !== "stealth") {
+    return {
+      files: options.files,
+      excludeConfigured: false,
+    };
+  }
+
+  const gitDir = options.gitDir?.trim();
+
+  if (!gitDir) {
+    throw new Error("A git directory is required for stealth materialization");
+  }
+
+  configureSkulExcludeBlock({ gitDir, files: options.files });
+
+  return {
+    files: options.files,
+    excludeConfigured: true,
+  };
 }
