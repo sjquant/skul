@@ -92,6 +92,43 @@ describe("parseRegistry", () => {
     });
   });
 
+  it("preserves explicit ownership directories for worktree cleanup", () => {
+    expect(
+      parseRegistry({
+        repos: {
+          repo_abc123: {
+            repo_root: "/Users/dev/project",
+            desired_state: {
+              tool: "claude-code",
+              bundle: "react-expert",
+            },
+          },
+        },
+        worktrees: {
+          worktree_xyz789: {
+            repo_fingerprint: "repo_abc123",
+            path: "/Users/dev/project",
+            materialized_state: {
+              tool: "claude-code",
+              bundle: "react-expert",
+              files: [".claude/skills/react/SKILL.md"],
+              directories: [".claude/skills/react"],
+              exclude_configured: true,
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      worktrees: {
+        worktree_xyz789: {
+          materialized_state: {
+            directories: [".claude/skills/react"],
+          },
+        },
+      },
+    });
+  });
+
   it("rejects malformed top-level objects", () => {
     expect(() => parseRegistry(null)).toThrowError(/registry must be an object/i);
     expect(() => parseRegistry({ repos: [], worktrees: {} })).toThrowError(

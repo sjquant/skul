@@ -6,6 +6,7 @@ import { resolveToolTargetPath, type ToolTargetName } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
   files: string[];
+  directories: string[];
 }
 
 export function materializeBundle(options: {
@@ -14,6 +15,7 @@ export function materializeBundle(options: {
   manifest: BundleManifest;
 }): MaterializeBundleResult {
   const writtenFiles: string[] = [];
+  const ownedDirectories = new Set<string>();
 
   for (const [targetName, target] of Object.entries(options.manifest.targets)) {
     const sourceDir = path.join(options.bundleDir, target.path);
@@ -28,8 +30,9 @@ export function materializeBundle(options: {
     }
 
     assertBundleTargetDirectory(sourceDir, target.path);
+    fs.mkdirSync(destinationDir, { recursive: true });
 
-    copyDirectory(sourceDir, destinationDir, writtenFiles, options.repoRoot);
+    copyDirectory(sourceDir, destinationDir, destinationDir, writtenFiles, ownedDirectories, options.repoRoot);
   }
 
   writtenFiles.sort((left, right) => {
@@ -37,32 +40,74 @@ export function materializeBundle(options: {
 
     return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
   });
+  const directories = Array.from(ownedDirectories).sort((left, right) => {
+    const depthDifference = pathDepth(right) - pathDepth(left);
 
-  return { files: writtenFiles };
+    return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
+  });
+
+  return { files: writtenFiles, directories };
 }
 
 function copyDirectory(
   sourceDir: string,
   destinationDir: string,
+  targetRoot: string,
   writtenFiles: string[],
+  ownedDirectories: Set<string>,
   repoRoot: string,
 ): void {
-  fs.mkdirSync(destinationDir, { recursive: true });
-
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
 
     if (entry.isDirectory()) {
-      copyDirectory(sourcePath, destinationPath, writtenFiles, repoRoot);
+      copyDirectory(
+        sourcePath,
+        destinationPath,
+        targetRoot,
+        writtenFiles,
+        ownedDirectories,
+        repoRoot,
+      );
       continue;
     }
 
     if (entry.isFile()) {
-      fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+      ensureOwnedParentDirectories(
+        path.dirname(destinationPath),
+        targetRoot,
+        ownedDirectories,
+        repoRoot,
+      );
       fs.copyFileSync(sourcePath, destinationPath);
       writtenFiles.push(path.relative(repoRoot, destinationPath));
     }
+  }
+}
+
+function ensureOwnedParentDirectories(
+  directoryPath: string,
+  targetRoot: string,
+  ownedDirectories: Set<string>,
+  repoRoot: string,
+): void {
+  if (directoryPath === targetRoot) {
+    return;
+  }
+
+  const missingDirectories: string[] = [];
+  let currentPath = directoryPath;
+
+  while (currentPath !== targetRoot && !fs.existsSync(currentPath)) {
+    missingDirectories.push(currentPath);
+    currentPath = path.dirname(currentPath);
+  }
+
+  fs.mkdirSync(directoryPath, { recursive: true });
+
+  for (const missingDirectory of missingDirectories) {
+    ownedDirectories.add(path.relative(repoRoot, missingDirectory));
   }
 }
 

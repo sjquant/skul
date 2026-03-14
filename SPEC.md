@@ -77,6 +77,10 @@ Deletion, switching, and cleanup must rely on the registry.
 
 Filename patterns alone must never determine ownership.
 
+If a managed file has been modified since Skul wrote it, cleanup and replacement must not delete it silently.
+
+Skul must detect that mismatch from registry-tracked file metadata and require user confirmation before removing the file.
+
 ---
 
 ## 2.4 Context Minimalism
@@ -386,6 +390,10 @@ Suggested prefix:
 
 File ownership is determined solely by registry records.
 
+For managed files, the registry must eventually store enough metadata to detect whether the current file still matches what Skul originally wrote.
+
+If the content no longer matches, the file is treated as user-modified and requires confirmation before deletion or replacement.
+
 ---
 
 # 9. CLI Design
@@ -526,6 +534,8 @@ Safety rule:
 
 Only files recorded in the registry may be removed.
 
+If a recorded file has been modified since materialization, Skul must prompt before deleting it.
+
 ---
 
 # 12. Worktree Behavior
@@ -571,11 +581,15 @@ This ensures bundle configuration propagates across worktrees.
 
 Applying a new bundle removes the previous one.
 
+If a previously managed file was modified after materialization, replacement must require confirmation before removing it.
+
 ---
 
 ### Delete
 
 Deletion must rely on registry entries.
+
+Modified managed files must require confirmation before deletion.
 
 ---
 

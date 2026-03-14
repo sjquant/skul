@@ -13,6 +13,7 @@ export interface RepoState {
 
 export interface MaterializedState extends DesiredState {
   files: string[];
+  directories?: string[];
   exclude_configured: boolean;
 }
 
@@ -105,10 +106,17 @@ function parseMaterializedState(input: unknown, label: string): MaterializedStat
   const files = expectArray(materializedState.files, `${label}.files`).map((value, index) =>
     expectRelativePath(value, `${label}.files[${index}]`),
   );
+  const directories =
+    materializedState.directories === undefined
+      ? undefined
+      : expectArray(materializedState.directories, `${label}.directories`).map((value, index) =>
+          expectRelativePath(value, `${label}.directories[${index}]`),
+        );
 
   return {
     ...desiredState,
     files,
+    ...(directories === undefined ? {} : { directories }),
     exclude_configured: expectBoolean(
       materializedState.exclude_configured,
       `${label}.exclude_configured`,

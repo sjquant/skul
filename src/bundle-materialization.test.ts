@@ -64,6 +64,35 @@ describe("materializeBundle", () => {
     ).toBe("context\n");
   });
 
+  it("tracks created nested directories for deterministic cleanup", () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+
+    writeFile(path.join(repoRoot, ".claude", "skills", ".keep"), "");
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, "skills", "react", "assets", "context.md"), "context\n");
+
+    // When
+    const result = materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        name: "react-expert",
+        tool: "claude-code",
+        targets: {
+          skills: { path: "skills" },
+        },
+      },
+    });
+
+    // Then
+    expect(result.directories).toEqual([
+      ".claude/skills/react/assets",
+      ".claude/skills/react",
+    ]);
+  });
+
   it.each(commandCases)("materializes commands for %s into %s", (tool, destinationRoot) => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
