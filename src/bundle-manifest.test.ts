@@ -6,16 +6,21 @@ import { parseBundleManifest, resolveCachedBundleLayout } from "./bundle-manifes
 
 describe("parseBundleManifest", () => {
   it("accepts a claude bundle manifest with relative content directories", () => {
-    expect(
-      parseBundleManifest({
-        name: "react-expert",
-        tool: "claude-code",
-        targets: {
-          skills: { path: "skills" },
-          commands: { path: "commands" },
-        },
-      }),
-    ).toEqual({
+    // Given
+    const manifest = {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: {
+        skills: { path: "skills" },
+        commands: { path: "commands" },
+      },
+    };
+
+    // When
+    const parsed = parseBundleManifest(manifest);
+
+    // Then
+    expect(parsed).toEqual({
       name: "react-expert",
       tool: "claude-code",
       targets: {
@@ -26,15 +31,20 @@ describe("parseBundleManifest", () => {
   });
 
   it("accepts a codex bundle manifest with skills only", () => {
-    expect(
-      parseBundleManifest({
-        name: "repo-standards",
-        tool: "codex",
-        targets: {
-          skills: { path: "skills" },
-        },
-      }),
-    ).toEqual({
+    // Given
+    const manifest = {
+      name: "repo-standards",
+      tool: "codex",
+      targets: {
+        skills: { path: "skills" },
+      },
+    };
+
+    // When
+    const parsed = parseBundleManifest(manifest);
+
+    // Then
+    expect(parsed).toEqual({
       name: "repo-standards",
       tool: "codex",
       targets: {
@@ -89,18 +99,27 @@ describe("parseBundleManifest", () => {
       /targets\.skills\.path must be a relative path/i,
     ],
   ])("rejects %s", (_label, input, expectedMessage) => {
-    expect(() => parseBundleManifest(input)).toThrowError(expectedMessage);
+    // Given
+    const parse = () => parseBundleManifest(input);
+
+    // When / Then
+    expect(parse).toThrowError(expectedMessage);
   });
 });
 
 describe("resolveCachedBundleLayout", () => {
   it("derives a deterministic cache layout beneath the library directory", () => {
-    const layout = resolveCachedBundleLayout({
+    // Given
+    const options = {
       libraryDir: "/Users/dev/.skul/library",
       source: "github.com/user/ai-vault",
       bundle: "react-expert",
-    });
+    };
 
+    // When
+    const layout = resolveCachedBundleLayout(options);
+
+    // Then
     expect(layout).toMatchObject({
       sourceSegments: ["github.com", "user", "ai-vault"],
       sourceDir: path.join("/Users/dev/.skul/library", "github.com", "user", "ai-vault"),
@@ -148,6 +167,10 @@ describe("resolveCachedBundleLayout", () => {
       /bundle must be a single path segment/i,
     ],
   ])("rejects %s", (_label, input, expectedMessage) => {
-    expect(() => resolveCachedBundleLayout(input)).toThrowError(expectedMessage);
+    // Given
+    const resolve = () => resolveCachedBundleLayout(input);
+
+    // When / Then
+    expect(resolve).toThrowError(expectedMessage);
   });
 });
