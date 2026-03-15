@@ -12,8 +12,8 @@
 - [DONE] Implement deterministic ownership tracking so cleanup and replacement rely only on registry records.
 - [DONE] Implement bundle replacement flow that removes the previous bundle before applying the new one for the same tool.
 - [DONE] Implement conflict handling for existing filenames with user choices for rename, prefix, or skip.
-- [TODO] Implement `skul status` output for repository desired state, current worktree materialization, and exclude status.
-- [TODO] Implement `skul clean` to remove only registry-owned files, remove Skul exclude blocks, and clear worktree state safely.
+- [DONE] Implement `skul status` output for repository desired state, current worktree materialization, and exclude status.
+- [DONE] Implement `skul clean` to remove only registry-owned files, remove Skul exclude blocks, and clear worktree state safely.
 - [TODO] Track managed file fingerprints and prompt before deleting or replacing user-modified managed files.
 - [TODO] Implement error handling for missing Git repositories, missing bundles, file conflicts, and registry corruption.
 - [TODO] Add tests covering registry behavior, worktree propagation, stealth handling, conflict handling, and safe cleanup.

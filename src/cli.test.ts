@@ -6,8 +6,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseCliArgs, type PromptClient } from "./cli";
+import { detectGitContext } from "./git-context";
 import { run } from "./index";
-import { readRegistryFile } from "./registry";
+import { createEmptyRegistry, readRegistryFile, upsertRepoState, writeRegistryFile } from "./registry";
 
 const tempDirs: string[] = [];
 
@@ -229,6 +230,116 @@ describe("run", () => {
     expect(
       fs.readFileSync(path.join(repoRoot, ".claude", "skills", "team-react", "SKILL.md"), "utf8"),
     ).toBe("# react\n");
+  });
+
+  it("renders repository desired state, worktree files, and exclude status", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When / Then
+    await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      [
+        "Repository Desired State",
+        "Tool: claude-code",
+        "Bundle: react-expert",
+        "",
+        "Current Worktree",
+        `Path: ${fs.realpathSync.native(repoRoot)}`,
+        "Materialized: yes",
+        "",
+        "Files:",
+        "  .claude/commands/review.md",
+        "  .claude/skills/react/SKILL.md",
+        "",
+        "Git Exclude:",
+        "  configured",
+      ].join("\n"),
+    );
+  });
+
+  it("reports repository intent when the current worktree has not materialized yet", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: fs.realpathSync.native(repoRoot),
+      desired_state: {
+        tool: "claude-code",
+        bundle: "react-expert",
+      },
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // When / Then
+    await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      [
+        "Repository Desired State",
+        "Tool: claude-code",
+        "Bundle: react-expert",
+        "",
+        "Current Worktree",
+        `Path: ${fs.realpathSync.native(repoRoot)}`,
+        "Materialized: no",
+        'Suggested Action: run "skul use"',
+      ].join("\n"),
+    );
+  });
+
+  it("cleans only registry-owned files from the current worktree", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, "notes.txt"), "keep me\n");
+
+    // When
+    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Cleaned Skul-managed files from the current worktree",
+    );
+
+    // Then
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
+    expect(fs.readFileSync(path.join(repoRoot, "notes.txt"), "utf8")).toBe("keep me\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
+      "# >>> SKUL START",
+    );
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    expect(registry.worktrees).toEqual({});
+    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual({
+      tool: "claude-code",
+      bundle: "react-expert",
+    });
+  });
+
+  it("reports when there is nothing to clean in the current worktree", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    // When / Then
+    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "No Skul-managed files found in the current worktree",
+    );
   });
 });
 

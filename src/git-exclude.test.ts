@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { configureSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
+import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
 
 const tempDirs: string[] = [];
 
@@ -102,6 +102,24 @@ describe("removeSkulExcludeBlock", () => {
     // Then
     expect(removed).toBe(true);
     expect(readExcludeFile(gitDir)).toBe(["node_modules", "", ".env.local", ""].join("\n"));
+  });
+});
+
+describe("hasSkulExcludeBlock", () => {
+  it("reports whether the current exclude file contains a Skul block", () => {
+    // Given
+    const gitDir = createGitDir();
+    writeExcludeFile(gitDir, "node_modules\n");
+
+    // When / Then
+    expect(hasSkulExcludeBlock({ gitDir })).toBe(false);
+    configureSkulExcludeBlock({
+      gitDir,
+      files: [".claude/skills/react/SKILL.md"],
+    });
+    expect(hasSkulExcludeBlock({ gitDir })).toBe(true);
+    removeSkulExcludeBlock({ gitDir });
+    expect(hasSkulExcludeBlock({ gitDir })).toBe(false);
   });
 });
 

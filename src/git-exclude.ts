@@ -30,6 +30,16 @@ export function removeSkulExcludeBlock(options: { gitDir: string }): boolean {
   return writeExcludeFile(excludeFile, nextContent);
 }
 
+export function hasSkulExcludeBlock(options: { gitDir: string }): boolean {
+  const excludeFile = resolveExcludeFile(options.gitDir);
+
+  if (!fs.existsSync(excludeFile)) {
+    return false;
+  }
+
+  return new RegExp(SKUL_BLOCK_PATTERN.source).test(readExcludeFile(excludeFile));
+}
+
 function resolveExcludeFile(gitDir: string): string {
   return path.join(gitDir, "info", "exclude");
 }

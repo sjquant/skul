@@ -1,7 +1,10 @@
-import path from "node:path";
-
 import { isCancel, select, text } from "@clack/prompts";
 import { Command, CommanderError } from "commander";
+import {
+  DEFAULT_CONFLICT_PREFIX,
+  normalizeConflictDestination,
+  normalizeConflictPrefix,
+} from "./conflict-resolution";
 
 export type CommandName = "use" | "list" | "status" | "clean";
 
@@ -101,8 +104,8 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
       if (action === "prefix") {
         const prefix = await text({
           message: "Enter a prefix for the incoming file name",
-          defaultValue: "p",
-          placeholder: "p",
+          defaultValue: DEFAULT_CONFLICT_PREFIX,
+          placeholder: DEFAULT_CONFLICT_PREFIX,
           validate(value) {
             if (typeof value !== "string" || value.trim() === "") {
               return "A prefix is required";
@@ -136,7 +139,7 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
 export function createHelpText(): string {
   return createProgram({
     selectBundle: async () => "",
-    resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
+    resolveFileConflict: async () => ({ action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX }),
   }).helpInformation();
 }
 
@@ -239,37 +242,4 @@ function normalizeParseError(error: unknown, command: string): Error {
   }
 
   return new Error(error.message.replace(/^error: /, ""));
-}
-
-function normalizeConflictDestination(input: string): string | null {
-  const normalizedValue = input.trim().split(path.sep).join("/");
-
-  if (
-    !normalizedValue ||
-    path.isAbsolute(normalizedValue) ||
-    normalizedValue === "." ||
-    normalizedValue === ".." ||
-    normalizedValue.startsWith("../") ||
-    normalizedValue.includes("/../")
-  ) {
-    return null;
-  }
-
-  return normalizedValue;
-}
-
-function normalizeConflictPrefix(input: string): string | null {
-  const normalizedValue = input.trim();
-
-  if (
-    !normalizedValue ||
-    normalizedValue.includes("/") ||
-    normalizedValue.includes(path.sep) ||
-    normalizedValue === "." ||
-    normalizedValue === ".."
-  ) {
-    return null;
-  }
-
-  return normalizedValue;
 }

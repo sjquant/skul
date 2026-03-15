@@ -3,6 +3,11 @@ import path from "node:path";
 
 import { type BundleManifest } from "./bundle-manifest";
 import { type FileConflictResolution } from "./cli";
+import {
+  DEFAULT_CONFLICT_PREFIX,
+  normalizeConflictDestination,
+  suggestPrefixedDestination,
+} from "./conflict-resolution";
 import { resolveToolTargetPath, type ToolTargetName } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
@@ -139,8 +144,7 @@ async function resolveDestinationPath(options: {
       throw new Error(`Conflict detected: ${relativePath}`);
     }
 
-    const suggestedPrefix = "p";
-    const suggestedDestination = suggestPrefixedDestination(relativePath, suggestedPrefix);
+    const suggestedDestination = suggestPrefixedDestination(relativePath, DEFAULT_CONFLICT_PREFIX);
     const resolution = await options.resolveFileConflict(relativePath, suggestedDestination);
 
     if (resolution.action === "skip") {
@@ -187,38 +191,6 @@ function ensureOwnedParentDirectories(
 
 function pathDepth(value: string): number {
   return value.split(path.sep).length;
-}
-
-function suggestPrefixedDestination(relativePath: string, prefix: string): string {
-  const segments = relativePath.split("/");
-  const [firstSegment, ...rest] = segments;
-
-  if (!firstSegment) {
-    return relativePath;
-  }
-
-  const extension = path.posix.extname(firstSegment);
-  const basename = extension ? firstSegment.slice(0, -extension.length) : firstSegment;
-  const prefixedSegment = `${basename ? `${prefix}-${basename}` : prefix}${extension}`;
-
-  return [prefixedSegment, ...rest].join("/");
-}
-
-function normalizeConflictDestination(destination: string): string | null {
-  const normalized = destination.trim().split(path.sep).join("/");
-
-  if (
-    !normalized ||
-    path.isAbsolute(normalized) ||
-    normalized === "." ||
-    normalized === ".." ||
-    normalized.startsWith("../") ||
-    normalized.includes("/../")
-  ) {
-    return null;
-  }
-
-  return normalized;
 }
 
 function assertBundleTargetDirectory(sourceDir: string, targetPath: string): void {

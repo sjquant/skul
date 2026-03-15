@@ -6,10 +6,11 @@ import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import { materializeBundle } from "./bundle-materialization";
 import { createHelpText, createPromptClient, type PromptClient, parseCliArgs } from "./cli";
 import { detectGitContext } from "./git-context";
-import { configureSkulExcludeBlock } from "./git-exclude";
+import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
 import {
   listManagedPathsForRemoval,
   readRegistryFile,
+  removeWorktreeState,
   upsertRepoState,
   upsertWorktreeState,
   writeRegistryFile,
@@ -47,6 +48,20 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     return renderBundleList({ libraryDir: stateLayout.libraryDir });
   }
 
+  if (parsed.command === "status") {
+    return renderStatus({
+      cwd,
+      registryFile: stateLayout.registryFile,
+    });
+  }
+
+  if (parsed.command === "clean") {
+    return cleanWorktree({
+      cwd,
+      registryFile: stateLayout.registryFile,
+    });
+  }
+
   return `Command ${parsed.command} is defined but not implemented yet.`;
 }
 
@@ -60,6 +75,48 @@ function renderBundleList(options: { libraryDir: string }): string {
   return ["Available Bundles", "", ...bundles.map((bundle) => bundle.bundle)].join("\n");
 }
 
+function renderStatus(options: {
+  cwd: string;
+  registryFile: string;
+}): string {
+  const gitContext = requireGitContext(options.cwd, "status");
+
+  const registry = readRegistryFile(options.registryFile);
+  const repoState = registry.repos[gitContext.repoFingerprint];
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const lines: string[] = ["Repository Desired State"];
+
+  if (repoState) {
+    lines.push(`Tool: ${repoState.desired_state.tool}`);
+    lines.push(`Bundle: ${repoState.desired_state.bundle}`);
+  } else {
+    lines.push("Configured: no");
+  }
+
+  lines.push("", "Current Worktree", `Path: ${gitContext.worktreeRoot}`);
+
+  if (!worktreeState) {
+    lines.push("Materialized: no");
+
+    if (repoState) {
+      lines.push('Suggested Action: run "skul use"');
+    }
+
+    return lines.join("\n");
+  }
+
+  lines.push("Materialized: yes", "", "Files:");
+
+  for (const file of worktreeState.materialized_state.files) {
+    lines.push(`  ${file}`);
+  }
+
+  lines.push("", "Git Exclude:");
+  lines.push(`  ${hasSkulExcludeBlock({ gitDir: gitContext.gitDir }) ? "configured" : "missing"}`);
+
+  return lines.join("\n");
+}
+
 async function applyBundle(options: {
   cwd: string;
   prompts: PromptClient;
@@ -68,11 +125,7 @@ async function applyBundle(options: {
   bundle: string;
   source?: string;
 }): Promise<string> {
-  const gitContext = detectGitContext({ cwd: options.cwd });
-
-  if (!gitContext) {
-    throw new Error("skul use requires a Git repository");
-  }
+  const gitContext = requireGitContext(options.cwd, "use");
 
   const cachedBundle = findCachedBundle({
     libraryDir: options.libraryDir,
@@ -128,6 +181,30 @@ async function applyBundle(options: {
   return `Applied ${cachedBundle.bundle} for ${cachedBundle.manifest.tool}`;
 }
 
+function cleanWorktree(options: {
+  cwd: string;
+  registryFile: string;
+}): string {
+  const gitContext = requireGitContext(options.cwd, "clean");
+
+  let registry = readRegistryFile(options.registryFile);
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+
+  if (worktreeState) {
+    removeManagedPaths(gitContext.worktreeRoot, worktreeState.materialized_state);
+    registry = removeWorktreeState(registry, gitContext.worktreeId);
+    writeRegistryFile(options.registryFile, registry);
+  }
+
+  const excludeRemoved = removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+
+  if (!worktreeState && !excludeRemoved) {
+    return "No Skul-managed files found in the current worktree";
+  }
+
+  return "Cleaned Skul-managed files from the current worktree";
+}
+
 function removeManagedPaths(repoRoot: string, materializedState: Parameters<typeof listManagedPathsForRemoval>[0]): void {
   for (const relativePath of listManagedPathsForRemoval(materializedState)) {
     const targetPath = path.join(repoRoot, relativePath);
@@ -155,6 +232,16 @@ function removeManagedPaths(repoRoot: string, materializedState: Parameters<type
 
 function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
+}
+
+function requireGitContext(cwd: string, command: "use" | "status" | "clean") {
+  const gitContext = detectGitContext({ cwd });
+
+  if (!gitContext) {
+    throw new Error(`skul ${command} requires a Git repository`);
+  }
+
+  return gitContext;
 }
 
 if (require.main === module) {
