@@ -10,7 +10,7 @@
 - [DONE] Implement bundle materialization into tool-native directories without requiring tools to read from `.skul/`.
 - [DONE] Implement stealth mode using `.git/info/exclude` blocks without modifying `.gitignore` or repository configuration.
 - [DONE] Implement deterministic ownership tracking so cleanup and replacement rely only on registry records.
-- [TODO] Implement bundle replacement flow that removes the previous bundle before applying the new one for the same tool.
+- [DONE] Implement bundle replacement flow that removes the previous bundle before applying the new one for the same tool.
 - [TODO] Implement conflict handling for existing filenames with user choices for rename, prefix, or skip.
 - [TODO] Implement `skul status` output for repository desired state, current worktree materialization, and exclude status.
 - [TODO] Implement `skul clean` to remove only registry-owned files, remove Skul exclude blocks, and clear worktree state safely.

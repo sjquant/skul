@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseCliArgs } from "./cli";
 import { run } from "./index";
+import { readRegistryFile } from "./registry";
 
 const tempDirs: string[] = [];
 
@@ -120,6 +122,80 @@ describe("run", () => {
     // When / Then
     await expect(run(["list"], { homeDir })).resolves.toBe(renderBundleListOutput("No cached bundles found."));
   });
+
+  it("applies a cached bundle into the current repository and records ownership", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+
+    // When
+    await expect(run(["use", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "# react\n",
+    );
+    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).toContain(
+      ".claude/skills/react/SKILL.md",
+    );
+    expect(readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees).toHaveProperty(
+      Object.keys(readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees)[0],
+    );
+  });
+
+  it("replaces the previous bundle for the same tool before applying the new one", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
+      name: "next-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/next/SKILL.md", "# next\n");
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["use", "next-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied next-expert for claude-code",
+    );
+
+    // Then
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"), "utf8")).toBe(
+      "# next\n",
+    );
+    const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
+    expect(excludeFile).toContain(
+      ["# >>> SKUL START", ".claude/skills/next/SKILL.md", "# <<< SKUL END"].join("\n"),
+    );
+    expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
+    expect(excludeFile).not.toContain(".claude/commands/review.md");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state).toMatchObject({
+      tool: "claude-code",
+      bundle: "next-expert",
+      files: [".claude/skills/next/SKILL.md"],
+    });
+  });
 });
 
 function createHomeDir(): string {
@@ -132,6 +208,42 @@ function writeManifest(homeDir: string, source: string, bundle: string, manifest
   const bundleDir = path.join(homeDir, ".skul", "library", ...source.split("/"), bundle);
   fs.mkdirSync(bundleDir, { recursive: true });
   fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+}
+
+function writeBundleFile(
+  homeDir: string,
+  source: string,
+  bundle: string,
+  relativePath: string,
+  content: string,
+): void {
+  const filePath = path.join(homeDir, ".skul", "library", ...source.split("/"), bundle, ...relativePath.split("/"));
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content);
+}
+
+function createRepository(): string {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skul-repo-"));
+  tempDirs.push(repoRoot);
+  runGit(repoRoot, ["init", "--initial-branch=main"]);
+  runGit(repoRoot, ["config", "user.name", "Skul Test"]);
+  runGit(repoRoot, ["config", "user.email", "skul@example.com"]);
+  fs.writeFileSync(path.join(repoRoot, "README.md"), "# test\n");
+  runGit(repoRoot, ["add", "README.md"]);
+  runGit(repoRoot, ["commit", "-m", "init"]);
+  return repoRoot;
+}
+
+function runGit(cwd: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function pathExists(targetPath: string): boolean {
+  return fs.existsSync(targetPath);
 }
 
 function renderBundleListOutput(...lines: string[]): string {
