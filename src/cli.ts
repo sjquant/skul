@@ -1,4 +1,6 @@
-import { isCancel, select } from "@clack/prompts";
+import path from "node:path";
+
+import { isCancel, select, text } from "@clack/prompts";
 import { Command, CommanderError } from "commander";
 
 export type CommandName = "use" | "list" | "status" | "clean";
@@ -12,8 +14,14 @@ export type CliParseResult =
       options: { mode: "stealth"; bundle: string; source?: string };
     };
 
+export type FileConflictResolution =
+  | { action: "rename"; destination: string }
+  | { action: "prefix"; prefix: string }
+  | { action: "skip" };
+
 export interface PromptClient {
   selectBundle(source?: string): Promise<string>;
+  resolveFileConflict(conflictPath: string, suggestedDestination: string): Promise<FileConflictResolution>;
 }
 
 const COMMANDS: CommandName[] = ["use", "list", "status", "clean"];
@@ -43,11 +51,93 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
 
       return choice;
     },
+    async resolveFileConflict(
+      conflictPath: string,
+      suggestedDestination: string,
+    ): Promise<FileConflictResolution> {
+      const action = await select({
+        message: `Conflict detected: ${conflictPath} already exists`,
+        options: [
+          { value: "rename", label: "Rename incoming file" },
+          { value: "prefix", label: `Apply prefix (${suggestedDestination})` },
+          { value: "skip", label: "Skip file" },
+        ],
+      });
+
+      if (isCancel(action)) {
+        throw new Error("Conflict resolution was cancelled");
+      }
+
+      if (action === "rename") {
+        const destination = await text({
+          message: "Enter a new destination relative to the tool target",
+          defaultValue: suggestedDestination,
+          placeholder: suggestedDestination,
+          validate(value) {
+            if (typeof value !== "string" || value.trim() === "") {
+              return "A destination is required";
+            }
+
+            const normalizedValue = normalizeConflictDestination(value);
+
+            if (!normalizedValue) {
+              return "Destination must stay inside the tool target";
+            }
+
+            return undefined;
+          },
+        });
+
+        if (isCancel(destination)) {
+          throw new Error("Conflict resolution was cancelled");
+        }
+
+        return {
+          action: "rename",
+          destination: normalizeConflictDestination(destination)!,
+        };
+      }
+
+      if (action === "prefix") {
+        const prefix = await text({
+          message: "Enter a prefix for the incoming file name",
+          defaultValue: "p",
+          placeholder: "p",
+          validate(value) {
+            if (typeof value !== "string" || value.trim() === "") {
+              return "A prefix is required";
+            }
+
+            const normalizedValue = normalizeConflictPrefix(value);
+
+            if (!normalizedValue) {
+              return "Prefix must be a single filename-safe segment";
+            }
+
+            return undefined;
+          },
+        });
+
+        if (isCancel(prefix)) {
+          throw new Error("Conflict resolution was cancelled");
+        }
+
+        return {
+          action: "prefix",
+          prefix: normalizeConflictPrefix(prefix)!,
+        };
+      }
+
+      return { action };
+    },
   };
 }
 
 export function createHelpText(): string {
-  return createProgram({ selectBundle: async () => "" }).helpInformation();
+  return createProgram({
+    selectBundle: async () => "",
+    resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
+  }).helpInformation();
 }
 
 export async function parseCliArgs(
@@ -149,4 +239,37 @@ function normalizeParseError(error: unknown, command: string): Error {
   }
 
   return new Error(error.message.replace(/^error: /, ""));
+}
+
+function normalizeConflictDestination(input: string): string | null {
+  const normalizedValue = input.trim().split(path.sep).join("/");
+
+  if (
+    !normalizedValue ||
+    path.isAbsolute(normalizedValue) ||
+    normalizedValue === "." ||
+    normalizedValue === ".." ||
+    normalizedValue.startsWith("../") ||
+    normalizedValue.includes("/../")
+  ) {
+    return null;
+  }
+
+  return normalizedValue;
+}
+
+function normalizeConflictPrefix(input: string): string | null {
+  const normalizedValue = input.trim();
+
+  if (
+    !normalizedValue ||
+    normalizedValue.includes("/") ||
+    normalizedValue.includes(path.sep) ||
+    normalizedValue === "." ||
+    normalizedValue === ".."
+  ) {
+    return null;
+  }
+
+  return normalizedValue;
 }

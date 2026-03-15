@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { parseCliArgs } from "./cli";
+import { parseCliArgs, type PromptClient } from "./cli";
 import { run } from "./index";
 import { readRegistryFile } from "./registry";
 
@@ -41,11 +41,12 @@ describe("parseCliArgs", () => {
   it("parses use in interactive, cached, and explicit source modes", async () => {
     // Given
     const selectBundle = vi.fn().mockResolvedValue("react-expert");
+    const prompts = createPromptClientStub({ selectBundle });
 
     // When / Then
-    await expect(parseCliArgs([], { selectBundle })).resolves.toEqual({ kind: "help" });
+    await expect(parseCliArgs([], prompts)).resolves.toEqual({ kind: "help" });
 
-    await expect(parseCliArgs(["use"], { selectBundle })).resolves.toEqual({
+    await expect(parseCliArgs(["use"], prompts)).resolves.toEqual({
       kind: "command",
       command: "use",
       options: { mode: "stealth", bundle: "react-expert" },
@@ -196,6 +197,39 @@ describe("run", () => {
       files: [".claude/skills/next/SKILL.md"],
     });
   });
+
+  it("applies the chosen conflict strategy when a destination file already exists", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
+
+    // When
+    await expect(
+      run(["use", "react-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          resolveFileConflict: async () => ({ action: "prefix", prefix: "team" }),
+        }),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "user file\n",
+    );
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "team-react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+  });
 });
 
 function createHomeDir(): string {
@@ -244,6 +278,14 @@ function runGit(cwd: string, args: string[]): string {
 
 function pathExists(targetPath: string): boolean {
   return fs.existsSync(targetPath);
+}
+
+function createPromptClientStub(overrides: Partial<PromptClient> = {}): PromptClient {
+  return {
+    selectBundle: async () => "react-expert",
+    resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
+    ...overrides,
+  };
 }
 
 function renderBundleListOutput(...lines: string[]): string {

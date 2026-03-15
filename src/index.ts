@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import { materializeBundle } from "./bundle-materialization";
-import { createHelpText, parseCliArgs } from "./cli";
+import { createHelpText, createPromptClient, type PromptClient, parseCliArgs } from "./cli";
 import { detectGitContext } from "./git-context";
 import { configureSkulExcludeBlock } from "./git-exclude";
 import {
@@ -19,10 +19,12 @@ import { resolveGlobalStateLayout } from "./state-layout";
 export interface RunOptions {
   homeDir?: string;
   cwd?: string;
+  prompts?: PromptClient;
 }
 
 export async function run(argv: string[], options: RunOptions = {}): Promise<string> {
-  const parsed = await parseCliArgs(argv);
+  const prompts = options.prompts ?? createPromptClient();
+  const parsed = await parseCliArgs(argv, prompts);
   const stateLayout = resolveGlobalStateLayout({ homeDir: options.homeDir ?? os.homedir() });
   const cwd = options.cwd ?? process.cwd();
 
@@ -33,6 +35,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
   if (parsed.command === "use") {
     return applyBundle({
       cwd,
+      prompts,
       registryFile: stateLayout.registryFile,
       libraryDir: stateLayout.libraryDir,
       bundle: parsed.options.bundle,
@@ -57,13 +60,14 @@ function renderBundleList(options: { libraryDir: string }): string {
   return ["Available Bundles", "", ...bundles.map((bundle) => bundle.bundle)].join("\n");
 }
 
-function applyBundle(options: {
+async function applyBundle(options: {
   cwd: string;
+  prompts: PromptClient;
   registryFile: string;
   libraryDir: string;
   bundle: string;
   source?: string;
-}): string {
+}): Promise<string> {
   const gitContext = detectGitContext({ cwd: options.cwd });
 
   if (!gitContext) {
@@ -96,10 +100,11 @@ function applyBundle(options: {
     removeManagedPaths(gitContext.worktreeRoot, existingState);
   }
 
-  const materializedState = materializeBundle({
+  const materializedState = await materializeBundle({
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
+    resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
   configureSkulExcludeBlock({

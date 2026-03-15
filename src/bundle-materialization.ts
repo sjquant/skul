@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { type BundleManifest } from "./bundle-manifest";
+import { type FileConflictResolution } from "./cli";
 import { resolveToolTargetPath, type ToolTargetName } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
@@ -9,13 +10,15 @@ export interface MaterializeBundleResult {
   directories: string[];
 }
 
-export function materializeBundle(options: {
+export async function materializeBundle(options: {
   repoRoot: string;
   bundleDir: string;
   manifest: BundleManifest;
-}): MaterializeBundleResult {
+  resolveFileConflict?: (conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>;
+}): Promise<MaterializeBundleResult> {
   const writtenFiles: string[] = [];
   const ownedDirectories = new Set<string>();
+  const reservedDestinations = new Set<string>();
 
   for (const [targetName, target] of Object.entries(options.manifest.targets)) {
     const sourceDir = path.join(options.bundleDir, target.path);
@@ -32,7 +35,16 @@ export function materializeBundle(options: {
     assertBundleTargetDirectory(sourceDir, target.path);
     fs.mkdirSync(destinationDir, { recursive: true });
 
-    copyDirectory(sourceDir, destinationDir, destinationDir, writtenFiles, ownedDirectories, options.repoRoot);
+    await copyDirectory(
+      sourceDir,
+      destinationDir,
+      destinationDir,
+      writtenFiles,
+      ownedDirectories,
+      reservedDestinations,
+      options.repoRoot,
+      options.resolveFileConflict,
+    );
   }
 
   writtenFiles.sort((left, right) => {
@@ -49,40 +61,102 @@ export function materializeBundle(options: {
   return { files: writtenFiles, directories };
 }
 
-function copyDirectory(
+async function copyDirectory(
   sourceDir: string,
   destinationDir: string,
   targetRoot: string,
   writtenFiles: string[],
   ownedDirectories: Set<string>,
+  reservedDestinations: Set<string>,
   repoRoot: string,
-): void {
+  resolveFileConflict:
+    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
+    | undefined,
+): Promise<void> {
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
 
     if (entry.isDirectory()) {
-      copyDirectory(
+      await copyDirectory(
         sourcePath,
         destinationPath,
         targetRoot,
         writtenFiles,
         ownedDirectories,
+        reservedDestinations,
         repoRoot,
+        resolveFileConflict,
       );
       continue;
     }
 
     if (entry.isFile()) {
+      const finalDestinationPath = await resolveDestinationPath({
+        destinationPath,
+        targetRoot,
+        reservedDestinations,
+        resolveFileConflict,
+      });
+
+      if (!finalDestinationPath) {
+        continue;
+      }
+
       ensureOwnedParentDirectories(
-        path.dirname(destinationPath),
+        path.dirname(finalDestinationPath),
         targetRoot,
         ownedDirectories,
         repoRoot,
       );
-      fs.copyFileSync(sourcePath, destinationPath);
-      writtenFiles.push(path.relative(repoRoot, destinationPath));
+      fs.copyFileSync(sourcePath, finalDestinationPath);
+      reservedDestinations.add(path.relative(targetRoot, finalDestinationPath).split(path.sep).join("/"));
+      writtenFiles.push(path.relative(repoRoot, finalDestinationPath));
     }
+  }
+}
+
+async function resolveDestinationPath(options: {
+  destinationPath: string;
+  targetRoot: string;
+  reservedDestinations: Set<string>;
+  resolveFileConflict:
+    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
+    | undefined;
+}): Promise<string | null> {
+  let destinationPath = options.destinationPath;
+
+  while (true) {
+    const relativePath = path.relative(options.targetRoot, destinationPath).split(path.sep).join("/");
+    const hasReservedConflict = options.reservedDestinations.has(relativePath);
+    const hasFilesystemConflict = fs.existsSync(destinationPath);
+
+    if (!hasReservedConflict && !hasFilesystemConflict) {
+      return destinationPath;
+    }
+
+    if (!options.resolveFileConflict) {
+      throw new Error(`Conflict detected: ${relativePath}`);
+    }
+
+    const suggestedPrefix = "p";
+    const suggestedDestination = suggestPrefixedDestination(relativePath, suggestedPrefix);
+    const resolution = await options.resolveFileConflict(relativePath, suggestedDestination);
+
+    if (resolution.action === "skip") {
+      return null;
+    }
+
+    const nextRelativePath =
+      resolution.action === "prefix"
+        ? suggestPrefixedDestination(relativePath, resolution.prefix)
+        : normalizeConflictDestination(resolution.destination);
+
+    if (!nextRelativePath) {
+      throw new Error("Conflict destination must stay inside the tool target");
+    }
+
+    destinationPath = path.join(options.targetRoot, ...nextRelativePath.split("/"));
   }
 }
 
@@ -113,6 +187,38 @@ function ensureOwnedParentDirectories(
 
 function pathDepth(value: string): number {
   return value.split(path.sep).length;
+}
+
+function suggestPrefixedDestination(relativePath: string, prefix: string): string {
+  const segments = relativePath.split("/");
+  const [firstSegment, ...rest] = segments;
+
+  if (!firstSegment) {
+    return relativePath;
+  }
+
+  const extension = path.posix.extname(firstSegment);
+  const basename = extension ? firstSegment.slice(0, -extension.length) : firstSegment;
+  const prefixedSegment = `${basename ? `${prefix}-${basename}` : prefix}${extension}`;
+
+  return [prefixedSegment, ...rest].join("/");
+}
+
+function normalizeConflictDestination(destination: string): string | null {
+  const normalized = destination.trim().split(path.sep).join("/");
+
+  if (
+    !normalized ||
+    path.isAbsolute(normalized) ||
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../")
+  ) {
+    return null;
+  }
+
+  return normalized;
 }
 
 function assertBundleTargetDirectory(sourceDir: string, targetPath: string): void {
