@@ -14,6 +14,7 @@ export interface RepoState {
 
 export interface MaterializedState extends DesiredState {
   files: string[];
+  file_fingerprints?: Record<string, string>;
   directories?: string[];
   exclude_configured: boolean;
 }
@@ -175,6 +176,10 @@ function parseMaterializedState(input: unknown, label: string): MaterializedStat
   const files = expectArray(materializedState.files, `${label}.files`).map((value, index) =>
     expectRelativePath(value, `${label}.files[${index}]`),
   );
+  const fileFingerprints =
+    materializedState.file_fingerprints === undefined
+      ? undefined
+      : parseFileFingerprints(materializedState.file_fingerprints, files, `${label}.file_fingerprints`);
   const directories =
     materializedState.directories === undefined
       ? undefined
@@ -185,6 +190,7 @@ function parseMaterializedState(input: unknown, label: string): MaterializedStat
   return {
     ...desiredState,
     files,
+    ...(fileFingerprints === undefined ? {} : { file_fingerprints: fileFingerprints }),
     ...(directories === undefined ? {} : { directories }),
     exclude_configured: expectBoolean(
       materializedState.exclude_configured,
@@ -220,6 +226,9 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
     materialized_state: {
       ...worktreeState.materialized_state,
       files: [...worktreeState.materialized_state.files],
+      ...(worktreeState.materialized_state.file_fingerprints === undefined
+        ? {}
+        : { file_fingerprints: { ...worktreeState.materialized_state.file_fingerprints } }),
       ...(worktreeState.materialized_state.directories === undefined
         ? {}
         : { directories: [...worktreeState.materialized_state.directories] }),
@@ -286,4 +295,23 @@ function expectBoolean(input: unknown, label: string): boolean {
 
 function pathDepth(value: string): number {
   return value.split(path.sep).length;
+}
+
+function parseFileFingerprints(
+  input: unknown,
+  files: string[],
+  label: string,
+): Record<string, string> {
+  const record = expectRecord(input, label);
+  const knownFiles = new Set(files);
+
+  return Object.fromEntries(
+    Object.entries(record).map(([relativePath, fingerprint]) => {
+      if (!knownFiles.has(relativePath)) {
+        throw new Error(`${label}.${relativePath} must reference a tracked file`);
+      }
+
+      return [relativePath, expectNonEmptyString(fingerprint, `${label}.${relativePath}`)];
+    }),
+  );
 }

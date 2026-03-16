@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -58,6 +59,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
   if (parsed.command === "clean") {
     return cleanWorktree({
       cwd,
+      prompts,
       registryFile: stateLayout.registryFile,
     });
   }
@@ -141,15 +143,18 @@ async function applyBundle(options: {
     );
   }
 
-  registry = upsertRepoState(registry, gitContext.repoFingerprint, {
-    repo_root: gitContext.repoRoot,
-    desired_state: {
-      tool: cachedBundle.manifest.tool,
-      bundle: cachedBundle.bundle,
-    },
-  });
-
   if (existingState) {
+    const replacementAllowed = await confirmManagedFileRemovals(
+      gitContext.worktreeRoot,
+      existingState,
+      options.prompts,
+      "replace",
+    );
+
+    if (!replacementAllowed) {
+      throw new Error("Replacement aborted because a modified managed file was kept");
+    }
+
     removeManagedPaths(gitContext.worktreeRoot, existingState);
   }
 
@@ -158,6 +163,14 @@ async function applyBundle(options: {
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
     resolveFileConflict: options.prompts.resolveFileConflict,
+  });
+
+  registry = upsertRepoState(registry, gitContext.repoFingerprint, {
+    repo_root: gitContext.repoRoot,
+    desired_state: {
+      tool: cachedBundle.manifest.tool,
+      bundle: cachedBundle.bundle,
+    },
   });
 
   configureSkulExcludeBlock({
@@ -172,6 +185,10 @@ async function applyBundle(options: {
       tool: cachedBundle.manifest.tool,
       bundle: cachedBundle.bundle,
       files: materializedState.files,
+      file_fingerprints: captureManagedFileFingerprints(
+        gitContext.worktreeRoot,
+        materializedState.files,
+      ),
       directories: materializedState.directories,
       exclude_configured: true,
     },
@@ -181,16 +198,28 @@ async function applyBundle(options: {
   return `Applied ${cachedBundle.bundle} for ${cachedBundle.manifest.tool}`;
 }
 
-function cleanWorktree(options: {
+async function cleanWorktree(options: {
   cwd: string;
+  prompts: PromptClient;
   registryFile: string;
-}): string {
+}): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "clean");
 
   let registry = readRegistryFile(options.registryFile);
   const worktreeState = registry.worktrees[gitContext.worktreeId];
 
   if (worktreeState) {
+    const cleanAllowed = await confirmManagedFileRemovals(
+      gitContext.worktreeRoot,
+      worktreeState.materialized_state,
+      options.prompts,
+      "clean",
+    );
+
+    if (!cleanAllowed) {
+      throw new Error("Clean aborted because a modified managed file was kept");
+    }
+
     removeManagedPaths(gitContext.worktreeRoot, worktreeState.materialized_state);
     registry = removeWorktreeState(registry, gitContext.worktreeId);
     writeRegistryFile(options.registryFile, registry);
@@ -242,6 +271,57 @@ function requireGitContext(cwd: string, command: "use" | "status" | "clean") {
   }
 
   return gitContext;
+}
+
+async function confirmManagedFileRemovals(
+  repoRoot: string,
+  materializedState: Parameters<typeof listManagedPathsForRemoval>[0],
+  prompts: PromptClient,
+  operation: "clean" | "replace",
+): Promise<boolean> {
+  for (const relativePath of findModifiedManagedFiles(repoRoot, materializedState)) {
+    const confirmed = await prompts.confirmManagedFileRemoval(relativePath, operation);
+
+    if (!confirmed) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function findModifiedManagedFiles(
+  repoRoot: string,
+  materializedState: Parameters<typeof listManagedPathsForRemoval>[0],
+): string[] {
+  return materializedState.files.filter((relativePath) => {
+    const fingerprint = materializedState.file_fingerprints?.[relativePath];
+
+    if (!fingerprint) {
+      return false;
+    }
+
+    const targetPath = path.join(repoRoot, relativePath);
+
+    if (!fs.existsSync(targetPath) || !fs.lstatSync(targetPath).isFile()) {
+      return false;
+    }
+
+    return fingerprint !== fingerprintFile(targetPath);
+  });
+}
+
+function captureManagedFileFingerprints(
+  repoRoot: string,
+  files: string[],
+): Record<string, string> {
+  return Object.fromEntries(
+    files.map((relativePath) => [relativePath, fingerprintFile(path.join(repoRoot, relativePath))]),
+  );
+}
+
+function fingerprintFile(filePath: string): string {
+  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
 if (require.main === module) {

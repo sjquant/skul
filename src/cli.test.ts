@@ -331,6 +331,69 @@ describe("run", () => {
     });
   });
 
+  it("prompts before cleaning a modified managed file and aborts when the user declines", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+
+    // When / Then
+    await expect(
+      run(["clean"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => false,
+        }),
+      }),
+    ).rejects.toThrowError(/Clean aborted because a modified managed file was kept/);
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "# modified\n",
+    );
+  });
+
+  it("prompts before replacing a modified managed file and aborts when the user declines", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
+      name: "next-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/next/SKILL.md", "# next\n");
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+
+    // When / Then
+    await expect(
+      run(["use", "next-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => false,
+        }),
+      }),
+    ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"))).toBe(false);
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "# modified\n",
+    );
+  });
+
   it("reports when there is nothing to clean in the current worktree", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -395,6 +458,7 @@ function createPromptClientStub(overrides: Partial<PromptClient> = {}): PromptCl
   return {
     selectBundle: async () => "react-expert",
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
+    confirmManagedFileRemoval: async () => true,
     ...overrides,
   };
 }

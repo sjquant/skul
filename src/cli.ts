@@ -1,4 +1,4 @@
-import { isCancel, select, text } from "@clack/prompts";
+import { confirm, isCancel, select, text } from "@clack/prompts";
 import { Command, CommanderError } from "commander";
 import {
   DEFAULT_CONFLICT_PREFIX,
@@ -25,6 +25,7 @@ export type FileConflictResolution =
 export interface PromptClient {
   selectBundle(source?: string): Promise<string>;
   resolveFileConflict(conflictPath: string, suggestedDestination: string): Promise<FileConflictResolution>;
+  confirmManagedFileRemoval(conflictPath: string, operation: "clean" | "replace"): Promise<boolean>;
 }
 
 const COMMANDS: CommandName[] = ["use", "list", "status", "clean"];
@@ -133,6 +134,24 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
 
       return { action };
     },
+    async confirmManagedFileRemoval(
+      conflictPath: string,
+      operation: "clean" | "replace",
+    ): Promise<boolean> {
+      const confirmed = await confirm({
+        message:
+          operation === "replace"
+            ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
+            : `Managed file was modified and must be removed during clean: ${conflictPath}`,
+        initialValue: false,
+      });
+
+      if (isCancel(confirmed)) {
+        throw new Error("Managed file removal confirmation was cancelled");
+      }
+
+      return confirmed;
+    },
   };
 }
 
@@ -140,6 +159,7 @@ export function createHelpText(): string {
   return createProgram({
     selectBundle: async () => "",
     resolveFileConflict: async () => ({ action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX }),
+    confirmManagedFileRemoval: async () => true,
   }).helpInformation();
 }
 
