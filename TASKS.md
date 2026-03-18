@@ -15,13 +15,13 @@
 - [DONE] Implement `skul status` output for repository desired state, current worktree materialization, and exclude status.
 - [DONE] Implement `skul clean` to remove only registry-owned files, remove Skul exclude blocks, and clear worktree state safely.
 - [DONE] Track managed file fingerprints and prompt before deleting or replacing user-modified managed files.
-- [REVIEW] Implement error handling for missing Git repositories, missing bundles, file conflicts, and registry corruption.
-- [REVIEW] Add tests covering registry behavior, worktree propagation, stealth handling, conflict handling, and safe cleanup.
-- [TODO] Document current behavior, lifecycle rules, and constraints around worktrees, stealth mode, and security boundaries.
+- [DONE] Implement error handling for missing Git repositories, missing bundles, file conflicts, and registry corruption.
+- [DONE] Add tests covering registry behavior, worktree propagation, stealth handling, conflict handling, and safe cleanup.
+- [DONE] Document current behavior, lifecycle rules, and constraints around worktrees, stealth mode, and security boundaries.
 
 ## Handoff Notes
 
 - `TASKS.template.md` was not present in the repository, so this file follows the template content provided in the request.
 - Tasks are derived directly from `/Users/sjquant/dev/skul/SPEC.md` and prioritize the implementation sequence implied by the spec.
 - Registry desired state no longer stores an installation `mode`; Skul is currently stealth-only, and alternative install semantics should be reconsidered from scratch if they return later.
-- Modified managed file handling is intentionally deferred; cleanup and replacement should later compare recorded file fingerprints and require confirmation before removing files that no longer match Skul's original content.
+- Managed file fingerprints now gate cleanup and replacement, so user-modified managed files require confirmation before removal.

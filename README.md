@@ -1,20 +1,75 @@
 # Skul
 
-Skul is a TypeScript CLI for managing project-scoped AI configuration bundles (skills, commands, agents) with support for stealth materialization via `.git/info/exclude`.
+Skul is a CLI for applying project-scoped AI bundles into tool-native folders without committing those files to Git.
 
-## Current Setup Status
+It writes files where tools expect them, tracks what it owns, and hides them through `.git/info/exclude`.
 
-This branch currently contains project setup only:
+## What It Does
 
-- PNPM-managed workspace
-- TypeScript compiler configuration
-- minimal source placeholder for future implementation
+- applies cached bundles with `skul use`
+- lists cached bundles with `skul list`
+- shows repo and worktree state with `skul status`
+- removes only Skul-managed files with `skul clean`
+- carries repo intent across linked Git worktrees
+- prompts before removing managed files you changed yourself
+
+## Supported Tools
+
+- `claude-code`: `.claude/skills`, `.claude/commands`, `.claude/agents`
+- `cursor`: `.cursor/skills`, `.cursor/commands`
+- `opencode`: `.opencode/skills`, `.opencode/commands`, `.opencode/agents`
+- `codex`: `.agents/skills`
+
+## Basic Flow
+
+```bash
+skul list
+skul use react-expert
+skul status
+skul clean
+```
+
+You can also select a bundle by source:
+
+```bash
+skul use github.com/user/ai-vault react-expert
+```
+
+## How It Works
+
+Skul keeps global state under `~/.skul/`:
+
+- `library/`: cached bundles
+- `registry.json`: repo intent plus per-worktree materialization state
+
+The split matters:
+
+- a repository remembers which bundle it wants
+- each worktree remembers which files were actually written there
+
+That means a linked worktree can see the desired bundle in `skul status` without pretending the files already exist.
+
+## Safety Model
+
+- stealth mode only: Skul writes ignore rules to `.git/info/exclude`
+- no `.gitignore` edits, no Git config edits, no history changes
+- cleanup and replacement use registry-owned paths, not filename guessing
+- modified managed files require confirmation before removal
+- missing bundles show available cached bundle names when possible
+- corrupted registry files stop execution and ask for repair or removal
+
+Current limitation:
+
+- cross-tool replacement is not implemented yet
 
 ## Development
 
 ```bash
 pnpm install
 pnpm run typecheck
+pnpm run test
 pnpm run build
-pnpm run dev
+pnpm run dev -- --help
 ```
+
+In this repo, use `pnpm run dev -- ...` instead of a globally installed `skul`.
