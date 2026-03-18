@@ -83,7 +83,7 @@ function renderStatus(options: {
 }): string {
   const gitContext = requireGitContext(options.cwd, "status");
 
-  const registry = readRegistryFile(options.registryFile);
+  const registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
   const worktreeState = registry.worktrees[gitContext.worktreeId];
   const lines: string[] = ["Repository Desired State"];
@@ -129,12 +129,12 @@ async function applyBundle(options: {
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "use");
 
-  const cachedBundle = findCachedBundle({
+  const cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
     bundle: options.bundle,
     source: options.source,
   });
-  let registry = readRegistryFile(options.registryFile);
+  let registry = readRegistryWithGuidance(options.registryFile);
   const existingState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
 
   if (existingState && existingState.tool !== cachedBundle.manifest.tool) {
@@ -205,7 +205,7 @@ async function cleanWorktree(options: {
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "clean");
 
-  let registry = readRegistryFile(options.registryFile);
+  let registry = readRegistryWithGuidance(options.registryFile);
   const worktreeState = registry.worktrees[gitContext.worktreeId];
 
   if (worktreeState) {
@@ -271,6 +271,42 @@ function requireGitContext(cwd: string, command: "use" | "status" | "clean") {
   }
 
   return gitContext;
+}
+
+function readRegistryWithGuidance(registryFile: string) {
+  try {
+    return readRegistryFile(registryFile);
+  } catch {
+    throw new Error(`Registry is corrupted. Please repair or remove ${registryFile} and try again.`);
+  }
+}
+
+function findCachedBundleWithGuidance(options: {
+  libraryDir: string;
+  bundle: string;
+  source?: string;
+}) {
+  try {
+    return findCachedBundle(options);
+  } catch (error) {
+    if (error instanceof Error && /^Bundle not found: /.test(error.message)) {
+      const availableBundles = listCachedBundles({ libraryDir: options.libraryDir }).map(
+        (bundle) => bundle.bundle,
+      );
+
+      if (availableBundles.length === 0) {
+        throw error;
+      }
+
+      throw new Error(
+        `${error.message}\nAvailable bundles:\n${Array.from(new Set(availableBundles))
+          .sort((left, right) => left.localeCompare(right))
+          .join("\n")}`,
+      );
+    }
+
+    throw error;
+  }
 }
 
 async function confirmManagedFileRemovals(

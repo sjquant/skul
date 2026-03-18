@@ -232,6 +232,73 @@ describe("run", () => {
     ).toBe("# react\n");
   });
 
+  it("renames the incoming file when the conflict strategy chooses rename", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
+
+    // When
+    await expect(
+      run(["use", "react-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          resolveFileConflict: async () => ({
+            action: "rename",
+            destination: "custom-react/SKILL.md",
+          }),
+        }),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "user file\n",
+    );
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "custom-react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+  });
+
+  it("skips the incoming file when the conflict strategy chooses skip", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
+
+    // When
+    await expect(
+      run(["use", "react-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          resolveFileConflict: async () => ({ action: "skip" }),
+        }),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "user file\n",
+    );
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "p-react", "SKILL.md"))).toBe(false);
+  });
+
   it("renders repository desired state, worktree files, and exclude status", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -292,6 +359,67 @@ describe("run", () => {
         `Path: ${fs.realpathSync.native(repoRoot)}`,
         "Materialized: no",
         'Suggested Action: run "skul use"',
+      ].join("\n"),
+    );
+  });
+
+  it("shows repository intent from the main worktree inside a linked worktree", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktreeRoot = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When / Then
+    await expect(run(["status"], { homeDir, cwd: linkedWorktreeRoot })).resolves.toBe(
+      [
+        "Repository Desired State",
+        "Tool: claude-code",
+        "Bundle: react-expert",
+        "",
+        "Current Worktree",
+        `Path: ${fs.realpathSync.native(linkedWorktreeRoot)}`,
+        "Materialized: no",
+        'Suggested Action: run "skul use"',
+      ].join("\n"),
+    );
+  });
+
+  it("reports missing when the Skul exclude block was removed manually", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".git", "info", "exclude"), "node_modules\n");
+
+    // When / Then
+    await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      [
+        "Repository Desired State",
+        "Tool: claude-code",
+        "Bundle: react-expert",
+        "",
+        "Current Worktree",
+        `Path: ${fs.realpathSync.native(repoRoot)}`,
+        "Materialized: yes",
+        "",
+        "Files:",
+        "  .claude/skills/react/SKILL.md",
+        "",
+        "Git Exclude:",
+        "  missing",
       ].join("\n"),
     );
   });
@@ -404,6 +532,53 @@ describe("run", () => {
       "No Skul-managed files found in the current worktree",
     );
   });
+
+  it("surfaces a clear error when use runs outside a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
+    tempDirs.push(cwd);
+
+    // When / Then
+    await expect(run(["use", "react-expert"], { homeDir, cwd })).rejects.toThrowError(
+      /skul use requires a Git repository/i,
+    );
+  });
+
+  it("lists available bundles when the requested bundle is missing", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tool: "codex",
+      targets: { skills: { path: "skills" } },
+    });
+
+    // When / Then
+    await expect(run(["use", "missing-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Bundle not found: missing-bundle[\s\S]*Available bundles:[\s\S]*react-expert[\s\S]*repo-standards/i,
+    );
+  });
+
+  it("warns and suggests repair when the registry file is corrupted", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    fs.mkdirSync(path.dirname(registryFile), { recursive: true });
+    fs.writeFileSync(registryFile, "{broken json");
+
+    // When / Then
+    await expect(run(["status"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Registry is corrupted[\s\S]*repair or remove[\s\S]*registry\.json/i,
+    );
+  });
 });
 
 function createHomeDir(): string {
@@ -440,6 +615,14 @@ function createRepository(): string {
   runGit(repoRoot, ["add", "README.md"]);
   runGit(repoRoot, ["commit", "-m", "init"]);
   return repoRoot;
+}
+
+function createLinkedWorktree(repoRoot: string): string {
+  const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-linked-worktree-"));
+  const worktreeRoot = path.join(parentDir, "linked-worktree");
+  tempDirs.push(parentDir);
+  runGit(repoRoot, ["worktree", "add", worktreeRoot]);
+  return worktreeRoot;
 }
 
 function runGit(cwd: string, args: string[]): string {

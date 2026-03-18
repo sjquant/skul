@@ -142,6 +142,47 @@ describe("parseRegistry", () => {
     });
   });
 
+  it("accepts tracked file fingerprints for modified-file protection", () => {
+    expect(
+      parseRegistry({
+        repos: {
+          repo_abc123: {
+            repo_root: "/Users/dev/project",
+            desired_state: {
+              tool: "claude-code",
+              bundle: "react-expert",
+            },
+          },
+        },
+        worktrees: {
+          worktree_xyz789: {
+            repo_fingerprint: "repo_abc123",
+            path: "/Users/dev/project",
+            materialized_state: {
+              tool: "claude-code",
+              bundle: "react-expert",
+              files: [".claude/skills/react/SKILL.md"],
+              file_fingerprints: {
+                ".claude/skills/react/SKILL.md": "abc123",
+              },
+              exclude_configured: true,
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      worktrees: {
+        worktree_xyz789: {
+          materialized_state: {
+            file_fingerprints: {
+              ".claude/skills/react/SKILL.md": "abc123",
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("rejects malformed top-level objects", () => {
     expect(() => parseRegistry(null)).toThrowError(/registry must be an object/i);
     expect(() => parseRegistry({ repos: [], worktrees: {} })).toThrowError(
@@ -206,6 +247,36 @@ describe("parseRegistry", () => {
       },
       /worktrees\.worktree_xyz789\.materialized_state\.files\[0\] must be a relative path/i,
     ],
+    [
+      "worktree materialized state with a fingerprint for an unknown file",
+      {
+        repos: {
+          repo_abc123: {
+            repo_root: "/Users/dev/project",
+            desired_state: {
+              tool: "claude-code",
+              bundle: "react-expert",
+            },
+          },
+        },
+        worktrees: {
+          worktree_xyz789: {
+            repo_fingerprint: "repo_abc123",
+            path: "/Users/dev/project",
+            materialized_state: {
+              tool: "claude-code",
+              bundle: "react-expert",
+              files: [".claude/skills/react/SKILL.md"],
+              file_fingerprints: {
+                ".claude/skills/other/SKILL.md": "abc123",
+              },
+              exclude_configured: true,
+            },
+          },
+        },
+      },
+      /worktrees\.worktree_xyz789\.materialized_state\.file_fingerprints\..+ must reference a tracked file/i,
+    ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     expect(() => parseRegistry(input)).toThrowError(expectedMessage);
   });
@@ -264,6 +335,9 @@ describe("registry persistence", () => {
         tool: "claude-code",
         bundle: "react-expert",
         files: [".claude/skills/react/SKILL.md"],
+        file_fingerprints: {
+          ".claude/skills/react/SKILL.md": "abc123",
+        },
         directories: [".claude/skills/react"],
         exclude_configured: true,
       },
