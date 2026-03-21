@@ -11,12 +11,18 @@
 - [DONE] Implement stealth mode using `.git/info/exclude` blocks without modifying `.gitignore` or repository configuration.
 - [DONE] Implement deterministic ownership tracking so cleanup and replacement rely only on registry records.
 - [DONE] Implement bundle replacement flow that removes the previous bundle before applying the new one for the same tool.
+- [REVIEW] Implement directory-level cross-tool replacement so `skul use` can replace one tool's managed files with another tool's bundle in the same worktree.
+- [TODO] Define a tool-surface translation matrix for skills, commands, and agents across Claude Code, Cursor, and Codex, including required metadata transforms.
 - [DONE] Implement conflict handling for existing filenames with user choices for rename, prefix, or skip.
 - [DONE] Implement `skul status` output for repository desired state, current worktree materialization, and exclude status.
 - [DONE] Implement `skul clean` to remove only registry-owned files, remove Skul exclude blocks, and clear worktree state safely.
 - [DONE] Track managed file fingerprints and prompt before deleting or replacing user-modified managed files.
 - [DONE] Implement error handling for missing Git repositories, missing bundles, file conflicts, and registry corruption.
 - [DONE] Add tests covering registry behavior, worktree propagation, stealth handling, conflict handling, and safe cleanup.
+- [REVIEW] Add tests covering directory-level cross-tool replacement, including modified managed files and exclude block updates.
+- [TODO] Implement content transforms for cross-tool replacement, including front matter, `disable-model-invocation`, and `agent.toml` generation where required.
+- [TODO] Add tests covering tool-specific cross-tool transforms for skills, commands, and agents.
+- [TODO] Document the tool-specific behavior differences and source references used for cross-tool transforms.
 - [DONE] Document current behavior, lifecycle rules, and constraints around worktrees, stealth mode, and security boundaries.
 
 ## Handoff Notes
@@ -25,3 +31,5 @@
 - Tasks are derived directly from `/Users/sjquant/dev/skul/SPEC.md` and prioritize the implementation sequence implied by the spec.
 - Registry desired state no longer stores an installation `mode`; Skul is currently stealth-only, and alternative install semantics should be reconsidered from scratch if they return later.
 - Managed file fingerprints now gate cleanup and replacement, so user-modified managed files require confirmation before removal.
+- Directory-level cross-tool replacement is now supported for managed files in the current worktree, with the same modified-file confirmation gate used by same-tool replacement.
+- Tool-specific surface transforms are still pending; cross-tool replacement currently changes ownership and target directories, but it does not yet rewrite content for Claude/Cursor/Codex-specific skill, command, or agent semantics.

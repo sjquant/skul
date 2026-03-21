@@ -60,7 +60,8 @@ That means a linked worktree can see the desired bundle in `skul status` without
 
 Current limitation:
 
-- cross-tool replacement is not implemented yet
+- cross-tool replacement currently handles managed-file replacement and target directories only
+- tool-specific content transforms are still pending for cases such as front matter changes, `disable-model-invocation`, and `agent.toml` generation
 
 ## Development
 

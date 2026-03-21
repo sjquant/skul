@@ -199,6 +199,63 @@ describe("run", () => {
     });
   });
 
+  it("replaces the previous bundle when the incoming bundle targets a different tool", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tool: "codex",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["use", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied repo-standards for codex",
+    );
+
+    // Then
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
+    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"), "utf8")).toBe(
+      "# next task\n",
+    );
+    const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
+    expect(excludeFile).toContain(
+      ["# >>> SKUL START", ".agents/skills/next-task/SKILL.md", "# <<< SKUL END"].join("\n"),
+    );
+    expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
+    expect(excludeFile).not.toContain(".claude/commands/review.md");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repo = registry.repos[Object.keys(registry.repos)[0]];
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(repo.desired_state).toEqual({
+      tool: "codex",
+      bundle: "repo-standards",
+    });
+    expect(worktree.materialized_state).toMatchObject({
+      tool: "codex",
+      bundle: "repo-standards",
+      files: [".agents/skills/next-task/SKILL.md"],
+    });
+  });
+
   it("applies the chosen conflict strategy when a destination file already exists", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -517,6 +574,47 @@ describe("run", () => {
       }),
     ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
     expect(pathExists(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"))).toBe(false);
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "# modified\n",
+    );
+  });
+
+  it("aborts cross-tool replacement when a modified managed file is kept", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tool: "claude-code",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tool: "codex",
+      targets: { skills: { path: "skills" } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+
+    // When / Then
+    await expect(
+      run(["use", "repo-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => false,
+        }),
+      }),
+    ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
+    expect(pathExists(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"))).toBe(false);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "# modified\n",
     );

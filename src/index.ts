@@ -137,12 +137,6 @@ async function applyBundle(options: {
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
 
-  if (existingState && existingState.tool !== cachedBundle.manifest.tool) {
-    throw new Error(
-      `Replacing ${existingState.tool} with ${cachedBundle.manifest.tool} is not implemented yet`,
-    );
-  }
-
   if (existingState) {
     const replacementAllowed = await confirmManagedFileRemovals(
       gitContext.worktreeRoot,
