@@ -60,6 +60,7 @@ describe("getToolDefinition", () => {
         name: "codex",
         targets: {
           skills: { path: ".agents/skills" },
+          agents: { path: ".codex/agents" },
         },
       },
     ],
@@ -83,6 +84,7 @@ describe("resolveToolTargetPath", () => {
     ["opencode", "commands", path.join("/repo", ".opencode/commands")],
     ["opencode", "agents", path.join("/repo", ".opencode/agents")],
     ["codex", "skills", path.join("/repo", ".agents/skills")],
+    ["codex", "agents", path.join("/repo", ".codex/agents")],
   ];
 
   it.each(cases)("resolves %s %s beneath the repository root", (toolName, targetName, expectedPath) => {

@@ -18,7 +18,7 @@ It writes files where tools expect them, tracks what it owns, and hides them thr
 - `claude-code`: `.claude/skills`, `.claude/commands`, `.claude/agents`
 - `cursor`: `.cursor/skills`, `.cursor/commands`
 - `opencode`: `.opencode/skills`, `.opencode/commands`, `.opencode/agents`
-- `codex`: `.agents/skills`
+- `codex`: `.agents/skills`, `.codex/agents`
 
 ## Basic Flow
 
