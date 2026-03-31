@@ -29,16 +29,23 @@
 
 - [TODO] Update bundle manifest format: replace single `tool` + `targets` fields with a `tools` map where each key is a tool name and each value declares that tool's targets.
 - [TODO] Update `parseBundleManifest` in `bundle-manifest.ts` to parse and validate the new multi-tool manifest schema, including per-tool target validation.
-- [TODO] Update registry schema: replace `desired_state.tool` + `desired_state.bundle` with `desired_state.bundle` + `desired_state.tools` (array of tool names to materialize).
-- [TODO] Update registry schema: replace `materialized_state.tool` + `materialized_state.files` etc. with `materialized_state.bundle` + `materialized_state.tools` map keyed by tool name, each containing `files`, `file_fingerprints`, and `directories`.
 - [TODO] Update `skul use` to accept optional `--tool <name>` flag (repeatable) for selecting a subset of tools to materialize from the bundle.
 - [TODO] Update bundle materialization logic to iterate over selected tools and inject files into each tool's native directories independently.
-- [TODO] Update `skul use` replacement flow to remove previously materialized files per tool, including tools no longer selected in the new invocation.
-- [TODO] Update `skul clean` to accept optional `--tool <name>` flag; when specified, clean only that tool's managed files and update the registry accordingly.
-- [TODO] Update `skul status` output to show materialized state grouped by tool.
 - [TODO] Update `skul list` to show supported tools for each bundle.
-- [TODO] Add tests covering multi-tool bundle parsing, materialization across multiple tools, partial tool selection via `--tool`, and per-tool cleanup.
-- [TODO] Update documentation and spec examples to reflect the new multi-tool manifest format and registry schema.
+- [TODO] Add tests covering multi-tool bundle parsing, materialization across multiple tools, and partial tool selection via `--tool`.
+
+## Multi-Bundle Support
+
+- [TODO] Update registry schema: replace `desired_state` (single bundle object) with an ordered array of `{ bundle, source? }` entries.
+- [TODO] Update registry schema: replace `materialized_state` (single bundle + flat tool map) with `{ bundles: { [bundleName]: { source?, tools: { [toolName]: { files, file_fingerprints, directories } } } }, exclude_configured }`.
+- [TODO] Implement tool-ownership conflict check: before materializing any bundle, verify that none of its tools are already claimed by another active bundle in the desired state; abort with a descriptive error if a conflict is found.
+- [TODO] Implement `skul add` command: appends a bundle to the active set after passing the tool-ownership conflict check, then materializes it.
+- [TODO] Implement `skul remove` command: removes a named bundle from the active set, deletes its managed files (with confirmation for user-modified files), and updates the registry.
+- [TODO] Update `skul use` replacement flow to remove all previously active bundles before materializing the new one.
+- [TODO] Update `skul clean` to accept optional `--bundle <name>` flag; when specified, clean only that bundle's managed files.
+- [TODO] Update `skul status` output to show materialized state grouped by bundle, then by tool.
+- [TODO] Add tests covering multi-bundle desired state parsing, tool-ownership conflict detection, `skul add` happy path and conflict path, `skul remove`, and per-bundle cleanup.
+- [TODO] Update documentation and spec examples to reflect the new multi-bundle manifest format and registry schema.
 
 ## Handoff Notes
 
