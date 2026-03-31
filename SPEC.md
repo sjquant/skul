@@ -85,7 +85,9 @@ Skul must detect that mismatch from registry-tracked file metadata and require u
 
 ## 2.4 Context Minimalism
 
-Only one active bundle per tool per project should exist by default.
+Only one active bundle per project should exist by default.
+
+A bundle may target multiple tools simultaneously, but each tool may have at most one active bundle materialized per project.
 
 This prevents:
 
@@ -157,7 +159,7 @@ Files injected by Skul but excluded from Git tracking.
 
 ### Repository Desired State
 
-The bundle that a repository intends to use.
+The bundle that a repository intends to use, along with the set of tools to materialize.
 
 ---
 
@@ -216,7 +218,7 @@ Location:
 
 ## 5.1 Repository State
 
-Stores the desired bundle for the repository.
+Stores the desired bundle and active tools for the repository.
 
 Example:
 
@@ -224,22 +226,24 @@ Example:
 {
   "repos": {
     "repo_fingerprint_abc123": {
-    "repo_root": "/Users/dev/project",
-    "remote_url": "git@github.com:org/repo.git",
-    "desired_state": {
-      "tool": "claude-code",
-      "bundle": "react-expert"
+      "repo_root": "/Users/dev/project",
+      "remote_url": "git@github.com:org/repo.git",
+      "desired_state": {
+        "bundle": "react-expert",
+        "tools": ["claude-code", "cursor"]
+      }
     }
   }
 }
-}
 ```
+
+`tools` is the subset of tools to materialize from the bundle. It must be a non-empty array containing only tool names declared in the bundle's manifest.
 
 ---
 
 ## 5.2 Worktree State
 
-Stores the actual files installed for a specific working tree.
+Stores the actual files installed for a specific working tree, grouped by tool.
 
 Example:
 
@@ -250,9 +254,24 @@ Example:
       "repo_fingerprint": "repo_fingerprint_abc123",
       "path": "/Users/dev/project",
       "materialized_state": {
-        "tool": "claude-code",
         "bundle": "react-expert",
-        "files": [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
+        "tools": {
+          "claude-code": {
+            "files": [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
+            "file_fingerprints": {
+              ".claude/skills/react/SKILL.md": "abc123...",
+              ".claude/commands/review.md": "def456..."
+            },
+            "directories": [".claude/skills/react"]
+          },
+          "cursor": {
+            "files": [".cursor/commands/review.md"],
+            "file_fingerprints": {
+              ".cursor/commands/review.md": "ghi789..."
+            },
+            "directories": []
+          }
+        },
         "exclude_configured": true
       }
     }
@@ -332,6 +351,7 @@ ai-vault/
     manifest.json
     skills/
     commands/
+    cursor-commands/
   go-backend/
     manifest.json
     skills/
@@ -344,6 +364,65 @@ Bundles are cached locally:
 ```
 
 The cache is an implementation detail.
+
+---
+
+# 7.1 Bundle Manifest Format
+
+Each bundle contains a `manifest.json` that declares which tools it supports and the target paths for each tool's assets.
+
+A bundle may support one or more tools.
+
+Single-tool example:
+
+```json
+{
+  "name": "go-backend",
+  "tools": {
+    "claude-code": {
+      "targets": {
+        "skills": { "path": "skills" }
+      }
+    }
+  }
+}
+```
+
+Multi-tool example:
+
+```json
+{
+  "name": "react-expert",
+  "tools": {
+    "claude-code": {
+      "targets": {
+        "skills": { "path": "skills" },
+        "commands": { "path": "commands" }
+      }
+    },
+    "cursor": {
+      "targets": {
+        "commands": { "path": "cursor-commands" }
+      }
+    },
+    "opencode": {
+      "targets": {
+        "skills": { "path": "skills" },
+        "commands": { "path": "commands" }
+      }
+    }
+  }
+}
+```
+
+Rules:
+
+- `tools` must contain at least one entry
+- each key in `tools` must be a supported tool name
+- each tool entry must declare at least one target
+- target names must be supported by the corresponding tool
+- target paths must be relative and must not traverse outside the bundle directory
+- different tools may share the same asset path if the assets are compatible
 
 ---
 
@@ -429,9 +508,9 @@ Apply bundle in stealth mode.
 
 Behavior:
 
-1. update repository desired state
-2. materialize bundle in current worktree
-3. inject files
+1. update repository desired state (bundle + tools)
+2. materialize bundle for each selected tool in current worktree
+3. inject files into tool-native directories
 4. configure `.git/info/exclude`
 5. update registry
 
@@ -441,9 +520,32 @@ Examples:
 skul use react-expert
 ```
 
+Materializes all tools declared in the bundle manifest.
+
+```bash
+skul use react-expert --tool cursor
+```
+
+Materializes only the `cursor` tool from the bundle.
+
+```bash
+skul use react-expert --tool claude-code --tool cursor
+```
+
+Materializes specific tools from the bundle.
+
 ```bash
 skul use github.com/user/ai-vault react-expert
 ```
+
+---
+
+### Tool Selection Rules
+
+- if `--tool` is not specified, all tools declared in the bundle manifest are materialized
+- if `--tool` is specified, only the listed tools are materialized
+- each specified tool must be declared in the bundle manifest; otherwise an error is shown
+- if the worktree has previously materialized files for a tool that is no longer selected, those files are removed
 
 ---
 
@@ -457,7 +559,7 @@ If cached bundles exist:
 
 - show searchable bundle picker
 - fuzzy search enabled
-- allow preview of metadata
+- allow preview of metadata including supported tools
 
 ---
 
@@ -492,16 +594,18 @@ Example output:
 
 ```text
 Repository Desired State
-Tool: claude-code
 Bundle: react-expert
+Tools: claude-code, cursor
 
 Current Worktree
 Path: /Users/dev/project-feature-a
-Materialized: yes
 
-Files:
+claude-code: materialized
   .claude/skills/react/SKILL.md
   .claude/commands/review.md
+
+cursor: materialized
+  .cursor/commands/review.md
 
 Git Exclude:
   configured
@@ -510,9 +614,12 @@ Git Exclude:
 If a new worktree has not yet materialized files:
 
 ```text
-Repository Desired State: react-expert
+Repository Desired State
+Bundle: react-expert
+Tools: claude-code, cursor
 
 Current Worktree
+Path: /Users/dev/project-feature-a
 Materialized: no
 Suggested Action: run "skul use"
 ```
@@ -526,9 +633,23 @@ Remove Skul-managed files from the current worktree.
 Behavior:
 
 1. read registry
-2. delete managed files
-3. remove exclusion block
-4. clear worktree state
+2. delete managed files for the selected tools
+3. remove exclusion block entries for deleted files
+4. clear worktree state for the selected tools
+
+Examples:
+
+```bash
+skul clean
+```
+
+Removes managed files for all materialized tools.
+
+```bash
+skul clean --tool cursor
+```
+
+Removes managed files for the specified tool only.
 
 Safety rule:
 
@@ -645,7 +766,6 @@ Potential enhancements:
 - automatic bundle recommendation
 - bundle version pinning
 - bundle inheritance
-- multi-tool materialization
 - remote bundle registry
 - AI model configuration bundles
 

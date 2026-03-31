@@ -25,6 +25,21 @@
 - [TODO] Document the tool-specific behavior differences and source references used for cross-tool transforms.
 - [DONE] Document current behavior, lifecycle rules, and constraints around worktrees, stealth mode, and security boundaries.
 
+## Multi-Tool Bundle Support
+
+- [TODO] Update bundle manifest format: replace single `tool` + `targets` fields with a `tools` map where each key is a tool name and each value declares that tool's targets.
+- [TODO] Update `parseBundleManifest` in `bundle-manifest.ts` to parse and validate the new multi-tool manifest schema, including per-tool target validation.
+- [TODO] Update registry schema: replace `desired_state.tool` + `desired_state.bundle` with `desired_state.bundle` + `desired_state.tools` (array of tool names to materialize).
+- [TODO] Update registry schema: replace `materialized_state.tool` + `materialized_state.files` etc. with `materialized_state.bundle` + `materialized_state.tools` map keyed by tool name, each containing `files`, `file_fingerprints`, and `directories`.
+- [TODO] Update `skul use` to accept optional `--tool <name>` flag (repeatable) for selecting a subset of tools to materialize from the bundle.
+- [TODO] Update bundle materialization logic to iterate over selected tools and inject files into each tool's native directories independently.
+- [TODO] Update `skul use` replacement flow to remove previously materialized files per tool, including tools no longer selected in the new invocation.
+- [TODO] Update `skul clean` to accept optional `--tool <name>` flag; when specified, clean only that tool's managed files and update the registry accordingly.
+- [TODO] Update `skul status` output to show materialized state grouped by tool.
+- [TODO] Update `skul list` to show supported tools for each bundle.
+- [TODO] Add tests covering multi-tool bundle parsing, materialization across multiple tools, partial tool selection via `--tool`, and per-tool cleanup.
+- [TODO] Update documentation and spec examples to reflect the new multi-tool manifest format and registry schema.
+
 ## Handoff Notes
 
 - `TASKS.template.md` was not present in the repository, so this file follows the template content provided in the request.
