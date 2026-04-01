@@ -36,16 +36,17 @@
 
 ## Multi-Bundle Support
 
-- [TODO] Update registry schema: replace `desired_state` (single bundle object) with an ordered array of `{ bundle, source? }` entries.
+- [TODO] Add `version: 1` field to registry schema; update `parseRegistry` to validate version and error clearly on version mismatch to enable future migrations.
+- [TODO] Update registry schema: replace `desired_state` (single bundle object) with an ordered array of `{ bundle, source?, tools? }` entries where `tools` is an optional subset of tool names to materialize.
 - [TODO] Update registry schema: replace `materialized_state` (single bundle + flat tool map) with `{ bundles: { [bundleName]: { source?, tools: { [toolName]: { files, file_fingerprints, directories } } } }, exclude_configured }`.
-- [TODO] Implement tool-ownership conflict check: before materializing any bundle, verify that none of its tools are already claimed by another active bundle in the desired state; abort with a descriptive error if a conflict is found.
-- [TODO] Implement `skul add` command: appends a bundle to the active set after passing the tool-ownership conflict check, then materializes it.
+- [TODO] Implement `skul add` command: appends bundle to desired state and materializes; if bundle already in desired state, re-materializes without modifying desired state (idempotent); file-level conflicts with other bundles prompt for resolution.
+- [TODO] Persist `--tool` selection in the desired state entry so all worktrees materialize the same tool subset.
 - [TODO] Implement `skul remove` command: removes a named bundle from the active set, deletes its managed files (with confirmation for user-modified files), and updates the registry.
 - [TODO] Remove `skul use` command from CLI; update existing `use` implementation to become `add`.
 - [TODO] Update `skul clean` to accept optional `--bundle <name>` flag; when specified, clean only that bundle's managed files.
 - [TODO] Update `skul status` output to show materialized state grouped by bundle, then by tool.
 - [TODO] Implement `skul apply` command: materializes all bundles in the repository desired state into the current worktree without modifying desired state; no-op if already fully materialized.
-- [TODO] Add tests covering multi-bundle desired state parsing, tool-ownership conflict detection, `skul add` happy path and conflict path, `skul remove`, per-bundle cleanup, and worktree re-materialization.
+- [TODO] Add tests covering multi-bundle desired state parsing, `skul add` idempotency, file-level conflict between bundles, `--tool` persistence, `skul remove`, per-bundle cleanup, and worktree re-materialization via `skul apply`.
 - [TODO] Update documentation and spec examples to reflect the new multi-bundle manifest format and registry schema.
 
 ## Handoff Notes

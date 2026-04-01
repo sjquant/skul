@@ -85,13 +85,7 @@ Skul must detect that mismatch from registry-tracked file metadata and require u
 
 ## 2.4 Context Minimalism
 
-Multiple bundles may be active in a project simultaneously, but each tool may be served by at most one active bundle at a time.
-
-This prevents:
-
-- instruction context bloat
-- conflicting AI instructions
-- ambiguous file ownership between bundles
+Multiple bundles may be active in a project simultaneously. File-level conflict detection prevents two bundles from writing the same file path. Each file may be owned by at most one active bundle at a time.
 
 ---
 
@@ -213,6 +207,16 @@ Location:
 ~/.skul/registry.json
 ```
 
+The registry file includes a `version` field to enable future schema migrations:
+
+```json
+{
+  "version": 1,
+  "repos": {},
+  "worktrees": {}
+}
+```
+
 ---
 
 ## 5.1 Repository State
@@ -228,7 +232,7 @@ Example:
       "repo_root": "/Users/dev/project",
       "remote_url": "git@github.com:org/repo.git",
       "desired_state": [
-        { "bundle": "react-expert", "source": "github.com/user/ai-vault" },
+        { "bundle": "react-expert", "source": "github.com/user/ai-vault", "tools": ["cursor"] },
         { "bundle": "debugging-tools" }
       ]
     }
@@ -240,7 +244,9 @@ Rules:
 
 - `desired_state` is an ordered array of bundle entries
 - each entry must include a `bundle` name; `source` is optional if the bundle name is unambiguous in the library
-- a tool may appear in at most one entry; Skul rejects configurations where two entries claim the same tool
+- `tools` is optional; if present it restricts which tools from the bundle manifest are materialized; if absent all tools declared in the manifest are used
+- `tools` values must be a non-empty subset of tool names declared in the bundle's manifest
+- if two entries would write the same file path, Skul detects the conflict at materialization time and prompts for resolution
 
 ---
 
@@ -525,14 +531,14 @@ CLI focuses on three main actions:
 
 # 11.1 `skul add`
 
-Add a bundle to the active set.
+Add a bundle to the active set, or re-materialize it if already active.
 
 Behavior:
 
-1. validate that no tool claimed by the new bundle is already claimed by an active bundle
-2. if a conflict exists, list the conflicting tools and the bundle that owns them, then abort
-3. materialize the new bundle into tool-native directories
-4. append the bundle entry to `desired_state`
+1. if the bundle is already in `desired_state`, skip the desired state update and go straight to materialization (idempotent)
+2. materialize the bundle into tool-native directories
+3. if a file conflict occurs with a file owned by another active bundle, prompt for resolution (rename, prefix, or skip)
+4. if the bundle is new, append the entry to `desired_state`
 5. update registry
 
 Examples:
@@ -541,9 +547,10 @@ Examples:
 skul add react-expert
 skul add github.com/user/ai-vault react-expert
 skul add react-expert --tool cursor
+skul add react-expert --tool claude-code --tool cursor
 ```
 
-`--tool` restricts which tools are materialized from the bundle. Without it, all tools declared in the manifest are used.
+`--tool` restricts which tools are materialized from the bundle. The selected tools are persisted in the `desired_state` entry so all worktrees see the same subset. Without `--tool`, all tools declared in the manifest are used.
 
 ### Interactive Mode
 
@@ -551,7 +558,7 @@ skul add react-expert --tool cursor
 skul add
 ```
 
-If cached bundles exist, show a searchable bundle picker. Already-active bundles and bundles whose tools conflict with the current active set are shown as disabled.
+If cached bundles exist, show a searchable bundle picker. Already-active bundles are shown as such but remain selectable for re-materialization.
 
 ---
 
@@ -720,10 +727,9 @@ This ensures bundle configuration propagates across worktrees.
 1. detect repository
 2. detect worktree
 3. validate bundle
-4. check tool-ownership conflicts against active bundles
-5. inject new files
-6. update registry
-7. configure git exclusion
+4. inject files; prompt on file-level conflict with existing managed files
+5. update registry
+6. configure git exclusion
 
 ---
 
