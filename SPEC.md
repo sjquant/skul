@@ -85,12 +85,7 @@ Skul must detect that mismatch from registry-tracked file metadata and require u
 
 ## 2.4 Context Minimalism
 
-Only one active bundle per tool per project should exist by default.
-
-This prevents:
-
-- instruction context bloat
-- conflicting AI instructions
+Multiple bundles may be active in a project simultaneously. File-level conflict detection prevents two bundles from writing the same file path. Each file may be owned by at most one active bundle at a time.
 
 ---
 
@@ -157,7 +152,7 @@ Files injected by Skul but excluded from Git tracking.
 
 ### Repository Desired State
 
-The bundle that a repository intends to use.
+The set of bundles a repository intends to use.
 
 ---
 
@@ -212,11 +207,21 @@ Location:
 ~/.skul/registry.json
 ```
 
+The registry file includes a `version` field to enable future schema migrations:
+
+```json
+{
+  "version": 1,
+  "repos": {},
+  "worktrees": {}
+}
+```
+
 ---
 
 ## 5.1 Repository State
 
-Stores the desired bundle for the repository.
+Stores the set of desired bundles for the repository.
 
 Example:
 
@@ -224,22 +229,30 @@ Example:
 {
   "repos": {
     "repo_fingerprint_abc123": {
-    "repo_root": "/Users/dev/project",
-    "remote_url": "git@github.com:org/repo.git",
-    "desired_state": {
-      "tool": "claude-code",
-      "bundle": "react-expert"
+      "repo_root": "/Users/dev/project",
+      "remote_url": "git@github.com:org/repo.git",
+      "desired_state": [
+        { "bundle": "react-expert", "source": "github.com/user/ai-vault", "tools": ["cursor"] },
+        { "bundle": "debugging-tools" }
+      ]
     }
   }
 }
-}
 ```
+
+Rules:
+
+- `desired_state` is an ordered array of bundle entries
+- each entry must include a `bundle` name; `source` is optional if the bundle name is unambiguous in the library
+- `tools` is optional; if present it restricts which tools from the bundle manifest are materialized; if absent all tools declared in the manifest are used
+- `tools` values must be a non-empty subset of tool names declared in the bundle's manifest
+- if two entries would write the same file path, Skul detects the conflict at materialization time and prompts for resolution
 
 ---
 
 ## 5.2 Worktree State
 
-Stores the actual files installed for a specific working tree.
+Stores the actual files installed for a specific working tree, grouped by bundle and then by tool.
 
 Example:
 
@@ -250,9 +263,39 @@ Example:
       "repo_fingerprint": "repo_fingerprint_abc123",
       "path": "/Users/dev/project",
       "materialized_state": {
-        "tool": "claude-code",
-        "bundle": "react-expert",
-        "files": [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
+        "bundles": {
+          "react-expert": {
+            "source": "github.com/user/ai-vault",
+            "tools": {
+              "claude-code": {
+                "files": [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
+                "file_fingerprints": {
+                  ".claude/skills/react/SKILL.md": "abc123...",
+                  ".claude/commands/review.md": "def456..."
+                },
+                "directories": [".claude/skills/react"]
+              },
+              "cursor": {
+                "files": [".cursor/commands/review.md"],
+                "file_fingerprints": {
+                  ".cursor/commands/review.md": "ghi789..."
+                },
+                "directories": []
+              }
+            }
+          },
+          "debugging-tools": {
+            "tools": {
+              "claude-code": {
+                "files": [".claude/skills/debug/SKILL.md"],
+                "file_fingerprints": {
+                  ".claude/skills/debug/SKILL.md": "jkl012..."
+                },
+                "directories": [".claude/skills/debug"]
+              }
+            }
+          }
+        },
         "exclude_configured": true
       }
     }
@@ -347,6 +390,67 @@ The cache is an implementation detail.
 
 ---
 
+# 7.1 Bundle Manifest Format
+
+Each bundle contains a `manifest.json` that declares which tools it supports and the target paths for each tool's assets.
+
+A bundle may support one or more tools.
+
+Single-tool example:
+
+```json
+{
+  "name": "go-backend",
+  "tools": {
+    "claude-code": {
+      "targets": {
+        "skills": { "path": "skills" }
+      }
+    }
+  }
+}
+```
+
+Multi-tool example:
+
+```json
+{
+  "name": "react-expert",
+  "tools": {
+    "claude-code": {
+      "targets": {
+        "skills": { "path": "skills" },
+        "commands": { "path": "commands" }
+      }
+    },
+    "cursor": {
+      "targets": {
+        "commands": { "path": "commands" }
+      }
+    },
+    "opencode": {
+      "targets": {
+        "skills": { "path": "skills" },
+        "commands": { "path": "commands" }
+      }
+    }
+  }
+}
+```
+
+Different tools may reference the same asset path within the bundle when the content is compatible across tools.
+
+Rules:
+
+- `tools` must contain at least one entry
+- each key in `tools` must be a supported tool name
+- each tool entry must declare at least one target
+- target names must be supported by the corresponding tool
+- target paths must be relative and must not traverse outside the bundle directory
+- different tools may share the same asset path if the assets are compatible
+
+---
+
 # 8. File Naming Rules
 
 ## 8.1 Default Behavior
@@ -403,19 +507,21 @@ If the content no longer matches, the file is treated as user-modified and requi
 CLI focuses on three main actions:
 
 - discover bundles
-- apply bundles
+- manage the active bundle set
 - inspect installed state
 
 ---
 
 # 10. CLI Commands
 
-| Command   | Purpose                            |
-| --------- | ---------------------------------- |
-| `use`    | Apply bundle in stealth mode       |
-| `list`   | List cached bundles                |
-| `status` | Show repository and worktree state |
-| `clean`  | Remove Skul-managed files          |
+| Command   | Purpose                                              |
+| --------- | ---------------------------------------------------- |
+| `add`    | Add a bundle to the active set                       |
+| `remove` | Remove a bundle from the active set                  |
+| `apply`  | Materialize the repository desired state in this worktree |
+| `list`   | List cached bundles                                  |
+| `status` | Show repository and worktree state                   |
+| `clean`  | Remove Skul-managed files                            |
 
 ---
 
@@ -423,47 +529,86 @@ CLI focuses on three main actions:
 
 ---
 
-# 11.1 `skul use`
+# 11.1 `skul add`
 
-Apply bundle in stealth mode.
+Add a bundle to the active set, or re-materialize it if already active.
 
 Behavior:
 
-1. update repository desired state
-2. materialize bundle in current worktree
-3. inject files
-4. configure `.git/info/exclude`
+1. if the bundle is already in `desired_state`, skip the desired state update and go straight to materialization (idempotent)
+2. materialize the bundle into tool-native directories
+3. if a file conflict occurs with a file owned by another active bundle, prompt for resolution (rename, prefix, or skip)
+4. if the bundle is new, append the entry to `desired_state`
 5. update registry
 
 Examples:
 
 ```bash
-skul use react-expert
+skul add react-expert
+skul add github.com/user/ai-vault react-expert
+skul add react-expert --tool cursor
+skul add react-expert --tool claude-code --tool cursor
 ```
 
-```bash
-skul use github.com/user/ai-vault react-expert
-```
-
----
+`--tool` restricts which tools are materialized from the bundle. The selected tools are persisted in the `desired_state` entry so all worktrees see the same subset. Without `--tool`, all tools declared in the manifest are used.
 
 ### Interactive Mode
 
 ```bash
-skul use
+skul add
 ```
 
-If cached bundles exist:
-
-- show searchable bundle picker
-- fuzzy search enabled
-- allow preview of metadata
+If cached bundles exist, show a searchable bundle picker. Already-active bundles are shown as such but remain selectable for re-materialization.
 
 ---
 
-# 11.2 `skul list`
+# 11.2 `skul remove`
 
-Display cached bundles.
+Remove a bundle from the active set.
+
+Behavior:
+
+1. look up the bundle in the worktree's materialized state
+2. delete managed files for that bundle (with confirmation for user-modified files)
+3. remove the bundle entry from `desired_state`
+4. update registry and `.git/info/exclude`
+
+Examples:
+
+```bash
+skul remove debugging-tools
+```
+
+---
+
+# 11.3 `skul apply`
+
+Materialize the repository desired state in the current worktree.
+
+This command is intended for new worktrees where the repository already has a configured desired state but no files have been materialized yet. It does not modify the desired state — it only writes files.
+
+Behavior:
+
+1. read `desired_state` from the registry for this repository
+2. if desired state is empty, print a message and exit
+3. materialize all bundles in the desired state into the current worktree
+4. configure `.git/info/exclude`
+5. update worktree materialized state in registry
+
+Example:
+
+```bash
+# new worktree, desired state already set from another worktree
+skul apply
+```
+
+If the worktree is already fully materialized, `skul apply` is a no-op and reports that everything is up to date.
+
+---
+
+# 11.5 `skul list`
+
+Display cached bundles with their supported tools.
 
 Example:
 
@@ -476,15 +621,15 @@ Output example:
 ```text
 Available Bundles
 
-react-expert
-nextjs-minimal
-go-backend
-review-debug
+react-expert       claude-code, cursor, opencode
+nextjs-minimal     claude-code
+go-backend         claude-code, cursor
+debugging-tools    claude-code
 ```
 
 ---
 
-# 11.3 `skul status`
+# 11.6 `skul status`
 
 Show both repository and worktree state.
 
@@ -492,16 +637,22 @@ Example output:
 
 ```text
 Repository Desired State
-Tool: claude-code
-Bundle: react-expert
+  react-expert     claude-code, cursor
+  debugging-tools  claude-code
 
 Current Worktree
 Path: /Users/dev/project-feature-a
-Materialized: yes
 
-Files:
-  .claude/skills/react/SKILL.md
-  .claude/commands/review.md
+react-expert
+  claude-code: materialized
+    .claude/skills/react/SKILL.md
+    .claude/commands/review.md
+  cursor: materialized
+    .cursor/commands/review.md
+
+debugging-tools
+  claude-code: materialized
+    .claude/skills/debug/SKILL.md
 
 Git Exclude:
   configured
@@ -510,25 +661,41 @@ Git Exclude:
 If a new worktree has not yet materialized files:
 
 ```text
-Repository Desired State: react-expert
+Repository Desired State
+  react-expert     claude-code, cursor
 
 Current Worktree
+Path: /Users/dev/project-feature-a
 Materialized: no
-Suggested Action: run "skul use"
+Suggested Action: run "skul apply"
 ```
 
 ---
 
-# 11.4 `skul clean`
+# 11.7 `skul clean`
 
 Remove Skul-managed files from the current worktree.
 
 Behavior:
 
 1. read registry
-2. delete managed files
-3. remove exclusion block
-4. clear worktree state
+2. delete managed files for all bundles (or the specified bundle/tool)
+3. remove exclusion block entries for deleted files
+4. clear worktree state for removed entries
+
+Examples:
+
+```bash
+skul clean
+```
+
+Removes all managed files across all bundles and tools.
+
+```bash
+skul clean --bundle debugging-tools
+```
+
+Removes managed files for the specified bundle only.
 
 Safety rule:
 
@@ -545,19 +712,9 @@ When a new Git worktree is created:
 - repository desired state already exists
 - worktree materialization may be missing
 
-Running:
+Running `skul status` will show the unmaterialized desired state and suggest running `skul apply`.
 
-```bash
-skul status
-```
-
-or
-
-```bash
-skul use
-```
-
-will automatically materialize the configuration.
+Running `skul apply` in the new worktree will materialize all bundles recorded in the repository desired state without modifying the desired state itself.
 
 This ensures bundle configuration propagates across worktrees.
 
@@ -565,23 +722,22 @@ This ensures bundle configuration propagates across worktrees.
 
 # 13. Lifecycle Rules
 
-### Apply
+### Add
 
 1. detect repository
 2. detect worktree
 3. validate bundle
-4. remove previous files
-5. inject new files
-6. update registry
-7. configure git exclusion
+4. inject files; prompt on file-level conflict with existing managed files
+5. update registry
+6. configure git exclusion
 
 ---
 
-### Replace
+### Remove
 
-Applying a new bundle removes the previous one.
+`skul remove` removes one bundle from the active set without affecting others.
 
-If a previously managed file was modified after materialization, replacement must require confirmation before removing it.
+If a managed file was modified after materialization, removal must require confirmation before deleting it.
 
 ---
 
@@ -645,7 +801,6 @@ Potential enhancements:
 - automatic bundle recommendation
 - bundle version pinning
 - bundle inheritance
-- multi-tool materialization
 - remote bundle registry
 - AI model configuration bundles
 
