@@ -508,13 +508,14 @@ CLI focuses on three main actions:
 
 # 10. CLI Commands
 
-| Command   | Purpose                             |
-| --------- | ----------------------------------- |
-| `add`    | Add a bundle to the active set      |
-| `remove` | Remove a bundle from the active set |
-| `list`   | List cached bundles                 |
-| `status` | Show repository and worktree state  |
-| `clean`  | Remove Skul-managed files           |
+| Command   | Purpose                                              |
+| --------- | ---------------------------------------------------- |
+| `add`    | Add a bundle to the active set                       |
+| `remove` | Remove a bundle from the active set                  |
+| `apply`  | Materialize the repository desired state in this worktree |
+| `list`   | List cached bundles                                  |
+| `status` | Show repository and worktree state                   |
+| `clean`  | Remove Skul-managed files                            |
 
 ---
 
@@ -573,7 +574,32 @@ skul remove debugging-tools
 
 ---
 
-# 11.3 `skul list`
+# 11.3 `skul apply`
+
+Materialize the repository desired state in the current worktree.
+
+This command is intended for new worktrees where the repository already has a configured desired state but no files have been materialized yet. It does not modify the desired state — it only writes files.
+
+Behavior:
+
+1. read `desired_state` from the registry for this repository
+2. if desired state is empty, print a message and exit
+3. materialize all bundles in the desired state into the current worktree
+4. configure `.git/info/exclude`
+5. update worktree materialized state in registry
+
+Example:
+
+```bash
+# new worktree, desired state already set from another worktree
+skul apply
+```
+
+If the worktree is already fully materialized, `skul apply` is a no-op and reports that everything is up to date.
+
+---
+
+# 11.5 `skul list`
 
 Display cached bundles with their supported tools.
 
@@ -596,7 +622,7 @@ debugging-tools    claude-code
 
 ---
 
-# 11.4 `skul status`
+# 11.6 `skul status`
 
 Show both repository and worktree state.
 
@@ -634,12 +660,12 @@ Repository Desired State
 Current Worktree
 Path: /Users/dev/project-feature-a
 Materialized: no
-Suggested Action: run "skul add"
+Suggested Action: run "skul apply"
 ```
 
 ---
 
-# 11.5 `skul clean`
+# 11.7 `skul clean`
 
 Remove Skul-managed files from the current worktree.
 
@@ -679,9 +705,9 @@ When a new Git worktree is created:
 - repository desired state already exists
 - worktree materialization may be missing
 
-Running `skul status` will show the unmaterialized desired state and suggest running `skul add` to materialize it.
+Running `skul status` will show the unmaterialized desired state and suggest running `skul apply`.
 
-Running `skul add` in the new worktree will materialize all bundles recorded in the repository desired state.
+Running `skul apply` in the new worktree will materialize all bundles recorded in the repository desired state without modifying the desired state itself.
 
 This ensures bundle configuration propagates across worktrees.
 

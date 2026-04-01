@@ -44,7 +44,7 @@
 - [TODO] Remove `skul use` command from CLI; update existing `use` implementation to become `add`.
 - [TODO] Update `skul clean` to accept optional `--bundle <name>` flag; when specified, clean only that bundle's managed files.
 - [TODO] Update `skul status` output to show materialized state grouped by bundle, then by tool.
-- [TODO] Implement worktree re-materialization: when `skul add` is run in a new worktree with no materialized state, materialize all bundles recorded in the repository desired state rather than requiring the user to re-add each bundle manually.
+- [TODO] Implement `skul apply` command: materializes all bundles in the repository desired state into the current worktree without modifying desired state; no-op if already fully materialized.
 - [TODO] Add tests covering multi-bundle desired state parsing, tool-ownership conflict detection, `skul add` happy path and conflict path, `skul remove`, per-bundle cleanup, and worktree re-materialization.
 - [TODO] Update documentation and spec examples to reflect the new multi-bundle manifest format and registry schema.
 
