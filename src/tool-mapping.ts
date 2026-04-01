@@ -40,6 +40,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "codex",
     targets: {
       skills: { path: ".agents/skills" },
+      agents: { path: ".codex/agents" },
     },
   },
 ];
