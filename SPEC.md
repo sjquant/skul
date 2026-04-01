@@ -501,21 +501,20 @@ If the content no longer matches, the file is treated as user-modified and requi
 CLI focuses on three main actions:
 
 - discover bundles
-- apply bundles
+- manage the active bundle set
 - inspect installed state
 
 ---
 
 # 10. CLI Commands
 
-| Command    | Purpose                                      |
-| ---------- | -------------------------------------------- |
-| `use`     | Set the active bundle set to a single bundle |
-| `add`     | Add a bundle to the active set               |
-| `remove`  | Remove a bundle from the active set          |
-| `list`    | List cached bundles                          |
-| `status`  | Show repository and worktree state           |
-| `clean`   | Remove Skul-managed files                    |
+| Command   | Purpose                             |
+| --------- | ----------------------------------- |
+| `add`    | Add a bundle to the active set      |
+| `remove` | Remove a bundle from the active set |
+| `list`   | List cached bundles                 |
+| `status` | Show repository and worktree state  |
+| `clean`  | Remove Skul-managed files           |
 
 ---
 
@@ -523,45 +522,9 @@ CLI focuses on three main actions:
 
 ---
 
-# 11.1 `skul use`
+# 11.1 `skul add`
 
-Replace the entire active bundle set with a single bundle.
-
-This is the primary entry point for applying a configuration. It replaces all previously active bundles and their managed files before materializing the new bundle.
-
-Behavior:
-
-1. remove all previously materialized bundles from the worktree (with confirmation for user-modified files)
-2. set desired_state to `[{ bundle }]`
-3. materialize the new bundle for all tools declared in its manifest
-4. configure `.git/info/exclude`
-5. update registry
-
-Examples:
-
-```bash
-skul use react-expert
-skul use github.com/user/ai-vault react-expert
-skul use react-expert --tool cursor
-```
-
-`--tool` restricts which tools are materialized from the bundle. Without it, all tools declared in the manifest are used.
-
----
-
-### Interactive Mode
-
-```bash
-skul use
-```
-
-If cached bundles exist, show a searchable single-select bundle picker with supported tools visible in the preview.
-
----
-
-# 11.2 `skul add`
-
-Add a bundle to the active set without replacing existing ones.
+Add a bundle to the active set.
 
 Behavior:
 
@@ -574,16 +537,26 @@ Behavior:
 Examples:
 
 ```bash
-skul add debugging-tools
-skul add github.com/user/ai-vault debugging-tools
-skul add debugging-tools --tool claude-code
+skul add react-expert
+skul add github.com/user/ai-vault react-expert
+skul add react-expert --tool cursor
 ```
+
+`--tool` restricts which tools are materialized from the bundle. Without it, all tools declared in the manifest are used.
+
+### Interactive Mode
+
+```bash
+skul add
+```
+
+If cached bundles exist, show a searchable bundle picker. Already-active bundles and bundles whose tools conflict with the current active set are shown as disabled.
 
 ---
 
-# 11.3 `skul remove`
+# 11.2 `skul remove`
 
-Remove a specific bundle from the active set.
+Remove a bundle from the active set.
 
 Behavior:
 
@@ -600,7 +573,7 @@ skul remove debugging-tools
 
 ---
 
-# 11.4 `skul list`
+# 11.3 `skul list`
 
 Display cached bundles with their supported tools.
 
@@ -623,7 +596,7 @@ debugging-tools    claude-code
 
 ---
 
-# 11.5 `skul status`
+# 11.4 `skul status`
 
 Show both repository and worktree state.
 
@@ -661,12 +634,12 @@ Repository Desired State
 Current Worktree
 Path: /Users/dev/project-feature-a
 Materialized: no
-Suggested Action: run "skul use"
+Suggested Action: run "skul add"
 ```
 
 ---
 
-# 11.6 `skul clean`
+# 11.5 `skul clean`
 
 Remove Skul-managed files from the current worktree.
 
@@ -706,19 +679,9 @@ When a new Git worktree is created:
 - repository desired state already exists
 - worktree materialization may be missing
 
-Running:
+Running `skul status` will show the unmaterialized desired state and suggest running `skul add` to materialize it.
 
-```bash
-skul status
-```
-
-or
-
-```bash
-skul use
-```
-
-will automatically materialize the configuration.
+Running `skul add` in the new worktree will materialize all bundles recorded in the repository desired state.
 
 This ensures bundle configuration propagates across worktrees.
 
@@ -726,27 +689,23 @@ This ensures bundle configuration propagates across worktrees.
 
 # 13. Lifecycle Rules
 
-### Apply
+### Add
 
 1. detect repository
 2. detect worktree
 3. validate bundle
-4. remove previous files
+4. check tool-ownership conflicts against active bundles
 5. inject new files
 6. update registry
 7. configure git exclusion
 
 ---
 
-### Replace
-
-`skul use` replaces the entire active bundle set with a single new bundle.
-
-`skul add` appends a bundle to the active set without affecting other bundles.
+### Remove
 
 `skul remove` removes one bundle from the active set without affecting others.
 
-If a previously managed file was modified after materialization, replacement or removal must require confirmation before removing it.
+If a managed file was modified after materialization, removal must require confirmation before deleting it.
 
 ---
 

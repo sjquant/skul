@@ -1,6 +1,6 @@
 ## Tasks
 
-- [DONE] Define the CLI surface and argument model for `use`, `list`, `status`, and `clean`.
+- [DONE] Define the CLI surface and argument model for `use`, `list`, `status`, and `clean`. (superseded: `use` removed; `add` and `remove` replace it)
 - [DONE] Design the global state layout under `~/.skul/` for `registry.json`, `library/`, and `config.json`.
 - [DONE] Implement repository and worktree detection, including stable repository fingerprinting and worktree identification.
 - [DONE] Define and validate the registry schema for repository desired state and worktree materialized state.
@@ -11,7 +11,7 @@
 - [DONE] Implement stealth mode using `.git/info/exclude` blocks without modifying `.gitignore` or repository configuration.
 - [DONE] Implement deterministic ownership tracking so cleanup and replacement rely only on registry records.
 - [DONE] Implement bundle replacement flow that removes the previous bundle before applying the new one for the same tool.
-- [REVIEW] Implement directory-level cross-tool replacement so `skul use` can replace one tool's managed files with another tool's bundle in the same worktree.
+- [REVIEW] Implement directory-level cross-tool replacement so `skul add` can replace one tool's managed files with another tool's bundle in the same worktree.
 - [TODO] Define a tool-surface translation matrix for skills, commands, and agents across Claude Code, Cursor, and Codex, including required metadata transforms.
 - [DONE] Implement conflict handling for existing filenames with user choices for rename, prefix, or skip.
 - [DONE] Implement `skul status` output for repository desired state, current worktree materialization, and exclude status.
@@ -29,7 +29,7 @@
 
 - [TODO] Update bundle manifest format: replace single `tool` + `targets` fields with a `tools` map where each key is a tool name and each value declares that tool's targets.
 - [TODO] Update `parseBundleManifest` in `bundle-manifest.ts` to parse and validate the new multi-tool manifest schema, including per-tool target validation.
-- [TODO] Update `skul use` to accept optional `--tool <name>` flag (repeatable) for selecting a subset of tools to materialize from the bundle.
+- [TODO] Update `skul add` to accept optional `--tool <name>` flag (repeatable) for selecting a subset of tools to materialize from the bundle.
 - [TODO] Update bundle materialization logic to iterate over selected tools and inject files into each tool's native directories independently.
 - [TODO] Update `skul list` to show supported tools for each bundle.
 - [TODO] Add tests covering multi-tool bundle parsing, materialization across multiple tools, and partial tool selection via `--tool`.
@@ -41,10 +41,11 @@
 - [TODO] Implement tool-ownership conflict check: before materializing any bundle, verify that none of its tools are already claimed by another active bundle in the desired state; abort with a descriptive error if a conflict is found.
 - [TODO] Implement `skul add` command: appends a bundle to the active set after passing the tool-ownership conflict check, then materializes it.
 - [TODO] Implement `skul remove` command: removes a named bundle from the active set, deletes its managed files (with confirmation for user-modified files), and updates the registry.
-- [TODO] Update `skul use` replacement flow to remove all previously active bundles before materializing the new one.
+- [TODO] Remove `skul use` command from CLI; update existing `use` implementation to become `add`.
 - [TODO] Update `skul clean` to accept optional `--bundle <name>` flag; when specified, clean only that bundle's managed files.
 - [TODO] Update `skul status` output to show materialized state grouped by bundle, then by tool.
-- [TODO] Add tests covering multi-bundle desired state parsing, tool-ownership conflict detection, `skul add` happy path and conflict path, `skul remove`, and per-bundle cleanup.
+- [TODO] Implement worktree re-materialization: when `skul add` is run in a new worktree with no materialized state, materialize all bundles recorded in the repository desired state rather than requiring the user to re-add each bundle manually.
+- [TODO] Add tests covering multi-bundle desired state parsing, tool-ownership conflict detection, `skul add` happy path and conflict path, `skul remove`, per-bundle cleanup, and worktree re-materialization.
 - [TODO] Update documentation and spec examples to reflect the new multi-bundle manifest format and registry schema.
 
 ## Handoff Notes
