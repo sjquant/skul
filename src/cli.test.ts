@@ -39,7 +39,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(cleanArgs)).resolves.toEqual({ kind: "command", command: "clean" });
   });
 
-  it("parses use in interactive, cached, and explicit source modes", async () => {
+  it("parses add in interactive, cached, and explicit source modes", async () => {
     // Given
     const selectBundle = vi.fn().mockResolvedValue("react-expert");
     const prompts = createPromptClientStub({ selectBundle });
@@ -47,22 +47,22 @@ describe("parseCliArgs", () => {
     // When / Then
     await expect(parseCliArgs([], prompts)).resolves.toEqual({ kind: "help" });
 
-    await expect(parseCliArgs(["use"], prompts)).resolves.toEqual({
+    await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
-      command: "use",
+      command: "add",
       options: { mode: "stealth", bundle: "react-expert" },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
-    await expect(parseCliArgs(["use", "react-expert"])).resolves.toEqual({
+    await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
-      command: "use",
+      command: "add",
       options: { mode: "stealth", bundle: "react-expert" },
     });
 
-    await expect(parseCliArgs(["use", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
+    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
       kind: "command",
-      command: "use",
+      command: "add",
       options: {
         mode: "stealth",
         source: "github.com/user/ai-vault",
@@ -83,8 +83,8 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["clean", "extra"])).rejects.toThrowError(
       /Command clean does not accept positional arguments/,
     );
-    await expect(parseCliArgs(["use", "a", "b", "c"])).rejects.toThrowError(
-      /Command use accepts at most 2 positional arguments/,
+    await expect(parseCliArgs(["add", "a", "b", "c"])).rejects.toThrowError(
+      /Command add accepts at most 2 positional arguments/,
     );
   });
 });
@@ -104,13 +104,11 @@ describe("run", () => {
 
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
 
     // When / Then
@@ -131,13 +129,12 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
 
     // When
-    await expect(run(["use", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(run(["add", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "Applied react-expert for claude-code",
     );
 
@@ -159,21 +156,19 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
     writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
       name: "next-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/next/SKILL.md", "# next\n");
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["use", "next-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(run(["add", "next-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "Applied next-expert for claude-code",
     );
 
@@ -205,15 +200,13 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
     writeBundleFile(
       homeDir,
@@ -222,10 +215,10 @@ describe("run", () => {
       "skills/next-task/SKILL.md",
       "# next task\n",
     );
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["use", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "Applied repo-standards for codex",
     );
 
@@ -262,8 +255,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
@@ -271,7 +263,7 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["use", "react-expert"], {
+      run(["add", "react-expert"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -295,8 +287,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
@@ -304,7 +295,7 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["use", "react-expert"], {
+      run(["add", "react-expert"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -331,8 +322,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
@@ -340,7 +330,7 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["use", "react-expert"], {
+      run(["add", "react-expert"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -362,12 +352,11 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When / Then
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -415,7 +404,7 @@ describe("run", () => {
         "Current Worktree",
         `Path: ${fs.realpathSync.native(repoRoot)}`,
         "Materialized: no",
-        'Suggested Action: run "skul use"',
+        'Suggested Action: run "skul add"',
       ].join("\n"),
     );
   });
@@ -427,11 +416,10 @@ describe("run", () => {
     const linkedWorktreeRoot = createLinkedWorktree(repoRoot);
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When / Then
     await expect(run(["status"], { homeDir, cwd: linkedWorktreeRoot })).resolves.toBe(
@@ -443,7 +431,7 @@ describe("run", () => {
         "Current Worktree",
         `Path: ${fs.realpathSync.native(linkedWorktreeRoot)}`,
         "Materialized: no",
-        'Suggested Action: run "skul use"',
+        'Suggested Action: run "skul add"',
       ].join("\n"),
     );
   });
@@ -454,11 +442,10 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, ".git", "info", "exclude"), "node_modules\n");
 
     // When / Then
@@ -487,12 +474,11 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, "notes.txt"), "keep me\n");
 
     // When
@@ -522,11 +508,10 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
 
     // When / Then
@@ -550,22 +535,20 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
       name: "next-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/next/SKILL.md", "# next\n");
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
 
     // When / Then
     await expect(
-      run(["use", "next-expert"], {
+      run(["add", "next-expert"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -585,14 +568,12 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
     writeBundleFile(
       homeDir,
@@ -601,12 +582,12 @@ describe("run", () => {
       "skills/next-task/SKILL.md",
       "# next task\n",
     );
-    await run(["use", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
 
     // When / Then
     await expect(
-      run(["use", "repo-standards"], {
+      run(["add", "repo-standards"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -631,15 +612,15 @@ describe("run", () => {
     );
   });
 
-  it("surfaces a clear error when use runs outside a Git repository", async () => {
+  it("surfaces a clear error when add runs outside a Git repository", async () => {
     // Given
     const homeDir = createHomeDir();
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
     tempDirs.push(cwd);
 
     // When / Then
-    await expect(run(["use", "react-expert"], { homeDir, cwd })).rejects.toThrowError(
-      /skul use requires a Git repository/i,
+    await expect(run(["add", "react-expert"], { homeDir, cwd })).rejects.toThrowError(
+      /skul add requires a Git repository/i,
     );
   });
 
@@ -649,17 +630,15 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
 
     // When / Then
-    await expect(run(["use", "missing-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+    await expect(run(["add", "missing-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
       /Bundle not found: missing-bundle[\s\S]*Available bundles:[\s\S]*react-expert[\s\S]*repo-standards/i,
     );
   });

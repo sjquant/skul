@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { getToolDefinition, listToolDefinitions, type ToolName, type ToolTargetName } from "./tool-mapping";
+import { listToolDefinitions, type ToolDefinition, type ToolName, type ToolTargetName } from "./tool-mapping";
 
 const MANIFEST_FILE_NAME = "manifest.json";
 
@@ -10,8 +10,7 @@ export interface BundleManifestTarget {
 
 export interface BundleManifest {
   name: string;
-  tool: ToolName;
-  targets: Partial<Record<ToolTargetName, BundleManifestTarget>>;
+  tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
 }
 
 export interface CachedBundleLayout {
@@ -26,27 +25,38 @@ type UnknownRecord = Record<string, unknown>;
 
 export function parseBundleManifest(input: unknown): BundleManifest {
   const manifest = expectRecord(input, "manifest");
-  const tool = parseToolName(manifest.tool, "tool");
-  const supportedTool = getToolDefinition(tool)!;
-  const targetsInput = expectRecord(manifest.targets, "targets");
+  const toolsInput = expectRecord(manifest.tools, "tools");
 
-  const targets = Object.fromEntries(
-    Object.entries(targetsInput).map(([targetName, value]) => {
-      if (!(targetName in supportedTool.targets)) {
-        throw new Error(`targets.${targetName} is not supported for tool ${tool}`);
+  const tools = Object.fromEntries(
+    Object.entries(toolsInput).map(([toolName, targetsInput]) => {
+      const toolDef = parseToolDefinition(toolName, `tools.${toolName}`);
+      const toolTargetsInput = expectRecord(targetsInput, `tools.${toolName}`);
+
+      if (Object.keys(toolTargetsInput).length === 0) {
+        throw new Error(`tools.${toolName} must declare at least one target`);
       }
 
-      return [
-        targetName,
-        parseBundleManifestTarget(value, `targets.${targetName}`),
-      ];
+      const targets = Object.fromEntries(
+        Object.entries(toolTargetsInput).map(([targetName, value]) => {
+          if (!(targetName in toolDef.targets)) {
+            throw new Error(`tools.${toolDef.name}.${targetName} is not supported for tool ${toolDef.name}`);
+          }
+
+          return [targetName, parseBundleManifestTarget(value, `tools.${toolDef.name}.${targetName}`)];
+        }),
+      ) as Partial<Record<ToolTargetName, BundleManifestTarget>>;
+
+      return [toolDef.name, targets];
     }),
-  ) as Partial<Record<ToolTargetName, BundleManifestTarget>>;
+  ) as Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
+
+  if (Object.keys(tools).length === 0) {
+    throw new Error("tools must declare at least one tool");
+  }
 
   return {
     name: expectNonEmptyString(manifest.name, "name"),
-    tool,
-    targets,
+    tools,
   };
 }
 
@@ -79,16 +89,16 @@ function parseBundleManifestTarget(input: unknown, label: string): BundleManifes
   };
 }
 
-function parseToolName(input: unknown, label: string): ToolName {
+function parseToolDefinition(input: unknown, label: string): ToolDefinition {
   const value = expectNonEmptyString(input, label);
-  const supportedTool = listToolDefinitions().find((tool) => tool.name === value);
+  const tools = listToolDefinitions();
+  const toolDef = tools.find((t) => t.name === value);
 
-  if (supportedTool) {
-    return supportedTool.name;
+  if (toolDef) {
+    return toolDef;
   }
 
-  const supportedTools = listToolDefinitions().map((tool) => tool.name).join(", ");
-  throw new Error(`${label} must be one of: ${supportedTools}`);
+  throw new Error(`${label} must be one of: ${tools.map((t) => t.name).join(", ")}`);
 }
 
 function expectRecord(input: unknown, label: string): UnknownRecord {
@@ -119,10 +129,11 @@ function expectSinglePathSegment(input: unknown, label: string): string {
 
 function expectRelativePath(input: unknown, label: string): string {
   const value = expectNonEmptyString(input, label);
+  const normalized = path.normalize(value);
 
-  if (path.isAbsolute(value) || value === ".." || value.startsWith("../")) {
+  if (path.isAbsolute(value) || normalized === "." || normalized.startsWith("..")) {
     throw new Error(`${label} must be a relative path`);
   }
 
-  return value;
+  return normalized;
 }

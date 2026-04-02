@@ -34,7 +34,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     return createHelpText();
   }
 
-  if (parsed.command === "use") {
+  if (parsed.command === "add") {
     return applyBundle({
       cwd,
       prompts,
@@ -101,7 +101,7 @@ function renderStatus(options: {
     lines.push("Materialized: no");
 
     if (repoState) {
-      lines.push('Suggested Action: run "skul use"');
+      lines.push('Suggested Action: run "skul add"');
     }
 
     return lines.join("\n");
@@ -127,7 +127,7 @@ async function applyBundle(options: {
   bundle: string;
   source?: string;
 }): Promise<string> {
-  const gitContext = requireGitContext(options.cwd, "use");
+  const gitContext = requireGitContext(options.cwd, "add");
 
   const cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
@@ -159,10 +159,12 @@ async function applyBundle(options: {
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
+  const manifestTools = Object.keys(cachedBundle.manifest.tools).join(", ");
+
   registry = upsertRepoState(registry, gitContext.repoFingerprint, {
     repo_root: gitContext.repoRoot,
     desired_state: {
-      tool: cachedBundle.manifest.tool,
+      tool: manifestTools,
       bundle: cachedBundle.bundle,
     },
   });
@@ -176,7 +178,7 @@ async function applyBundle(options: {
     repo_fingerprint: gitContext.repoFingerprint,
     path: gitContext.worktreeRoot,
     materialized_state: {
-      tool: cachedBundle.manifest.tool,
+      tool: manifestTools,
       bundle: cachedBundle.bundle,
       files: materializedState.files,
       file_fingerprints: captureManagedFileFingerprints(
@@ -189,7 +191,7 @@ async function applyBundle(options: {
   });
   writeRegistryFile(options.registryFile, registry);
 
-  return `Applied ${cachedBundle.bundle} for ${cachedBundle.manifest.tool}`;
+  return `Applied ${cachedBundle.bundle} for ${manifestTools}`;
 }
 
 async function cleanWorktree(options: {
@@ -257,7 +259,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "use" | "status" | "clean") {
+function requireGitContext(cwd: string, command: "add" | "status" | "clean") {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {

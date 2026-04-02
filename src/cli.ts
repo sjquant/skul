@@ -6,14 +6,14 @@ import {
   normalizeConflictPrefix,
 } from "./conflict-resolution";
 
-export type CommandName = "use" | "list" | "status" | "clean";
+export type CommandName = "add" | "list" | "status" | "clean";
 
 export type CliParseResult =
   | { kind: "help" }
   | { kind: "command"; command: "list" | "status" | "clean" }
   | {
       kind: "command";
-      command: "use";
+      command: "add";
       options: { mode: "stealth"; bundle: string; source?: string };
     };
 
@@ -28,7 +28,7 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "clean" | "replace"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["use", "list", "status", "clean"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "clean"];
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   return {
@@ -206,7 +206,7 @@ function createProgram(
     .exitOverride();
 
   program
-    .command("use")
+    .command("add")
     .description("Apply bundle in stealth mode")
     .argument("[source]")
     .argument("[bundle]")
@@ -214,7 +214,7 @@ function createProgram(
       if (!source && !bundle) {
         context.result = {
           kind: "command",
-          command: "use",
+          command: "add",
           options: { mode: "stealth", bundle: await prompts.selectBundle() },
         };
         return;
@@ -223,7 +223,7 @@ function createProgram(
       if (source && !bundle) {
         context.result = {
           kind: "command",
-          command: "use",
+          command: "add",
           options: { mode: "stealth", bundle: source },
         };
         return;
@@ -231,7 +231,7 @@ function createProgram(
 
       context.result = {
         kind: "command",
-        command: "use",
+        command: "add",
         options: { mode: "stealth", source, bundle: bundle! },
       };
     });
@@ -254,8 +254,8 @@ function normalizeParseError(error: unknown, command: string): Error {
   }
 
   if (error.code === "commander.excessArguments") {
-    if (command === "use") {
-      return new Error("Command use accepts at most 2 positional arguments");
+    if (command === "add") {
+      return new Error("Command add accepts at most 2 positional arguments");
     }
 
     return new Error(`Command ${command} does not accept positional arguments`);

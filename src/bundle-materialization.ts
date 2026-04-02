@@ -8,7 +8,7 @@ import {
   normalizeConflictDestination,
   suggestPrefixedDestination,
 } from "./conflict-resolution";
-import { resolveToolTargetPath, type ToolTargetName } from "./tool-mapping";
+import { resolveToolTargetPath, type ToolName, type ToolTargetName } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
   files: string[];
@@ -23,33 +23,40 @@ export async function materializeBundle(options: {
 }): Promise<MaterializeBundleResult> {
   const writtenFiles: string[] = [];
   const ownedDirectories = new Set<string>();
-  const reservedDestinations = new Set<string>();
 
-  for (const [targetName, target] of Object.entries(options.manifest.targets)) {
-    const sourceDir = path.join(options.bundleDir, target.path);
-    const destinationDir = resolveToolTargetPath(
-      options.manifest.tool,
-      targetName as ToolTargetName,
-      options.repoRoot,
-    );
+  for (const [toolName, targets] of Object.entries(options.manifest.tools)) {
+    for (const [targetName, target] of Object.entries(targets)) {
+      const reservedDestinations = new Set<string>();
+      const sourceDir = path.join(options.bundleDir, target.path);
+      const destinationDir = resolveToolTargetPath(
+        toolName as ToolName,
+        targetName as ToolTargetName,
+        options.repoRoot,
+      );
 
-    if (!destinationDir) {
-      continue;
+      if (!destinationDir) {
+        continue;
+      }
+
+      const destinationDirExisted = fs.existsSync(destinationDir);
+      assertBundleTargetDirectory(sourceDir, target.path);
+      fs.mkdirSync(destinationDir, { recursive: true });
+
+      if (!destinationDirExisted) {
+        ownedDirectories.add(path.relative(options.repoRoot, destinationDir));
+      }
+
+      await copyDirectory(
+        sourceDir,
+        destinationDir,
+        destinationDir,
+        writtenFiles,
+        ownedDirectories,
+        reservedDestinations,
+        options.repoRoot,
+        options.resolveFileConflict,
+      );
     }
-
-    assertBundleTargetDirectory(sourceDir, target.path);
-    fs.mkdirSync(destinationDir, { recursive: true });
-
-    await copyDirectory(
-      sourceDir,
-      destinationDir,
-      destinationDir,
-      writtenFiles,
-      ownedDirectories,
-      reservedDestinations,
-      options.repoRoot,
-      options.resolveFileConflict,
-    );
   }
 
   writtenFiles.sort((left, right) => {
@@ -79,6 +86,10 @@ async function copyDirectory(
     | undefined,
 ): Promise<void> {
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) {
+      throw new Error(`Bundle contains a symlink which is not allowed: ${path.join(sourceDir, entry.name)}`);
+    }
+
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
 
@@ -198,7 +209,13 @@ function assertBundleTargetDirectory(sourceDir: string, targetPath: string): voi
     throw new Error(`Bundle target path does not exist: ${targetPath}`);
   }
 
-  if (!fs.statSync(sourceDir).isDirectory()) {
+  const stat = fs.lstatSync(sourceDir);
+
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Bundle target path must not be a symlink: ${targetPath}`);
+  }
+
+  if (!stat.isDirectory()) {
     throw new Error(`Bundle target path must be a directory: ${targetPath}`);
   }
 }
