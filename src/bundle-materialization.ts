@@ -8,7 +8,7 @@ import {
   normalizeConflictDestination,
   suggestPrefixedDestination,
 } from "./conflict-resolution";
-import { resolveToolTargetPath, type ToolTargetName } from "./tool-mapping";
+import { resolveToolTargetPath, type ToolName, type ToolTargetName } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
   files: string[];
@@ -23,33 +23,36 @@ export async function materializeBundle(options: {
 }): Promise<MaterializeBundleResult> {
   const writtenFiles: string[] = [];
   const ownedDirectories = new Set<string>();
-  const reservedDestinations = new Set<string>();
 
-  for (const [targetName, target] of Object.entries(options.manifest.targets)) {
-    const sourceDir = path.join(options.bundleDir, target.path);
-    const destinationDir = resolveToolTargetPath(
-      options.manifest.tool,
-      targetName as ToolTargetName,
-      options.repoRoot,
-    );
+  for (const [toolName, targets] of Object.entries(options.manifest.tools)) {
+    const toolReservedDestinations = new Set<string>();
 
-    if (!destinationDir) {
-      continue;
+    for (const [targetName, target] of Object.entries(targets)) {
+      const sourceDir = path.join(options.bundleDir, target.path);
+      const destinationDir = resolveToolTargetPath(
+        toolName as ToolName,
+        targetName as ToolTargetName,
+        options.repoRoot,
+      );
+
+      if (!destinationDir) {
+        continue;
+      }
+
+      assertBundleTargetDirectory(sourceDir, target.path);
+      fs.mkdirSync(destinationDir, { recursive: true });
+
+      await copyDirectory(
+        sourceDir,
+        destinationDir,
+        destinationDir,
+        writtenFiles,
+        ownedDirectories,
+        toolReservedDestinations,
+        options.repoRoot,
+        options.resolveFileConflict,
+      );
     }
-
-    assertBundleTargetDirectory(sourceDir, target.path);
-    fs.mkdirSync(destinationDir, { recursive: true });
-
-    await copyDirectory(
-      sourceDir,
-      destinationDir,
-      destinationDir,
-      writtenFiles,
-      ownedDirectories,
-      reservedDestinations,
-      options.repoRoot,
-      options.resolveFileConflict,
-    );
   }
 
   writtenFiles.sort((left, right) => {

@@ -159,10 +159,12 @@ async function applyBundle(options: {
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
+  const manifestTools = Object.keys(cachedBundle.manifest.tools).join(", ");
+
   registry = upsertRepoState(registry, gitContext.repoFingerprint, {
     repo_root: gitContext.repoRoot,
     desired_state: {
-      tool: cachedBundle.manifest.tool,
+      tool: manifestTools,
       bundle: cachedBundle.bundle,
     },
   });
@@ -176,7 +178,7 @@ async function applyBundle(options: {
     repo_fingerprint: gitContext.repoFingerprint,
     path: gitContext.worktreeRoot,
     materialized_state: {
-      tool: cachedBundle.manifest.tool,
+      tool: manifestTools,
       bundle: cachedBundle.bundle,
       files: materializedState.files,
       file_fingerprints: captureManagedFileFingerprints(
@@ -189,7 +191,7 @@ async function applyBundle(options: {
   });
   writeRegistryFile(options.registryFile, registry);
 
-  return `Applied ${cachedBundle.bundle} for ${cachedBundle.manifest.tool}`;
+  return `Applied ${cachedBundle.bundle} for ${manifestTools}`;
 }
 
 async function cleanWorktree(options: {

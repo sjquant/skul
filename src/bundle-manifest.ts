@@ -10,8 +10,7 @@ export interface BundleManifestTarget {
 
 export interface BundleManifest {
   name: string;
-  tool: ToolName;
-  targets: Partial<Record<ToolTargetName, BundleManifestTarget>>;
+  tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
 }
 
 export interface CachedBundleLayout {
@@ -26,27 +25,33 @@ type UnknownRecord = Record<string, unknown>;
 
 export function parseBundleManifest(input: unknown): BundleManifest {
   const manifest = expectRecord(input, "manifest");
-  const tool = parseToolName(manifest.tool, "tool");
-  const supportedTool = getToolDefinition(tool)!;
-  const targetsInput = expectRecord(manifest.targets, "targets");
+  const toolsInput = expectRecord(manifest.tools, "tools");
 
-  const targets = Object.fromEntries(
-    Object.entries(targetsInput).map(([targetName, value]) => {
-      if (!(targetName in supportedTool.targets)) {
-        throw new Error(`targets.${targetName} is not supported for tool ${tool}`);
-      }
+  const tools = Object.fromEntries(
+    Object.entries(toolsInput).map(([toolName, targetsInput]) => {
+      const tool = parseToolName(toolName, `tools.${toolName}`);
+      const supportedTool = getToolDefinition(tool)!;
+      const targets = Object.fromEntries(
+        Object.entries(expectRecord(targetsInput, `tools.${toolName}`)).map(([targetName, value]) => {
+          if (!(targetName in supportedTool.targets)) {
+            throw new Error(`tools.${toolName}.${targetName} is not supported for tool ${toolName}`);
+          }
 
-      return [
-        targetName,
-        parseBundleManifestTarget(value, `targets.${targetName}`),
-      ];
+          return [targetName, parseBundleManifestTarget(value, `tools.${toolName}.${targetName}`)];
+        }),
+      ) as Partial<Record<ToolTargetName, BundleManifestTarget>>;
+
+      return [tool, targets];
     }),
-  ) as Partial<Record<ToolTargetName, BundleManifestTarget>>;
+  ) as Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
+
+  if (Object.keys(tools).length === 0) {
+    throw new Error("tools must declare at least one tool");
+  }
 
   return {
     name: expectNonEmptyString(manifest.name, "name"),
-    tool,
-    targets,
+    tools,
   };
 }
 

@@ -5,14 +5,15 @@ import { describe, expect, it } from "vitest";
 import { parseBundleManifest, resolveCachedBundleLayout } from "./bundle-manifest";
 
 describe("parseBundleManifest", () => {
-  it("accepts a claude bundle manifest with relative content directories", () => {
+  it("accepts a single-tool bundle manifest", () => {
     // Given
     const manifest = {
       name: "react-expert",
-      tool: "claude-code",
-      targets: {
-        skills: { path: "skills" },
-        commands: { path: "commands" },
+      tools: {
+        "claude-code": {
+          skills: { path: "skills" },
+          commands: { path: "commands" },
+        },
       },
     };
 
@@ -22,21 +23,27 @@ describe("parseBundleManifest", () => {
     // Then
     expect(parsed).toEqual({
       name: "react-expert",
-      tool: "claude-code",
-      targets: {
-        skills: { path: "skills" },
-        commands: { path: "commands" },
+      tools: {
+        "claude-code": {
+          skills: { path: "skills" },
+          commands: { path: "commands" },
+        },
       },
     });
   });
 
-  it("accepts a codex bundle manifest with skills only", () => {
+  it("accepts a multi-tool bundle manifest", () => {
     // Given
     const manifest = {
-      name: "repo-standards",
-      tool: "codex",
-      targets: {
-        skills: { path: "skills" },
+      name: "react-expert",
+      tools: {
+        "claude-code": {
+          skills: { path: "skills" },
+          commands: { path: "commands" },
+        },
+        cursor: {
+          skills: { path: "skills" },
+        },
       },
     };
 
@@ -45,10 +52,15 @@ describe("parseBundleManifest", () => {
 
     // Then
     expect(parsed).toEqual({
-      name: "repo-standards",
-      tool: "codex",
-      targets: {
-        skills: { path: "skills" },
+      name: "react-expert",
+      tools: {
+        "claude-code": {
+          skills: { path: "skills" },
+          commands: { path: "commands" },
+        },
+        cursor: {
+          skills: { path: "skills" },
+        },
       },
     });
   });
@@ -58,45 +70,49 @@ describe("parseBundleManifest", () => {
       "unsupported tool",
       {
         name: "react-expert",
-        tool: "copilot",
-        targets: {
-          skills: { path: "skills" },
+        tools: {
+          copilot: { skills: { path: "skills" } },
         },
       },
-      /tool must be one of/i,
+      /tools\.copilot must be one of/i,
     ],
     [
       "unsupported target for the selected tool",
       {
         name: "repo-standards",
-        tool: "codex",
-        targets: {
-          commands: { path: "commands" },
+        tools: {
+          codex: { commands: { path: "commands" } },
         },
       },
-      /targets\.commands is not supported for tool codex/i,
+      /tools\.codex\.commands is not supported for tool codex/i,
     ],
     [
       "absolute target content path",
       {
         name: "react-expert",
-        tool: "claude-code",
-        targets: {
-          skills: { path: "/tmp/skills" },
+        tools: {
+          "claude-code": { skills: { path: "/tmp/skills" } },
         },
       },
-      /targets\.skills\.path must be a relative path/i,
+      /tools\.claude-code\.skills\.path must be a relative path/i,
     ],
     [
       "target content path with parent traversal",
       {
         name: "react-expert",
-        tool: "claude-code",
-        targets: {
-          skills: { path: "../skills" },
+        tools: {
+          "claude-code": { skills: { path: "../skills" } },
         },
       },
-      /targets\.skills\.path must be a relative path/i,
+      /tools\.claude-code\.skills\.path must be a relative path/i,
+    ],
+    [
+      "empty tools map",
+      {
+        name: "react-expert",
+        tools: {},
+      },
+      /tools must declare at least one tool/i,
     ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given

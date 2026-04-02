@@ -104,13 +104,11 @@ describe("run", () => {
 
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
 
     // When / Then
@@ -131,8 +129,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
 
@@ -159,15 +156,13 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
     writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
       name: "next-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/next/SKILL.md", "# next\n");
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
@@ -205,15 +200,13 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
     writeBundleFile(
       homeDir,
@@ -262,8 +255,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
@@ -295,8 +287,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
@@ -331,8 +322,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
@@ -362,8 +352,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
@@ -427,8 +416,7 @@ describe("run", () => {
     const linkedWorktreeRoot = createLinkedWorktree(repoRoot);
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
@@ -454,8 +442,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
@@ -487,8 +474,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" }, commands: { path: "commands" } },
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
@@ -522,8 +508,7 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
@@ -550,14 +535,12 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
       name: "next-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/next/SKILL.md", "# next\n");
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
@@ -585,14 +568,12 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
     writeBundleFile(
       homeDir,
@@ -649,13 +630,11 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
 
     // When / Then
