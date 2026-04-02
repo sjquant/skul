@@ -6,22 +6,24 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type BundleManifest } from "./bundle-manifest";
 import { materializeBundle } from "./bundle-materialization";
+import { type ToolName } from "./tool-mapping";
 
 const tempDirs: string[] = [];
-const skillCases: Array<[string, string]> = [
+const skillCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/skills"],
   ["cursor", ".cursor/skills"],
   ["opencode", ".opencode/skills"],
   ["codex", ".agents/skills"],
 ];
-const commandCases: Array<[string, string]> = [
+const commandCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/commands"],
   ["cursor", ".cursor/commands"],
   ["opencode", ".opencode/commands"],
 ];
-const agentCases: Array<[string, string]> = [
+const agentCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/agents"],
   ["opencode", ".opencode/agents"],
+  ["codex", ".codex/agents"],
 ];
 
 afterEach(() => {
@@ -45,8 +47,8 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tools: { [tool]: { skills: { path: "skills" } } },
-      } as BundleManifest,
+        tools: { [tool]: { skills: { path: "skills" } } } as BundleManifest["tools"],
+      },
     });
 
     // Then
@@ -101,8 +103,8 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "review-pack",
-        tools: { [tool]: { commands: { path: "commands" } } },
-      } as BundleManifest,
+        tools: { [tool]: { commands: { path: "commands" } } } as BundleManifest["tools"],
+      },
     });
 
     // Then
@@ -125,8 +127,8 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "review-pack",
-        tools: { [tool]: { agents: { path: "agents" } } },
-      } as BundleManifest,
+        tools: { [tool]: { agents: { path: "agents" } } } as BundleManifest["tools"],
+      },
     });
 
     // Then
@@ -255,6 +257,74 @@ describe("materializeBundle", () => {
 
     // When / Then
     await expect(materialize).rejects.toThrowError(expectedMessage);
+  });
+
+  it("throws on conflict when no resolveFileConflict callback is provided", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When / Then
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          name: "react-expert",
+          tools: { "claude-code": { skills: { path: "skills" } } },
+        },
+      }),
+    ).rejects.toThrowError(/conflict detected/i);
+  });
+
+  it("materializes files into each tool's native directory for a multi-tool manifest", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        name: "react-expert",
+        tools: {
+          "claude-code": { skills: { path: "skills" } },
+          cursor: { skills: { path: "skills" } },
+        },
+      },
+    });
+
+    // Then
+    expect(result.files).toEqual([
+      ".claude/skills/react/SKILL.md",
+      ".cursor/skills/react/SKILL.md",
+    ]);
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+  });
+
+  it("throws when the bundle contains a symlink", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    fs.mkdirSync(path.join(bundleDir, "skills"), { recursive: true });
+    fs.symlinkSync("/etc/passwd", path.join(bundleDir, "skills", "SKILL.md"));
+
+    // When / Then
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          name: "react-expert",
+          tools: { "claude-code": { skills: { path: "skills" } } },
+        },
+      }),
+    ).rejects.toThrowError(/symlink/i);
   });
 });
 

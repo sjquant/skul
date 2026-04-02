@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { getToolDefinition, listToolDefinitions, type ToolName, type ToolTargetName } from "./tool-mapping";
+import { listToolDefinitions, type ToolDefinition, type ToolName, type ToolTargetName } from "./tool-mapping";
 
 const MANIFEST_FILE_NAME = "manifest.json";
 
@@ -29,8 +29,7 @@ export function parseBundleManifest(input: unknown): BundleManifest {
 
   const tools = Object.fromEntries(
     Object.entries(toolsInput).map(([toolName, targetsInput]) => {
-      const tool = parseToolName(toolName, `tools.${toolName}`);
-      const supportedTool = getToolDefinition(tool)!;
+      const toolDef = parseToolDefinition(toolName, `tools.${toolName}`);
       const toolTargetsInput = expectRecord(targetsInput, `tools.${toolName}`);
 
       if (Object.keys(toolTargetsInput).length === 0) {
@@ -39,15 +38,15 @@ export function parseBundleManifest(input: unknown): BundleManifest {
 
       const targets = Object.fromEntries(
         Object.entries(toolTargetsInput).map(([targetName, value]) => {
-          if (!(targetName in supportedTool.targets)) {
-            throw new Error(`tools.${toolName}.${targetName} is not supported for tool ${toolName}`);
+          if (!(targetName in toolDef.targets)) {
+            throw new Error(`tools.${toolDef.name}.${targetName} is not supported for tool ${toolDef.name}`);
           }
 
-          return [targetName, parseBundleManifestTarget(value, `tools.${toolName}.${targetName}`)];
+          return [targetName, parseBundleManifestTarget(value, `tools.${toolDef.name}.${targetName}`)];
         }),
       ) as Partial<Record<ToolTargetName, BundleManifestTarget>>;
 
-      return [tool, targets];
+      return [toolDef.name, targets];
     }),
   ) as Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
 
@@ -90,16 +89,16 @@ function parseBundleManifestTarget(input: unknown, label: string): BundleManifes
   };
 }
 
-function parseToolName(input: unknown, label: string): ToolName {
+function parseToolDefinition(input: unknown, label: string): ToolDefinition {
   const value = expectNonEmptyString(input, label);
   const tools = listToolDefinitions();
-  const supportedTool = tools.find((tool) => tool.name === value);
+  const toolDef = tools.find((t) => t.name === value);
 
-  if (supportedTool) {
-    return supportedTool.name;
+  if (toolDef) {
+    return toolDef;
   }
 
-  throw new Error(`${label} must be one of: ${tools.map((tool) => tool.name).join(", ")}`);
+  throw new Error(`${label} must be one of: ${tools.map((t) => t.name).join(", ")}`);
 }
 
 function expectRecord(input: unknown, label: string): UnknownRecord {
@@ -130,8 +129,9 @@ function expectSinglePathSegment(input: unknown, label: string): string {
 
 function expectRelativePath(input: unknown, label: string): string {
   const value = expectNonEmptyString(input, label);
+  const normalized = path.normalize(value);
 
-  if (path.isAbsolute(value) || value === ".." || value.startsWith("../")) {
+  if (path.isAbsolute(value) || normalized === "." || normalized.startsWith("..")) {
     throw new Error(`${label} must be a relative path`);
   }
 

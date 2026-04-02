@@ -122,6 +122,32 @@ describe("parseBundleManifest", () => {
       },
       /tools\.claude-code must declare at least one target/i,
     ],
+    [
+      "target content path equal to dot",
+      {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: "." } } },
+      },
+      /tools\.claude-code\.skills\.path must be a relative path/i,
+    ],
+    [
+      "target content path with embedded parent traversal",
+      {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: "foo/../../etc/passwd" } } },
+      },
+      /tools\.claude-code\.skills\.path must be a relative path/i,
+    ],
+    [
+      "null input",
+      null,
+      /manifest must be an object/i,
+    ],
+    [
+      "tools is an array",
+      { name: "react-expert", tools: [{ "claude-code": { skills: { path: "skills" } } }] },
+      /tools must be an object/i,
+    ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given
     const parse = () => parseBundleManifest(input);

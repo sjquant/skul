@@ -38,8 +38,13 @@ export async function materializeBundle(options: {
         continue;
       }
 
+      const destinationDirExisted = fs.existsSync(destinationDir);
       assertBundleTargetDirectory(sourceDir, target.path);
       fs.mkdirSync(destinationDir, { recursive: true });
+
+      if (!destinationDirExisted) {
+        ownedDirectories.add(path.relative(options.repoRoot, destinationDir));
+      }
 
       await copyDirectory(
         sourceDir,
@@ -81,6 +86,10 @@ async function copyDirectory(
     | undefined,
 ): Promise<void> {
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) {
+      throw new Error(`Bundle contains a symlink which is not allowed: ${path.join(sourceDir, entry.name)}`);
+    }
+
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
 
