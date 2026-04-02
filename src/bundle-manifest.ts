@@ -31,8 +31,14 @@ export function parseBundleManifest(input: unknown): BundleManifest {
     Object.entries(toolsInput).map(([toolName, targetsInput]) => {
       const tool = parseToolName(toolName, `tools.${toolName}`);
       const supportedTool = getToolDefinition(tool)!;
+      const toolTargetsInput = expectRecord(targetsInput, `tools.${toolName}`);
+
+      if (Object.keys(toolTargetsInput).length === 0) {
+        throw new Error(`tools.${toolName} must declare at least one target`);
+      }
+
       const targets = Object.fromEntries(
-        Object.entries(expectRecord(targetsInput, `tools.${toolName}`)).map(([targetName, value]) => {
+        Object.entries(toolTargetsInput).map(([targetName, value]) => {
           if (!(targetName in supportedTool.targets)) {
             throw new Error(`tools.${toolName}.${targetName} is not supported for tool ${toolName}`);
           }
@@ -86,14 +92,14 @@ function parseBundleManifestTarget(input: unknown, label: string): BundleManifes
 
 function parseToolName(input: unknown, label: string): ToolName {
   const value = expectNonEmptyString(input, label);
-  const supportedTool = listToolDefinitions().find((tool) => tool.name === value);
+  const tools = listToolDefinitions();
+  const supportedTool = tools.find((tool) => tool.name === value);
 
   if (supportedTool) {
     return supportedTool.name;
   }
 
-  const supportedTools = listToolDefinitions().map((tool) => tool.name).join(", ");
-  throw new Error(`${label} must be one of: ${supportedTools}`);
+  throw new Error(`${label} must be one of: ${tools.map((tool) => tool.name).join(", ")}`);
 }
 
 function expectRecord(input: unknown, label: string): UnknownRecord {

@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { type BundleManifest } from "./bundle-manifest";
 import { materializeBundle } from "./bundle-materialization";
 
 const tempDirs: string[] = [];
@@ -44,11 +45,8 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tool: tool as "claude-code" | "cursor" | "opencode" | "codex",
-        targets: {
-          skills: { path: "skills" },
-        },
-      },
+        tools: { [tool]: { skills: { path: "skills" } } },
+      } as BundleManifest,
     });
 
     // Then
@@ -79,10 +77,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tool: "claude-code",
-        targets: {
-          skills: { path: "skills" },
-        },
+        tools: { "claude-code": { skills: { path: "skills" } } },
       },
     });
 
@@ -106,11 +101,8 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "review-pack",
-        tool: tool as "claude-code" | "cursor" | "opencode",
-        targets: {
-          commands: { path: "commands" },
-        },
-      },
+        tools: { [tool]: { commands: { path: "commands" } } },
+      } as BundleManifest,
     });
 
     // Then
@@ -133,11 +125,8 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "review-pack",
-        tool: tool as "claude-code" | "opencode",
-        targets: {
-          agents: { path: "agents" },
-        },
-      },
+        tools: { [tool]: { agents: { path: "agents" } } },
+      } as BundleManifest,
     });
 
     // Then
@@ -160,10 +149,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tool: "claude-code",
-        targets: {
-          skills: { path: "skills" },
-        },
+        tools: { "claude-code": { skills: { path: "skills" } } },
       },
       resolveFileConflict: async () => ({
         action: "rename",
@@ -194,10 +180,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tool: "claude-code",
-        targets: {
-          skills: { path: "skills" },
-        },
+        tools: { "claude-code": { skills: { path: "skills" } } },
       },
       resolveFileConflict: async () => ({ action: "prefix", prefix: "bundle" }),
     });
@@ -222,10 +205,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tool: "claude-code",
-        targets: {
-          skills: { path: "skills" },
-        },
+        tools: { "claude-code": { skills: { path: "skills" } } },
       },
       resolveFileConflict: async () => ({ action: "skip" }),
     });
@@ -246,10 +226,7 @@ describe("materializeBundle", () => {
           bundleDir,
           manifest: {
             name: "react-expert",
-            tool: "claude-code",
-            targets: {
-              skills: { path: "skills" },
-            },
+            tools: { "claude-code": { skills: { path: "skills" } } },
           },
         }),
       /bundle target path does not exist/i,
@@ -264,10 +241,7 @@ describe("materializeBundle", () => {
           bundleDir,
           manifest: {
             name: "react-expert",
-            tool: "claude-code",
-            targets: {
-              skills: { path: "skills" },
-            },
+            tools: { "claude-code": { skills: { path: "skills" } } },
           },
         });
       },

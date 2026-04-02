@@ -25,9 +25,8 @@ export async function materializeBundle(options: {
   const ownedDirectories = new Set<string>();
 
   for (const [toolName, targets] of Object.entries(options.manifest.tools)) {
-    const toolReservedDestinations = new Set<string>();
-
     for (const [targetName, target] of Object.entries(targets)) {
+      const reservedDestinations = new Set<string>();
       const sourceDir = path.join(options.bundleDir, target.path);
       const destinationDir = resolveToolTargetPath(
         toolName as ToolName,
@@ -48,7 +47,7 @@ export async function materializeBundle(options: {
         destinationDir,
         writtenFiles,
         ownedDirectories,
-        toolReservedDestinations,
+        reservedDestinations,
         options.repoRoot,
         options.resolveFileConflict,
       );

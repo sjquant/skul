@@ -114,6 +114,14 @@ describe("parseBundleManifest", () => {
       },
       /tools must declare at least one tool/i,
     ],
+    [
+      "empty targets for a tool",
+      {
+        name: "react-expert",
+        tools: { "claude-code": {} },
+      },
+      /tools\.claude-code must declare at least one target/i,
+    ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given
     const parse = () => parseBundleManifest(input);
