@@ -19,12 +19,16 @@ export async function materializeBundle(options: {
   repoRoot: string;
   bundleDir: string;
   manifest: BundleManifest;
+  tools?: string[];
   resolveFileConflict?: (conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>;
 }): Promise<MaterializeBundleResult> {
   const writtenFiles: string[] = [];
   const ownedDirectories = new Set<string>();
+  const toolEntries = options.tools && options.tools.length > 0
+    ? Object.entries(options.manifest.tools).filter(([toolName]) => options.tools!.includes(toolName))
+    : Object.entries(options.manifest.tools);
 
-  for (const [toolName, targets] of Object.entries(options.manifest.tools)) {
+  for (const [toolName, targets] of toolEntries) {
     for (const [targetName, target] of Object.entries(targets)) {
       const reservedDestinations = new Set<string>();
       const sourceDir = path.join(options.bundleDir, target.path);

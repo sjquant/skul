@@ -14,7 +14,7 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "add";
-      options: { mode: "stealth"; bundle: string; source?: string };
+      options: { mode: "stealth"; bundle: string; source?: string; tools: string[] };
     };
 
 export type FileConflictResolution =
@@ -189,6 +189,10 @@ export async function parseCliArgs(
   return context.result ?? { kind: "help" };
 }
 
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 function createProgram(
   prompts: PromptClient,
   context: { result?: CliParseResult } = {},
@@ -210,12 +214,15 @@ function createProgram(
     .description("Apply bundle in stealth mode")
     .argument("[source]")
     .argument("[bundle]")
-    .action(async (source?: string, bundle?: string) => {
+    .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as string[])
+    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: string[] }) => {
+      const tools = opts.tool;
+
       if (!source && !bundle) {
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: await prompts.selectBundle() },
+          options: { mode: "stealth", bundle: await prompts.selectBundle(), tools },
         };
         return;
       }
@@ -224,7 +231,7 @@ function createProgram(
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: source },
+          options: { mode: "stealth", bundle: source, tools },
         };
         return;
       }
@@ -232,7 +239,7 @@ function createProgram(
       context.result = {
         kind: "command",
         command: "add",
-        options: { mode: "stealth", source, bundle: bundle! },
+        options: { mode: "stealth", source, bundle: bundle!, tools },
       };
     });
 

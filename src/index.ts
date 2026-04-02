@@ -42,6 +42,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       libraryDir: stateLayout.libraryDir,
       bundle: parsed.options.bundle,
       source: parsed.options.source,
+      tools: parsed.options.tools,
     });
   }
 
@@ -74,7 +75,14 @@ function renderBundleList(options: { libraryDir: string }): string {
     return ["Available Bundles", "", "No cached bundles found."].join("\n");
   }
 
-  return ["Available Bundles", "", ...bundles.map((bundle) => bundle.bundle)].join("\n");
+  return [
+    "Available Bundles",
+    "",
+    ...bundles.map((bundle) => {
+      const tools = Object.keys(bundle.manifest.tools).join(", ");
+      return `${bundle.bundle} (${tools})`;
+    }),
+  ].join("\n");
 }
 
 function renderStatus(options: {
@@ -126,6 +134,7 @@ async function applyBundle(options: {
   libraryDir: string;
   bundle: string;
   source?: string;
+  tools: string[];
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -134,6 +143,18 @@ async function applyBundle(options: {
     bundle: options.bundle,
     source: options.source,
   });
+
+  if (options.tools.length > 0) {
+    const availableTools = Object.keys(cachedBundle.manifest.tools);
+    const unknownTools = options.tools.filter((t) => !availableTools.includes(t));
+
+    if (unknownTools.length > 0) {
+      throw new Error(
+        `Bundle does not support tool(s): ${unknownTools.join(", ")}\nSupported tools: ${availableTools.join(", ")}`,
+      );
+    }
+  }
+
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
 
@@ -156,15 +177,18 @@ async function applyBundle(options: {
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
+    tools: options.tools.length > 0 ? options.tools : undefined,
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
-  const manifestTools = Object.keys(cachedBundle.manifest.tools).join(", ");
+  const selectedTools =
+    options.tools.length > 0 ? options.tools : Object.keys(cachedBundle.manifest.tools);
+  const toolLabel = selectedTools.join(", ");
 
   registry = upsertRepoState(registry, gitContext.repoFingerprint, {
     repo_root: gitContext.repoRoot,
     desired_state: {
-      tool: manifestTools,
+      tool: toolLabel,
       bundle: cachedBundle.bundle,
     },
   });
@@ -178,7 +202,7 @@ async function applyBundle(options: {
     repo_fingerprint: gitContext.repoFingerprint,
     path: gitContext.worktreeRoot,
     materialized_state: {
-      tool: manifestTools,
+      tool: toolLabel,
       bundle: cachedBundle.bundle,
       files: materializedState.files,
       file_fingerprints: captureManagedFileFingerprints(
@@ -191,7 +215,7 @@ async function applyBundle(options: {
   });
   writeRegistryFile(options.registryFile, registry);
 
-  return `Applied ${cachedBundle.bundle} for ${manifestTools}`;
+  return `Applied ${cachedBundle.bundle} for ${toolLabel}`;
 }
 
 async function cleanWorktree(options: {

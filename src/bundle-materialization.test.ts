@@ -338,6 +338,61 @@ describe("materializeBundle", () => {
     expect(fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
   });
 
+  it("materializes only the selected tool when tools filter is provided", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        name: "react-expert",
+        tools: {
+          "claude-code": { skills: { path: "skills" } },
+          cursor: { skills: { path: "skills" } },
+        },
+      },
+      tools: ["claude-code"],
+    });
+
+    // Then
+    expect(result.files).toEqual([".claude/skills/react/SKILL.md"]);
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(fs.existsSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+  });
+
+  it("materializes all tools when tools filter is empty", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        name: "react-expert",
+        tools: {
+          "claude-code": { skills: { path: "skills" } },
+          cursor: { skills: { path: "skills" } },
+        },
+      },
+      tools: [],
+    });
+
+    // Then
+    expect(result.files).toEqual([
+      ".claude/skills/react/SKILL.md",
+      ".cursor/skills/react/SKILL.md",
+    ]);
+  });
+
   it("throws when the bundle contains a symlink", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");

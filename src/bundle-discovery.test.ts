@@ -54,13 +54,11 @@ describe("listCachedBundles", () => {
 
     writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeManifest(libraryDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
-      tool: "codex",
-      targets: { skills: { path: "skills" } },
+      tools: { codex: { skills: { path: "skills" } } },
     });
 
     // When
@@ -81,8 +79,7 @@ describe("listCachedBundles", () => {
         ),
         manifest: {
           name: "react-expert",
-          tool: "claude-code",
-          targets: { skills: { path: "skills" } },
+          tools: { "claude-code": { skills: { path: "skills" } } },
         },
       },
       {
@@ -98,8 +95,7 @@ describe("listCachedBundles", () => {
         ),
         manifest: {
           name: "repo-standards",
-          tool: "codex",
-          targets: { skills: { path: "skills" } },
+          tools: { codex: { skills: { path: "skills" } } },
         },
       },
     ]);
@@ -127,8 +123,7 @@ describe("findCachedBundle", () => {
 
     writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
 
     // When
@@ -151,8 +146,7 @@ describe("findCachedBundle", () => {
 
     writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tool: "claude-code",
-      targets: { skills: { path: "skills" } },
+      tools: { "claude-code": { skills: { path: "skills" } } },
     });
 
     // When
@@ -176,13 +170,11 @@ describe("findCachedBundle", () => {
       (libraryDir: string) => {
         writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
           name: "react-expert",
-          tool: "claude-code",
-          targets: { skills: { path: "skills" } },
+          tools: { "claude-code": { skills: { path: "skills" } } },
         });
         writeManifest(libraryDir, "github.com/acme/shared-bundles", "react-expert", {
           name: "react-expert",
-          tool: "claude-code",
-          targets: { skills: { path: "skills" } },
+          tools: { "claude-code": { skills: { path: "skills" } } },
         });
 
         return findCachedBundle({ libraryDir, bundle: "react-expert" });

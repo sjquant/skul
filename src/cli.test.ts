@@ -50,14 +50,14 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert" },
+      options: { mode: "stealth", bundle: "react-expert", tools: [] },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert" },
+      options: { mode: "stealth", bundle: "react-expert", tools: [] },
     });
 
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
@@ -67,7 +67,28 @@ describe("parseCliArgs", () => {
         mode: "stealth",
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
+        tools: [],
       },
+    });
+  });
+
+  it("parses --tool flag as a single selected tool", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code"] },
+    });
+  });
+
+  it("collects multiple --tool flags into an array", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs(["add", "react-expert", "--tool", "claude-code", "--tool", "cursor"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code", "cursor"] },
     });
   });
 
@@ -112,7 +133,9 @@ describe("run", () => {
     });
 
     // When / Then
-    await expect(run(["list"], { homeDir })).resolves.toBe(renderBundleListOutput("react-expert", "repo-standards"));
+    await expect(run(["list"], { homeDir })).resolves.toBe(
+      renderBundleListOutput("react-expert (claude-code)", "repo-standards (codex)"),
+    );
   });
 
   it("reports when no cached bundles are available", async () => {
@@ -640,6 +663,105 @@ describe("run", () => {
     // When / Then
     await expect(run(["add", "missing-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
       /Bundle not found: missing-bundle[\s\S]*Available bundles:[\s\S]*react-expert[\s\S]*repo-standards/i,
+    );
+  });
+
+  it("applies only the selected tool when --tool is specified", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: "skills" } },
+        cursor: { skills: { path: "skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+
+    // When
+    await expect(
+      run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(pathExists(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state).toMatchObject({
+      tool: "claude-code",
+      bundle: "react-expert",
+      files: [".claude/skills/react/SKILL.md"],
+    });
+  });
+
+  it("applies multiple selected tools when multiple --tool flags are provided", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: "skills" } },
+        cursor: { skills: { path: "skills" } },
+        codex: { skills: { path: "skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+
+    // When
+    await expect(
+      run(["add", "react-expert", "--tool", "claude-code", "--tool", "cursor"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code, cursor");
+
+    // Then
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(pathExists(path.join(repoRoot, ".agents", "skills", "react", "SKILL.md"))).toBe(false);
+  });
+
+  it("rejects --tool names that are not supported by the bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+
+    // When / Then
+    await expect(
+      run(["add", "react-expert", "--tool", "cursor"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(/Bundle does not support tool\(s\): cursor[\s\S]*Supported tools: claude-code/i);
+  });
+
+  it("lists bundles with their supported tools", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } }, cursor: { skills: { path: "skills" } } },
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: "skills" } } },
+    });
+
+    // When / Then
+    await expect(run(["list"], { homeDir })).resolves.toBe(
+      renderBundleListOutput("react-expert (claude-code, cursor)", "repo-standards (codex)"),
     );
   });
 
