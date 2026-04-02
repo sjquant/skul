@@ -173,7 +173,7 @@ describe("run", () => {
     );
   });
 
-  it("replaces the previous bundle for the same tool before applying the new one", async () => {
+  it("coexists with a previously added bundle for the same tool", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -195,29 +195,26 @@ describe("run", () => {
       "Applied next-expert for claude-code",
     );
 
-    // Then
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"), "utf8")).toBe(
-      "# next\n",
-    );
+    // Then: both bundles coexist on disk
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "commands", "review.md"), "utf8")).toBe("# review\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"), "utf8")).toBe("# next\n");
     const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
-    expect(excludeFile).toContain(
-      ["# >>> SKUL START", ".claude/skills/next/SKILL.md", "# <<< SKUL END"].join("\n"),
-    );
-    expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
-    expect(excludeFile).not.toContain(".claude/commands/review.md");
+    expect(excludeFile).toContain(".claude/skills/react/SKILL.md");
+    expect(excludeFile).toContain(".claude/commands/review.md");
+    expect(excludeFile).toContain(".claude/skills/next/SKILL.md");
 
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
+        "react-expert": { tools: { "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) } } },
         "next-expert": { tools: { "claude-code": { files: [".claude/skills/next/SKILL.md"] } } },
       },
     });
   });
 
-  it("replaces the previous bundle when the incoming bundle targets a different tool", async () => {
+  it("coexists with a previously added bundle targeting a different tool", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -245,28 +242,26 @@ describe("run", () => {
       "Applied repo-standards for codex",
     );
 
-    // Then
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
+    // Then: both bundles coexist on disk
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "commands", "review.md"), "utf8")).toBe("# review\n");
     expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"), "utf8")).toBe(
       "# next task\n",
     );
     const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
-    expect(excludeFile).toContain(
-      ["# >>> SKUL START", ".agents/skills/next-task/SKILL.md", "# <<< SKUL END"].join("\n"),
-    );
-    expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
-    expect(excludeFile).not.toContain(".claude/commands/review.md");
+    expect(excludeFile).toContain(".claude/skills/react/SKILL.md");
+    expect(excludeFile).toContain(".agents/skills/next-task/SKILL.md");
 
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repo = registry.repos[Object.keys(registry.repos)[0]];
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(repo.desired_state).toEqual([{ bundle: "repo-standards" }]);
+    expect(repo.desired_state).toEqual(
+      expect.arrayContaining([{ bundle: "react-expert" }, { bundle: "repo-standards" }]),
+    );
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
-        "repo-standards": {
-          tools: { codex: { files: [".agents/skills/next-task/SKILL.md"] } },
-        },
+        "react-expert": { tools: { "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) } } },
+        "repo-standards": { tools: { codex: { files: [".agents/skills/next-task/SKILL.md"] } } },
       },
     });
   });
@@ -552,17 +547,13 @@ describe("run", () => {
       tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
-      name: "next-expert",
-      tools: { "claude-code": { skills: { path: "skills" } } },
-    });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/next/SKILL.md", "# next\n");
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    // Modify the managed file
     fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
 
-    // When / Then
+    // When / Then: re-adding the same bundle should prompt and abort
     await expect(
-      run(["add", "next-expert"], {
+      run(["add", "react-expert"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -570,38 +561,26 @@ describe("run", () => {
         }),
       }),
     ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"))).toBe(false);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "# modified\n",
     );
   });
 
-  it("aborts cross-tool replacement when a modified managed file is kept", async () => {
+  it("aborts re-add when a managed file was modified and the user declines replacement", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: "skills" } } },
+      tools: { "claude-code": { skills: { path: "skills" } }, codex: { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { skills: { path: "skills" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "skills/next-task/SKILL.md",
-      "# next task\n",
-    );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
 
-    // When / Then
+    // When / Then: re-adding the same bundle+tool should prompt and abort
     await expect(
-      run(["add", "repo-standards"], {
+      run(["add", "react-expert", "--tool", "claude-code"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -609,7 +588,6 @@ describe("run", () => {
         }),
       }),
     ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
-    expect(pathExists(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"))).toBe(false);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "# modified\n",
     );
@@ -801,6 +779,7 @@ function createRepository(): string {
   runGit(repoRoot, ["init", "--initial-branch=main"]);
   runGit(repoRoot, ["config", "user.name", "Skul Test"]);
   runGit(repoRoot, ["config", "user.email", "skul@example.com"]);
+  runGit(repoRoot, ["config", "commit.gpgsign", "false"]);
   fs.writeFileSync(path.join(repoRoot, "README.md"), "# test\n");
   runGit(repoRoot, ["add", "README.md"]);
   runGit(repoRoot, ["commit", "-m", "init"]);

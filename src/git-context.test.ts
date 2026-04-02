@@ -73,6 +73,7 @@ function createRepository(): string {
   runGit(cwd, ["init", "--initial-branch=main"]);
   runGit(cwd, ["config", "user.name", "Skul Test"]);
   runGit(cwd, ["config", "user.email", "skul@example.com"]);
+  runGit(cwd, ["config", "commit.gpgsign", "false"]);
 
   fs.writeFileSync(path.join(cwd, "README.md"), "# test\n");
   runGit(cwd, ["add", "README.md"]);
