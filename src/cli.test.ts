@@ -50,14 +50,14 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert" },
+      options: { mode: "stealth", bundle: "react-expert", tools: [] },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert" },
+      options: { mode: "stealth", bundle: "react-expert", tools: [] },
     });
 
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
@@ -67,7 +67,28 @@ describe("parseCliArgs", () => {
         mode: "stealth",
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
+        tools: [],
       },
+    });
+  });
+
+  it("parses --tool flag as a single selected tool", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code"] },
+    });
+  });
+
+  it("collects multiple --tool flags into an array", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs(["add", "react-expert", "--tool", "claude-code", "--tool", "cursor"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code", "cursor"] },
     });
   });
 
@@ -112,7 +133,9 @@ describe("run", () => {
     });
 
     // When / Then
-    await expect(run(["list"], { homeDir })).resolves.toBe(renderBundleListOutput("react-expert", "repo-standards"));
+    await expect(run(["list"], { homeDir })).resolves.toBe(
+      renderBundleListOutput("react-expert (claude-code)", "repo-standards (codex)"),
+    );
   });
 
   it("reports when no cached bundles are available", async () => {
@@ -150,7 +173,7 @@ describe("run", () => {
     );
   });
 
-  it("replaces the previous bundle for the same tool before applying the new one", async () => {
+  it("coexists with a previously added bundle for the same tool", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -172,29 +195,26 @@ describe("run", () => {
       "Applied next-expert for claude-code",
     );
 
-    // Then
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"), "utf8")).toBe(
-      "# next\n",
-    );
+    // Then: both bundles coexist on disk
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "commands", "review.md"), "utf8")).toBe("# review\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"), "utf8")).toBe("# next\n");
     const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
-    expect(excludeFile).toContain(
-      ["# >>> SKUL START", ".claude/skills/next/SKILL.md", "# <<< SKUL END"].join("\n"),
-    );
-    expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
-    expect(excludeFile).not.toContain(".claude/commands/review.md");
+    expect(excludeFile).toContain(".claude/skills/react/SKILL.md");
+    expect(excludeFile).toContain(".claude/commands/review.md");
+    expect(excludeFile).toContain(".claude/skills/next/SKILL.md");
 
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state).toMatchObject({
-      tool: "claude-code",
-      bundle: "next-expert",
-      files: [".claude/skills/next/SKILL.md"],
+      bundles: {
+        "react-expert": { tools: { "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) } } },
+        "next-expert": { tools: { "claude-code": { files: [".claude/skills/next/SKILL.md"] } } },
+      },
     });
   });
 
-  it("replaces the previous bundle when the incoming bundle targets a different tool", async () => {
+  it("coexists with a previously added bundle targeting a different tool", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -222,30 +242,27 @@ describe("run", () => {
       "Applied repo-standards for codex",
     );
 
-    // Then
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
+    // Then: both bundles coexist on disk
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "commands", "review.md"), "utf8")).toBe("# review\n");
     expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"), "utf8")).toBe(
       "# next task\n",
     );
     const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
-    expect(excludeFile).toContain(
-      ["# >>> SKUL START", ".agents/skills/next-task/SKILL.md", "# <<< SKUL END"].join("\n"),
-    );
-    expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
-    expect(excludeFile).not.toContain(".claude/commands/review.md");
+    expect(excludeFile).toContain(".claude/skills/react/SKILL.md");
+    expect(excludeFile).toContain(".agents/skills/next-task/SKILL.md");
 
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repo = registry.repos[Object.keys(registry.repos)[0]];
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(repo.desired_state).toEqual({
-      tool: "codex",
-      bundle: "repo-standards",
-    });
+    expect(repo.desired_state).toEqual(
+      expect.arrayContaining([{ bundle: "react-expert" }, { bundle: "repo-standards" }]),
+    );
     expect(worktree.materialized_state).toMatchObject({
-      tool: "codex",
-      bundle: "repo-standards",
-      files: [".agents/skills/next-task/SKILL.md"],
+      bundles: {
+        "react-expert": { tools: { "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) } } },
+        "repo-standards": { tools: { codex: { files: [".agents/skills/next-task/SKILL.md"] } } },
+      },
     });
   });
 
@@ -362,7 +379,6 @@ describe("run", () => {
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
       [
         "Repository Desired State",
-        "Tool: claude-code",
         "Bundle: react-expert",
         "",
         "Current Worktree",
@@ -387,10 +403,7 @@ describe("run", () => {
     const gitContext = detectGitContext({ cwd: repoRoot })!;
     const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
       repo_root: fs.realpathSync.native(repoRoot),
-      desired_state: {
-        tool: "claude-code",
-        bundle: "react-expert",
-      },
+      desired_state: [{ bundle: "react-expert" }],
     });
     writeRegistryFile(registryFile, registry);
 
@@ -398,7 +411,6 @@ describe("run", () => {
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
       [
         "Repository Desired State",
-        "Tool: claude-code",
         "Bundle: react-expert",
         "",
         "Current Worktree",
@@ -425,7 +437,6 @@ describe("run", () => {
     await expect(run(["status"], { homeDir, cwd: linkedWorktreeRoot })).resolves.toBe(
       [
         "Repository Desired State",
-        "Tool: claude-code",
         "Bundle: react-expert",
         "",
         "Current Worktree",
@@ -452,7 +463,6 @@ describe("run", () => {
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
       [
         "Repository Desired State",
-        "Tool: claude-code",
         "Bundle: react-expert",
         "",
         "Current Worktree",
@@ -496,10 +506,9 @@ describe("run", () => {
 
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     expect(registry.worktrees).toEqual({});
-    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual({
-      tool: "claude-code",
-      bundle: "react-expert",
-    });
+    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([
+      { bundle: "react-expert" },
+    ]);
   });
 
   it("prompts before cleaning a modified managed file and aborts when the user declines", async () => {
@@ -538,17 +547,13 @@ describe("run", () => {
       tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
-      name: "next-expert",
-      tools: { "claude-code": { skills: { path: "skills" } } },
-    });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/next/SKILL.md", "# next\n");
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    // Modify the managed file
     fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
 
-    // When / Then
+    // When / Then: re-adding the same bundle should prompt and abort
     await expect(
-      run(["add", "next-expert"], {
+      run(["add", "react-expert"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -556,38 +561,26 @@ describe("run", () => {
         }),
       }),
     ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"))).toBe(false);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "# modified\n",
     );
   });
 
-  it("aborts cross-tool replacement when a modified managed file is kept", async () => {
+  it("aborts re-add when a managed file was modified and the user declines replacement", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: "skills" } } },
+      tools: { "claude-code": { skills: { path: "skills" } }, codex: { skills: { path: "skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { skills: { path: "skills" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "skills/next-task/SKILL.md",
-      "# next task\n",
-    );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
 
-    // When / Then
+    // When / Then: re-adding the same bundle+tool should prompt and abort
     await expect(
-      run(["add", "repo-standards"], {
+      run(["add", "react-expert", "--tool", "claude-code"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -595,7 +588,6 @@ describe("run", () => {
         }),
       }),
     ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
-    expect(pathExists(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"))).toBe(false);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "# modified\n",
     );
@@ -640,6 +632,172 @@ describe("run", () => {
     // When / Then
     await expect(run(["add", "missing-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
       /Bundle not found: missing-bundle[\s\S]*Available bundles:[\s\S]*react-expert[\s\S]*repo-standards/i,
+    );
+  });
+
+  it("applies only the selected tool when --tool is specified", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: "skills" } },
+        cursor: { skills: { path: "skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+
+    // When
+    await expect(
+      run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(pathExists(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state).toMatchObject({
+      bundles: {
+        "react-expert": { tools: { "claude-code": { files: [".claude/skills/react/SKILL.md"] } } },
+      },
+    });
+  });
+
+  it("applies multiple selected tools when multiple --tool flags are provided", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: "skills" } },
+        cursor: { skills: { path: "skills" } },
+        codex: { skills: { path: "skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+
+    // When
+    await expect(
+      run(["add", "react-expert", "--tool", "claude-code", "--tool", "cursor"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code, cursor");
+
+    // Then
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(pathExists(path.join(repoRoot, ".agents", "skills", "react", "SKILL.md"))).toBe(false);
+  });
+
+  it("adds a second tool to a bundle, preserving the first tool's files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: "skills" } },
+        cursor: { skills: { path: "skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot });
+
+    // When: add cursor tool to the same bundle
+    await expect(
+      run(["add", "react-expert", "--tool", "cursor"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for cursor");
+
+    // Then: both tools' files exist
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+
+    // And the registry records both tools for this bundle
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state.bundles["react-expert"].tools).toMatchObject({
+      "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+      cursor: { files: [".cursor/skills/react/SKILL.md"] },
+    });
+  });
+
+  it("cleans all materialized bundles from the current worktree", async () => {
+    // Given: two bundles targeting different tools
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: "skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toMatch(/Cleaned/i);
+
+    // Then: all files from both bundles are removed
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"))).toBe(false);
+  });
+
+  it("rejects --tool names that are not supported by the bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+
+    // When / Then
+    await expect(
+      run(["add", "react-expert", "--tool", "cursor"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(/Bundle does not support tool\(s\): cursor[\s\S]*Supported tools: claude-code/i);
+  });
+
+  it("lists bundles with their supported tools", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } }, cursor: { skills: { path: "skills" } } },
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: "skills" } } },
+    });
+
+    // When / Then
+    await expect(run(["list"], { homeDir })).resolves.toBe(
+      renderBundleListOutput("react-expert (claude-code, cursor)", "repo-standards (codex)"),
     );
   });
 
@@ -688,6 +846,7 @@ function createRepository(): string {
   runGit(repoRoot, ["init", "--initial-branch=main"]);
   runGit(repoRoot, ["config", "user.name", "Skul Test"]);
   runGit(repoRoot, ["config", "user.email", "skul@example.com"]);
+  runGit(repoRoot, ["config", "commit.gpgsign", "false"]);
   fs.writeFileSync(path.join(repoRoot, "README.md"), "# test\n");
   runGit(repoRoot, ["add", "README.md"]);
   runGit(repoRoot, ["commit", "-m", "init"]);
