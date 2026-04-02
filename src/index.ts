@@ -173,10 +173,18 @@ async function applyBundle(options: {
   const existingBundleState = existingWorktreeState?.bundles[cachedBundle.bundle];
 
   if (existingBundleState) {
-    const bundlePaths = flattenBundleState(existingBundleState);
+    // When --tool is specified, only replace the selected tools; otherwise replace all tools for this bundle
+    const toolsToReplace = hasToolSelection
+      ? options.tools.filter((t) => t in existingBundleState.tools)
+      : (Object.keys(existingBundleState.tools) as ToolName[]);
+
+    const pathsToReplace = flattenBundleState({
+      tools: Object.fromEntries(toolsToReplace.map((t) => [t, existingBundleState.tools[t]!])),
+    });
+
     const replacementAllowed = await confirmManagedFileRemovals(
       gitContext.worktreeRoot,
-      bundlePaths,
+      pathsToReplace,
       options.prompts,
       "replace",
     );
@@ -185,7 +193,7 @@ async function applyBundle(options: {
       throw new Error("Replacement aborted because a modified managed file was kept");
     }
 
-    removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
+    removeManagedPaths(gitContext.worktreeRoot, pathsToReplace);
   }
 
   const materializedResult = await materializeBundle({
@@ -198,22 +206,35 @@ async function applyBundle(options: {
 
   const toolLabel = (hasToolSelection ? options.tools : availableTools).join(", ");
 
-  // Build per-tool registry entries from the materialization result
+  // Build per-tool registry entries from the materialization result, preserving
+  // existing tool states that were not part of this (partial) materialization run
+  const preservedTools =
+    existingBundleState && hasToolSelection
+      ? Object.fromEntries(
+          Object.entries(existingBundleState.tools).filter(
+            ([t]) => !options.tools.includes(t as ToolName),
+          ),
+        )
+      : {};
+
   const newBundleState: MaterializedBundleState = {
     ...(options.source !== undefined ? { source: options.source } : {}),
-    tools: Object.fromEntries(
-      Object.entries(materializedResult.byTool).map(([toolName, toolResult]) => [
-        toolName,
-        {
-          files: toolResult.files,
-          file_fingerprints: captureManagedFileFingerprints(
-            gitContext.worktreeRoot,
-            toolResult.files,
-          ),
-          ...(toolResult.directories.length > 0 ? { directories: toolResult.directories } : {}),
-        } satisfies MaterializedToolState,
-      ]),
-    ),
+    tools: {
+      ...preservedTools,
+      ...Object.fromEntries(
+        Object.entries(materializedResult.byTool).map(([toolName, toolResult]) => [
+          toolName,
+          {
+            files: toolResult.files,
+            file_fingerprints: captureManagedFileFingerprints(
+              gitContext.worktreeRoot,
+              toolResult.files,
+            ),
+            ...(toolResult.directories.length > 0 ? { directories: toolResult.directories } : {}),
+          } satisfies MaterializedToolState,
+        ]),
+      ),
+    },
   };
 
   // Append to desired_state if this bundle isn't already listed (idempotent add)
@@ -223,9 +244,10 @@ async function applyBundle(options: {
     ...(options.source !== undefined ? { source: options.source } : {}),
     ...(hasToolSelection ? { tools: options.tools } : {}),
   };
-  const newDesiredState = existingDesiredState.some((e) => e.bundle === cachedBundle.bundle)
-    ? existingDesiredState.map((e) => (e.bundle === cachedBundle.bundle ? newDesiredEntry : e))
-    : [...existingDesiredState, newDesiredEntry];
+  const newDesiredState = [
+    ...existingDesiredState.filter((e) => e.bundle !== cachedBundle.bundle),
+    newDesiredEntry,
+  ];
 
   registry = upsertRepoState(registry, gitContext.repoFingerprint, {
     repo_root: gitContext.repoRoot,

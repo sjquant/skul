@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { type ToolName } from "./tool-mapping";
 
+const KNOWN_TOOL_NAMES = new Set<string>(["claude-code", "cursor", "opencode", "codex"]);
+
 export interface DesiredBundleEntry {
   bundle: string;
   source?: string;
@@ -201,9 +203,15 @@ function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEn
   const tools =
     entry.tools === undefined
       ? undefined
-      : expectArray(entry.tools, `${label}.tools`).map((value, index) =>
-          expectNonEmptyString(value, `${label}.tools[${index}]`) as ToolName,
-        );
+      : expectArray(entry.tools, `${label}.tools`).map((value, index) => {
+          const name = expectNonEmptyString(value, `${label}.tools[${index}]`);
+          if (!KNOWN_TOOL_NAMES.has(name)) {
+            throw new Error(
+              `${label}.tools[${index}] must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
+            );
+          }
+          return name as ToolName;
+        });
 
   return {
     bundle,
@@ -251,10 +259,14 @@ function parseMaterializedBundleState(input: unknown, label: string): Materializ
   const toolsInput = expectRecord(bundle.tools, `${label}.tools`);
 
   const tools = Object.fromEntries(
-    Object.entries(toolsInput).map(([toolName, toolValue]) => [
-      toolName,
-      parseMaterializedToolState(toolValue, `${label}.tools.${toolName}`),
-    ]),
+    Object.entries(toolsInput).map(([toolName, toolValue]) => {
+      if (!KNOWN_TOOL_NAMES.has(toolName)) {
+        throw new Error(
+          `${label}.tools.${toolName} must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
+        );
+      }
+      return [toolName, parseMaterializedToolState(toolValue, `${label}.tools.${toolName}`)];
+    }),
   );
 
   return {

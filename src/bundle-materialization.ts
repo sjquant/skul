@@ -13,7 +13,7 @@ import { resolveToolTargetPath, type ToolName, type ToolTargetName } from "./too
 export interface MaterializeBundleResult {
   files: string[];
   directories: string[];
-  byTool: Record<string, { files: string[]; directories: string[] }>;
+  byTool: Partial<Record<ToolName, { files: string[]; directories: string[] }>>;
 }
 
 export async function materializeBundle(options: {
@@ -75,7 +75,7 @@ export async function materializeBundle(options: {
       const depthDifference = pathDepth(right) - pathDepth(left);
       return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
     });
-    byTool[toolName] = { files: toolFiles, directories: sortedToolDirs };
+    byTool[toolName as ToolName] = { files: toolFiles, directories: sortedToolDirs };
     allFiles.push(...toolFiles);
     for (const dir of toolDirectories) allDirectories.add(dir);
   }
