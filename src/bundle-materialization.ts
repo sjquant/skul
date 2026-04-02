@@ -209,7 +209,13 @@ function assertBundleTargetDirectory(sourceDir: string, targetPath: string): voi
     throw new Error(`Bundle target path does not exist: ${targetPath}`);
   }
 
-  if (!fs.statSync(sourceDir).isDirectory()) {
+  const stat = fs.lstatSync(sourceDir);
+
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Bundle target path must not be a symlink: ${targetPath}`);
+  }
+
+  if (!stat.isDirectory()) {
     throw new Error(`Bundle target path must be a directory: ${targetPath}`);
   }
 }

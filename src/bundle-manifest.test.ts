@@ -148,6 +148,16 @@ describe("parseBundleManifest", () => {
       { name: "react-expert", tools: [{ "claude-code": { skills: { path: "skills" } } }] },
       /tools must be an object/i,
     ],
+    [
+      "missing name",
+      { tools: { "claude-code": { skills: { path: "skills" } } } },
+      /name is required/i,
+    ],
+    [
+      "whitespace-only name",
+      { name: "   ", tools: { "claude-code": { skills: { path: "skills" } } } },
+      /name is required/i,
+    ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given
     const parse = () => parseBundleManifest(input);

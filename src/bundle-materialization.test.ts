@@ -326,6 +326,49 @@ describe("materializeBundle", () => {
       }),
     ).rejects.toThrowError(/symlink/i);
   });
+
+  it("throws when a bundle entry is a symlink to a directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const realDir = createTempDir("skul-real-");
+    writeFile(path.join(realDir, "SKILL.md"), "# real\n");
+    fs.mkdirSync(path.join(bundleDir, "skills"), { recursive: true });
+    fs.symlinkSync(realDir, path.join(bundleDir, "skills", "subdir"));
+
+    // When / Then
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          name: "react-expert",
+          tools: { "claude-code": { skills: { path: "skills" } } },
+        },
+      }),
+    ).rejects.toThrowError(/symlink/i);
+  });
+
+  it("throws when a bundle target path is itself a symlink to a directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const realDir = createTempDir("skul-real-");
+    writeFile(path.join(realDir, "SKILL.md"), "# real\n");
+    fs.symlinkSync(realDir, path.join(bundleDir, "skills"));
+
+    // When / Then
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          name: "react-expert",
+          tools: { "claude-code": { skills: { path: "skills" } } },
+        },
+      }),
+    ).rejects.toThrowError(/symlink/i);
+  });
 });
 
 function createTempDir(prefix: string): string {

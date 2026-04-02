@@ -135,5 +135,5 @@ function expectRelativePath(input: unknown, label: string): string {
     throw new Error(`${label} must be a relative path`);
   }
 
-  return value;
+  return normalized;
 }
