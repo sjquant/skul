@@ -5,6 +5,7 @@ import {
   normalizeConflictDestination,
   normalizeConflictPrefix,
 } from "./conflict-resolution";
+import { type ToolName } from "./tool-mapping";
 
 export type CommandName = "add" | "list" | "status" | "clean";
 
@@ -14,7 +15,7 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "add";
-      options: { mode: "stealth"; bundle: string; source?: string; tools: string[] };
+      options: { mode: "stealth"; bundle: string; source?: string; tools: ToolName[] };
     };
 
 export type FileConflictResolution =
@@ -189,7 +190,7 @@ export async function parseCliArgs(
   return context.result ?? { kind: "help" };
 }
 
-function collectOption(value: string, previous: string[]): string[] {
+function collectOption(value: ToolName, previous: ToolName[]): ToolName[] {
   return [...previous, value];
 }
 
@@ -214,8 +215,8 @@ function createProgram(
     .description("Apply bundle in stealth mode")
     .argument("[source]")
     .argument("[bundle]")
-    .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as string[])
-    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: string[] }) => {
+    .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
+    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[] }) => {
       const tools = opts.tool;
 
       if (!source && !bundle) {

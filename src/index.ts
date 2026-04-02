@@ -6,6 +6,7 @@ import path from "node:path";
 import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import { materializeBundle } from "./bundle-materialization";
 import { createHelpText, createPromptClient, type PromptClient, parseCliArgs } from "./cli";
+import { type ToolName } from "./tool-mapping";
 import { detectGitContext } from "./git-context";
 import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
 import {
@@ -134,7 +135,7 @@ async function applyBundle(options: {
   libraryDir: string;
   bundle: string;
   source?: string;
-  tools: string[];
+  tools: ToolName[];
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -144,8 +145,10 @@ async function applyBundle(options: {
     source: options.source,
   });
 
-  if (options.tools.length > 0) {
-    const availableTools = Object.keys(cachedBundle.manifest.tools);
+  const availableTools = Object.keys(cachedBundle.manifest.tools);
+  const hasToolSelection = options.tools.length > 0;
+
+  if (hasToolSelection) {
     const unknownTools = options.tools.filter((t) => !availableTools.includes(t));
 
     if (unknownTools.length > 0) {
@@ -177,13 +180,11 @@ async function applyBundle(options: {
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
-    tools: options.tools.length > 0 ? options.tools : undefined,
+    tools: hasToolSelection ? options.tools : undefined,
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
-  const selectedTools =
-    options.tools.length > 0 ? options.tools : Object.keys(cachedBundle.manifest.tools);
-  const toolLabel = selectedTools.join(", ");
+  const toolLabel = (hasToolSelection ? options.tools : availableTools).join(", ");
 
   registry = upsertRepoState(registry, gitContext.repoFingerprint, {
     repo_root: gitContext.repoRoot,
