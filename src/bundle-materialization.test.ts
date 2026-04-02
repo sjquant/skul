@@ -259,6 +259,37 @@ describe("materializeBundle", () => {
     await expect(materialize).rejects.toThrowError(expectedMessage);
   });
 
+  it("re-prompts when a rename destination is already reserved by a prior file in the same run", async () => {
+    // Given: two bundle files; the second conflicts and user first tries to rename it to the
+    // first file's destination (already reserved), then renames to a free path.
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "skills", "a.md"), "# a\n");
+    writeFile(path.join(bundleDir, "skills", "b.md"), "# b\n");
+    writeFile(path.join(repoRoot, ".claude", "skills", "b.md"), "user file\n");
+
+    const resolutions = [
+      { action: "rename" as const, destination: "a.md" },   // reserved — triggers re-prompt
+      { action: "rename" as const, destination: "b-new.md" }, // free — accepted
+    ];
+    let callCount = 0;
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: "skills" } } },
+      },
+      resolveFileConflict: async () => resolutions[callCount++],
+    });
+
+    // Then
+    expect(callCount).toBe(2);
+    expect(result.files).toContain(".claude/skills/b-new.md");
+  });
+
   it("throws on conflict when no resolveFileConflict callback is provided", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
