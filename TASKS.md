@@ -27,26 +27,26 @@
 
 ## Multi-Tool Bundle Support
 
-- [TODO] Update bundle manifest format: replace single `tool` + `targets` fields with a `tools` map where each key is a tool name and each value declares that tool's targets.
-- [TODO] Update `parseBundleManifest` in `bundle-manifest.ts` to parse and validate the new multi-tool manifest schema, including per-tool target validation.
-- [TODO] Update `skul add` to accept optional `--tool <name>` flag (repeatable) for selecting a subset of tools to materialize from the bundle.
-- [TODO] Update bundle materialization logic to iterate over selected tools and inject files into each tool's native directories independently.
-- [TODO] Update `skul list` to show supported tools for each bundle.
-- [TODO] Add tests covering multi-tool bundle parsing, materialization across multiple tools, and partial tool selection via `--tool`.
+- [DONE] Update bundle manifest format: replace single `tool` + `targets` fields with a `tools` map where each key is a tool name and each value declares that tool's targets.
+- [DONE] Update `parseBundleManifest` in `bundle-manifest.ts` to parse and validate the new multi-tool manifest schema, including per-tool target validation.
+- [DONE] Update `skul add` to accept optional `--tool <name>` flag (repeatable) for selecting a subset of tools to materialize from the bundle.
+- [DONE] Update bundle materialization logic to iterate over selected tools and inject files into each tool's native directories independently.
+- [DONE] Update `skul list` to show supported tools for each bundle.
+- [DONE] Add tests covering multi-tool bundle parsing, materialization across multiple tools, and partial tool selection via `--tool`.
 
 ## Multi-Bundle Support
 
-- [TODO] Add `version: 1` field to registry schema; update `parseRegistry` to validate version and error clearly on version mismatch to enable future migrations.
-- [TODO] Update registry schema: replace `desired_state` (single bundle object) with an ordered array of `{ bundle, source?, tools? }` entries where `tools` is an optional subset of tool names to materialize.
-- [TODO] Update registry schema: replace `materialized_state` (single bundle + flat tool map) with `{ bundles: { [bundleName]: { source?, tools: { [toolName]: { files, file_fingerprints, directories } } } }, exclude_configured }`.
-- [TODO] Implement `skul add` command: appends bundle to desired state and materializes; if bundle already in desired state, re-materializes without modifying desired state (idempotent); file-level conflicts with other bundles prompt for resolution.
-- [TODO] Persist `--tool` selection in the desired state entry so all worktrees materialize the same tool subset.
+- [DONE] Add `version: 1` field to registry schema; update `parseRegistry` to validate version and error clearly on version mismatch to enable future migrations.
+- [DONE] Update registry schema: replace `desired_state` (single bundle object) with an ordered array of `{ bundle, source?, tools? }` entries where `tools` is an optional subset of tool names to materialize.
+- [DONE] Update registry schema: replace `materialized_state` (single bundle + flat tool map) with `{ bundles: { [bundleName]: { source?, tools: { [toolName]: { files, file_fingerprints, directories } } } }, exclude_configured }`.
+- [DONE] Implement `skul add` command: appends bundle to desired state and materializes; if bundle already in desired state, re-materializes without modifying desired state (idempotent); file-level conflicts with other bundles prompt for resolution.
+- [DONE] Persist `--tool` selection in the desired state entry so all worktrees materialize the same tool subset.
 - [TODO] Implement `skul remove` command: removes a named bundle from the active set, deletes its managed files (with confirmation for user-modified files), and updates the registry.
-- [TODO] Remove `skul use` command from CLI; update existing `use` implementation to become `add`.
+- [DONE] Remove `skul use` command from CLI; update existing `use` implementation to become `add`.
 - [TODO] Update `skul clean` to accept optional `--bundle <name>` flag; when specified, clean only that bundle's managed files.
 - [TODO] Update `skul status` output to show materialized state grouped by bundle, then by tool.
 - [TODO] Implement `skul apply` command: materializes all bundles in the repository desired state into the current worktree without modifying desired state; no-op if already fully materialized.
-- [TODO] Add tests covering multi-bundle desired state parsing, `skul add` idempotency, file-level conflict between bundles, `--tool` persistence, `skul remove`, per-bundle cleanup, and worktree re-materialization via `skul apply`.
+- [TODO] Add tests covering file-level conflict between bundles, `skul remove`, per-bundle cleanup, and worktree re-materialization via `skul apply`.
 - [TODO] Update documentation and spec examples to reflect the new multi-bundle manifest format and registry schema.
 
 ## Handoff Notes
@@ -58,3 +58,14 @@
 - Directory-level cross-tool replacement is now supported for managed files in the current worktree, with the same modified-file confirmation gate used by same-tool replacement.
 - Tool-specific translation helpers now exist for Claude, Cursor, Codex, and OpenCode skills, commands, and agents, but they are not yet wired into the bundle application path.
 - The source-reference matrix lives in `docs/tool-surface-matrix.md` and is intentionally kept out of Git via `.git/info/exclude` because it is a volatile planning artifact, not stable public documentation.
+
+### Multi-Tool and Multi-Bundle Support (completed on branch `claude/multi-tool-bundle-support-jbdqA`)
+
+- The registry schema is now versioned (`version: 1`). `parseRegistry` rejects any other version with a message directing the user to repair or remove the file. No migration path exists yet; if the schema changes again, one will need to be written.
+- `desired_state` is now an ordered array of `DesiredBundleEntry` objects. `skul add` appends a new entry or replaces the existing one for that bundle name (filter+push, so duplicate entries in a corrupted file are collapsed). The most recent `skul add` call wins for a given bundle name.
+- `materialized_state` is now `{ bundles: { [name]: { tools: { [tool]: { files, file_fingerprints?, directories? } } } }, exclude_configured }`. Each bundle tracks its own per-tool file ownership independently.
+- `skul add --tool` is additive within a bundle: running `skul add bundleA --tool claude-code` then `skul add bundleA --tool cursor` results in both tools' files being present on disk. Only the selected tools' existing files are removed before re-materialization; other tools' files are preserved. This is deliberate — `--tool` is a scoped update, not a replacement.
+- `KNOWN_TOOL_NAMES` in `registry.ts` is derived from `listToolDefinitions()` at module load time, so adding a tool to `tool-mapping.ts` automatically makes it valid in registry parsing without a second change.
+- `MaterializeBundleResult` carries both a flat `files`/`directories` list and a `byTool` breakdown. The flat fields exist only for backward compatibility with early tests and should be removed once no test references them directly.
+- `flattenBundleState` merges `file_fingerprints` across all tools in a bundle using object spread. If two tools ever produce the same relative destination path, the second fingerprint silently wins. This cannot happen today because each tool writes to its own root directory (`.claude/`, `.cursor/`, `.agents/`, etc.), but the assumption is implicit and has no guard.
+- The next highest-priority items are `skul remove`, `skul clean --bundle`, `skul apply`, and grouped `skul status` output. The registry schema was designed to support all of these; no schema changes should be required to implement them.
