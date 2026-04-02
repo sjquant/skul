@@ -34,7 +34,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     return createHelpText();
   }
 
-  if (parsed.command === "use") {
+  if (parsed.command === "add") {
     return applyBundle({
       cwd,
       prompts,
@@ -101,7 +101,7 @@ function renderStatus(options: {
     lines.push("Materialized: no");
 
     if (repoState) {
-      lines.push('Suggested Action: run "skul use"');
+      lines.push('Suggested Action: run "skul add"');
     }
 
     return lines.join("\n");
@@ -127,7 +127,7 @@ async function applyBundle(options: {
   bundle: string;
   source?: string;
 }): Promise<string> {
-  const gitContext = requireGitContext(options.cwd, "use");
+  const gitContext = requireGitContext(options.cwd, "add");
 
   const cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
@@ -257,7 +257,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "use" | "status" | "clean") {
+function requireGitContext(cwd: string, command: "add" | "status" | "clean") {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {
