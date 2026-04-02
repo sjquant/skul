@@ -262,6 +262,44 @@ describe("parseRegistry", () => {
     );
   });
 
+  it("rejects unknown tool names in desired_state tools array", () => {
+    expect(() =>
+      parseRegistry({
+        version: 1,
+        repos: {
+          [REPO_FINGERPRINT]: {
+            repo_root: "/Users/dev/project",
+            desired_state: [{ bundle: "react-expert", tools: ["claude-code", "unknown-tool"] }],
+          },
+        },
+        worktrees: {},
+      }),
+    ).toThrowError(/must be one of:/i);
+  });
+
+  it("rejects unknown tool names in materialized_state tools object", () => {
+    expect(() =>
+      parseRegistry(
+        makeRegistry({
+          worktrees: {
+            [WORKTREE_ID]: makeWorktreeEntry({
+              materialized_state: {
+                bundles: {
+                  "react-expert": {
+                    tools: {
+                      "claude-cod": { files: [".claude/skills/react/SKILL.md"] },
+                    },
+                  },
+                },
+                exclude_configured: true,
+              },
+            }),
+          },
+        }),
+      ),
+    ).toThrowError(/must be one of:/i);
+  });
+
   it("rejects malformed top-level objects", () => {
     expect(() => parseRegistry(null)).toThrowError(/registry must be an object/i);
     expect(() => parseRegistry({ version: 1, repos: [], worktrees: {} })).toThrowError(

@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { type ToolName } from "./tool-mapping";
+import { listToolDefinitions, type ToolName } from "./tool-mapping";
 
-const KNOWN_TOOL_NAMES = new Set<string>(["claude-code", "cursor", "opencode", "codex"]);
+const KNOWN_TOOL_NAMES = new Set(listToolDefinitions().map((t) => t.name));
 
 export interface DesiredBundleEntry {
   bundle: string;

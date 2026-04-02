@@ -700,6 +700,73 @@ describe("run", () => {
     expect(pathExists(path.join(repoRoot, ".agents", "skills", "react", "SKILL.md"))).toBe(false);
   });
 
+  it("adds a second tool to a bundle, preserving the first tool's files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: "skills" } },
+        cursor: { skills: { path: "skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot });
+
+    // When: add cursor tool to the same bundle
+    await expect(
+      run(["add", "react-expert", "--tool", "cursor"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for cursor");
+
+    // Then: both tools' files exist
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+
+    // And the registry records both tools for this bundle
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state.bundles["react-expert"].tools).toMatchObject({
+      "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+      cursor: { files: [".cursor/skills/react/SKILL.md"] },
+    });
+  });
+
+  it("cleans all materialized bundles from the current worktree", async () => {
+    // Given: two bundles targeting different tools
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: "skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toMatch(/Cleaned/i);
+
+    // Then: all files from both bundles are removed
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"))).toBe(false);
+  });
+
   it("rejects --tool names that are not supported by the bundle", async () => {
     // Given
     const homeDir = createHomeDir();
