@@ -1,22 +1,34 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export interface DesiredState {
-  tool: string;
+import { type ToolName } from "./tool-mapping";
+
+export interface DesiredBundleEntry {
   bundle: string;
+  source?: string;
+  tools?: ToolName[];
+}
+
+export interface MaterializedToolState {
+  files: string[];
+  file_fingerprints?: Record<string, string>;
+  directories?: string[];
+}
+
+export interface MaterializedBundleState {
+  source?: string;
+  tools: Record<string, MaterializedToolState>;
+}
+
+export interface MaterializedState {
+  bundles: Record<string, MaterializedBundleState>;
+  exclude_configured: boolean;
 }
 
 export interface RepoState {
   repo_root: string;
   remote_url?: string;
-  desired_state: DesiredState;
-}
-
-export interface MaterializedState extends DesiredState {
-  files: string[];
-  file_fingerprints?: Record<string, string>;
-  directories?: string[];
-  exclude_configured: boolean;
+  desired_state: DesiredBundleEntry[];
 }
 
 export interface WorktreeState {
@@ -26,6 +38,7 @@ export interface WorktreeState {
 }
 
 export interface Registry {
+  version: 1;
   repos: Record<string, RepoState>;
   worktrees: Record<string, WorktreeState>;
 }
@@ -34,6 +47,7 @@ type UnknownRecord = Record<string, unknown>;
 
 export function createEmptyRegistry(): Registry {
   return {
+    version: 1,
     repos: {},
     worktrees: {},
   };
@@ -58,9 +72,17 @@ export function upsertRepoState(
   repoState: RepoState,
 ): Registry {
   return {
+    version: 1,
     repos: {
       ...registry.repos,
-      [repoFingerprint]: { ...repoState, desired_state: { ...repoState.desired_state } },
+      [repoFingerprint]: {
+        ...repoState,
+        desired_state: repoState.desired_state.map((entry) => ({
+          bundle: entry.bundle,
+          ...(entry.source !== undefined ? { source: entry.source } : {}),
+          ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
+        })),
+      },
     },
     worktrees: { ...registry.worktrees },
   };
@@ -76,6 +98,7 @@ export function upsertWorktreeState(
   }
 
   return {
+    version: 1,
     repos: { ...registry.repos },
     worktrees: {
       ...registry.worktrees,
@@ -87,6 +110,7 @@ export function upsertWorktreeState(
 export function removeWorktreeState(registry: Registry, worktreeId: string): Registry {
   if (!(worktreeId in registry.worktrees)) {
     return {
+      version: 1,
       repos: { ...registry.repos },
       worktrees: { ...registry.worktrees },
     };
@@ -96,19 +120,30 @@ export function removeWorktreeState(registry: Registry, worktreeId: string): Reg
   delete worktrees[worktreeId];
 
   return {
+    version: 1,
     repos: { ...registry.repos },
     worktrees,
   };
 }
 
-export function listManagedPathsForRemoval(materializedState: MaterializedState): string[] {
-  return [...materializedState.files].sort(compareRemovalPath).concat(
-    [...(materializedState.directories ?? [])].sort(compareRemovalPath),
+export function listManagedPathsForRemoval(state: {
+  files: string[];
+  directories?: string[];
+}): string[] {
+  return [...state.files].sort(compareRemovalPath).concat(
+    [...(state.directories ?? [])].sort(compareRemovalPath),
   );
 }
 
 export function parseRegistry(input: unknown): Registry {
   const registry = expectRecord(input, "registry");
+
+  if (registry.version !== 1) {
+    throw new Error(
+      `registry.version must be 1 — found ${String(registry.version)}; repair or remove the registry file`,
+    );
+  }
+
   const reposInput = expectRecord(registry.repos, "repos");
   const worktreesInput = expectRecord(registry.worktrees, "worktrees");
 
@@ -133,18 +168,47 @@ export function parseRegistry(input: unknown): Registry {
     }
   }
 
-  return { repos, worktrees };
+  return { version: 1, repos, worktrees };
 }
 
 function parseRepoState(input: unknown, label: string): RepoState {
   const repo = expectRecord(input, label);
   const remoteUrl =
-    repo.remote_url === undefined ? undefined : expectNonEmptyString(repo.remote_url, `${label}.remote_url`);
+    repo.remote_url === undefined
+      ? undefined
+      : expectNonEmptyString(repo.remote_url, `${label}.remote_url`);
 
   return {
     repo_root: expectAbsolutePath(repo.repo_root, `${label}.repo_root`),
     desired_state: parseDesiredState(repo.desired_state, `${label}.desired_state`),
     ...(remoteUrl === undefined ? {} : { remote_url: remoteUrl }),
+  };
+}
+
+function parseDesiredState(input: unknown, label: string): DesiredBundleEntry[] {
+  return expectArray(input, label).map((entry, index) =>
+    parseDesiredBundleEntry(entry, `${label}[${index}]`),
+  );
+}
+
+function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEntry {
+  const entry = expectRecord(input, label);
+  const bundle = expectNonEmptyString(entry.bundle, `${label}.bundle`);
+  const source =
+    entry.source === undefined
+      ? undefined
+      : expectNonEmptyString(entry.source, `${label}.source`);
+  const tools =
+    entry.tools === undefined
+      ? undefined
+      : expectArray(entry.tools, `${label}.tools`).map((value, index) =>
+          expectNonEmptyString(value, `${label}.tools[${index}]`) as ToolName,
+        );
+
+  return {
+    bundle,
+    ...(source !== undefined ? { source } : {}),
+    ...(tools !== undefined ? { tools } : {}),
   };
 }
 
@@ -161,46 +225,74 @@ function parseWorktreeState(input: unknown, label: string): WorktreeState {
   };
 }
 
-function parseDesiredState(input: unknown, label: string): DesiredState {
-  const desiredState = expectRecord(input, label);
+function parseMaterializedState(input: unknown, label: string): MaterializedState {
+  const state = expectRecord(input, label);
+  const bundlesInput = expectRecord(state.bundles, `${label}.bundles`);
+
+  const bundles = Object.fromEntries(
+    Object.entries(bundlesInput).map(([bundleName, bundleValue]) => [
+      bundleName,
+      parseMaterializedBundleState(bundleValue, `${label}.bundles.${bundleName}`),
+    ]),
+  );
 
   return {
-    tool: expectNonEmptyString(desiredState.tool, `${label}.tool`),
-    bundle: expectNonEmptyString(desiredState.bundle, `${label}.bundle`),
+    bundles,
+    exclude_configured: expectBoolean(state.exclude_configured, `${label}.exclude_configured`),
   };
 }
 
-function parseMaterializedState(input: unknown, label: string): MaterializedState {
-  const materializedState = expectRecord(input, label);
-  const desiredState = parseDesiredState(materializedState, label);
-  const files = expectArray(materializedState.files, `${label}.files`).map((value, index) =>
+function parseMaterializedBundleState(input: unknown, label: string): MaterializedBundleState {
+  const bundle = expectRecord(input, label);
+  const source =
+    bundle.source === undefined
+      ? undefined
+      : expectNonEmptyString(bundle.source, `${label}.source`);
+  const toolsInput = expectRecord(bundle.tools, `${label}.tools`);
+
+  const tools = Object.fromEntries(
+    Object.entries(toolsInput).map(([toolName, toolValue]) => [
+      toolName,
+      parseMaterializedToolState(toolValue, `${label}.tools.${toolName}`),
+    ]),
+  );
+
+  return {
+    ...(source !== undefined ? { source } : {}),
+    tools,
+  };
+}
+
+function parseMaterializedToolState(input: unknown, label: string): MaterializedToolState {
+  const toolState = expectRecord(input, label);
+  const files = expectArray(toolState.files, `${label}.files`).map((value, index) =>
     expectRelativePath(value, `${label}.files[${index}]`),
   );
   const fileFingerprints =
-    materializedState.file_fingerprints === undefined
+    toolState.file_fingerprints === undefined
       ? undefined
-      : parseFileFingerprints(materializedState.file_fingerprints, files, `${label}.file_fingerprints`);
+      : parseFileFingerprints(
+          toolState.file_fingerprints,
+          files,
+          `${label}.file_fingerprints`,
+        );
   const directories =
-    materializedState.directories === undefined
+    toolState.directories === undefined
       ? undefined
-      : expectArray(materializedState.directories, `${label}.directories`).map((value, index) =>
+      : expectArray(toolState.directories, `${label}.directories`).map((value, index) =>
           expectRelativePath(value, `${label}.directories[${index}]`),
         );
 
   return {
-    ...desiredState,
     files,
     ...(fileFingerprints === undefined ? {} : { file_fingerprints: fileFingerprints }),
     ...(directories === undefined ? {} : { directories }),
-    exclude_configured: expectBoolean(
-      materializedState.exclude_configured,
-      `${label}.exclude_configured`,
-    ),
   };
 }
 
 function sortRegistry(registry: Registry): Registry {
   return {
+    version: 1,
     repos: Object.fromEntries(
       Object.entries(registry.repos)
         .sort(([left], [right]) => left.localeCompare(right))
@@ -208,7 +300,7 @@ function sortRegistry(registry: Registry): Registry {
           repoFingerprint,
           {
             ...repoState,
-            desired_state: { ...repoState.desired_state },
+            desired_state: repoState.desired_state.map((entry) => ({ ...entry })),
           },
         ]),
     ),
@@ -224,14 +316,31 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
   return {
     ...worktreeState,
     materialized_state: {
-      ...worktreeState.materialized_state,
-      files: [...worktreeState.materialized_state.files],
-      ...(worktreeState.materialized_state.file_fingerprints === undefined
-        ? {}
-        : { file_fingerprints: { ...worktreeState.materialized_state.file_fingerprints } }),
-      ...(worktreeState.materialized_state.directories === undefined
-        ? {}
-        : { directories: [...worktreeState.materialized_state.directories] }),
+      bundles: Object.fromEntries(
+        Object.entries(worktreeState.materialized_state.bundles).map(
+          ([bundleName, bundleState]) => [
+            bundleName,
+            {
+              ...(bundleState.source !== undefined ? { source: bundleState.source } : {}),
+              tools: Object.fromEntries(
+                Object.entries(bundleState.tools).map(([toolName, toolState]) => [
+                  toolName,
+                  {
+                    files: [...toolState.files],
+                    ...(toolState.file_fingerprints !== undefined
+                      ? { file_fingerprints: { ...toolState.file_fingerprints } }
+                      : {}),
+                    ...(toolState.directories !== undefined
+                      ? { directories: [...toolState.directories] }
+                      : {}),
+                  },
+                ]),
+              ),
+            },
+          ],
+        ),
+      ),
+      exclude_configured: worktreeState.materialized_state.exclude_configured,
     },
   };
 }

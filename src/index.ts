@@ -6,10 +6,13 @@ import path from "node:path";
 import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import { materializeBundle } from "./bundle-materialization";
 import { createHelpText, createPromptClient, type PromptClient, parseCliArgs } from "./cli";
-import { type ToolName } from "./tool-mapping";
 import { detectGitContext } from "./git-context";
 import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
 import {
+  type DesiredBundleEntry,
+  type MaterializedBundleState,
+  type MaterializedState,
+  type MaterializedToolState,
   listManagedPathsForRemoval,
   readRegistryFile,
   removeWorktreeState,
@@ -18,6 +21,7 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { resolveGlobalStateLayout } from "./state-layout";
+import { type ToolName } from "./tool-mapping";
 
 export interface RunOptions {
   homeDir?: string;
@@ -97,9 +101,11 @@ function renderStatus(options: {
   const worktreeState = registry.worktrees[gitContext.worktreeId];
   const lines: string[] = ["Repository Desired State"];
 
-  if (repoState) {
-    lines.push(`Tool: ${repoState.desired_state.tool}`);
-    lines.push(`Bundle: ${repoState.desired_state.bundle}`);
+  if (repoState && repoState.desired_state.length > 0) {
+    for (const entry of repoState.desired_state) {
+      const toolSuffix = entry.tools ? ` (${entry.tools.join(", ")})` : "";
+      lines.push(`Bundle: ${entry.bundle}${toolSuffix}`);
+    }
   } else {
     lines.push("Configured: no");
   }
@@ -109,7 +115,7 @@ function renderStatus(options: {
   if (!worktreeState) {
     lines.push("Materialized: no");
 
-    if (repoState) {
+    if (repoState && repoState.desired_state.length > 0) {
       lines.push('Suggested Action: run "skul add"');
     }
 
@@ -118,8 +124,12 @@ function renderStatus(options: {
 
   lines.push("Materialized: yes", "", "Files:");
 
-  for (const file of worktreeState.materialized_state.files) {
-    lines.push(`  ${file}`);
+  for (const bundleState of Object.values(worktreeState.materialized_state.bundles)) {
+    for (const toolState of Object.values(bundleState.tools)) {
+      for (const file of toolState.files) {
+        lines.push(`  ${file}`);
+      }
+    }
   }
 
   lines.push("", "Git Exclude:");
@@ -159,12 +169,14 @@ async function applyBundle(options: {
   }
 
   let registry = readRegistryWithGuidance(options.registryFile);
-  const existingState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
+  const existingWorktreeState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
+  const existingBundleState = existingWorktreeState?.bundles[cachedBundle.bundle];
 
-  if (existingState) {
+  if (existingBundleState) {
+    const bundlePaths = flattenBundleState(existingBundleState);
     const replacementAllowed = await confirmManagedFileRemovals(
       gitContext.worktreeRoot,
-      existingState,
+      bundlePaths,
       options.prompts,
       "replace",
     );
@@ -173,10 +185,10 @@ async function applyBundle(options: {
       throw new Error("Replacement aborted because a modified managed file was kept");
     }
 
-    removeManagedPaths(gitContext.worktreeRoot, existingState);
+    removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
   }
 
-  const materializedState = await materializeBundle({
+  const materializedResult = await materializeBundle({
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
@@ -186,33 +198,58 @@ async function applyBundle(options: {
 
   const toolLabel = (hasToolSelection ? options.tools : availableTools).join(", ");
 
+  // Build per-tool registry entries from the materialization result
+  const newBundleState: MaterializedBundleState = {
+    ...(options.source !== undefined ? { source: options.source } : {}),
+    tools: Object.fromEntries(
+      Object.entries(materializedResult.byTool).map(([toolName, toolResult]) => [
+        toolName,
+        {
+          files: toolResult.files,
+          file_fingerprints: captureManagedFileFingerprints(
+            gitContext.worktreeRoot,
+            toolResult.files,
+          ),
+          ...(toolResult.directories.length > 0 ? { directories: toolResult.directories } : {}),
+        } satisfies MaterializedToolState,
+      ]),
+    ),
+  };
+
+  // Append to desired_state if this bundle isn't already listed (idempotent add)
+  const existingDesiredState = registry.repos[gitContext.repoFingerprint]?.desired_state ?? [];
+  const newDesiredEntry: DesiredBundleEntry = {
+    bundle: cachedBundle.bundle,
+    ...(options.source !== undefined ? { source: options.source } : {}),
+    ...(hasToolSelection ? { tools: options.tools } : {}),
+  };
+  const newDesiredState = existingDesiredState.some((e) => e.bundle === cachedBundle.bundle)
+    ? existingDesiredState.map((e) => (e.bundle === cachedBundle.bundle ? newDesiredEntry : e))
+    : [...existingDesiredState, newDesiredEntry];
+
   registry = upsertRepoState(registry, gitContext.repoFingerprint, {
     repo_root: gitContext.repoRoot,
-    desired_state: {
-      tool: toolLabel,
-      bundle: cachedBundle.bundle,
-    },
+    desired_state: newDesiredState,
   });
+
+  // Merge into existing materialized state, preserving other bundles
+  const newMatState: MaterializedState = {
+    bundles: {
+      ...(existingWorktreeState?.bundles ?? {}),
+      [cachedBundle.bundle]: newBundleState,
+    },
+    exclude_configured: true,
+  };
 
   configureSkulExcludeBlock({
     gitDir: gitContext.gitDir,
-    files: materializedState.files,
+    files: collectAllFiles(newMatState),
   });
 
   registry = upsertWorktreeState(registry, gitContext.worktreeId, {
     repo_fingerprint: gitContext.repoFingerprint,
     path: gitContext.worktreeRoot,
-    materialized_state: {
-      tool: toolLabel,
-      bundle: cachedBundle.bundle,
-      files: materializedState.files,
-      file_fingerprints: captureManagedFileFingerprints(
-        gitContext.worktreeRoot,
-        materializedState.files,
-      ),
-      directories: materializedState.directories,
-      exclude_configured: true,
-    },
+    materialized_state: newMatState,
   });
   writeRegistryFile(options.registryFile, registry);
 
@@ -230,18 +267,24 @@ async function cleanWorktree(options: {
   const worktreeState = registry.worktrees[gitContext.worktreeId];
 
   if (worktreeState) {
-    const cleanAllowed = await confirmManagedFileRemovals(
-      gitContext.worktreeRoot,
-      worktreeState.materialized_state,
-      options.prompts,
-      "clean",
-    );
+    for (const bundleState of Object.values(
+      worktreeState.materialized_state.bundles,
+    )) {
+      const bundlePaths = flattenBundleState(bundleState);
+      const cleanAllowed = await confirmManagedFileRemovals(
+        gitContext.worktreeRoot,
+        bundlePaths,
+        options.prompts,
+        "clean",
+      );
 
-    if (!cleanAllowed) {
-      throw new Error("Clean aborted because a modified managed file was kept");
+      if (!cleanAllowed) {
+        throw new Error("Clean aborted because a modified managed file was kept");
+      }
+
+      removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
     }
 
-    removeManagedPaths(gitContext.worktreeRoot, worktreeState.materialized_state);
     registry = removeWorktreeState(registry, gitContext.worktreeId);
     writeRegistryFile(options.registryFile, registry);
   }
@@ -255,8 +298,37 @@ async function cleanWorktree(options: {
   return "Cleaned Skul-managed files from the current worktree";
 }
 
-function removeManagedPaths(repoRoot: string, materializedState: Parameters<typeof listManagedPathsForRemoval>[0]): void {
-  for (const relativePath of listManagedPathsForRemoval(materializedState)) {
+// Flatten all files and directories from every tool within a single bundle
+function flattenBundleState(bundleState: MaterializedBundleState): {
+  files: string[];
+  file_fingerprints: Record<string, string>;
+  directories: string[];
+} {
+  const files: string[] = [];
+  const file_fingerprints: Record<string, string> = {};
+  const directories: string[] = [];
+
+  for (const toolState of Object.values(bundleState.tools)) {
+    files.push(...toolState.files);
+    if (toolState.file_fingerprints) Object.assign(file_fingerprints, toolState.file_fingerprints);
+    if (toolState.directories) directories.push(...toolState.directories);
+  }
+
+  return { files, file_fingerprints, directories };
+}
+
+// Collect all files across every bundle and tool for git-exclude configuration
+function collectAllFiles(materializedState: MaterializedState): string[] {
+  return Object.values(materializedState.bundles).flatMap((bundleState) =>
+    Object.values(bundleState.tools).flatMap((toolState) => toolState.files),
+  );
+}
+
+function removeManagedPaths(
+  repoRoot: string,
+  state: Parameters<typeof listManagedPathsForRemoval>[0],
+): void {
+  for (const relativePath of listManagedPathsForRemoval(state)) {
     const targetPath = path.join(repoRoot, relativePath);
 
     if (!fs.existsSync(targetPath)) {
@@ -332,11 +404,11 @@ function findCachedBundleWithGuidance(options: {
 
 async function confirmManagedFileRemovals(
   repoRoot: string,
-  materializedState: Parameters<typeof listManagedPathsForRemoval>[0],
+  state: { files: string[]; file_fingerprints?: Record<string, string> },
   prompts: PromptClient,
   operation: "clean" | "replace",
 ): Promise<boolean> {
-  for (const relativePath of findModifiedManagedFiles(repoRoot, materializedState)) {
+  for (const relativePath of findModifiedManagedFiles(repoRoot, state)) {
     const confirmed = await prompts.confirmManagedFileRemoval(relativePath, operation);
 
     if (!confirmed) {
@@ -349,10 +421,10 @@ async function confirmManagedFileRemovals(
 
 function findModifiedManagedFiles(
   repoRoot: string,
-  materializedState: Parameters<typeof listManagedPathsForRemoval>[0],
+  state: { files: string[]; file_fingerprints?: Record<string, string> },
 ): string[] {
-  return materializedState.files.filter((relativePath) => {
-    const fingerprint = materializedState.file_fingerprints?.[relativePath];
+  return state.files.filter((relativePath) => {
+    const fingerprint = state.file_fingerprints?.[relativePath];
 
     if (!fingerprint) {
       return false;

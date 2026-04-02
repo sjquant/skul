@@ -211,9 +211,9 @@ describe("run", () => {
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state).toMatchObject({
-      tool: "claude-code",
-      bundle: "next-expert",
-      files: [".claude/skills/next/SKILL.md"],
+      bundles: {
+        "next-expert": { tools: { "claude-code": { files: [".claude/skills/next/SKILL.md"] } } },
+      },
     });
   });
 
@@ -261,14 +261,13 @@ describe("run", () => {
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repo = registry.repos[Object.keys(registry.repos)[0]];
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(repo.desired_state).toEqual({
-      tool: "codex",
-      bundle: "repo-standards",
-    });
+    expect(repo.desired_state).toEqual([{ bundle: "repo-standards" }]);
     expect(worktree.materialized_state).toMatchObject({
-      tool: "codex",
-      bundle: "repo-standards",
-      files: [".agents/skills/next-task/SKILL.md"],
+      bundles: {
+        "repo-standards": {
+          tools: { codex: { files: [".agents/skills/next-task/SKILL.md"] } },
+        },
+      },
     });
   });
 
@@ -385,7 +384,6 @@ describe("run", () => {
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
       [
         "Repository Desired State",
-        "Tool: claude-code",
         "Bundle: react-expert",
         "",
         "Current Worktree",
@@ -410,10 +408,7 @@ describe("run", () => {
     const gitContext = detectGitContext({ cwd: repoRoot })!;
     const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
       repo_root: fs.realpathSync.native(repoRoot),
-      desired_state: {
-        tool: "claude-code",
-        bundle: "react-expert",
-      },
+      desired_state: [{ bundle: "react-expert" }],
     });
     writeRegistryFile(registryFile, registry);
 
@@ -421,7 +416,6 @@ describe("run", () => {
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
       [
         "Repository Desired State",
-        "Tool: claude-code",
         "Bundle: react-expert",
         "",
         "Current Worktree",
@@ -448,7 +442,6 @@ describe("run", () => {
     await expect(run(["status"], { homeDir, cwd: linkedWorktreeRoot })).resolves.toBe(
       [
         "Repository Desired State",
-        "Tool: claude-code",
         "Bundle: react-expert",
         "",
         "Current Worktree",
@@ -475,7 +468,6 @@ describe("run", () => {
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
       [
         "Repository Desired State",
-        "Tool: claude-code",
         "Bundle: react-expert",
         "",
         "Current Worktree",
@@ -519,10 +511,9 @@ describe("run", () => {
 
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     expect(registry.worktrees).toEqual({});
-    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual({
-      tool: "claude-code",
-      bundle: "react-expert",
-    });
+    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([
+      { bundle: "react-expert" },
+    ]);
   });
 
   it("prompts before cleaning a modified managed file and aborts when the user declines", async () => {
@@ -693,9 +684,9 @@ describe("run", () => {
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state).toMatchObject({
-      tool: "claude-code",
-      bundle: "react-expert",
-      files: [".claude/skills/react/SKILL.md"],
+      bundles: {
+        "react-expert": { tools: { "claude-code": { files: [".claude/skills/react/SKILL.md"] } } },
+      },
     });
   });
 

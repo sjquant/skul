@@ -13,6 +13,7 @@ import { resolveToolTargetPath, type ToolName, type ToolTargetName } from "./too
 export interface MaterializeBundleResult {
   files: string[];
   directories: string[];
+  byTool: Record<string, { files: string[]; directories: string[] }>;
 }
 
 export async function materializeBundle(options: {
@@ -22,13 +23,17 @@ export async function materializeBundle(options: {
   tools?: ToolName[];
   resolveFileConflict?: (conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>;
 }): Promise<MaterializeBundleResult> {
-  const writtenFiles: string[] = [];
-  const ownedDirectories = new Set<string>();
+  const allFiles: string[] = [];
+  const allDirectories = new Set<string>();
+  const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const toolEntries = options.tools && options.tools.length > 0
     ? Object.entries(options.manifest.tools).filter(([toolName]) => options.tools!.includes(toolName as ToolName))
     : Object.entries(options.manifest.tools);
 
   for (const [toolName, targets] of toolEntries) {
+    const toolFiles: string[] = [];
+    const toolDirectories = new Set<string>();
+
     for (const [targetName, target] of Object.entries(targets)) {
       const reservedDestinations = new Set<string>();
       const sourceDir = path.join(options.bundleDir, target.path);
@@ -47,34 +52,44 @@ export async function materializeBundle(options: {
       fs.mkdirSync(destinationDir, { recursive: true });
 
       if (!destinationDirExisted) {
-        ownedDirectories.add(path.relative(options.repoRoot, destinationDir));
+        toolDirectories.add(path.relative(options.repoRoot, destinationDir));
       }
 
       await copyDirectory(
         sourceDir,
         destinationDir,
         destinationDir,
-        writtenFiles,
-        ownedDirectories,
+        toolFiles,
+        toolDirectories,
         reservedDestinations,
         options.repoRoot,
         options.resolveFileConflict,
       );
     }
+
+    toolFiles.sort((left, right) => {
+      const depthDifference = pathDepth(left) - pathDepth(right);
+      return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
+    });
+    const sortedToolDirs = Array.from(toolDirectories).sort((left, right) => {
+      const depthDifference = pathDepth(right) - pathDepth(left);
+      return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
+    });
+    byTool[toolName] = { files: toolFiles, directories: sortedToolDirs };
+    allFiles.push(...toolFiles);
+    for (const dir of toolDirectories) allDirectories.add(dir);
   }
 
-  writtenFiles.sort((left, right) => {
+  allFiles.sort((left, right) => {
     const depthDifference = pathDepth(left) - pathDepth(right);
-
     return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
   });
-  const directories = Array.from(ownedDirectories).sort((left, right) => {
+  const directories = Array.from(allDirectories).sort((left, right) => {
     const depthDifference = pathDepth(right) - pathDepth(left);
-
     return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
   });
 
-  return { files: writtenFiles, directories };
+  return { files: allFiles, directories, byTool };
 }
 
 async function copyDirectory(

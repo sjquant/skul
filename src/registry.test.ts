@@ -15,9 +15,51 @@ import {
   writeRegistryFile,
 } from "./registry";
 
+// Shared fixture builders
+const REPO_FINGERPRINT = "repo_abc123";
+const WORKTREE_ID = "worktree_xyz789";
+
+function makeRepoEntry(overrides: object = {}) {
+  return {
+    repo_root: "/Users/dev/project",
+    desired_state: [{ bundle: "react-expert" }],
+    ...overrides,
+  };
+}
+
+function makeWorktreeEntry(overrides: object = {}) {
+  return {
+    repo_fingerprint: REPO_FINGERPRINT,
+    path: "/Users/dev/project",
+    materialized_state: {
+      bundles: {
+        "react-expert": {
+          tools: {
+            "claude-code": {
+              files: [".claude/skills/react/SKILL.md"],
+            },
+          },
+        },
+      },
+      exclude_configured: true,
+    },
+    ...overrides,
+  };
+}
+
+function makeRegistry(overrides: object = {}) {
+  return {
+    version: 1,
+    repos: { [REPO_FINGERPRINT]: makeRepoEntry() },
+    worktrees: { [WORKTREE_ID]: makeWorktreeEntry() },
+    ...overrides,
+  };
+}
+
 describe("createEmptyRegistry", () => {
   it("returns an empty registry shape", () => {
     expect(createEmptyRegistry()).toEqual({
+      version: 1,
       repos: {},
       worktrees: {},
     });
@@ -28,50 +70,83 @@ describe("parseRegistry", () => {
   it("accepts a registry with repository intent and worktree materialization", () => {
     expect(
       parseRegistry({
+        version: 1,
         repos: {
-          repo_abc123: {
+          [REPO_FINGERPRINT]: {
             repo_root: "/Users/dev/project",
             remote_url: "git@github.com:org/project.git",
-            desired_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-            },
+            desired_state: [{ bundle: "react-expert" }],
           },
         },
         worktrees: {
-          worktree_xyz789: {
-            repo_fingerprint: "repo_abc123",
+          [WORKTREE_ID]: {
+            repo_fingerprint: REPO_FINGERPRINT,
             path: "/Users/dev/project",
             materialized_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-              files: [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
+              bundles: {
+                "react-expert": {
+                  tools: {
+                    "claude-code": {
+                      files: [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
+                    },
+                  },
+                },
+              },
               exclude_configured: true,
             },
           },
         },
       }),
     ).toEqual({
+      version: 1,
       repos: {
-        repo_abc123: {
+        [REPO_FINGERPRINT]: {
           repo_root: "/Users/dev/project",
           remote_url: "git@github.com:org/project.git",
-          desired_state: {
-            tool: "claude-code",
-            bundle: "react-expert",
-          },
+          desired_state: [{ bundle: "react-expert" }],
         },
       },
       worktrees: {
-        worktree_xyz789: {
-          repo_fingerprint: "repo_abc123",
+        [WORKTREE_ID]: {
+          repo_fingerprint: REPO_FINGERPRINT,
           path: "/Users/dev/project",
           materialized_state: {
-            tool: "claude-code",
-            bundle: "react-expert",
-            files: [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
+            bundles: {
+              "react-expert": {
+                tools: {
+                  "claude-code": {
+                    files: [".claude/skills/react/SKILL.md", ".claude/commands/review.md"],
+                  },
+                },
+              },
+            },
             exclude_configured: true,
           },
+        },
+      },
+    });
+  });
+
+  it("accepts desired_state entries with source and tools selections", () => {
+    expect(
+      parseRegistry({
+        version: 1,
+        repos: {
+          [REPO_FINGERPRINT]: {
+            repo_root: "/Users/dev/project",
+            desired_state: [
+              { bundle: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code", "cursor"] },
+            ],
+          },
+        },
+        worktrees: {},
+      }),
+    ).toMatchObject({
+      repos: {
+        [REPO_FINGERPRINT]: {
+          desired_state: [
+            { bundle: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code", "cursor"] },
+          ],
         },
       },
     });
@@ -80,62 +155,56 @@ describe("parseRegistry", () => {
   it("allows repository entries without a remote url", () => {
     expect(
       parseRegistry({
+        version: 1,
         repos: {
-          repo_abc123: {
+          [REPO_FINGERPRINT]: {
             repo_root: "/Users/dev/project",
-            desired_state: {
-              tool: "cursor",
-              bundle: "nextjs-minimal",
-            },
+            desired_state: [{ bundle: "nextjs-minimal" }],
           },
         },
         worktrees: {},
       }),
-    ).toEqual({
-        repos: {
-          repo_abc123: {
-            repo_root: "/Users/dev/project",
-            desired_state: {
-              tool: "cursor",
-              bundle: "nextjs-minimal",
-            },
-          },
+    ).toMatchObject({
+      repos: {
+        [REPO_FINGERPRINT]: {
+          desired_state: [{ bundle: "nextjs-minimal" }],
         },
-        worktrees: {},
+      },
     });
   });
 
   it("preserves explicit ownership directories for worktree cleanup", () => {
     expect(
       parseRegistry({
-        repos: {
-          repo_abc123: {
-            repo_root: "/Users/dev/project",
-            desired_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-            },
-          },
-        },
+        version: 1,
+        repos: { [REPO_FINGERPRINT]: makeRepoEntry() },
         worktrees: {
-          worktree_xyz789: {
-            repo_fingerprint: "repo_abc123",
-            path: "/Users/dev/project",
+          [WORKTREE_ID]: makeWorktreeEntry({
             materialized_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-              files: [".claude/skills/react/SKILL.md"],
-              directories: [".claude/skills/react"],
+              bundles: {
+                "react-expert": {
+                  tools: {
+                    "claude-code": {
+                      files: [".claude/skills/react/SKILL.md"],
+                      directories: [".claude/skills/react"],
+                    },
+                  },
+                },
+              },
               exclude_configured: true,
             },
-          },
+          }),
         },
       }),
     ).toMatchObject({
       worktrees: {
-        worktree_xyz789: {
+        [WORKTREE_ID]: {
           materialized_state: {
-            directories: [".claude/skills/react"],
+            bundles: {
+              "react-expert": {
+                tools: { "claude-code": { directories: [".claude/skills/react"] } },
+              },
+            },
           },
         },
       },
@@ -145,37 +214,38 @@ describe("parseRegistry", () => {
   it("accepts tracked file fingerprints for modified-file protection", () => {
     expect(
       parseRegistry({
-        repos: {
-          repo_abc123: {
-            repo_root: "/Users/dev/project",
-            desired_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-            },
-          },
-        },
+        version: 1,
+        repos: { [REPO_FINGERPRINT]: makeRepoEntry() },
         worktrees: {
-          worktree_xyz789: {
-            repo_fingerprint: "repo_abc123",
-            path: "/Users/dev/project",
+          [WORKTREE_ID]: makeWorktreeEntry({
             materialized_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-              files: [".claude/skills/react/SKILL.md"],
-              file_fingerprints: {
-                ".claude/skills/react/SKILL.md": "abc123",
+              bundles: {
+                "react-expert": {
+                  tools: {
+                    "claude-code": {
+                      files: [".claude/skills/react/SKILL.md"],
+                      file_fingerprints: { ".claude/skills/react/SKILL.md": "abc123" },
+                    },
+                  },
+                },
               },
               exclude_configured: true,
             },
-          },
+          }),
         },
       }),
     ).toMatchObject({
       worktrees: {
-        worktree_xyz789: {
+        [WORKTREE_ID]: {
           materialized_state: {
-            file_fingerprints: {
-              ".claude/skills/react/SKILL.md": "abc123",
+            bundles: {
+              "react-expert": {
+                tools: {
+                  "claude-code": {
+                    file_fingerprints: { ".claude/skills/react/SKILL.md": "abc123" },
+                  },
+                },
+              },
             },
           },
         },
@@ -183,99 +253,88 @@ describe("parseRegistry", () => {
     });
   });
 
+  it("rejects a registry without version 1", () => {
+    expect(() => parseRegistry({ version: 2, repos: {}, worktrees: {} })).toThrowError(
+      /registry\.version must be 1/i,
+    );
+    expect(() => parseRegistry({ repos: {}, worktrees: {} })).toThrowError(
+      /registry\.version must be 1/i,
+    );
+  });
+
   it("rejects malformed top-level objects", () => {
     expect(() => parseRegistry(null)).toThrowError(/registry must be an object/i);
-    expect(() => parseRegistry({ repos: [], worktrees: {} })).toThrowError(
+    expect(() => parseRegistry({ version: 1, repos: [], worktrees: {} })).toThrowError(
       /repos must be an object/i,
     );
-    expect(() => parseRegistry({ repos: {}, worktrees: [] })).toThrowError(
+    expect(() => parseRegistry({ version: 1, repos: {}, worktrees: [] })).toThrowError(
       /worktrees must be an object/i,
     );
   });
 
   it.each([
     [
-      "worktree materialized state with a missing file list",
-      {
-        repos: {
-          repo_abc123: {
-            repo_root: "/Users/dev/project",
-            desired_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-            },
-          },
-        },
+      "worktree materialized state with a missing files list",
+      makeRegistry({
         worktrees: {
-          worktree_xyz789: {
-            repo_fingerprint: "repo_abc123",
-            path: "/Users/dev/project",
+          [WORKTREE_ID]: makeWorktreeEntry({
             materialized_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-              exclude_configured: true,
-            },
-          },
-        },
-      },
-      /worktrees\.worktree_xyz789\.materialized_state\.files must be an array/i,
-    ],
-    [
-      "worktree materialized state with an absolute managed file path",
-      {
-        repos: {
-          repo_abc123: {
-            repo_root: "/Users/dev/project",
-            desired_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-            },
-          },
-        },
-        worktrees: {
-          worktree_xyz789: {
-            repo_fingerprint: "repo_abc123",
-            path: "/Users/dev/project",
-            materialized_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-              files: ["/Users/dev/project/.claude/skills/react/SKILL.md"],
-              exclude_configured: true,
-            },
-          },
-        },
-      },
-      /worktrees\.worktree_xyz789\.materialized_state\.files\[0\] must be a relative path/i,
-    ],
-    [
-      "worktree materialized state with a fingerprint for an unknown file",
-      {
-        repos: {
-          repo_abc123: {
-            repo_root: "/Users/dev/project",
-            desired_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-            },
-          },
-        },
-        worktrees: {
-          worktree_xyz789: {
-            repo_fingerprint: "repo_abc123",
-            path: "/Users/dev/project",
-            materialized_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-              files: [".claude/skills/react/SKILL.md"],
-              file_fingerprints: {
-                ".claude/skills/other/SKILL.md": "abc123",
+              bundles: {
+                "react-expert": {
+                  tools: { "claude-code": { exclude_configured: true } },
+                },
               },
               exclude_configured: true,
             },
-          },
+          }),
         },
-      },
-      /worktrees\.worktree_xyz789\.materialized_state\.file_fingerprints\..+ must reference a tracked file/i,
+      }),
+      /\.files must be an array/i,
+    ],
+    [
+      "worktree materialized state with an absolute managed file path",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            materialized_state: {
+              bundles: {
+                "react-expert": {
+                  tools: {
+                    "claude-code": {
+                      files: ["/Users/dev/project/.claude/skills/react/SKILL.md"],
+                    },
+                  },
+                },
+              },
+              exclude_configured: true,
+            },
+          }),
+        },
+      }),
+      /\.files\[0\] must be a relative path/i,
+    ],
+    [
+      "worktree materialized state with a fingerprint for an unknown file",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            materialized_state: {
+              bundles: {
+                "react-expert": {
+                  tools: {
+                    "claude-code": {
+                      files: [".claude/skills/react/SKILL.md"],
+                      file_fingerprints: { ".claude/skills/other/SKILL.md": "abc123" },
+                    },
+                  },
+                },
+              },
+              exclude_configured: true,
+            },
+          }),
+        },
+      }),
+      /\.file_fingerprints\..+ must reference a tracked file/i,
     ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     expect(() => parseRegistry(input)).toThrowError(expectedMessage);
@@ -284,69 +343,54 @@ describe("parseRegistry", () => {
   it("rejects worktrees that point at an unknown repository", () => {
     expect(() =>
       parseRegistry({
+        version: 1,
         repos: {},
         worktrees: {
-          worktree_xyz789: {
-            repo_fingerprint: "repo_missing",
-            path: "/Users/dev/project",
-            materialized_state: {
-              tool: "claude-code",
-              bundle: "react-expert",
-              files: [".claude/skills/react/SKILL.md"],
-              exclude_configured: true,
-            },
-          },
+          [WORKTREE_ID]: makeWorktreeEntry({ repo_fingerprint: "repo_missing" }),
         },
       }),
-    ).toThrowError(
-      /worktrees\.worktree_xyz789\.repo_fingerprint must reference a repository entry/i,
-    );
+    ).toThrowError(/repo_fingerprint must reference a repository entry/i);
   });
 });
 
 describe("registry persistence", () => {
   it("returns an empty registry when the registry file is missing", () => {
-    // Given
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
     const registryFile = path.join(homeDir, ".skul", "registry.json");
 
-    // When / Then
     expect(readRegistryFile(registryFile)).toEqual(createEmptyRegistry());
 
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   it("writes and reads repository intent and worktree ownership records", () => {
-    // Given
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
     const registryFile = path.join(homeDir, ".skul", "registry.json");
 
-    const withRepoState = upsertRepoState(createEmptyRegistry(), "repo_abc123", {
+    const withRepoState = upsertRepoState(createEmptyRegistry(), REPO_FINGERPRINT, {
       repo_root: "/Users/dev/project",
-      desired_state: {
-        tool: "claude-code",
-        bundle: "react-expert",
-      },
+      desired_state: [{ bundle: "react-expert" }],
     });
-    const withWorktreeState = upsertWorktreeState(withRepoState, "worktree_xyz789", {
-      repo_fingerprint: "repo_abc123",
+    const withWorktreeState = upsertWorktreeState(withRepoState, WORKTREE_ID, {
+      repo_fingerprint: REPO_FINGERPRINT,
       path: "/Users/dev/project",
       materialized_state: {
-        tool: "claude-code",
-        bundle: "react-expert",
-        files: [".claude/skills/react/SKILL.md"],
-        file_fingerprints: {
-          ".claude/skills/react/SKILL.md": "abc123",
+        bundles: {
+          "react-expert": {
+            tools: {
+              "claude-code": {
+                files: [".claude/skills/react/SKILL.md"],
+                file_fingerprints: { ".claude/skills/react/SKILL.md": "abc123" },
+                directories: [".claude/skills/react"],
+              },
+            },
+          },
         },
-        directories: [".claude/skills/react"],
         exclude_configured: true,
       },
     });
 
-    // When
     writeRegistryFile(registryFile, withWorktreeState);
-
-    // Then
     expect(readRegistryFile(registryFile)).toEqual(withWorktreeState);
 
     fs.rmSync(homeDir, { recursive: true, force: true });
@@ -355,39 +399,31 @@ describe("registry persistence", () => {
 
 describe("ownership helpers", () => {
   it("rejects worktree ownership records that reference unknown repositories", () => {
-    // Given / When / Then
     expect(() =>
-      upsertWorktreeState(createEmptyRegistry(), "worktree_xyz789", {
+      upsertWorktreeState(createEmptyRegistry(), WORKTREE_ID, {
         repo_fingerprint: "repo_missing",
         path: "/Users/dev/project",
         materialized_state: {
-          tool: "claude-code",
-          bundle: "react-expert",
-          files: [".claude/skills/react/SKILL.md"],
+          bundles: {
+            "react-expert": {
+              tools: { "claude-code": { files: [".claude/skills/react/SKILL.md"] } },
+            },
+          },
           exclude_configured: true,
         },
       }),
-    ).toThrowError(
-      /worktrees\.worktree_xyz789\.repo_fingerprint must reference a repository entry/i,
-    );
+    ).toThrowError(/repo_fingerprint must reference a repository entry/i);
   });
 
   it("lists only registry-owned paths in removal order", () => {
-    // Given / When / Then
     expect(
       listManagedPathsForRemoval({
-        tool: "claude-code",
-        bundle: "react-expert",
         files: [
           ".claude/commands/review.md",
           ".claude/skills/react/assets/context.md",
           ".claude/skills/react/SKILL.md",
         ],
-        directories: [
-          ".claude/skills/react",
-          ".claude/skills/react/assets",
-        ],
-        exclude_configured: true,
+        directories: [".claude/skills/react", ".claude/skills/react/assets"],
       }),
     ).toEqual([
       ".claude/skills/react/assets/context.md",
@@ -399,47 +435,19 @@ describe("ownership helpers", () => {
   });
 
   it("removes only the targeted worktree record", () => {
-    // Given
     const registry = parseRegistry({
-      repos: {
-        repo_abc123: {
-          repo_root: "/Users/dev/project",
-          desired_state: {
-            tool: "claude-code",
-            bundle: "react-expert",
-          },
-        },
-      },
+      version: 1,
+      repos: { [REPO_FINGERPRINT]: makeRepoEntry() },
       worktrees: {
-        worktree_first: {
-          repo_fingerprint: "repo_abc123",
-          path: "/Users/dev/project",
-          materialized_state: {
-            tool: "claude-code",
-            bundle: "react-expert",
-            files: [".claude/skills/react/SKILL.md"],
-            exclude_configured: true,
-          },
-        },
-        worktree_second: {
-          repo_fingerprint: "repo_abc123",
-          path: "/Users/dev/project-second",
-          materialized_state: {
-            tool: "claude-code",
-            bundle: "react-expert",
-            files: [".claude/skills/react/SKILL.md"],
-            exclude_configured: true,
-          },
-        },
+        worktree_first: makeWorktreeEntry(),
+        worktree_second: makeWorktreeEntry({ path: "/Users/dev/project-second" }),
       },
     });
 
-    // When / Then
     expect(removeWorktreeState(registry, "worktree_first")).toEqual({
+      version: 1,
       repos: registry.repos,
-      worktrees: {
-        worktree_second: registry.worktrees.worktree_second,
-      },
+      worktrees: { worktree_second: registry.worktrees.worktree_second },
     });
   });
 });
