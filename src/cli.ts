@@ -7,7 +7,7 @@ import {
 } from "./conflict-resolution";
 import { type ToolName } from "./tool-mapping";
 
-export type CommandName = "add" | "list" | "status" | "clean";
+export type CommandName = "add" | "list" | "status" | "clean" | "remove";
 
 export type CliParseResult =
   | { kind: "help" }
@@ -16,6 +16,11 @@ export type CliParseResult =
       kind: "command";
       command: "add";
       options: { mode: "stealth"; bundle: string; source?: string; tools: ToolName[] };
+    }
+  | {
+      kind: "command";
+      command: "remove";
+      options: { bundle: string };
     };
 
 export type FileConflictResolution =
@@ -26,10 +31,10 @@ export type FileConflictResolution =
 export interface PromptClient {
   selectBundle(source?: string): Promise<string>;
   resolveFileConflict(conflictPath: string, suggestedDestination: string): Promise<FileConflictResolution>;
-  confirmManagedFileRemoval(conflictPath: string, operation: "clean" | "replace"): Promise<boolean>;
+  confirmManagedFileRemoval(conflictPath: string, operation: "clean" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "clean"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "clean", "remove"];
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   return {
@@ -137,13 +142,16 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
     },
     async confirmManagedFileRemoval(
       conflictPath: string,
-      operation: "clean" | "replace",
+      operation: "clean" | "replace" | "remove",
     ): Promise<boolean> {
+      const message =
+        operation === "replace"
+          ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
+          : operation === "remove"
+            ? `Managed file was modified and must be removed during bundle removal: ${conflictPath}`
+            : `Managed file was modified and must be removed during clean: ${conflictPath}`;
       const confirmed = await confirm({
-        message:
-          operation === "replace"
-            ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
-            : `Managed file was modified and must be removed during clean: ${conflictPath}`,
+        message,
         initialValue: false,
       });
 
@@ -253,6 +261,18 @@ function createProgram(
       });
   }
 
+  program
+    .command("remove")
+    .description("Remove a bundle from the active set")
+    .argument("<bundle>")
+    .action((bundle: string) => {
+      context.result = {
+        kind: "command",
+        command: "remove",
+        options: { bundle },
+      };
+    });
+
   return program;
 }
 
@@ -264,6 +284,10 @@ function normalizeParseError(error: unknown, command: string): Error {
   if (error.code === "commander.excessArguments") {
     if (command === "add") {
       return new Error("Command add accepts at most 2 positional arguments");
+    }
+
+    if (command === "remove") {
+      return new Error("Command remove accepts exactly 1 positional argument");
     }
 
     return new Error(`Command ${command} does not accept positional arguments`);

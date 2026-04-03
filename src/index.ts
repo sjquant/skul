@@ -70,6 +70,15 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
+  if (parsed.command === "remove") {
+    return removeBundle({
+      cwd,
+      prompts,
+      registryFile: stateLayout.registryFile,
+      bundle: parsed.options.bundle,
+    });
+  }
+
   return `Command ${parsed.command} is defined but not implemented yet.`;
 }
 
@@ -320,6 +329,79 @@ async function cleanWorktree(options: {
   return "Cleaned Skul-managed files from the current worktree";
 }
 
+async function removeBundle(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  bundle: string;
+}): Promise<string> {
+  const gitContext = requireGitContext(options.cwd, "remove");
+
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const repoState = registry.repos[gitContext.repoFingerprint];
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+
+  const isInDesiredState = repoState?.desired_state.some((e) => e.bundle === options.bundle) ?? false;
+  const bundleMaterializedState = worktreeState?.materialized_state.bundles[options.bundle];
+
+  if (!isInDesiredState && !bundleMaterializedState) {
+    throw new Error(`Bundle not found in active set: ${options.bundle}`);
+  }
+
+  if (bundleMaterializedState) {
+    const bundlePaths = flattenBundleState(bundleMaterializedState);
+    const removeAllowed = await confirmManagedFileRemovals(
+      gitContext.worktreeRoot,
+      bundlePaths,
+      options.prompts,
+      "remove",
+    );
+
+    if (!removeAllowed) {
+      throw new Error("Removal aborted because a modified managed file was kept");
+    }
+
+    removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
+
+    const remainingBundles = { ...worktreeState!.materialized_state.bundles };
+    delete remainingBundles[options.bundle];
+
+    if (Object.keys(remainingBundles).length > 0) {
+      const newMatState: MaterializedState = {
+        bundles: remainingBundles,
+        exclude_configured: true,
+      };
+
+      configureSkulExcludeBlock({
+        gitDir: gitContext.gitDir,
+        files: collectAllFiles(newMatState),
+      });
+
+      registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+        repo_fingerprint: gitContext.repoFingerprint,
+        path: gitContext.worktreeRoot,
+        materialized_state: newMatState,
+      });
+    } else {
+      removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+      registry = removeWorktreeState(registry, gitContext.worktreeId);
+    }
+  }
+
+  if (isInDesiredState && repoState) {
+    const newDesiredState = repoState.desired_state.filter((e) => e.bundle !== options.bundle);
+    registry = upsertRepoState(registry, gitContext.repoFingerprint, {
+      ...repoState,
+      repo_root: gitContext.repoRoot,
+      desired_state: newDesiredState,
+    });
+  }
+
+  writeRegistryFile(options.registryFile, registry);
+
+  return `Removed ${options.bundle}`;
+}
+
 // Flatten all files and directories from every tool within a single bundle
 function flattenBundleState(bundleState: MaterializedBundleState): {
   files: string[];
@@ -378,7 +460,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "add" | "status" | "clean") {
+function requireGitContext(cwd: string, command: "add" | "status" | "clean" | "remove") {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {
@@ -428,7 +510,7 @@ async function confirmManagedFileRemovals(
   repoRoot: string,
   state: { files: string[]; file_fingerprints?: Record<string, string> },
   prompts: PromptClient,
-  operation: "clean" | "replace",
+  operation: "clean" | "replace" | "remove",
 ): Promise<boolean> {
   for (const relativePath of findModifiedManagedFiles(repoRoot, state)) {
     const confirmed = await prompts.confirmManagedFileRemoval(relativePath, operation);
