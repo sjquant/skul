@@ -509,7 +509,7 @@ async function confirmManagedFileRemovals(
   repoRoot: string,
   state: { files: string[]; file_fingerprints?: Record<string, string> },
   prompts: PromptClient,
-  operation: "clean" | "replace",
+  operation: "clean" | "replace" | "remove",
 ): Promise<boolean> {
   for (const relativePath of findModifiedManagedFiles(repoRoot, state)) {
     const confirmed = await prompts.confirmManagedFileRemoval(relativePath, operation);

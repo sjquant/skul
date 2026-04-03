@@ -886,6 +886,32 @@ describe("run", () => {
     );
   });
 
+  it("removes bundle from desired state even when not yet materialized in the current worktree", async () => {
+    // Given: bundle added from the main worktree, but remove is run from a linked worktree
+    // that has never materialized it
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    // Add (and materialize) from the main worktree
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    // Create a linked worktree that has not materialized react-expert
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+
+    // When: remove from the linked worktree where nothing is materialized
+    await expect(run(["remove", "react-expert"], { homeDir, cwd: linkedWorktree })).resolves.toBe(
+      "Removed react-expert",
+    );
+
+    // Then: desired_state is cleared; no crash even though no files were on disk
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([]);
+  });
+
   it("throws when the named bundle is not in the active set", async () => {
     // Given
     const homeDir = createHomeDir();
