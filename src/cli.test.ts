@@ -92,6 +92,15 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses remove with a required bundle argument", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["remove", "react-expert"])).resolves.toEqual({
+      kind: "command",
+      command: "remove",
+      options: { bundle: "react-expert" },
+    });
+  });
+
   it("rejects unknown commands and invalid arity", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["deploy"])).rejects.toThrowError(/Unknown command: deploy/);
@@ -106,6 +115,9 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["add", "a", "b", "c"])).rejects.toThrowError(
       /Command add accepts at most 2 positional arguments/,
+    );
+    await expect(parseCliArgs(["remove", "a", "b"])).rejects.toThrowError(
+      /Command remove accepts exactly 1 positional argument/,
     );
   });
 });
@@ -765,6 +777,136 @@ describe("run", () => {
     // Then: all files from both bundles are removed
     expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
     expect(pathExists(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"))).toBe(false);
+  });
+
+  it("removes a named bundle and its managed files from the current worktree", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" }, commands: { path: "commands" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "commands/review.md", "# review\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed react-expert",
+    );
+
+    // Then: managed files are deleted
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
+
+    // Then: git exclude block is removed
+    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
+      "# >>> SKUL START",
+    );
+
+    // Then: registry is updated
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    expect(registry.worktrees).toEqual({});
+    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([]);
+  });
+
+  it("removes a specific bundle without disturbing other materialized bundles", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: "skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed react-expert",
+    );
+
+    // Then: only react-expert's files are removed; repo-standards files remain
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"), "utf8")).toBe(
+      "# next task\n",
+    );
+
+    // Then: exclude block retains repo-standards files only
+    const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
+    expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
+    expect(excludeFile).toContain(".agents/skills/next-task/SKILL.md");
+
+    // Then: registry reflects only repo-standards
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "repo-standards" }]);
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
+    expect(worktree.materialized_state.bundles).toHaveProperty("repo-standards");
+  });
+
+  it("prompts before removing a modified managed file and aborts when the user declines", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+
+    // When / Then
+    await expect(
+      run(["remove", "react-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => false,
+        }),
+      }),
+    ).rejects.toThrowError(/Removal aborted because a modified managed file was kept/);
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "# modified\n",
+    );
+  });
+
+  it("throws when the named bundle is not in the active set", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    // When / Then
+    await expect(run(["remove", "nonexistent-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Bundle not found in active set: nonexistent-bundle/,
+    );
+  });
+
+  it("surfaces a clear error when remove runs outside a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
+    tempDirs.push(cwd);
+
+    // When / Then
+    await expect(run(["remove", "react-expert"], { homeDir, cwd })).rejects.toThrowError(
+      /skul remove requires a Git repository/,
+    );
   });
 
   it("rejects --tool names that are not supported by the bundle", async () => {
