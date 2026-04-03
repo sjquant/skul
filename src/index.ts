@@ -392,6 +392,7 @@ async function removeBundle(options: {
     const newDesiredState = repoState.desired_state.filter((e) => e.bundle !== options.bundle);
     registry = upsertRepoState(registry, gitContext.repoFingerprint, {
       ...repoState,
+      repo_root: gitContext.repoRoot,
       desired_state: newDesiredState,
     });
   }

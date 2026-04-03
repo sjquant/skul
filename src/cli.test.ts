@@ -119,6 +119,9 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["remove", "a", "b"])).rejects.toThrowError(
       /Command remove accepts exactly 1 positional argument/,
     );
+    await expect(parseCliArgs(["remove"])).rejects.toThrowError(
+      /missing required argument 'bundle'/,
+    );
   });
 });
 
