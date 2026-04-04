@@ -62,12 +62,11 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
-  if (parsed.command === "clean") {
-    return cleanWorktree({
+  if (parsed.command === "reset") {
+    return resetWorktree({
       cwd,
       prompts,
       registryFile: stateLayout.registryFile,
-      bundle: parsed.options.bundle,
     });
   }
 
@@ -288,83 +287,28 @@ async function applyBundle(options: {
   return `Applied ${cachedBundle.bundle} for ${toolLabel}`;
 }
 
-async function cleanWorktree(options: {
+async function resetWorktree(options: {
   cwd: string;
   prompts: PromptClient;
   registryFile: string;
-  bundle?: string;
 }): Promise<string> {
-  const gitContext = requireGitContext(options.cwd, "clean");
+  const gitContext = requireGitContext(options.cwd, "reset");
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const worktreeState = registry.worktrees[gitContext.worktreeId];
 
-  if (options.bundle) {
-    const bundleMaterializedState = worktreeState?.materialized_state.bundles[options.bundle];
-
-    if (!bundleMaterializedState) {
-      const repoState = registry.repos[gitContext.repoFingerprint];
-      const isInDesiredState = repoState?.desired_state.some((e) => e.bundle === options.bundle) ?? false;
-      if (!isInDesiredState) {
-        throw new Error(`Bundle not found in active set: ${options.bundle}`);
-      }
-      return `No Skul-managed files found for bundle ${options.bundle} in the current worktree`;
-    }
-
-    const bundlePaths = flattenBundleState(bundleMaterializedState);
-    const cleanAllowed = await confirmManagedFileRemovals(
-      gitContext.worktreeRoot,
-      bundlePaths,
-      options.prompts,
-      "clean",
-    );
-
-    if (!cleanAllowed) {
-      throw new Error("Clean aborted because a modified managed file was kept");
-    }
-
-    removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
-
-    const remainingBundles = { ...worktreeState!.materialized_state.bundles };
-    delete remainingBundles[options.bundle];
-
-    if (Object.keys(remainingBundles).length > 0) {
-      const newMatState: MaterializedState = {
-        bundles: remainingBundles,
-        exclude_configured: true,
-      };
-      configureSkulExcludeBlock({
-        gitDir: gitContext.gitDir,
-        files: collectAllFiles(newMatState),
-      });
-      registry = upsertWorktreeState(registry, gitContext.worktreeId, {
-        repo_fingerprint: gitContext.repoFingerprint,
-        path: gitContext.worktreeRoot,
-        materialized_state: newMatState,
-      });
-    } else {
-      removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
-      registry = removeWorktreeState(registry, gitContext.worktreeId);
-    }
-
-    writeRegistryFile(options.registryFile, registry);
-    return `Cleaned ${options.bundle} from the current worktree`;
-  }
-
   if (worktreeState) {
-    for (const bundleState of Object.values(
-      worktreeState.materialized_state.bundles,
-    )) {
+    for (const bundleState of Object.values(worktreeState.materialized_state.bundles)) {
       const bundlePaths = flattenBundleState(bundleState);
-      const cleanAllowed = await confirmManagedFileRemovals(
+      const resetAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
         bundlePaths,
         options.prompts,
-        "clean",
+        "reset",
       );
 
-      if (!cleanAllowed) {
-        throw new Error("Clean aborted because a modified managed file was kept");
+      if (!resetAllowed) {
+        throw new Error("Reset aborted because a modified managed file was kept");
       }
 
       removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
@@ -380,7 +324,7 @@ async function cleanWorktree(options: {
     return "No Skul-managed files found in the current worktree";
   }
 
-  return "Cleaned Skul-managed files from the current worktree";
+  return "Reset Skul-managed files from the current worktree";
 }
 
 async function removeBundle(options: {
@@ -514,7 +458,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "add" | "status" | "clean" | "remove") {
+function requireGitContext(cwd: string, command: "add" | "status" | "reset" | "remove") {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {

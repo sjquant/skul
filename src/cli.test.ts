@@ -31,25 +31,12 @@ describe("parseCliArgs", () => {
     // Given
     const listArgs = ["list"];
     const statusArgs = ["status"];
-    const cleanArgs = ["clean"];
+    const resetArgs = ["reset"];
 
     // When / Then
     await expect(parseCliArgs(listArgs)).resolves.toEqual({ kind: "command", command: "list" });
     await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status" });
-    await expect(parseCliArgs(cleanArgs)).resolves.toEqual({
-      kind: "command",
-      command: "clean",
-      options: {},
-    });
-  });
-
-  it("parses clean with an optional --bundle flag", async () => {
-    // Given / When / Then
-    await expect(parseCliArgs(["clean", "--bundle", "react-expert"])).resolves.toEqual({
-      kind: "command",
-      command: "clean",
-      options: { bundle: "react-expert" },
-    });
+    await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset" });
   });
 
   it("parses add in interactive, cached, and explicit source modes", async () => {
@@ -123,8 +110,8 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["status", "extra"])).rejects.toThrowError(
       /Command status does not accept positional arguments/,
     );
-    await expect(parseCliArgs(["clean", "extra"])).rejects.toThrowError(
-      /Command clean does not accept positional arguments/,
+    await expect(parseCliArgs(["reset", "extra"])).rejects.toThrowError(
+      /Command reset does not accept positional arguments/,
     );
     await expect(parseCliArgs(["add", "a", "b", "c"])).rejects.toThrowError(
       /Command add accepts at most 2 positional arguments/,
@@ -506,7 +493,7 @@ describe("run", () => {
     );
   });
 
-  it("cleans only registry-owned files from the current worktree", async () => {
+  it("resets only registry-owned files from the current worktree", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -520,8 +507,8 @@ describe("run", () => {
     fs.writeFileSync(path.join(repoRoot, "notes.txt"), "keep me\n");
 
     // When
-    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Cleaned Skul-managed files from the current worktree",
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Reset Skul-managed files from the current worktree",
     );
 
     // Then
@@ -539,7 +526,7 @@ describe("run", () => {
     ]);
   });
 
-  it("prompts before cleaning a modified managed file and aborts when the user declines", async () => {
+  it("prompts before resetting a modified managed file and aborts when the user declines", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -553,14 +540,14 @@ describe("run", () => {
 
     // When / Then
     await expect(
-      run(["clean"], {
+      run(["reset"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
           confirmManagedFileRemoval: async () => false,
         }),
       }),
-    ).rejects.toThrowError(/Clean aborted because a modified managed file was kept/);
+    ).rejects.toThrowError(/Reset aborted because a modified managed file was kept/);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "# modified\n",
     );
@@ -621,193 +608,27 @@ describe("run", () => {
     );
   });
 
-  it("reports when there is nothing to clean in the current worktree", async () => {
+  it("reports when there is nothing to reset in the current worktree", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
     // When / Then
-    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "No Skul-managed files found in the current worktree",
     );
   });
 
-  it("cleans only the named bundle when --bundle is specified, leaving others intact", async () => {
-    // Given: two bundles materialized
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: "skills" } } },
-    });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { skills: { path: "skills" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "skills/next-task/SKILL.md",
-      "# next task\n",
-    );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
-
-    // When
-    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Cleaned react-expert from the current worktree",
-    );
-
-    // Then: only react-expert's files are removed; repo-standards files remain
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"), "utf8")).toBe(
-      "# next task\n",
-    );
-
-    // Then: exclude block retains repo-standards files only
-    const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
-    expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
-    expect(excludeFile).toContain(".agents/skills/next-task/SKILL.md");
-
-    // Then: registry reflects only repo-standards in materialized state; desired_state still has both
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert" },
-      { bundle: "repo-standards" },
-    ]);
-    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
-    expect(worktree.materialized_state.bundles).toHaveProperty("repo-standards");
-  });
-
-  it("removes git exclude block when --bundle targets the last materialized bundle", async () => {
-    // Given: only one bundle materialized
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: "skills" } } },
-    });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-
-    // When
-    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Cleaned react-expert from the current worktree",
-    );
-
-    // Then: managed file removed and exclude block gone
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
-      "# >>> SKUL START",
-    );
-
-    // Then: worktree state is cleared; desired_state is untouched
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    expect(registry.worktrees).toEqual({});
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "react-expert" }]);
-  });
-
-  it("prompts before per-bundle clean of a modified managed file and aborts when the user declines", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: "skills" } } },
-    });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
-
-    // When / Then
-    await expect(
-      run(["clean", "--bundle", "react-expert"], {
-        homeDir,
-        cwd: repoRoot,
-        prompts: createPromptClientStub({
-          confirmManagedFileRemoval: async () => false,
-        }),
-      }),
-    ).rejects.toThrowError(/Clean aborted because a modified managed file was kept/);
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "# modified\n",
-    );
-  });
-
-  it("reports nothing to clean when --bundle names a bundle in desired state but not yet materialized in this worktree", async () => {
-    // Given: bundle added from the main worktree; run clean --bundle from a linked worktree that hasn't materialized it
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: "skills" } } },
-    });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    const linkedWorktree = createLinkedWorktree(repoRoot);
-
-    // When / Then
-    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd: linkedWorktree })).resolves.toBe(
-      "No Skul-managed files found for bundle react-expert in the current worktree",
-    );
-  });
-
-  it("throws when --bundle names a bundle not in the active set", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-
-    // When / Then
-    await expect(run(["clean", "--bundle", "nonexistent-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
-      /Bundle not found in active set: nonexistent-bundle/,
-    );
-  });
-
-  it("surfaces a clear error when clean --bundle runs outside a Git repository", async () => {
+  it("surfaces a clear error when reset runs outside a Git repository", async () => {
     // Given
     const homeDir = createHomeDir();
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
     tempDirs.push(cwd);
 
     // When / Then
-    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd })).rejects.toThrowError(
-      /skul clean requires a Git repository/,
+    await expect(run(["reset"], { homeDir, cwd })).rejects.toThrowError(
+      /skul reset requires a Git repository/,
     );
-  });
-
-  it("cleans all tools for a multi-tool bundle when --bundle is specified", async () => {
-    // Given: bundle materializes two tools
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: {
-        "claude-code": { skills: { path: "skills" } },
-        cursor: { skills: { path: "skills" } },
-      },
-    });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-
-    // When
-    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Cleaned react-expert from the current worktree",
-    );
-
-    // Then: files from both tools are gone
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(pathExists(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
-
-    // Then: registry worktree cleared; desired state kept
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    expect(registry.worktrees).toEqual({});
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "react-expert" }]);
   });
 
   it("surfaces a clear error when add runs outside a Git repository", async () => {
@@ -966,7 +787,7 @@ describe("run", () => {
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toMatch(/Cleaned/i);
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toMatch(/Reset/i);
 
     // Then: all files from both bundles are removed
     expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);

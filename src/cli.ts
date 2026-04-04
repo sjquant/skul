@@ -7,12 +7,11 @@ import {
 } from "./conflict-resolution";
 import { type ToolName } from "./tool-mapping";
 
-export type CommandName = "add" | "list" | "status" | "clean" | "remove";
+export type CommandName = "add" | "list" | "status" | "reset" | "remove";
 
 export type CliParseResult =
   | { kind: "help" }
-  | { kind: "command"; command: "list" | "status" }
-  | { kind: "command"; command: "clean"; options: { bundle?: string } }
+  | { kind: "command"; command: "list" | "status" | "reset" }
   | {
       kind: "command";
       command: "add";
@@ -32,10 +31,10 @@ export type FileConflictResolution =
 export interface PromptClient {
   selectBundle(source?: string): Promise<string>;
   resolveFileConflict(conflictPath: string, suggestedDestination: string): Promise<FileConflictResolution>;
-  confirmManagedFileRemoval(conflictPath: string, operation: "clean" | "replace" | "remove"): Promise<boolean>;
+  confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "clean", "remove"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove"];
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   return {
@@ -253,7 +252,7 @@ function createProgram(
       };
     });
 
-  for (const command of ["list", "status"] as const) {
+  for (const command of ["list", "status", "reset"] as const) {
     program
       .command(command)
       .description("Placeholder command")
@@ -261,18 +260,6 @@ function createProgram(
         context.result = { kind: "command", command };
       });
   }
-
-  program
-    .command("clean")
-    .description("Remove Skul-managed files from the current worktree")
-    .option("--bundle <name>", "Remove only the named bundle's managed files")
-    .action((opts: { bundle?: string }) => {
-      context.result = {
-        kind: "command",
-        command: "clean",
-        options: opts.bundle !== undefined ? { bundle: opts.bundle } : {},
-      };
-    });
 
   program
     .command("remove")
