@@ -142,14 +142,14 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
     },
     async confirmManagedFileRemoval(
       conflictPath: string,
-      operation: "clean" | "replace" | "remove",
+      operation: "reset" | "replace" | "remove",
     ): Promise<boolean> {
       const message =
         operation === "replace"
           ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
           : operation === "remove"
             ? `Managed file was modified and must be removed during bundle removal: ${conflictPath}`
-            : `Managed file was modified and must be removed during clean: ${conflictPath}`;
+            : `Managed file was modified and must be removed during reset: ${conflictPath}`;
       const confirmed = await confirm({
         message,
         initialValue: false,
