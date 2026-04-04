@@ -11,7 +11,8 @@ export type CommandName = "add" | "list" | "status" | "clean" | "remove";
 
 export type CliParseResult =
   | { kind: "help" }
-  | { kind: "command"; command: "list" | "status" | "clean" }
+  | { kind: "command"; command: "list" | "status" }
+  | { kind: "command"; command: "clean"; options: { bundle?: string } }
   | {
       kind: "command";
       command: "add";
@@ -252,7 +253,7 @@ function createProgram(
       };
     });
 
-  for (const command of ["list", "status", "clean"] as const) {
+  for (const command of ["list", "status"] as const) {
     program
       .command(command)
       .description("Placeholder command")
@@ -260,6 +261,18 @@ function createProgram(
         context.result = { kind: "command", command };
       });
   }
+
+  program
+    .command("clean")
+    .description("Remove Skul-managed files from the current worktree")
+    .option("--bundle <name>", "Remove only the named bundle's managed files")
+    .action((opts: { bundle?: string }) => {
+      context.result = {
+        kind: "command",
+        command: "clean",
+        options: { bundle: opts.bundle },
+      };
+    });
 
   program
     .command("remove")
