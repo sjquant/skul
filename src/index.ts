@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
-import { materializeBundle } from "./bundle-materialization";
+import { materializeBundle, type MaterializeBundleResult } from "./bundle-materialization";
 import { createHelpText, createPromptClient, type PromptClient, parseCliArgs } from "./cli";
 import { detectGitContext } from "./git-context";
 import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
@@ -79,6 +79,15 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
+  if (parsed.command === "apply") {
+    return applyWorktree({
+      cwd,
+      prompts,
+      registryFile: stateLayout.registryFile,
+      libraryDir: stateLayout.libraryDir,
+    });
+  }
+
   return `Command ${parsed.command} is defined but not implemented yet.`;
 }
 
@@ -125,7 +134,7 @@ function renderStatus(options: {
     lines.push("Materialized: no");
 
     if (repoState && repoState.desired_state.length > 0) {
-      lines.push('Suggested Action: run "skul add"');
+      lines.push('Suggested Action: run "skul apply"');
     }
 
     return lines.join("\n");
@@ -133,10 +142,12 @@ function renderStatus(options: {
 
   lines.push("Materialized: yes", "", "Files:");
 
-  for (const bundleState of Object.values(worktreeState.materialized_state.bundles)) {
-    for (const toolState of Object.values(bundleState.tools)) {
+  for (const [bundleName, bundleState] of Object.entries(worktreeState.materialized_state.bundles)) {
+    lines.push(`  Bundle: ${bundleName}`);
+    for (const [toolName, toolState] of Object.entries(bundleState.tools)) {
+      lines.push(`    Tool: ${toolName}`);
       for (const file of toolState.files) {
-        lines.push(`  ${file}`);
+        lines.push(`      ${file}`);
       }
     }
   }
@@ -230,19 +241,7 @@ async function applyBundle(options: {
     ...(options.source !== undefined ? { source: options.source } : {}),
     tools: {
       ...preservedTools,
-      ...Object.fromEntries(
-        Object.entries(materializedResult.byTool).map(([toolName, toolResult]) => [
-          toolName,
-          {
-            files: toolResult.files,
-            file_fingerprints: captureManagedFileFingerprints(
-              gitContext.worktreeRoot,
-              toolResult.files,
-            ),
-            ...(toolResult.directories.length > 0 ? { directories: toolResult.directories } : {}),
-          } satisfies MaterializedToolState,
-        ]),
-      ),
+      ...buildMaterializedToolStates(gitContext.worktreeRoot, materializedResult),
     },
   };
 
@@ -404,6 +403,80 @@ async function removeBundle(options: {
   return `Removed ${options.bundle}`;
 }
 
+async function applyWorktree(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+}): Promise<string> {
+  const gitContext = requireGitContext(options.cwd, "apply");
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const repoState = registry.repos[gitContext.repoFingerprint];
+
+  if (!repoState || repoState.desired_state.length === 0) {
+    return "No bundles configured for this repository";
+  }
+
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const materializedBundles = worktreeState?.materialized_state.bundles ?? {};
+
+  const entriesToApply = repoState.desired_state.filter(
+    (entry) => !(entry.bundle in materializedBundles),
+  );
+
+  if (entriesToApply.length === 0) {
+    return "All bundles are already materialized";
+  }
+
+  let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
+
+  for (const entry of entriesToApply) {
+    const cachedBundle = findCachedBundleWithGuidance({
+      libraryDir: options.libraryDir,
+      bundle: entry.bundle,
+      source: entry.source,
+    });
+
+    const hasToolSelection = (entry.tools?.length ?? 0) > 0;
+
+    const materializedResult = await materializeBundle({
+      repoRoot: gitContext.worktreeRoot,
+      bundleDir: path.dirname(cachedBundle.manifestFile),
+      manifest: cachedBundle.manifest,
+      tools: hasToolSelection ? entry.tools : undefined,
+      resolveFileConflict: options.prompts.resolveFileConflict,
+    });
+
+    currentBundles = {
+      ...currentBundles,
+      [cachedBundle.bundle]: {
+        ...(entry.source !== undefined ? { source: entry.source } : {}),
+        tools: buildMaterializedToolStates(gitContext.worktreeRoot, materializedResult),
+      },
+    };
+
+    const newMatState: MaterializedState = {
+      bundles: currentBundles,
+      exclude_configured: true,
+    };
+
+    configureSkulExcludeBlock({
+      gitDir: gitContext.gitDir,
+      files: collectAllFiles(newMatState),
+    });
+
+    registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+      repo_fingerprint: gitContext.repoFingerprint,
+      path: gitContext.worktreeRoot,
+      materialized_state: newMatState,
+    });
+    writeRegistryFile(options.registryFile, registry);
+  }
+
+  const appliedNames = entriesToApply.map((e) => e.bundle).join(", ");
+  return `Applied ${appliedNames}`;
+}
+
 // Flatten all files and directories from every tool within a single bundle
 function flattenBundleState(bundleState: MaterializedBundleState): {
   files: string[];
@@ -421,6 +494,23 @@ function flattenBundleState(bundleState: MaterializedBundleState): {
   }
 
   return { files, file_fingerprints, directories };
+}
+
+// Build per-tool registry entries from a materialization result
+function buildMaterializedToolStates(
+  repoRoot: string,
+  result: MaterializeBundleResult,
+): Record<string, MaterializedToolState> {
+  return Object.fromEntries(
+    Object.entries(result.byTool).map(([toolName, toolResult]) => [
+      toolName,
+      {
+        files: toolResult.files,
+        file_fingerprints: captureManagedFileFingerprints(repoRoot, toolResult.files),
+        ...(toolResult.directories.length > 0 ? { directories: toolResult.directories } : {}),
+      } satisfies MaterializedToolState,
+    ]),
+  );
 }
 
 // Collect all files across every bundle and tool for git-exclude configuration
@@ -462,7 +552,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "add" | "status" | "reset" | "remove") {
+function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "reset" | "remove") {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {

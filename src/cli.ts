@@ -7,11 +7,11 @@ import {
 } from "./conflict-resolution";
 import { type ToolName } from "./tool-mapping";
 
-export type CommandName = "add" | "list" | "status" | "reset" | "remove";
+export type CommandName = "add" | "list" | "status" | "reset" | "remove" | "apply";
 
 export type CliParseResult =
   | { kind: "help" }
-  | { kind: "command"; command: "list" | "status" | "reset" }
+  | { kind: "command"; command: "list" | "status" | "reset" | "apply" }
   | {
       kind: "command";
       command: "add";
@@ -34,7 +34,7 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove", "apply"];
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   return {
@@ -220,7 +220,7 @@ function createProgram(
 
   program
     .command("add")
-    .description("Apply bundle in stealth mode")
+    .description("Add a bundle to the active set and materialize its files")
     .argument("[source]")
     .argument("[bundle]")
     .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
@@ -252,14 +252,26 @@ function createProgram(
       };
     });
 
-  for (const command of ["list", "status"] as const) {
-    program
-      .command(command)
-      .description("Placeholder command")
-      .action(() => {
-        context.result = { kind: "command", command };
-      });
-  }
+  program
+    .command("list")
+    .description("List available bundles in the local library")
+    .action(() => {
+      context.result = { kind: "command", command: "list" };
+    });
+
+  program
+    .command("status")
+    .description("Show desired state and current worktree materialization")
+    .action(() => {
+      context.result = { kind: "command", command: "status" };
+    });
+
+  program
+    .command("apply")
+    .description("Materialize all desired-state bundles into the current worktree")
+    .action(() => {
+      context.result = { kind: "command", command: "apply" };
+    });
 
   program
     .command("reset")
@@ -270,7 +282,7 @@ function createProgram(
 
   program
     .command("remove")
-    .description("Remove a bundle from the active set")
+    .description("Remove a bundle from the active set and delete its managed files from the current worktree")
     .argument("<bundle>")
     .action((bundle: string) => {
       context.result = {
