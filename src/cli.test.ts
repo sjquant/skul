@@ -438,7 +438,7 @@ describe("run", () => {
         "Current Worktree",
         `Path: ${fs.realpathSync.native(repoRoot)}`,
         "Materialized: no",
-        'Suggested Action: run "skul add"',
+        'Suggested Action: run "skul apply"',
       ].join("\n"),
     );
   });
@@ -464,7 +464,7 @@ describe("run", () => {
         "Current Worktree",
         `Path: ${fs.realpathSync.native(linkedWorktreeRoot)}`,
         "Materialized: no",
-        'Suggested Action: run "skul add"',
+        'Suggested Action: run "skul apply"',
       ].join("\n"),
     );
   });

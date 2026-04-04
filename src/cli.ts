@@ -252,14 +252,26 @@ function createProgram(
       };
     });
 
-  for (const command of ["list", "status", "apply"] as const) {
-    program
-      .command(command)
-      .description("Placeholder command")
-      .action(() => {
-        context.result = { kind: "command", command };
-      });
-  }
+  program
+    .command("list")
+    .description("List available bundles in the local library")
+    .action(() => {
+      context.result = { kind: "command", command: "list" };
+    });
+
+  program
+    .command("status")
+    .description("Show desired state and current worktree materialization")
+    .action(() => {
+      context.result = { kind: "command", command: "status" };
+    });
+
+  program
+    .command("apply")
+    .description("Materialize all desired-state bundles into the current worktree")
+    .action(() => {
+      context.result = { kind: "command", command: "apply" };
+    });
 
   program
     .command("reset")
