@@ -763,7 +763,7 @@ describe("run", () => {
     });
   });
 
-  it("cleans all materialized bundles from the current worktree", async () => {
+  it("resets all materialized bundles from the current worktree", async () => {
     // Given: two bundles targeting different tools
     const homeDir = createHomeDir();
     const repoRoot = createRepository();

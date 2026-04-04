@@ -252,7 +252,7 @@ function createProgram(
       };
     });
 
-  for (const command of ["list", "status", "reset"] as const) {
+  for (const command of ["list", "status"] as const) {
     program
       .command(command)
       .description("Placeholder command")
@@ -260,6 +260,13 @@ function createProgram(
         context.result = { kind: "command", command };
       });
   }
+
+  program
+    .command("reset")
+    .description("Remove all Skul-managed files from the current worktree")
+    .action(() => {
+      context.result = { kind: "command", command: "reset" };
+    });
 
   program
     .command("remove")

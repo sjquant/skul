@@ -298,8 +298,10 @@ async function resetWorktree(options: {
   const worktreeState = registry.worktrees[gitContext.worktreeId];
 
   if (worktreeState) {
-    for (const bundleState of Object.values(worktreeState.materialized_state.bundles)) {
-      const bundlePaths = flattenBundleState(bundleState);
+    const allBundlePaths = Object.values(worktreeState.materialized_state.bundles).map(flattenBundleState);
+
+    // Confirm all removals before touching any files (all-or-nothing)
+    for (const bundlePaths of allBundlePaths) {
       const resetAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
         bundlePaths,
@@ -310,7 +312,9 @@ async function resetWorktree(options: {
       if (!resetAllowed) {
         throw new Error("Reset aborted because a modified managed file was kept");
       }
+    }
 
+    for (const bundlePaths of allBundlePaths) {
       removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
     }
 
