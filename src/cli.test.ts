@@ -811,7 +811,8 @@ describe("run", () => {
     // Then: registry is updated
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     expect(registry.worktrees).toEqual({});
-    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([]);
+    // Repo entry is pruned entirely when desired_state reaches empty and no worktrees remain
+    expect(registry.repos).not.toHaveProperty(detectGitContext({ cwd: repoRoot })!.repoFingerprint);
   });
 
   it("removes a specific bundle without disturbing other materialized bundles", async () => {
@@ -912,7 +913,12 @@ describe("run", () => {
     // Then: desired_state is cleared; no crash even though no files were on disk
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    // The main worktree still has a registry entry referencing this repo, so the repo entry
+    // is retained with an empty desired_state (not pruned) until all worktrees are cleaned up
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([]);
+    // The main worktree's materialized state is untouched by a remove from another worktree
+    const mainWorktreeId = detectGitContext({ cwd: repoRoot })!.worktreeId;
+    expect(registry.worktrees[mainWorktreeId]?.materialized_state.bundles).toHaveProperty("react-expert");
   });
 
   it("throws when the named bundle is not in the active set", async () => {

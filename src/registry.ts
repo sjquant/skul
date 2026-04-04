@@ -128,6 +128,25 @@ export function removeWorktreeState(registry: Registry, worktreeId: string): Reg
   };
 }
 
+export function removeRepoState(registry: Registry, repoFingerprint: string): Registry {
+  if (!(repoFingerprint in registry.repos)) {
+    return {
+      version: 1,
+      repos: { ...registry.repos },
+      worktrees: { ...registry.worktrees },
+    };
+  }
+
+  const repos = { ...registry.repos };
+  delete repos[repoFingerprint];
+
+  return {
+    version: 1,
+    repos,
+    worktrees: { ...registry.worktrees },
+  };
+}
+
 export function listManagedPathsForRemoval(state: {
   files: string[];
   directories?: string[];
