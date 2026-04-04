@@ -44,8 +44,8 @@
 - [DONE] Implement `skul remove` command: removes a named bundle from the active set, deletes its managed files (with confirmation for user-modified files), and updates the registry.
 - [DONE] Remove `skul use` command from CLI; update existing `use` implementation to become `add`.
 - [DONE] Implement `skul reset` command: removes all managed files from the current worktree, removes Skul exclude blocks, and clears worktree state safely; does not modify desired state. (supersedes: `skul clean --bundle` dropped — `skul remove` + `skul add` covers per-bundle workflows)
-- [TODO] Update `skul status` output to show materialized state grouped by bundle, then by tool.
-- [TODO] Implement `skul apply` command: materializes all bundles in the repository desired state into the current worktree without modifying desired state; no-op if already fully materialized.
+- [DONE] Update `skul status` output to show materialized state grouped by bundle, then by tool.
+- [DONE] Implement `skul apply` command: materializes all bundles in the repository desired state into the current worktree without modifying desired state; no-op if already fully materialized.
 - [TODO] Add tests covering file-level conflict between bundles, `skul remove`, per-bundle cleanup, and worktree re-materialization via `skul apply`.
 - [TODO] Update documentation and spec examples to reflect the new multi-bundle manifest format and registry schema.
 

@@ -220,7 +220,7 @@ function createProgram(
 
   program
     .command("add")
-    .description("Apply bundle in stealth mode")
+    .description("Add a bundle to the active set and materialize its files")
     .argument("[source]")
     .argument("[bundle]")
     .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
@@ -282,7 +282,7 @@ function createProgram(
 
   program
     .command("remove")
-    .description("Remove a bundle from the active set")
+    .description("Remove a bundle from the active set and delete its managed files from the current worktree")
     .argument("<bundle>")
     .action((bundle: string) => {
       context.result = {
