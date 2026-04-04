@@ -15,7 +15,7 @@
 - [DONE] Define a tool-surface translation matrix for skills, commands, and agents across Claude Code, Cursor, Codex, and OpenCode, including required metadata transforms.
 - [DONE] Implement conflict handling for existing filenames with user choices for rename, prefix, or skip.
 - [DONE] Implement `skul status` output for repository desired state, current worktree materialization, and exclude status.
-- [DONE] Implement `skul clean` to remove only registry-owned files, remove Skul exclude blocks, and clear worktree state safely.
+- [DONE] Implement `skul reset` to remove only registry-owned files, remove Skul exclude blocks, and clear worktree state safely.
 - [DONE] Track managed file fingerprints and prompt before deleting or replacing user-modified managed files.
 - [DONE] Implement error handling for missing Git repositories, missing bundles, file conflicts, and registry corruption.
 - [DONE] Add tests covering registry behavior, worktree propagation, stealth handling, conflict handling, and safe cleanup.
@@ -41,9 +41,9 @@
 - [DONE] Update registry schema: replace `materialized_state` (single bundle + flat tool map) with `{ bundles: { [bundleName]: { source?, tools: { [toolName]: { files, file_fingerprints, directories } } } }, exclude_configured }`.
 - [DONE] Implement `skul add` command: appends bundle to desired state and materializes; if bundle already in desired state, re-materializes without modifying desired state (idempotent); file-level conflicts with other bundles prompt for resolution.
 - [DONE] Persist `--tool` selection in the desired state entry so all worktrees materialize the same tool subset.
-- [TODO] Implement `skul remove` command: removes a named bundle from the active set, deletes its managed files (with confirmation for user-modified files), and updates the registry.
+- [DONE] Implement `skul remove` command: removes a named bundle from the active set, deletes its managed files (with confirmation for user-modified files), and updates the registry.
 - [DONE] Remove `skul use` command from CLI; update existing `use` implementation to become `add`.
-- [TODO] Update `skul clean` to accept optional `--bundle <name>` flag; when specified, clean only that bundle's managed files.
+- [DONE] Implement `skul reset` command: removes all managed files from the current worktree, removes Skul exclude blocks, and clears worktree state safely; does not modify desired state. (supersedes: `skul clean --bundle` dropped — `skul remove` + `skul add` covers per-bundle workflows)
 - [TODO] Update `skul status` output to show materialized state grouped by bundle, then by tool.
 - [TODO] Implement `skul apply` command: materializes all bundles in the repository desired state into the current worktree without modifying desired state; no-op if already fully materialized.
 - [TODO] Add tests covering file-level conflict between bundles, `skul remove`, per-bundle cleanup, and worktree re-materialization via `skul apply`.
@@ -68,4 +68,4 @@
 - `KNOWN_TOOL_NAMES` in `registry.ts` is derived from `listToolDefinitions()` at module load time, so adding a tool to `tool-mapping.ts` automatically makes it valid in registry parsing without a second change.
 - `MaterializeBundleResult` carries both a flat `files`/`directories` list and a `byTool` breakdown. The flat fields exist only for backward compatibility with early tests and should be removed once no test references them directly.
 - `flattenBundleState` merges `file_fingerprints` across all tools in a bundle using object spread. If two tools ever produce the same relative destination path, the second fingerprint silently wins. This cannot happen today because each tool writes to its own root directory (`.claude/`, `.cursor/`, `.agents/`, etc.), but the assumption is implicit and has no guard.
-- The next highest-priority items are `skul remove`, `skul clean --bundle`, `skul apply`, and grouped `skul status` output. The registry schema was designed to support all of these; no schema changes should be required to implement them.
+- The next highest-priority items are `skul apply` and grouped `skul status` output. The registry schema was designed to support both; no schema changes should be required to implement them.

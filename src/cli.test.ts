@@ -31,12 +31,12 @@ describe("parseCliArgs", () => {
     // Given
     const listArgs = ["list"];
     const statusArgs = ["status"];
-    const cleanArgs = ["clean"];
+    const resetArgs = ["reset"];
 
     // When / Then
     await expect(parseCliArgs(listArgs)).resolves.toEqual({ kind: "command", command: "list" });
     await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status" });
-    await expect(parseCliArgs(cleanArgs)).resolves.toEqual({ kind: "command", command: "clean" });
+    await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset" });
   });
 
   it("parses add in interactive, cached, and explicit source modes", async () => {
@@ -110,8 +110,8 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["status", "extra"])).rejects.toThrowError(
       /Command status does not accept positional arguments/,
     );
-    await expect(parseCliArgs(["clean", "extra"])).rejects.toThrowError(
-      /Command clean does not accept positional arguments/,
+    await expect(parseCliArgs(["reset", "extra"])).rejects.toThrowError(
+      /Command reset does not accept positional arguments/,
     );
     await expect(parseCliArgs(["add", "a", "b", "c"])).rejects.toThrowError(
       /Command add accepts at most 2 positional arguments/,
@@ -493,7 +493,7 @@ describe("run", () => {
     );
   });
 
-  it("cleans only registry-owned files from the current worktree", async () => {
+  it("resets only registry-owned files from the current worktree", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -507,8 +507,8 @@ describe("run", () => {
     fs.writeFileSync(path.join(repoRoot, "notes.txt"), "keep me\n");
 
     // When
-    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Cleaned Skul-managed files from the current worktree",
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Reset Skul-managed files from the current worktree",
     );
 
     // Then
@@ -526,7 +526,7 @@ describe("run", () => {
     ]);
   });
 
-  it("prompts before cleaning a modified managed file and aborts when the user declines", async () => {
+  it("prompts before resetting a modified managed file and aborts when the user declines", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -540,14 +540,14 @@ describe("run", () => {
 
     // When / Then
     await expect(
-      run(["clean"], {
+      run(["reset"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
           confirmManagedFileRemoval: async () => false,
         }),
       }),
-    ).rejects.toThrowError(/Clean aborted because a modified managed file was kept/);
+    ).rejects.toThrowError(/Reset aborted because a modified managed file was kept/);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "# modified\n",
     );
@@ -608,14 +608,26 @@ describe("run", () => {
     );
   });
 
-  it("reports when there is nothing to clean in the current worktree", async () => {
+  it("reports when there is nothing to reset in the current worktree", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
     // When / Then
-    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "No Skul-managed files found in the current worktree",
+    );
+  });
+
+  it("surfaces a clear error when reset runs outside a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
+    tempDirs.push(cwd);
+
+    // When / Then
+    await expect(run(["reset"], { homeDir, cwd })).rejects.toThrowError(
+      /skul reset requires a Git repository/,
     );
   });
 
@@ -751,7 +763,7 @@ describe("run", () => {
     });
   });
 
-  it("cleans all materialized bundles from the current worktree", async () => {
+  it("resets all materialized bundles from the current worktree", async () => {
     // Given: two bundles targeting different tools
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -775,7 +787,7 @@ describe("run", () => {
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["clean"], { homeDir, cwd: repoRoot })).resolves.toMatch(/Cleaned/i);
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toMatch(/Reset/i);
 
     // Then: all files from both bundles are removed
     expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);

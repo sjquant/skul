@@ -7,11 +7,11 @@ import {
 } from "./conflict-resolution";
 import { type ToolName } from "./tool-mapping";
 
-export type CommandName = "add" | "list" | "status" | "clean" | "remove";
+export type CommandName = "add" | "list" | "status" | "reset" | "remove";
 
 export type CliParseResult =
   | { kind: "help" }
-  | { kind: "command"; command: "list" | "status" | "clean" }
+  | { kind: "command"; command: "list" | "status" | "reset" }
   | {
       kind: "command";
       command: "add";
@@ -31,10 +31,10 @@ export type FileConflictResolution =
 export interface PromptClient {
   selectBundle(source?: string): Promise<string>;
   resolveFileConflict(conflictPath: string, suggestedDestination: string): Promise<FileConflictResolution>;
-  confirmManagedFileRemoval(conflictPath: string, operation: "clean" | "replace" | "remove"): Promise<boolean>;
+  confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "clean", "remove"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove"];
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   return {
@@ -142,14 +142,14 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
     },
     async confirmManagedFileRemoval(
       conflictPath: string,
-      operation: "clean" | "replace" | "remove",
+      operation: "reset" | "replace" | "remove",
     ): Promise<boolean> {
       const message =
         operation === "replace"
           ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
           : operation === "remove"
             ? `Managed file was modified and must be removed during bundle removal: ${conflictPath}`
-            : `Managed file was modified and must be removed during clean: ${conflictPath}`;
+            : `Managed file was modified and must be removed during reset: ${conflictPath}`;
       const confirmed = await confirm({
         message,
         initialValue: false,
@@ -252,7 +252,7 @@ function createProgram(
       };
     });
 
-  for (const command of ["list", "status", "clean"] as const) {
+  for (const command of ["list", "status"] as const) {
     program
       .command(command)
       .description("Placeholder command")
@@ -260,6 +260,13 @@ function createProgram(
         context.result = { kind: "command", command };
       });
   }
+
+  program
+    .command("reset")
+    .description("Remove all Skul-managed files from the current worktree")
+    .action(() => {
+      context.result = { kind: "command", command: "reset" };
+    });
 
   program
     .command("remove")

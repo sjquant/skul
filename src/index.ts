@@ -62,8 +62,8 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
-  if (parsed.command === "clean") {
-    return cleanWorktree({
+  if (parsed.command === "reset") {
+    return resetWorktree({
       cwd,
       prompts,
       registryFile: stateLayout.registryFile,
@@ -287,32 +287,34 @@ async function applyBundle(options: {
   return `Applied ${cachedBundle.bundle} for ${toolLabel}`;
 }
 
-async function cleanWorktree(options: {
+async function resetWorktree(options: {
   cwd: string;
   prompts: PromptClient;
   registryFile: string;
 }): Promise<string> {
-  const gitContext = requireGitContext(options.cwd, "clean");
+  const gitContext = requireGitContext(options.cwd, "reset");
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const worktreeState = registry.worktrees[gitContext.worktreeId];
 
   if (worktreeState) {
-    for (const bundleState of Object.values(
-      worktreeState.materialized_state.bundles,
-    )) {
-      const bundlePaths = flattenBundleState(bundleState);
-      const cleanAllowed = await confirmManagedFileRemovals(
+    const allBundlePaths = Object.values(worktreeState.materialized_state.bundles).map(flattenBundleState);
+
+    // Confirm all removals before touching any files (all-or-nothing)
+    for (const bundlePaths of allBundlePaths) {
+      const resetAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
         bundlePaths,
         options.prompts,
-        "clean",
+        "reset",
       );
 
-      if (!cleanAllowed) {
-        throw new Error("Clean aborted because a modified managed file was kept");
+      if (!resetAllowed) {
+        throw new Error("Reset aborted because a modified managed file was kept");
       }
+    }
 
+    for (const bundlePaths of allBundlePaths) {
       removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
     }
 
@@ -326,7 +328,7 @@ async function cleanWorktree(options: {
     return "No Skul-managed files found in the current worktree";
   }
 
-  return "Cleaned Skul-managed files from the current worktree";
+  return "Reset Skul-managed files from the current worktree";
 }
 
 async function removeBundle(options: {
@@ -460,7 +462,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "add" | "status" | "clean" | "remove") {
+function requireGitContext(cwd: string, command: "add" | "status" | "reset" | "remove") {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {
@@ -510,7 +512,7 @@ async function confirmManagedFileRemovals(
   repoRoot: string,
   state: { files: string[]; file_fingerprints?: Record<string, string> },
   prompts: PromptClient,
-  operation: "clean" | "replace" | "remove",
+  operation: "reset" | "replace" | "remove",
 ): Promise<boolean> {
   for (const relativePath of findModifiedManagedFiles(repoRoot, state)) {
     const confirmed = await prompts.confirmManagedFileRemoval(relativePath, operation);
