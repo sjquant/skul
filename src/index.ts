@@ -79,6 +79,15 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
+  if (parsed.command === "apply") {
+    return applyWorktree({
+      cwd,
+      prompts,
+      registryFile: stateLayout.registryFile,
+      libraryDir: stateLayout.libraryDir,
+    });
+  }
+
   return `Command ${parsed.command} is defined but not implemented yet.`;
 }
 
@@ -406,6 +415,91 @@ async function removeBundle(options: {
   return `Removed ${options.bundle}`;
 }
 
+async function applyWorktree(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+}): Promise<string> {
+  const gitContext = requireGitContext(options.cwd, "apply");
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const repoState = registry.repos[gitContext.repoFingerprint];
+
+  if (!repoState || repoState.desired_state.length === 0) {
+    return "No bundles configured for this repository";
+  }
+
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const materializedBundles = worktreeState?.materialized_state.bundles ?? {};
+
+  const entriesToApply = repoState.desired_state.filter(
+    (entry) => !(entry.bundle in materializedBundles),
+  );
+
+  if (entriesToApply.length === 0) {
+    return "All bundles are already materialized";
+  }
+
+  let newMatBundles: MaterializedState["bundles"] = { ...materializedBundles };
+
+  for (const entry of entriesToApply) {
+    const cachedBundle = findCachedBundleWithGuidance({
+      libraryDir: options.libraryDir,
+      bundle: entry.bundle,
+      source: entry.source,
+    });
+
+    const hasToolSelection = (entry.tools?.length ?? 0) > 0;
+
+    const materializedResult = await materializeBundle({
+      repoRoot: gitContext.worktreeRoot,
+      bundleDir: path.dirname(cachedBundle.manifestFile),
+      manifest: cachedBundle.manifest,
+      tools: hasToolSelection ? entry.tools : undefined,
+      resolveFileConflict: options.prompts.resolveFileConflict,
+    });
+
+    const newBundleState: MaterializedBundleState = {
+      ...(entry.source !== undefined ? { source: entry.source } : {}),
+      tools: Object.fromEntries(
+        Object.entries(materializedResult.byTool).map(([toolName, toolResult]) => [
+          toolName,
+          {
+            files: toolResult.files,
+            file_fingerprints: captureManagedFileFingerprints(
+              gitContext.worktreeRoot,
+              toolResult.files,
+            ),
+            ...(toolResult.directories.length > 0 ? { directories: toolResult.directories } : {}),
+          } satisfies MaterializedToolState,
+        ]),
+      ),
+    };
+
+    newMatBundles = { ...newMatBundles, [cachedBundle.bundle]: newBundleState };
+  }
+
+  const newMatState: MaterializedState = {
+    bundles: newMatBundles,
+    exclude_configured: true,
+  };
+
+  configureSkulExcludeBlock({
+    gitDir: gitContext.gitDir,
+    files: collectAllFiles(newMatState),
+  });
+
+  registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+    repo_fingerprint: gitContext.repoFingerprint,
+    path: gitContext.worktreeRoot,
+    materialized_state: newMatState,
+  });
+  writeRegistryFile(options.registryFile, registry);
+
+  const appliedNames = entriesToApply.map((e) => e.bundle).join(", ");
+  return `Applied ${appliedNames}`;
+}
+
 // Flatten all files and directories from every tool within a single bundle
 function flattenBundleState(bundleState: MaterializedBundleState): {
   files: string[];
@@ -464,7 +558,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "add" | "status" | "reset" | "remove") {
+function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "reset" | "remove") {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {

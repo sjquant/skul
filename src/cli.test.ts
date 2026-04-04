@@ -32,11 +32,13 @@ describe("parseCliArgs", () => {
     const listArgs = ["list"];
     const statusArgs = ["status"];
     const resetArgs = ["reset"];
+    const applyArgs = ["apply"];
 
     // When / Then
     await expect(parseCliArgs(listArgs)).resolves.toEqual({ kind: "command", command: "list" });
     await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status" });
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset" });
+    await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply" });
   });
 
   it("parses add in interactive, cached, and explicit source modes", async () => {
@@ -112,6 +114,9 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["reset", "extra"])).rejects.toThrowError(
       /Command reset does not accept positional arguments/,
+    );
+    await expect(parseCliArgs(["apply", "extra"])).rejects.toThrowError(
+      /Command apply does not accept positional arguments/,
     );
     await expect(parseCliArgs(["add", "a", "b", "c"])).rejects.toThrowError(
       /Command add accepts at most 2 positional arguments/,
@@ -985,6 +990,157 @@ describe("run", () => {
     // When / Then
     await expect(run(["list"], { homeDir })).resolves.toBe(
       renderBundleListOutput("react-expert (claude-code, cursor)", "repo-standards (codex)"),
+    );
+  });
+
+  it("apply materializes all desired bundles into the current worktree", async () => {
+    // Given: two bundles in desired state but neither materialized in this worktree
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: "skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    // Add both bundles from main worktree
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When: apply from linked worktree that has no materialized files
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert, repo-standards");
+
+    // Then: both bundles' files are written into the linked worktree
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"), "utf8"),
+    ).toBe("# next task\n");
+
+    // And the registry records the linked worktree's materialized state
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
+    const worktreeState = registry.worktrees[linkedCtx.worktreeId];
+    expect(worktreeState).toBeDefined();
+    expect(worktreeState.materialized_state.bundles).toHaveProperty("react-expert");
+    expect(worktreeState.materialized_state.bundles).toHaveProperty("repo-standards");
+  });
+
+  it("apply is a no-op when all desired bundles are already materialized", async () => {
+    // Given: bundle already materialized in the current worktree
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["apply"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "All bundles are already materialized",
+    );
+  });
+
+  it("apply only materializes bundles missing from the current worktree", async () => {
+    // Given: two bundles in desired state; one already materialized, one missing
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: "skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    // Add both to desired state from main worktree
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+    // Materialize only react-expert in the linked worktree
+    await run(["add", "react-expert"], { homeDir, cwd: linkedWorktree });
+
+    // When: apply should only materialize the missing bundle
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied repo-standards");
+
+    // Then: both bundles are now present in the linked worktree
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"), "utf8"),
+    ).toBe("# next task\n");
+  });
+
+  it("apply reports no bundles configured when the repository has no desired state", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    // When / Then
+    await expect(run(["apply"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "No bundles configured for this repository",
+    );
+  });
+
+  it("apply does not modify desired state", async () => {
+    // Given: bundle added from main worktree
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    const registryBefore = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const desiredStateBefore = registryBefore.repos[repoFingerprint]?.desired_state;
+
+    // When
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+
+    // Then: desired state is unchanged
+    const registryAfter = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    expect(registryAfter.repos[repoFingerprint]?.desired_state).toEqual(desiredStateBefore);
+  });
+
+  it("surfaces a clear error when apply runs outside a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
+    tempDirs.push(cwd);
+
+    // When / Then
+    await expect(run(["apply"], { homeDir, cwd })).rejects.toThrowError(
+      /skul apply requires a Git repository/,
     );
   });
 

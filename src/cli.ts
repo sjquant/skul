@@ -7,11 +7,11 @@ import {
 } from "./conflict-resolution";
 import { type ToolName } from "./tool-mapping";
 
-export type CommandName = "add" | "list" | "status" | "reset" | "remove";
+export type CommandName = "add" | "list" | "status" | "reset" | "remove" | "apply";
 
 export type CliParseResult =
   | { kind: "help" }
-  | { kind: "command"; command: "list" | "status" | "reset" }
+  | { kind: "command"; command: "list" | "status" | "reset" | "apply" }
   | {
       kind: "command";
       command: "add";
@@ -34,7 +34,7 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove", "apply"];
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   return {
@@ -252,7 +252,7 @@ function createProgram(
       };
     });
 
-  for (const command of ["list", "status"] as const) {
+  for (const command of ["list", "status", "apply"] as const) {
     program
       .command(command)
       .description("Placeholder command")
