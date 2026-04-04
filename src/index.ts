@@ -133,10 +133,12 @@ function renderStatus(options: {
 
   lines.push("Materialized: yes", "", "Files:");
 
-  for (const bundleState of Object.values(worktreeState.materialized_state.bundles)) {
-    for (const toolState of Object.values(bundleState.tools)) {
+  for (const [bundleName, bundleState] of Object.entries(worktreeState.materialized_state.bundles)) {
+    lines.push(`  Bundle: ${bundleName}`);
+    for (const [toolName, toolState] of Object.entries(bundleState.tools)) {
+      lines.push(`    Tool: ${toolName}`);
       for (const file of toolState.files) {
-        lines.push(`  ${file}`);
+        lines.push(`      ${file}`);
       }
     }
   }
