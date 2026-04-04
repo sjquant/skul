@@ -270,7 +270,7 @@ function createProgram(
       context.result = {
         kind: "command",
         command: "clean",
-        options: { bundle: opts.bundle },
+        options: opts.bundle !== undefined ? { bundle: opts.bundle } : {},
       };
     });
 

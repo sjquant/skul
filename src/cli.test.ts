@@ -739,15 +739,75 @@ describe("run", () => {
     );
   });
 
-  it("reports nothing to clean when --bundle names a bundle not materialized in the current worktree", async () => {
-    // Given: bundle is in desired state but not materialized
+  it("reports nothing to clean when --bundle names a bundle in desired state but not yet materialized in this worktree", async () => {
+    // Given: bundle added from the main worktree; run clean --bundle from a linked worktree that hasn't materialized it
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+
+    // When / Then
+    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd: linkedWorktree })).resolves.toBe(
+      "No Skul-managed files found for bundle react-expert in the current worktree",
+    );
+  });
+
+  it("throws when --bundle names a bundle not in the active set", async () => {
+    // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
     // When / Then
-    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "No Skul-managed files found for bundle react-expert in the current worktree",
+    await expect(run(["clean", "--bundle", "nonexistent-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Bundle not found in active set: nonexistent-bundle/,
     );
+  });
+
+  it("surfaces a clear error when clean --bundle runs outside a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
+    tempDirs.push(cwd);
+
+    // When / Then
+    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd })).rejects.toThrowError(
+      /skul clean requires a Git repository/,
+    );
+  });
+
+  it("cleans all tools for a multi-tool bundle when --bundle is specified", async () => {
+    // Given: bundle materializes two tools
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: "skills" } },
+        cursor: { skills: { path: "skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["clean", "--bundle", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Cleaned react-expert from the current worktree",
+    );
+
+    // Then: files from both tools are gone
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+
+    // Then: registry worktree cleared; desired state kept
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    expect(registry.worktrees).toEqual({});
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "react-expert" }]);
   });
 
   it("surfaces a clear error when add runs outside a Git repository", async () => {

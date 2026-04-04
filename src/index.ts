@@ -303,6 +303,11 @@ async function cleanWorktree(options: {
     const bundleMaterializedState = worktreeState?.materialized_state.bundles[options.bundle];
 
     if (!bundleMaterializedState) {
+      const repoState = registry.repos[gitContext.repoFingerprint];
+      const isInDesiredState = repoState?.desired_state.some((e) => e.bundle === options.bundle) ?? false;
+      if (!isInDesiredState) {
+        throw new Error(`Bundle not found in active set: ${options.bundle}`);
+      }
       return `No Skul-managed files found for bundle ${options.bundle} in the current worktree`;
     }
 
