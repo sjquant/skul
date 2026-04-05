@@ -1197,11 +1197,15 @@ describe("run", () => {
       fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next-react", "SKILL.md"), "utf8"),
     ).toBe("# next react\n");
 
-    // Then: the registry records both bundles independently
+    // Then: the registry records both bundles with their respective file paths
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state.bundles).toHaveProperty("react-expert");
-    expect(worktree.materialized_state.bundles).toHaveProperty("next-expert");
+    expect(worktree.materialized_state).toMatchObject({
+      bundles: {
+        "react-expert": { tools: { "claude-code": { files: [".claude/skills/react/SKILL.md"] } } },
+        "next-expert": { tools: { "claude-code": { files: [".claude/skills/next-react/SKILL.md"] } } },
+      },
+    });
   });
 
   it("cleans up Skul-created directories when removing the last managed file in them", async () => {
@@ -1224,8 +1228,9 @@ describe("run", () => {
     // Then: managed file is removed
     expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
 
-    // Then: the directory created by Skul is cleaned up too
+    // Then: all Skul-created directories are cleaned up (deepest first)
     expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".claude", "skills"))).toBe(false);
   });
 
   it("does not remove a Skul-created directory when another bundle still owns files in it", async () => {
@@ -1241,15 +1246,10 @@ describe("run", () => {
       name: "next-expert",
       tools: { "claude-code": { skills: { path: "skills" } } },
     });
-    // next-expert writes to a different path under .claude/skills/react/ to share the directory
+    // next-expert writes a different file under the same directory; no conflict occurs
     writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/react/NEXT.md", "# next\n");
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    await run(["add", "next-expert"], {
-      homeDir,
-      cwd: repoRoot,
-      // skip conflict on SKILL.md if it somehow conflicts; NEXT.md is new so no conflict expected
-      prompts: createPromptClientStub({ resolveFileConflict: async () => ({ action: "skip" }) }),
-    });
+    await run(["add", "next-expert"], { homeDir, cwd: repoRoot });
 
     // When: remove react-expert only
     await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -1262,6 +1262,14 @@ describe("run", () => {
     // Then: the shared directory still exists because next-expert owns a file in it
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "NEXT.md"), "utf8")).toBe("# next\n");
     expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(true);
+
+    // Then: registry still records next-expert; react-expert is gone from both desired and materialized state
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "next-expert" }]);
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
+    expect(worktree.materialized_state.bundles).toHaveProperty("next-expert");
   });
 
   it("apply respects tool selection stored in desired state", async () => {
@@ -1293,7 +1301,7 @@ describe("run", () => {
     const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
     const worktreeState = registry.worktrees[linkedCtx.worktreeId];
     expect(worktreeState.materialized_state.bundles["react-expert"].tools).toMatchObject({
-      "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+      "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) },
     });
     expect(worktreeState.materialized_state.bundles["react-expert"].tools).not.toHaveProperty("cursor");
   });
