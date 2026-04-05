@@ -20,9 +20,7 @@
 - [DONE] Implement error handling for missing Git repositories, missing bundles, file conflicts, and registry corruption.
 - [DONE] Add tests covering registry behavior, worktree propagation, stealth handling, conflict handling, and safe cleanup.
 - [DONE] Add tests covering directory-level cross-tool replacement, including modified managed files and exclude block updates.
-- [TODO] Implement content transforms for cross-tool replacement, including front matter, `disable-model-invocation`, `agent.toml`, and OpenCode-specific command/agent config generation where required. Bundles are always authored in Claude Code format (the canonical source); transforms are applied at materialization time when a non-`claude-code` tool is selected.
-- [TODO] Add tests covering tool-specific cross-tool transforms for skills, commands, and agents, including OpenCode compatibility paths.
-- [TODO] Document the tool-specific behavior differences and source references used for cross-tool transforms, including OpenCode.
+- [TODO] Implement bundle structure auto-detection and cross-tool content transforms: infer the manifest from the bundle directory layout at fetch time, and apply tool-specific transforms via `bundle-translation.ts` at materialization time.
 - [DONE] Document current behavior, lifecycle rules, and constraints around worktrees, stealth mode, and security boundaries.
 
 ## Multi-Tool Bundle Support
@@ -58,6 +56,13 @@
 - Directory-level cross-tool replacement is now supported for managed files in the current worktree, with the same modified-file confirmation gate used by same-tool replacement.
 - Tool-specific translation helpers now exist for Claude, Cursor, Codex, and OpenCode skills, commands, and agents, but they are not yet wired into the bundle application path.
 - The source-reference matrix lives in `docs/tool-surface-matrix.md` and is intentionally kept out of Git via `.git/info/exclude` because it is a volatile planning artifact, not stable public documentation.
+
+### Bundle Auto-Detection and Cross-Tool Transforms (next task)
+
+- **Bundle structure convention**: generic dirs (`skills/`, `commands/`, `agents/`) = Claude Code canonical format; tool-native dotdirs (`.cursor/`, `.opencode/`, `.agents/`, `.codex/`, `.claude/`) = pre-authored native format. Both may coexist.
+- **Manifest auto-generation**: `manifest.json` is NOT written by bundle authors. Implement `inferBundleManifest(bundleDir)` to scan the bundle directory, match paths against tool definitions in `tool-mapping.ts`, and write the manifest to the cache on fetch/registration.
+- **Materialization transform rule**: for tool X, if the source path starts with X's native dotdir → raw copy verbatim; if source is a canonical dir → apply `translateSkill`, `translateCommand`, or `translateAgent` from `bundle-translation.ts` and write to X's native directory in the user's project. Output always lands under the tool's dotdir regardless of source form.
+- **Wiring**: wire the three translate functions from `bundle-translation.ts` into `materializeBundle` in `bundle-materialization.ts`. Add tests for canonical→cursor, canonical→codex (TOML agents, `openai.yaml`), canonical→opencode (compatibility metadata, `manualOnly`→command), and native dotdir passthrough for each tool. Document the transform matrix under `docs/`.
 
 ### Multi-Tool and Multi-Bundle Support (completed on branch `claude/multi-tool-bundle-support-jbdqA`)
 
