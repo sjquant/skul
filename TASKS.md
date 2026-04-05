@@ -20,9 +20,9 @@
 - [DONE] Implement error handling for missing Git repositories, missing bundles, file conflicts, and registry corruption.
 - [DONE] Add tests covering registry behavior, worktree propagation, stealth handling, conflict handling, and safe cleanup.
 - [DONE] Add tests covering directory-level cross-tool replacement, including modified managed files and exclude block updates.
-- [REVIEW] Implement content transforms for cross-tool replacement, including front matter, `disable-model-invocation`, `agent.toml`, and OpenCode-specific command/agent config generation where required.
-- [REVIEW] Add tests covering tool-specific cross-tool transforms for skills, commands, and agents, including OpenCode compatibility paths.
-- [REVIEW] Document the tool-specific behavior differences and source references used for cross-tool transforms, including OpenCode.
+- [TODO] Implement content transforms for cross-tool replacement, including front matter, `disable-model-invocation`, `agent.toml`, and OpenCode-specific command/agent config generation where required. Bundles are always authored in Claude Code format (the canonical source); transforms are applied at materialization time when a non-`claude-code` tool is selected.
+- [TODO] Add tests covering tool-specific cross-tool transforms for skills, commands, and agents, including OpenCode compatibility paths.
+- [TODO] Document the tool-specific behavior differences and source references used for cross-tool transforms, including OpenCode.
 - [DONE] Document current behavior, lifecycle rules, and constraints around worktrees, stealth mode, and security boundaries.
 
 ## Multi-Tool Bundle Support
