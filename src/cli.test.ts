@@ -1157,6 +1157,154 @@ describe("run", () => {
       /Registry is corrupted[\s\S]*repair or remove[\s\S]*registry\.json/i,
     );
   });
+
+  it("invokes conflict resolution when a newly added bundle targets a file already managed by another bundle", async () => {
+    // Given: react-expert is materialized with .claude/skills/react/SKILL.md
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
+      name: "next-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    // next-expert also writes to the same relative skill path, causing a cross-bundle conflict
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/react/SKILL.md", "# next react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    const resolveFileConflict = vi.fn().mockResolvedValue({ action: "prefix", prefix: "next" });
+
+    // When: add next-expert whose file conflicts with react-expert's managed file
+    await expect(
+      run(["add", "next-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ resolveFileConflict }),
+      }),
+    ).resolves.toBe("Applied next-expert for claude-code");
+
+    // Then: conflict callback was invoked for the conflicting path
+    expect(resolveFileConflict).toHaveBeenCalledWith("react/SKILL.md", expect.any(String));
+
+    // Then: react-expert's original file is preserved unchanged
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+
+    // Then: next-expert's file is written at the prefixed location
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next-react", "SKILL.md"), "utf8"),
+    ).toBe("# next react\n");
+
+    // Then: the registry records both bundles with their respective file paths
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state).toMatchObject({
+      bundles: {
+        "react-expert": { tools: { "claude-code": { files: [".claude/skills/react/SKILL.md"] } } },
+        "next-expert": { tools: { "claude-code": { files: [".claude/skills/next-react/SKILL.md"] } } },
+      },
+    });
+  });
+
+  it("cleans up Skul-created directories when removing the last managed file in them", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(true);
+
+    // When
+    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed react-expert",
+    );
+
+    // Then: managed file is removed
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+
+    // Then: all Skul-created directories are cleaned up (deepest first)
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".claude", "skills"))).toBe(false);
+  });
+
+  it("does not remove a Skul-created directory when another bundle still owns files in it", async () => {
+    // Given: two bundles both write into .claude/skills/react/
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
+      name: "next-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    // next-expert writes a different file under the same directory; no conflict occurs
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", "skills/react/NEXT.md", "# next\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["add", "next-expert"], { homeDir, cwd: repoRoot });
+
+    // When: remove react-expert only
+    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed react-expert",
+    );
+
+    // Then: react-expert's file is gone
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+
+    // Then: the shared directory still exists because next-expert owns a file in it
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "NEXT.md"), "utf8")).toBe("# next\n");
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(true);
+
+    // Then: registry still records next-expert; react-expert is gone from both desired and materialized state
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "next-expert" }]);
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
+    expect(worktree.materialized_state.bundles).toHaveProperty("next-expert");
+  });
+
+  it("apply respects tool selection stored in desired state", async () => {
+    // Given: react-expert added with --tool claude-code; desired_state records tools: ['claude-code']
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: "skills" } },
+        cursor: { skills: { path: "skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", "skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot });
+
+    // When: apply in the linked worktree should honour the stored tool selection
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+
+    // Then: only claude-code files are present; cursor files are absent
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(pathExists(path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+
+    // Then: registry for linked worktree records only claude-code
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
+    const worktreeState = registry.worktrees[linkedCtx.worktreeId];
+    expect(worktreeState.materialized_state.bundles["react-expert"].tools).toMatchObject({
+      "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) },
+    });
+    expect(worktreeState.materialized_state.bundles["react-expert"].tools).not.toHaveProperty("cursor");
+  });
 });
 
 function createHomeDir(): string {

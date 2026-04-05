@@ -6,10 +6,10 @@ It writes files where tools expect them, tracks what it owns, and hides them thr
 
 ## What It Does
 
-- applies cached bundles with `skul use`
+- applies cached bundles with `skul add`
 - lists cached bundles with `skul list`
 - shows repo and worktree state with `skul status`
-- removes only Skul-managed files with `skul clean`
+- removes only Skul-managed files with `skul reset`
 - carries repo intent across linked Git worktrees
 - prompts before removing managed files you changed yourself
 
@@ -24,15 +24,15 @@ It writes files where tools expect them, tracks what it owns, and hides them thr
 
 ```bash
 skul list
-skul use react-expert
+skul add react-expert
 skul status
-skul clean
+skul reset
 ```
 
 You can also select a bundle by source:
 
 ```bash
-skul use github.com/user/ai-vault react-expert
+skul add github.com/user/ai-vault react-expert
 ```
 
 ## How It Works

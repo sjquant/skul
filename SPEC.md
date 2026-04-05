@@ -403,9 +403,7 @@ Single-tool example:
   "name": "go-backend",
   "tools": {
     "claude-code": {
-      "targets": {
-        "skills": { "path": "skills" }
-      }
+      "skills": { "path": "skills" }
     }
   }
 }
@@ -418,21 +416,15 @@ Multi-tool example:
   "name": "react-expert",
   "tools": {
     "claude-code": {
-      "targets": {
-        "skills": { "path": "skills" },
-        "commands": { "path": "commands" }
-      }
+      "skills": { "path": "skills" },
+      "commands": { "path": "commands" }
     },
     "cursor": {
-      "targets": {
-        "commands": { "path": "commands" }
-      }
+      "commands": { "path": "commands" }
     },
     "opencode": {
-      "targets": {
-        "skills": { "path": "skills" },
-        "commands": { "path": "commands" }
-      }
+      "skills": { "path": "skills" },
+      "commands": { "path": "commands" }
     }
   }
 }
@@ -521,7 +513,7 @@ CLI focuses on three main actions:
 | `apply`  | Materialize the repository desired state in this worktree |
 | `list`   | List cached bundles                                  |
 | `status` | Show repository and worktree state                   |
-| `clean`  | Remove Skul-managed files                            |
+| `reset`  | Remove all Skul-managed files from the current worktree |
 
 ---
 
@@ -621,10 +613,10 @@ Output example:
 ```text
 Available Bundles
 
-react-expert       claude-code, cursor, opencode
-nextjs-minimal     claude-code
-go-backend         claude-code, cursor
-debugging-tools    claude-code
+react-expert (claude-code, cursor, opencode)
+nextjs-minimal (claude-code)
+go-backend (claude-code, cursor)
+debugging-tools (claude-code)
 ```
 
 ---
@@ -637,22 +629,20 @@ Example output:
 
 ```text
 Repository Desired State
-  react-expert     claude-code, cursor
-  debugging-tools  claude-code
+Bundle: react-expert (cursor)
+Bundle: debugging-tools
 
 Current Worktree
 Path: /Users/dev/project-feature-a
+Materialized: yes
 
-react-expert
-  claude-code: materialized
-    .claude/skills/react/SKILL.md
-    .claude/commands/review.md
-  cursor: materialized
-    .cursor/commands/review.md
-
-debugging-tools
-  claude-code: materialized
-    .claude/skills/debug/SKILL.md
+Files:
+  Bundle: react-expert
+    Tool: cursor
+      .cursor/commands/review.md
+  Bundle: debugging-tools
+    Tool: claude-code
+      .claude/skills/debug/SKILL.md
 
 Git Exclude:
   configured
@@ -662,7 +652,8 @@ If a new worktree has not yet materialized files:
 
 ```text
 Repository Desired State
-  react-expert     claude-code, cursor
+Bundle: react-expert (cursor)
+Bundle: debugging-tools
 
 Current Worktree
 Path: /Users/dev/project-feature-a
@@ -672,30 +663,26 @@ Suggested Action: run "skul apply"
 
 ---
 
-# 11.7 `skul clean`
+# 11.7 `skul reset`
 
-Remove Skul-managed files from the current worktree.
+Remove all Skul-managed files from the current worktree without modifying the repository desired state.
 
 Behavior:
 
 1. read registry
-2. delete managed files for all bundles (or the specified bundle/tool)
-3. remove exclusion block entries for deleted files
-4. clear worktree state for removed entries
+2. delete all managed files across all bundles and tools (with confirmation for user-modified files)
+3. remove the Skul exclude block from `.git/info/exclude`
+4. clear worktree state in registry
 
-Examples:
-
-```bash
-skul clean
-```
-
-Removes all managed files across all bundles and tools.
+Example:
 
 ```bash
-skul clean --bundle debugging-tools
+skul reset
 ```
 
-Removes managed files for the specified bundle only.
+After a reset, `skul status` will show the desired state as unmaterialized and suggest running `skul apply`.
+
+To remove a single bundle rather than all bundles, use `skul remove`.
 
 Safety rule:
 
