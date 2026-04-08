@@ -5,7 +5,14 @@ import path from "node:path";
 
 import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import { materializeBundle, type MaterializeBundleResult } from "./bundle-materialization";
-import { createHelpText, createPromptClient, type PromptClient, parseCliArgs } from "./cli";
+import {
+  createHeadlessPromptClient,
+  createHelpText,
+  createPromptClient,
+  isHeadlessMode,
+  type PromptClient,
+  parseCliArgs,
+} from "./cli";
 import { detectGitContext } from "./git-context";
 import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
 import {
@@ -30,7 +37,7 @@ export interface RunOptions {
 }
 
 export async function run(argv: string[], options: RunOptions = {}): Promise<string> {
-  const prompts = options.prompts ?? createPromptClient();
+  const prompts = options.prompts ?? (isHeadlessMode() ? createHeadlessPromptClient() : createPromptClient());
   const parsed = await parseCliArgs(argv, prompts);
   const stateLayout = resolveGlobalStateLayout({ homeDir: options.homeDir ?? os.homedir() });
   const cwd = options.cwd ?? process.cwd();
@@ -48,17 +55,19 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       bundle: parsed.options.bundle,
       source: parsed.options.source,
       tools: parsed.options.tools,
+      dryRun: parsed.options.dryRun,
     });
   }
 
   if (parsed.command === "list") {
-    return renderBundleList({ libraryDir: stateLayout.libraryDir });
+    return renderBundleList({ libraryDir: stateLayout.libraryDir, json: parsed.options.json });
   }
 
   if (parsed.command === "status") {
     return renderStatus({
       cwd,
       registryFile: stateLayout.registryFile,
+      json: parsed.options.json,
     });
   }
 
@@ -67,6 +76,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       cwd,
       prompts,
       registryFile: stateLayout.registryFile,
+      dryRun: parsed.options.dryRun,
     });
   }
 
@@ -76,6 +86,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       prompts,
       registryFile: stateLayout.registryFile,
       bundle: parsed.options.bundle,
+      dryRun: parsed.options.dryRun,
     });
   }
 
@@ -88,11 +99,25 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
-  return `Command ${parsed.command} is defined but not implemented yet.`;
+  // All known commands are handled above — this branch is unreachable at runtime.
+  return "Command not implemented";
 }
 
-function renderBundleList(options: { libraryDir: string }): string {
+function renderBundleList(options: { libraryDir: string; json: boolean }): string {
   const bundles = listCachedBundles(options);
+
+  if (options.json) {
+    return JSON.stringify(
+      {
+        bundles: bundles.map((bundle) => ({
+          name: bundle.bundle,
+          tools: Object.keys(bundle.manifest.tools),
+        })),
+      },
+      null,
+      2,
+    );
+  }
 
   if (bundles.length === 0) {
     return ["Available Bundles", "", "No cached bundles found."].join("\n");
@@ -111,12 +136,56 @@ function renderBundleList(options: { libraryDir: string }): string {
 function renderStatus(options: {
   cwd: string;
   registryFile: string;
+  json: boolean;
 }): string {
   const gitContext = requireGitContext(options.cwd, "status");
 
   const registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
   const worktreeState = registry.worktrees[gitContext.worktreeId];
+
+  if (options.json) {
+    const desiredState = repoState?.desired_state ?? [];
+    const worktreeData = worktreeState
+      ? {
+          path: gitContext.worktreeRoot,
+          materialized: true,
+          bundles: Object.fromEntries(
+            Object.entries(worktreeState.materialized_state.bundles).map(([bundleName, bundleState]) => [
+              bundleName,
+              {
+                tools: Object.fromEntries(
+                  Object.entries(bundleState.tools).map(([toolName, toolState]) => [
+                    toolName,
+                    { files: toolState.files },
+                  ]),
+                ),
+              },
+            ]),
+          ),
+          git_exclude_configured: hasSkulExcludeBlock({ gitDir: gitContext.gitDir }),
+        }
+      : {
+          path: gitContext.worktreeRoot,
+          materialized: false,
+          bundles: {},
+          git_exclude_configured: false,
+        };
+
+    const suggestedAction =
+      !worktreeState && repoState && repoState.desired_state.length > 0 ? "skul apply" : null;
+
+    return JSON.stringify(
+      {
+        repo: { desired_state: desiredState },
+        worktree: worktreeData,
+        ...(suggestedAction !== null ? { suggested_action: suggestedAction } : {}),
+      },
+      null,
+      2,
+    );
+  }
+
   const lines: string[] = ["Repository Desired State"];
 
   if (repoState && repoState.desired_state.length > 0) {
@@ -166,6 +235,7 @@ async function applyBundle(options: {
   bundle: string;
   source?: string;
   tools: ToolName[];
+  dryRun: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -186,6 +256,12 @@ async function applyBundle(options: {
         `Bundle does not support tool(s): ${unknownTools.join(", ")}\nSupported tools: ${availableTools.join(", ")}`,
       );
     }
+  }
+
+  const toolLabel = (hasToolSelection ? options.tools : availableTools).join(", ");
+
+  if (options.dryRun) {
+    return `DRY RUN: Would apply ${cachedBundle.bundle} for ${toolLabel}`;
   }
 
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -223,8 +299,6 @@ async function applyBundle(options: {
     tools: hasToolSelection ? options.tools : undefined,
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
-
-  const toolLabel = (hasToolSelection ? options.tools : availableTools).join(", ");
 
   // Build per-tool registry entries from the materialization result, preserving
   // existing tool states that were not part of this (partial) materialization run
@@ -290,11 +364,29 @@ async function resetWorktree(options: {
   cwd: string;
   prompts: PromptClient;
   registryFile: string;
+  dryRun: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "reset");
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const worktreeState = registry.worktrees[gitContext.worktreeId];
+
+  if (options.dryRun) {
+    if (!worktreeState) {
+      return "DRY RUN: No Skul-managed files found in the current worktree";
+    }
+
+    const allFiles = Object.values(worktreeState.materialized_state.bundles).flatMap(
+      (bundleState) => Object.values(bundleState.tools).flatMap((toolState) => toolState.files),
+    );
+
+    const lines = [`DRY RUN: Would remove ${allFiles.length} file(s) from ${gitContext.worktreeRoot}`];
+    for (const file of allFiles) {
+      lines.push(`  ${file}`);
+    }
+
+    return lines.join("\n");
+  }
 
   if (worktreeState) {
     const allBundlePaths = Object.values(worktreeState.materialized_state.bundles).map(flattenBundleState);
@@ -335,6 +427,7 @@ async function removeBundle(options: {
   prompts: PromptClient;
   registryFile: string;
   bundle: string;
+  dryRun: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "remove");
 
@@ -347,6 +440,19 @@ async function removeBundle(options: {
 
   if (!isInDesiredState && !bundleMaterializedState) {
     throw new Error(`Bundle not found in active set: ${options.bundle}`);
+  }
+
+  if (options.dryRun) {
+    if (bundleMaterializedState) {
+      const files = Object.values(bundleMaterializedState.tools).flatMap((toolState) => toolState.files);
+      const lines = [`DRY RUN: Would remove ${options.bundle} (${files.length} file(s))`];
+      for (const file of files) {
+        lines.push(`  ${file}`);
+      }
+      return lines.join("\n");
+    }
+
+    return `DRY RUN: Would remove ${options.bundle} from desired state (not yet materialized in this worktree)`;
   }
 
   if (bundleMaterializedState) {
