@@ -20,7 +20,7 @@
 - [DONE] Implement error handling for missing Git repositories, missing bundles, file conflicts, and registry corruption.
 - [DONE] Add tests covering registry behavior, worktree propagation, stealth handling, conflict handling, and safe cleanup.
 - [DONE] Add tests covering directory-level cross-tool replacement, including modified managed files and exclude block updates.
-- [TODO] Implement bundle structure auto-detection and cross-tool content transforms: infer the manifest from the bundle directory layout at fetch time, and apply tool-specific transforms via `bundle-translation.ts` at materialization time.
+- [DONE] Implement bundle structure auto-detection and cross-tool content transforms: infer the manifest from the bundle directory layout at fetch time, and apply tool-specific transforms via `bundle-translation.ts` at materialization time.
 - [DONE] Document current behavior, lifecycle rules, and constraints around worktrees, stealth mode, and security boundaries.
 
 ## Multi-Tool Bundle Support
