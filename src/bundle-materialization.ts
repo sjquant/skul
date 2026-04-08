@@ -121,9 +121,7 @@ async function copyDirectory(
     | undefined,
 ): Promise<void> {
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    if (entry.isSymbolicLink()) {
-      throw new Error(`Bundle contains a symlink which is not allowed: ${path.join(sourceDir, entry.name)}`);
-    }
+    assertNotSymlink(entry, sourceDir);
 
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
@@ -239,6 +237,12 @@ function pathDepth(value: string): number {
   return value.split(path.sep).length;
 }
 
+function assertNotSymlink(entry: fs.Dirent, parentDir: string): void {
+  if (entry.isSymbolicLink()) {
+    throw new Error(`Bundle contains a symlink which is not allowed: ${path.join(parentDir, entry.name)}`);
+  }
+}
+
 function isNativeSourcePath(toolName: ToolName, targetName: ToolTargetName, sourcePath: string): boolean {
   const nativePath = getToolDefinition(toolName)?.targets[targetName]?.path;
   return !!nativePath && (sourcePath === nativePath || sourcePath.startsWith(nativePath + "/"));
@@ -250,9 +254,7 @@ function toTranslationToolName(toolName: ToolName): "claude" | "cursor" | "openc
 
 function readFilesIntoRecord(dir: string, prefix: string, result: Record<string, string>): void {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isSymbolicLink()) {
-      throw new Error(`Bundle contains a symlink which is not allowed: ${path.join(dir, entry.name)}`);
-    }
+    assertNotSymlink(entry, dir);
 
     const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const fullPath = path.join(dir, entry.name);
@@ -281,12 +283,10 @@ async function materializeCanonicalTarget(options: {
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
 
   const translTool = toTranslationToolName(options.toolName);
-  const reservedDestinations = new Set<string>(); // keyed by repo-relative path
+  const reservedDestinations = new Set<string>();
 
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    if (entry.isSymbolicLink()) {
-      throw new Error(`Bundle contains a symlink which is not allowed: ${path.join(sourceDir, entry.name)}`);
-    }
+    assertNotSymlink(entry, sourceDir);
 
     let translated: Record<string, string>;
 
@@ -304,7 +304,7 @@ async function materializeCanonicalTarget(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateCommand({
         sourceTool: "claude",
-        targetTool: translTool as "claude" | "cursor" | "opencode" | "codex",
+        targetTool: translTool,
         source: content,
         options: { name: commandName },
       });
@@ -315,7 +315,7 @@ async function materializeCanonicalTarget(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateAgent({
         sourceTool: "claude",
-        targetTool: translTool as "claude" | "codex" | "opencode",
+        targetTool: translTool,
         source: content,
       });
     } else {
