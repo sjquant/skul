@@ -73,9 +73,7 @@ export function inferBundleManifest(bundleDir: string, bundleName: string): Bund
       for (const toolDef of allTools) {
         if (targetName in toolDef.targets) {
           if (!tools[toolDef.name]) tools[toolDef.name] = {};
-          if (!tools[toolDef.name]![targetName]) {
-            tools[toolDef.name]![targetName] = { path: targetName };
-          }
+          tools[toolDef.name]![targetName] = { path: targetName };
         }
       }
     }

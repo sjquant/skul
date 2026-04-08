@@ -239,20 +239,15 @@ function pathDepth(value: string): number {
   return value.split(path.sep).length;
 }
 
-// Returns true when the manifest source path matches the tool's own native dotdir,
-// meaning files should be copied verbatim. Returns false for canonical dirs (skills/,
-// commands/, agents/) that require cross-tool content transforms.
 function isNativeSourcePath(toolName: ToolName, targetName: ToolTargetName, sourcePath: string): boolean {
   const nativePath = getToolDefinition(toolName)?.targets[targetName]?.path;
   return !!nativePath && (sourcePath === nativePath || sourcePath.startsWith(nativePath + "/"));
 }
 
-// Maps the registry ToolName to the short tool identifier used by bundle-translation.ts.
 function toTranslationToolName(toolName: ToolName): "claude" | "cursor" | "opencode" | "codex" {
   return toolName === "claude-code" ? "claude" : toolName as "cursor" | "opencode" | "codex";
 }
 
-// Reads every file under `dir` recursively into `result` with keys relative to `dir`.
 function readFilesIntoRecord(dir: string, prefix: string, result: Record<string, string>): void {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.isSymbolicLink()) {
@@ -270,8 +265,6 @@ function readFilesIntoRecord(dir: string, prefix: string, result: Record<string,
   }
 }
 
-// Applies cross-tool transforms for a canonical source directory (skills/, commands/, agents/).
-// Output paths are determined by the translation function and are relative to repoRoot.
 async function materializeCanonicalTarget(options: {
   bundleDir: string;
   sourcePath: string;
@@ -343,8 +336,6 @@ async function materializeCanonicalTarget(options: {
   }
 }
 
-// Writes a single translated file to the repo, creating parent directories and handling
-// conflicts. Paths are relative to repoRoot (e.g. ".cursor/skills/react/SKILL.md").
 async function writeTranslatedFile(options: {
   repoRelPath: string;
   content: string;
@@ -356,10 +347,10 @@ async function writeTranslatedFile(options: {
     | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
     | undefined;
 }): Promise<void> {
-  // The first two path segments form the "target root" for this translated file
-  // (e.g. ".cursor/skills"). Conflict prompts are expressed relative to it.
+  // Conflict resolution paths are expressed relative to the two-segment target root (e.g. ".cursor/skills").
   const targetRoot = options.repoRelPath.split("/").slice(0, 2).join("/");
   const targetRootAbsPath = path.join(options.repoRoot, ...targetRoot.split("/"));
+  const targetRootIsNew = !fs.existsSync(targetRootAbsPath);
 
   let currentRepoRelPath = options.repoRelPath;
   let currentAbsPath = path.join(options.repoRoot, ...currentRepoRelPath.split("/"));
@@ -374,8 +365,7 @@ async function writeTranslatedFile(options: {
       throw new Error(`Conflict detected: ${currentRepoRelPath}`);
     }
 
-    const currentTargetRoot = currentRepoRelPath.split("/").slice(0, 2).join("/");
-    const relWithinTarget = currentRepoRelPath.substring(currentTargetRoot.length + 1);
+    const relWithinTarget = currentRepoRelPath.substring(targetRoot.length + 1);
     const suggestedRelWithinTarget = suggestPrefixedDestination(relWithinTarget, DEFAULT_CONFLICT_PREFIX);
 
     const resolution = await options.resolveFileConflict(relWithinTarget, suggestedRelWithinTarget);
@@ -391,15 +381,10 @@ async function writeTranslatedFile(options: {
       throw new Error("Conflict destination must stay inside the tool target");
     }
 
-    currentRepoRelPath = `${currentTargetRoot}/${newRelWithinTarget}`;
+    currentRepoRelPath = `${targetRoot}/${newRelWithinTarget}`;
     currentAbsPath = path.join(options.repoRoot, ...currentRepoRelPath.split("/"));
   }
 
-  // Track the target root dir as owned if it did not exist before this materialization.
-  const targetRootIsNew = !fs.existsSync(targetRootAbsPath);
-
-  // Track any intermediate directories between targetRoot and the file's parent that
-  // did not exist before (e.g. ".cursor/skills/react").
   const parentAbsDir = path.dirname(currentAbsPath);
   const newDirs: string[] = [];
   let current = parentAbsDir;
