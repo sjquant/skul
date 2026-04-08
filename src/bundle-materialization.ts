@@ -12,8 +12,6 @@ import {
 import { getToolDefinition, resolveToolTargetPath, type ToolName, type ToolTargetName } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
-  files: string[];
-  directories: string[];
   byTool: Partial<Record<ToolName, { files: string[]; directories: string[] }>>;
 }
 
@@ -24,8 +22,6 @@ export async function materializeBundle(options: {
   tools?: ToolName[];
   resolveFileConflict?: (conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>;
 }): Promise<MaterializeBundleResult> {
-  const allFiles: string[] = [];
-  const allDirectories = new Set<string>();
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const toolEntries = options.tools && options.tools.length > 0
     ? Object.entries(options.manifest.tools).filter(([toolName]) => options.tools!.includes(toolName as ToolName))
@@ -92,20 +88,9 @@ export async function materializeBundle(options: {
       return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
     });
     byTool[toolName as ToolName] = { files: toolFiles, directories: sortedToolDirs };
-    allFiles.push(...toolFiles);
-    for (const dir of toolDirectories) allDirectories.add(dir);
   }
 
-  allFiles.sort((left, right) => {
-    const depthDifference = pathDepth(left) - pathDepth(right);
-    return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
-  });
-  const directories = Array.from(allDirectories).sort((left, right) => {
-    const depthDifference = pathDepth(right) - pathDepth(left);
-    return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
-  });
-
-  return { files: allFiles, directories, byTool };
+  return { byTool };
 }
 
 async function copyDirectory(
