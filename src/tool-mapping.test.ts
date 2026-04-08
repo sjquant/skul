@@ -40,6 +40,7 @@ describe("getToolDefinition", () => {
         targets: {
           skills: { path: ".cursor/skills" },
           commands: { path: ".cursor/commands" },
+          agents: { path: ".cursor/agents" },
         },
       },
     ],
@@ -80,6 +81,7 @@ describe("resolveToolTargetPath", () => {
     ["claude-code", "agents", path.join("/repo", ".claude/agents")],
     ["cursor", "skills", path.join("/repo", ".cursor/skills")],
     ["cursor", "commands", path.join("/repo", ".cursor/commands")],
+    ["cursor", "agents", path.join("/repo", ".cursor/agents")],
     ["opencode", "skills", path.join("/repo", ".opencode/skills")],
     ["opencode", "commands", path.join("/repo", ".opencode/commands")],
     ["opencode", "agents", path.join("/repo", ".opencode/agents")],
@@ -92,7 +94,6 @@ describe("resolveToolTargetPath", () => {
   });
 
   it.each([
-    ["cursor", "agents"],
     ["codex", "commands"],
   ] satisfies Array<[string, ToolTargetName]>)(
     "returns null when %s does not define %s",

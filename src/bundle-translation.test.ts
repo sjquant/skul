@@ -725,6 +725,61 @@ describe("translateAgent", () => {
     });
   });
 
+  it("converts Claude and Codex agents into Cursor markdown agents", () => {
+    // When / Then
+    expect(
+      translateAgent({
+        sourceTool: "claude",
+        targetTool: "cursor",
+        source: [
+          "---",
+          "name: code-reviewer",
+          "description: Review code for bugs and risks",
+          "model: sonnet",
+          "---",
+          "",
+          "Review the diff for correctness and missing tests.",
+          "",
+        ].join("\n"),
+      }),
+    ).toEqual({
+      ".cursor/agents/code-reviewer.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "model: sonnet",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+    expect(
+      translateAgent({
+        sourceTool: "codex",
+        targetTool: "cursor",
+        source: [
+          'name = "code-reviewer"',
+          'description = "Review code for bugs and risks"',
+          'model = "gpt-5.4"',
+          'developer_instructions = """',
+          "Review the diff for correctness and missing tests.",
+          '"""',
+          "",
+        ].join("\n"),
+      }),
+    ).toEqual({
+      ".cursor/agents/code-reviewer.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "model: gpt-5.4",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+  });
+
   it("converts an OpenCode agent into Claude and Codex agent forms", () => {
     // Given
     const source = [

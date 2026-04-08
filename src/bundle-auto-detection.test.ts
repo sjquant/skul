@@ -52,7 +52,7 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["codex"]).toBeUndefined(); // codex has no commands target
   });
 
-  it("infers agents only for tools that support agents (not cursor)", () => {
+  it("infers agents for all four tools when an agents/ directory is present", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "agents", "reviewer.md"), "# reviewer\n");
@@ -62,9 +62,9 @@ describe("inferBundleManifest", () => {
 
     // Then
     expect(manifest.tools["claude-code"]).toEqual({ agents: { path: "agents" } });
+    expect(manifest.tools["cursor"]).toEqual({ agents: { path: "agents" } });
     expect(manifest.tools["opencode"]).toEqual({ agents: { path: "agents" } });
     expect(manifest.tools["codex"]).toEqual({ agents: { path: "agents" } });
-    expect(manifest.tools["cursor"]).toBeUndefined(); // cursor has no agents target
   });
 
   it("uses native dotdir path when a native directory exists", () => {
@@ -374,6 +374,7 @@ describe("materializeBundle: native dotdir passthrough", () => {
     ["claude-code", ".claude/skills", "react/SKILL.md", "# raw claude skill\n"],
     ["cursor", ".cursor/skills", "react/SKILL.md", "# raw cursor skill\n"],
     ["cursor", ".cursor/commands", "review.md", "# raw cursor command\n"],
+    ["cursor", ".cursor/agents", "reviewer.md", "# raw cursor agent\n"],
     ["opencode", ".opencode/skills", "react/SKILL.md", "# raw opencode skill\n"],
     ["codex", ".agents/skills", "react/SKILL.md", "# raw codex skill\n"],
     ["codex", ".codex/agents", "reviewer.toml", 'name = "reviewer"\n'],

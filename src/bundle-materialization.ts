@@ -310,7 +310,6 @@ async function materializeCanonicalTarget(options: {
       });
     } else if (options.targetName === "agents") {
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-      if (translTool === "cursor") continue; // cursor has no agents target
 
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateAgent({

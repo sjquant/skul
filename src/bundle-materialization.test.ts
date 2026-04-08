@@ -25,6 +25,7 @@ const commandCases: Array<[ToolName, string]> = [
 ];
 const agentCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/agents"],
+  ["cursor", ".cursor/agents"],
   ["opencode", ".opencode/agents"],
   ["codex", ".codex/agents"],
 ];
