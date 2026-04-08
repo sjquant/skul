@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 import { listToolDefinitions, type ToolDefinition, type ToolName, type ToolTargetName } from "./tool-mapping";
@@ -58,6 +59,48 @@ export function parseBundleManifest(input: unknown): BundleManifest {
     name: expectNonEmptyString(manifest.name, "name"),
     tools,
   };
+}
+
+export function inferBundleManifest(bundleDir: string, bundleName: string): BundleManifest {
+  const tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>> = {};
+  const allTools = listToolDefinitions();
+  const canonicalTargetNames: ToolTargetName[] = ["skills", "commands", "agents"];
+
+  // Process canonical directories (skills/, commands/, agents/) — Claude Code canonical format.
+  // These apply to all tools that support the given target.
+  for (const targetName of canonicalTargetNames) {
+    if (isExistingDirectory(path.join(bundleDir, targetName))) {
+      for (const toolDef of allTools) {
+        if (targetName in toolDef.targets) {
+          if (!tools[toolDef.name]) tools[toolDef.name] = {};
+          if (!tools[toolDef.name]![targetName]) {
+            tools[toolDef.name]![targetName] = { path: targetName };
+          }
+        }
+      }
+    }
+  }
+
+  // Process native dotdirs (.claude/skills/, .cursor/commands/, etc.) — pre-authored native format.
+  // Native paths override canonical paths for the same tool + target.
+  for (const toolDef of allTools) {
+    for (const [targetName, targetDef] of Object.entries(toolDef.targets)) {
+      if (isExistingDirectory(path.join(bundleDir, targetDef.path))) {
+        if (!tools[toolDef.name]) tools[toolDef.name] = {};
+        tools[toolDef.name]![targetName as ToolTargetName] = { path: targetDef.path };
+      }
+    }
+  }
+
+  return { name: bundleName, tools };
+}
+
+function isExistingDirectory(dirPath: string): boolean {
+  try {
+    return fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export function resolveCachedBundleLayout(options: {

@@ -9,6 +9,9 @@ import { materializeBundle } from "./bundle-materialization";
 import { type ToolName } from "./tool-mapping";
 
 const tempDirs: string[] = [];
+// Each tuple: [toolName, nativeTargetPath]
+// nativeTargetPath is BOTH the expected destination root AND the manifest source path
+// so that materializeBundle copies verbatim (native dotdir pass-through).
 const skillCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/skills"],
   ["cursor", ".cursor/skills"],
@@ -33,13 +36,15 @@ afterEach(() => {
 });
 
 describe("materializeBundle", () => {
-  it.each(skillCases)("materializes skills for %s into %s", async (tool, destinationRoot) => {
+  it.each(skillCases)("materializes skills for %s into %s", async (tool, nativePath) => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
 
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
-    writeFile(path.join(bundleDir, "skills", "react", "assets", "context.md"), "context\n");
+    // Bundle files live under the tool's native dotdir path so materializeBundle
+    // copies them verbatim (native pass-through, no canonical transforms).
+    writeFile(path.join(bundleDir, nativePath, "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, nativePath, "react", "assets", "context.md"), "context\n");
 
     // When
     const result = await materializeBundle({
@@ -47,20 +52,20 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tools: { [tool]: { skills: { path: "skills" } } } as BundleManifest["tools"],
+        tools: { [tool]: { skills: { path: nativePath } } } as BundleManifest["tools"],
       },
     });
 
     // Then
     expect(result.files).toEqual([
-      `${destinationRoot}/react/SKILL.md`,
-      `${destinationRoot}/react/assets/context.md`,
+      `${nativePath}/react/SKILL.md`,
+      `${nativePath}/react/assets/context.md`,
     ]);
     expect(
-      fs.readFileSync(path.join(repoRoot, destinationRoot, "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(path.join(repoRoot, nativePath, "react", "SKILL.md"), "utf8"),
     ).toBe("# react\n");
     expect(
-      fs.readFileSync(path.join(repoRoot, destinationRoot, "react", "assets", "context.md"), "utf8"),
+      fs.readFileSync(path.join(repoRoot, nativePath, "react", "assets", "context.md"), "utf8"),
     ).toBe("context\n");
   });
 
@@ -70,8 +75,8 @@ describe("materializeBundle", () => {
     const bundleDir = createTempDir("skul-bundle-");
 
     writeFile(path.join(repoRoot, ".claude", "skills", ".keep"), "");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
-    writeFile(path.join(bundleDir, "skills", "react", "assets", "context.md"), "context\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "assets", "context.md"), "context\n");
 
     // When
     const result = await materializeBundle({
@@ -79,7 +84,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tools: { "claude-code": { skills: { path: "skills" } } },
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
     });
 
@@ -90,12 +95,12 @@ describe("materializeBundle", () => {
     ]);
   });
 
-  it.each(commandCases)("materializes commands for %s into %s", async (tool, destinationRoot) => {
+  it.each(commandCases)("materializes commands for %s into %s", async (tool, nativePath) => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
 
-    writeFile(path.join(bundleDir, "commands", "review.md"), "# review\n");
+    writeFile(path.join(bundleDir, nativePath, "review.md"), "# review\n");
 
     // When
     const result = await materializeBundle({
@@ -103,23 +108,23 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "review-pack",
-        tools: { [tool]: { commands: { path: "commands" } } } as BundleManifest["tools"],
+        tools: { [tool]: { commands: { path: nativePath } } } as BundleManifest["tools"],
       },
     });
 
     // Then
-    expect(result.files).toEqual([`${destinationRoot}/review.md`]);
-    expect(fs.readFileSync(path.join(repoRoot, destinationRoot, "review.md"), "utf8")).toBe(
+    expect(result.files).toEqual([`${nativePath}/review.md`]);
+    expect(fs.readFileSync(path.join(repoRoot, nativePath, "review.md"), "utf8")).toBe(
       "# review\n",
     );
   });
 
-  it.each(agentCases)("materializes agents for %s into %s", async (tool, destinationRoot) => {
+  it.each(agentCases)("materializes agents for %s into %s", async (tool, nativePath) => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
 
-    writeFile(path.join(bundleDir, "agents", "reviewer.md"), "# reviewer\n");
+    writeFile(path.join(bundleDir, nativePath, "reviewer.md"), "# reviewer\n");
 
     // When
     const result = await materializeBundle({
@@ -127,13 +132,13 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "review-pack",
-        tools: { [tool]: { agents: { path: "agents" } } } as BundleManifest["tools"],
+        tools: { [tool]: { agents: { path: nativePath } } } as BundleManifest["tools"],
       },
     });
 
     // Then
-    expect(result.files).toEqual([`${destinationRoot}/reviewer.md`]);
-    expect(fs.readFileSync(path.join(repoRoot, destinationRoot, "reviewer.md"), "utf8")).toBe(
+    expect(result.files).toEqual([`${nativePath}/reviewer.md`]);
+    expect(fs.readFileSync(path.join(repoRoot, nativePath, "reviewer.md"), "utf8")).toBe(
       "# reviewer\n",
     );
   });
@@ -143,7 +148,7 @@ describe("materializeBundle", () => {
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
 
     // When
     const result = await materializeBundle({
@@ -151,7 +156,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tools: { "claude-code": { skills: { path: "skills" } } },
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => ({
         action: "rename",
@@ -174,7 +179,7 @@ describe("materializeBundle", () => {
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
 
     // When
     const result = await materializeBundle({
@@ -182,7 +187,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tools: { "claude-code": { skills: { path: "skills" } } },
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => ({ action: "prefix", prefix: "bundle" }),
     });
@@ -199,7 +204,7 @@ describe("materializeBundle", () => {
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
 
     // When
     const result = await materializeBundle({
@@ -207,7 +212,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tools: { "claude-code": { skills: { path: "skills" } } },
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => ({ action: "skip" }),
     });
@@ -228,7 +233,7 @@ describe("materializeBundle", () => {
           bundleDir,
           manifest: {
             name: "react-expert",
-            tools: { "claude-code": { skills: { path: "skills" } } },
+            tools: { "claude-code": { skills: { path: ".claude/skills" } } },
           },
         }),
       /bundle target path does not exist/i,
@@ -236,14 +241,14 @@ describe("materializeBundle", () => {
     [
       "declared target path that is a file instead of a directory",
       (repoRoot: string, bundleDir: string) => {
-        writeFile(path.join(bundleDir, "skills"), "not a directory\n");
+        writeFile(path.join(bundleDir, ".claude", "skills"), "not a directory\n");
 
         return materializeBundle({
           repoRoot,
           bundleDir,
           manifest: {
             name: "react-expert",
-            tools: { "claude-code": { skills: { path: "skills" } } },
+            tools: { "claude-code": { skills: { path: ".claude/skills" } } },
           },
         });
       },
@@ -264,8 +269,8 @@ describe("materializeBundle", () => {
     // first file's destination (already reserved), then renames to a free path.
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, "skills", "a.md"), "# a\n");
-    writeFile(path.join(bundleDir, "skills", "b.md"), "# b\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "a.md"), "# a\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "b.md"), "# b\n");
     writeFile(path.join(repoRoot, ".claude", "skills", "b.md"), "user file\n");
 
     const resolutions = [
@@ -280,7 +285,7 @@ describe("materializeBundle", () => {
       bundleDir,
       manifest: {
         name: "react-expert",
-        tools: { "claude-code": { skills: { path: "skills" } } },
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => resolutions[callCount++],
     });
@@ -295,7 +300,7 @@ describe("materializeBundle", () => {
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
 
     // When / Then
     await expect(
@@ -304,7 +309,7 @@ describe("materializeBundle", () => {
         bundleDir,
         manifest: {
           name: "react-expert",
-          tools: { "claude-code": { skills: { path: "skills" } } },
+          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
         },
       }),
     ).rejects.toThrowError(/conflict detected/i);
@@ -314,7 +319,9 @@ describe("materializeBundle", () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+    // Each tool has its own native copy of the file (pre-authored native format).
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"), "# react\n");
 
     // When
     const result = await materializeBundle({
@@ -323,8 +330,8 @@ describe("materializeBundle", () => {
       manifest: {
         name: "react-expert",
         tools: {
-          "claude-code": { skills: { path: "skills" } },
-          cursor: { skills: { path: "skills" } },
+          "claude-code": { skills: { path: ".claude/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
         },
       },
     });
@@ -342,7 +349,8 @@ describe("materializeBundle", () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"), "# react\n");
 
     // When
     const result = await materializeBundle({
@@ -351,8 +359,8 @@ describe("materializeBundle", () => {
       manifest: {
         name: "react-expert",
         tools: {
-          "claude-code": { skills: { path: "skills" } },
-          cursor: { skills: { path: "skills" } },
+          "claude-code": { skills: { path: ".claude/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
         },
       },
       tools: ["claude-code"],
@@ -370,7 +378,8 @@ describe("materializeBundle", () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
+    writeFile(path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"), "# react\n");
 
     // When
     const result = await materializeBundle({
@@ -379,8 +388,8 @@ describe("materializeBundle", () => {
       manifest: {
         name: "react-expert",
         tools: {
-          "claude-code": { skills: { path: "skills" } },
-          cursor: { skills: { path: "skills" } },
+          "claude-code": { skills: { path: ".claude/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
         },
       },
       tools: [],
@@ -397,8 +406,8 @@ describe("materializeBundle", () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
-    fs.mkdirSync(path.join(bundleDir, "skills"), { recursive: true });
-    fs.symlinkSync("/etc/passwd", path.join(bundleDir, "skills", "SKILL.md"));
+    fs.mkdirSync(path.join(bundleDir, ".claude", "skills"), { recursive: true });
+    fs.symlinkSync("/etc/passwd", path.join(bundleDir, ".claude", "skills", "SKILL.md"));
 
     // When / Then
     await expect(
@@ -407,7 +416,7 @@ describe("materializeBundle", () => {
         bundleDir,
         manifest: {
           name: "react-expert",
-          tools: { "claude-code": { skills: { path: "skills" } } },
+          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
         },
       }),
     ).rejects.toThrowError(/symlink/i);
@@ -419,8 +428,8 @@ describe("materializeBundle", () => {
     const bundleDir = createTempDir("skul-bundle-");
     const realDir = createTempDir("skul-real-");
     writeFile(path.join(realDir, "SKILL.md"), "# real\n");
-    fs.mkdirSync(path.join(bundleDir, "skills"), { recursive: true });
-    fs.symlinkSync(realDir, path.join(bundleDir, "skills", "subdir"));
+    fs.mkdirSync(path.join(bundleDir, ".claude", "skills"), { recursive: true });
+    fs.symlinkSync(realDir, path.join(bundleDir, ".claude", "skills", "subdir"));
 
     // When / Then
     await expect(
@@ -429,7 +438,7 @@ describe("materializeBundle", () => {
         bundleDir,
         manifest: {
           name: "react-expert",
-          tools: { "claude-code": { skills: { path: "skills" } } },
+          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
         },
       }),
     ).rejects.toThrowError(/symlink/i);
@@ -441,7 +450,8 @@ describe("materializeBundle", () => {
     const bundleDir = createTempDir("skul-bundle-");
     const realDir = createTempDir("skul-real-");
     writeFile(path.join(realDir, "SKILL.md"), "# real\n");
-    fs.symlinkSync(realDir, path.join(bundleDir, "skills"));
+    fs.mkdirSync(path.join(bundleDir, ".claude"), { recursive: true });
+    fs.symlinkSync(realDir, path.join(bundleDir, ".claude", "skills"));
 
     // When / Then
     await expect(
@@ -450,7 +460,7 @@ describe("materializeBundle", () => {
         bundleDir,
         manifest: {
           name: "react-expert",
-          tools: { "claude-code": { skills: { path: "skills" } } },
+          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
         },
       }),
     ).rejects.toThrowError(/symlink/i);
