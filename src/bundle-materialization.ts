@@ -249,7 +249,13 @@ function isNativeSourcePath(toolName: ToolName, targetName: ToolTargetName, sour
 }
 
 function toTranslationToolName(toolName: ToolName): "claude" | "cursor" | "opencode" | "codex" {
-  return toolName === "claude-code" ? "claude" : toolName as "cursor" | "opencode" | "codex";
+  const map: Record<ToolName, "claude" | "cursor" | "opencode" | "codex"> = {
+    "claude-code": "claude",
+    cursor: "cursor",
+    opencode: "opencode",
+    codex: "codex",
+  };
+  return map[toolName];
 }
 
 function readFilesIntoRecord(dir: string, prefix: string, result: Record<string, string>): void {
