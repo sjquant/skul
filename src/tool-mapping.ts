@@ -26,6 +26,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     targets: {
       skills: { path: ".cursor/skills" },
       commands: { path: ".cursor/commands" },
+      agents: { path: ".cursor/agents" },
     },
   },
   {

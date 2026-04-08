@@ -9,7 +9,7 @@ interface MetadataMap {
 
 type SkillTool = "claude" | "cursor" | "codex" | "opencode";
 type CommandTool = "claude" | "cursor" | "opencode";
-type AgentTool = "claude" | "codex" | "opencode";
+type AgentTool = "claude" | "cursor" | "codex" | "opencode";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
