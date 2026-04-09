@@ -263,26 +263,11 @@ function createProgram(
 
   program
     .command("add")
-    .description(
-      "Add a bundle to the active set and materialize its files\n\n" +
-      "Writes the bundle's AI configuration assets into tool-native directories\n" +
-      "(.claude/, .cursor/, .opencode/, .agents/) and registers them in\n" +
-      "~/.skul/registry.json. Files are hidden from Git via .git/info/exclude.\n\n" +
-      "If the bundle is already active, it is re-materialized (idempotent).\n" +
-      "Use --tool to limit materialization to specific AI tools.",
-    )
+    .description("Add a bundle to the active set and materialize its files")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
     .argument("[bundle]", "Bundle name")
     .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
     .option("--dry-run", "Preview what would be written without making any changes")
-    .addHelpText(
-      "after",
-      "\nExamples:\n" +
-      "  skul add react-expert                          # add from local library\n" +
-      "  skul add github.com/user/vault react-expert    # add from remote source\n" +
-      "  skul add react-expert --tool claude-code       # materialize for one tool only\n" +
-      "  skul add react-expert --dry-run                # preview without writing files\n",
-    )
     .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[]; dryRun?: boolean }) => {
       const tools = opts.tool;
       const dryRun = opts.dryRun ?? false;
@@ -314,94 +299,40 @@ function createProgram(
 
   program
     .command("list")
-    .description(
-      "List available bundles in the local library\n\n" +
-      "Shows all bundles cached in ~/.skul/library/ along with the AI tools\n" +
-      "each bundle supports. Use --json for machine-readable output.",
-    )
+    .description("List available bundles in the local library")
     .option("--json", "Output as JSON (for scripting and agent use)")
-    .addHelpText(
-      "after",
-      "\nExamples:\n" +
-      "  skul list               # human-readable table\n" +
-      "  skul list --json        # JSON array for agent consumption\n",
-    )
     .action((opts: { json?: boolean }) => {
       context.result = { kind: "command", command: "list", options: { json: opts.json ?? false } };
     });
 
   program
     .command("status")
-    .description(
-      "Show desired state and current worktree materialization\n\n" +
-      "Displays the repository's configured bundle set (desired state) and\n" +
-      "the files actually written into the current Git worktree (materialized\n" +
-      "state). Use --json for structured output suitable for agent inspection.",
-    )
+    .description("Show desired state and current worktree materialization")
     .option("--json", "Output as JSON (for scripting and agent use)")
-    .addHelpText(
-      "after",
-      "\nExamples:\n" +
-      "  skul status             # human-readable summary\n" +
-      "  skul status --json      # structured JSON for agent inspection\n",
-    )
     .action((opts: { json?: boolean }) => {
       context.result = { kind: "command", command: "status", options: { json: opts.json ?? false } };
     });
 
   program
     .command("apply")
-    .description(
-      "Materialize all desired-state bundles into the current worktree\n\n" +
-      "Reads the repository's desired bundle set and writes any bundles that\n" +
-      "are not yet materialized in the current worktree. Safe to run multiple\n" +
-      "times — already-materialized bundles are skipped.",
-    )
-    .addHelpText(
-      "after",
-      "\nExamples:\n" +
-      "  skul apply              # materialize all pending bundles\n",
-    )
+    .description("Materialize all desired-state bundles into the current worktree")
     .action(() => {
       context.result = { kind: "command", command: "apply" };
     });
 
   program
     .command("reset")
-    .description(
-      "Remove all Skul-managed files from the current worktree\n\n" +
-      "Deletes every file owned by Skul in this worktree, removes the\n" +
-      ".git/info/exclude block, and clears the worktree's registry entry.\n" +
-      "Does not modify the repository's desired state — run 'skul apply'\n" +
-      "to re-materialize.",
-    )
+    .description("Remove all Skul-managed files from the current worktree")
     .option("--dry-run", "Preview what would be deleted without removing any files")
-    .addHelpText(
-      "after",
-      "\nExamples:\n" +
-      "  skul reset              # remove all managed files\n" +
-      "  skul reset --dry-run    # preview deletions without touching files\n",
-    )
     .action((opts: { dryRun?: boolean }) => {
       context.result = { kind: "command", command: "reset", options: { dryRun: opts.dryRun ?? false } };
     });
 
   program
     .command("remove")
-    .description(
-      "Remove a bundle from the active set and delete its managed files\n\n" +
-      "Removes the named bundle from the repository's desired state and\n" +
-      "deletes its materialized files from the current worktree. Prompts\n" +
-      "before deleting any files that were modified since Skul wrote them.",
-    )
+    .description("Remove a bundle from the active set and delete its managed files")
     .argument("<bundle>", "Bundle name to remove")
     .option("--dry-run", "Preview what would be deleted without removing any files")
-    .addHelpText(
-      "after",
-      "\nExamples:\n" +
-      "  skul remove react-expert            # remove bundle and its files\n" +
-      "  skul remove react-expert --dry-run  # preview without deleting\n",
-    )
     .action((bundle: string, opts: { dryRun?: boolean }) => {
       context.result = {
         kind: "command",
