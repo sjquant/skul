@@ -151,7 +151,7 @@ describe("materializeBundle: canonical → cursor", () => {
     });
 
     // Then
-    expect(result.files).toEqual([".cursor/skills/react/SKILL.md"]);
+    expect(result.byTool["cursor"]!.files).toEqual([".cursor/skills/react/SKILL.md"]);
     const content = fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8");
     expect(content).toContain("name: react");
     expect(content).toContain("description: React skills");
@@ -178,7 +178,7 @@ describe("materializeBundle: canonical → cursor", () => {
     });
 
     // Then
-    expect(result.files).toEqual([".cursor/commands/review.md"]);
+    expect(result.byTool["cursor"]!.files).toEqual([".cursor/commands/review.md"]);
     const content = fs.readFileSync(path.join(repoRoot, ".cursor", "commands", "review.md"), "utf8");
     // Cursor commands are plain text — frontmatter is stripped
     expect(content).toBe("Review the diff.\n");
@@ -211,7 +211,7 @@ describe("materializeBundle: canonical → codex", () => {
     });
 
     // Then
-    expect(result.files).toContain(".agents/skills/review/SKILL.md");
+    expect(result.byTool["codex"]!.files).toContain(".agents/skills/review/SKILL.md");
     const content = fs.readFileSync(
       path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
       "utf8",
@@ -241,8 +241,8 @@ describe("materializeBundle: canonical → codex", () => {
     });
 
     // Then
-    expect(result.files).toContain(".agents/skills/next-task/SKILL.md");
-    expect(result.files).toContain(".agents/skills/next-task/agents/openai.yaml");
+    expect(result.byTool["codex"]!.files).toContain(".agents/skills/next-task/SKILL.md");
+    expect(result.byTool["codex"]!.files).toContain(".agents/skills/next-task/agents/openai.yaml");
     const yaml = fs.readFileSync(
       path.join(repoRoot, ".agents", "skills", "next-task", "agents", "openai.yaml"),
       "utf8",
@@ -270,7 +270,7 @@ describe("materializeBundle: canonical → codex", () => {
     });
 
     // Then
-    expect(result.files).toEqual([".codex/agents/reviewer.toml"]);
+    expect(result.byTool["codex"]!.files).toEqual([".codex/agents/reviewer.toml"]);
     const content = fs.readFileSync(path.join(repoRoot, ".codex", "agents", "reviewer.toml"), "utf8");
     expect(content).toContain('name = "reviewer"');
     expect(content).toContain('description = "Code reviewer"');
@@ -303,7 +303,7 @@ describe("materializeBundle: canonical → opencode", () => {
     });
 
     // Then
-    expect(result.files).toEqual([".opencode/skills/react/SKILL.md"]);
+    expect(result.byTool["opencode"]!.files).toEqual([".opencode/skills/react/SKILL.md"]);
     const content = fs.readFileSync(
       path.join(repoRoot, ".opencode", "skills", "react", "SKILL.md"),
       "utf8",
@@ -332,7 +332,7 @@ describe("materializeBundle: canonical → opencode", () => {
     });
 
     // Then – manualOnly skill lands in opencode's commands dir, not skills dir
-    expect(result.files).toEqual([".opencode/commands/fix.md"]);
+    expect(result.byTool["opencode"]!.files).toEqual([".opencode/commands/fix.md"]);
     expect(fs.existsSync(path.join(repoRoot, ".opencode", "skills", "fix", "SKILL.md"))).toBe(false);
     const content = fs.readFileSync(path.join(repoRoot, ".opencode", "commands", "fix.md"), "utf8");
     expect(content).toContain("Fix the reported issue.");
@@ -358,7 +358,7 @@ describe("materializeBundle: canonical → opencode", () => {
     });
 
     // Then
-    expect(result.files).toEqual([".opencode/commands/deploy.md"]);
+    expect(result.byTool["opencode"]!.files).toEqual([".opencode/commands/deploy.md"]);
     const content = fs.readFileSync(path.join(repoRoot, ".opencode", "commands", "deploy.md"), "utf8");
     expect(content).toContain("description: Deploy the app");
     expect(content).toContain("Run the deployment pipeline.");
@@ -401,7 +401,7 @@ describe("materializeBundle: native dotdir passthrough", () => {
 
       // Then
       const expectedFile = `${nativePath}/${fileName}`;
-      expect(result.files).toContain(expectedFile);
+      expect(result.byTool[toolName]!.files).toContain(expectedFile);
       const writtenContent = fs.readFileSync(path.join(repoRoot, expectedFile), "utf8");
       expect(writtenContent).toBe(rawContent);
     },
@@ -437,9 +437,9 @@ describe("materializeBundle: canonical multi-tool materialization", () => {
     });
 
     // Then – each tool gets its own translated copy
-    expect(result.files).toContain(".claude/skills/react/SKILL.md");
-    expect(result.files).toContain(".cursor/skills/react/SKILL.md");
-    expect(result.files).toContain(".agents/skills/react/SKILL.md");
+    expect(result.byTool["claude-code"]!.files).toContain(".claude/skills/react/SKILL.md");
+    expect(result.byTool["cursor"]!.files).toContain(".cursor/skills/react/SKILL.md");
+    expect(result.byTool["codex"]!.files).toContain(".agents/skills/react/SKILL.md");
   });
 });
 

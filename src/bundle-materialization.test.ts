@@ -58,7 +58,7 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([
+    expect(result.byTool[tool]!.files).toEqual([
       `${nativePath}/react/SKILL.md`,
       `${nativePath}/react/assets/context.md`,
     ]);
@@ -90,7 +90,7 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.directories).toEqual([
+    expect(result.byTool["claude-code"]!.directories).toEqual([
       ".claude/skills/react/assets",
       ".claude/skills/react",
     ]);
@@ -114,7 +114,7 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([`${nativePath}/review.md`]);
+    expect(result.byTool[tool]!.files).toEqual([`${nativePath}/review.md`]);
     expect(fs.readFileSync(path.join(repoRoot, nativePath, "review.md"), "utf8")).toBe(
       "# review\n",
     );
@@ -138,7 +138,7 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([`${nativePath}/reviewer.md`]);
+    expect(result.byTool[tool]!.files).toEqual([`${nativePath}/reviewer.md`]);
     expect(fs.readFileSync(path.join(repoRoot, nativePath, "reviewer.md"), "utf8")).toBe(
       "# reviewer\n",
     );
@@ -166,7 +166,7 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([".claude/skills/custom-react/SKILL.md"]);
+    expect(result.byTool["claude-code"]!.files).toEqual([".claude/skills/custom-react/SKILL.md"]);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "user file\n",
     );
@@ -194,7 +194,7 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([".claude/skills/bundle-react/SKILL.md"]);
+    expect(result.byTool["claude-code"]!.files).toEqual([".claude/skills/bundle-react/SKILL.md"]);
     expect(
       fs.readFileSync(path.join(repoRoot, ".claude", "skills", "bundle-react", "SKILL.md"), "utf8"),
     ).toBe("# react\n");
@@ -219,7 +219,7 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([]);
+    expect(result.byTool["claude-code"]!.files).toEqual([]);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "user file\n",
     );
@@ -293,7 +293,7 @@ describe("materializeBundle", () => {
 
     // Then
     expect(callCount).toBe(2);
-    expect(result.files).toContain(".claude/skills/b-new.md");
+    expect(result.byTool["claude-code"]!.files).toContain(".claude/skills/b-new.md");
   });
 
   it("throws on conflict when no resolveFileConflict callback is provided", async () => {
@@ -338,10 +338,8 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([
-      ".claude/skills/react/SKILL.md",
-      ".cursor/skills/react/SKILL.md",
-    ]);
+    expect(result.byTool["claude-code"]!.files).toEqual([".claude/skills/react/SKILL.md"]);
+    expect(result.byTool["cursor"]!.files).toEqual([".cursor/skills/react/SKILL.md"]);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
     expect(fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
   });
@@ -368,7 +366,7 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([".claude/skills/react/SKILL.md"]);
+    expect(result.byTool["claude-code"]!.files).toEqual([".claude/skills/react/SKILL.md"]);
     expect(
       fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
     ).toBe("# react\n");
@@ -397,10 +395,8 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    expect(result.files).toEqual([
-      ".claude/skills/react/SKILL.md",
-      ".cursor/skills/react/SKILL.md",
-    ]);
+    expect(result.byTool["claude-code"]!.files).toEqual([".claude/skills/react/SKILL.md"]);
+    expect(result.byTool["cursor"]!.files).toEqual([".cursor/skills/react/SKILL.md"]);
   });
 
   it("throws when the bundle contains a symlink", async () => {
