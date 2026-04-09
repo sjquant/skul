@@ -1,8 +1,8 @@
-# Skul — AI Configuration Bundle Manager for Claude Code, Cursor, Codex & OpenCode
+# Skul — CLI to Manage AI Configuration Bundles for Claude Code, Cursor, Codex & OpenCode
 
-Skul is an open-source CLI that applies project-scoped AI configuration bundles into tool-native folders without committing them to Git. It writes skills, commands, and agents exactly where Claude Code, Cursor, OpenCode, and Codex expect them — then hides those files from version control using `.git/info/exclude`.
+Skul is an open-source command-line tool that applies reusable **AI configuration bundles** — skills, slash commands, and agents — into the tool-native folders that Claude Code, Cursor, OpenCode, and Codex expect, without committing those files to Git.
 
-No `.gitignore` edits. No committed AI config files. No manual copy-paste between projects.
+It keeps your AI coding assistant configuration **portable across projects and Git worktrees** while staying completely invisible to version control.
 
 [![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
@@ -10,15 +10,90 @@ No `.gitignore` edits. No committed AI config files. No manual copy-paste betwee
 
 ---
 
-## Why Use Skul?
+## Features
 
-AI coding tools like Claude Code, Cursor, and Codex rely on project-local configuration directories (`.claude/`, `.cursor/`, `.opencode/`, `.codex/`) to load skills, slash commands, and agents. Managing these files manually means:
+- **One command to apply** — `skul add <bundle>` writes skills, commands, and agents to every supported tool at once
+- **Git-invisible by design** — uses `.git/info/exclude`, never `.gitignore`; zero repo pollution
+- **Multi-tool materialization** — a single bundle fans out to Claude Code, Cursor, OpenCode, and Codex simultaneously
+- **Worktree-aware** — repo intent carries across linked worktrees; `skul apply` re-materializes after `git worktree add`
+- **Safe removal** — registry-tracked paths, modified-file guard, and `--dry-run` on every mutating command
+- **CI and agent ready** — `SKUL_NO_TUI=1` suppresses all prompts; `--json` output for scripting pipelines
+- **No committed files** — nothing Skul writes ever needs to be staged or pushed
 
-- Duplicating config across every project and worktree
-- Either committing AI-specific files (polluting the repo) or maintaining messy `.gitignore` rules
-- Re-applying everything by hand after a fresh `git worktree add`
+---
 
-Skul solves all three. It keeps a local library of reusable bundles, injects them on demand, and tracks what it owns — so cleanup and re-application are one command each.
+## The Problem
+
+AI coding tools like Claude Code, Cursor, and Codex load context from project-local directories:
+
+```
+.claude/skills/       ← Claude Code skills
+.claude/commands/     ← Claude Code slash commands
+.cursor/rules/        ← Cursor rules
+.codex/agents/        ← Codex agents
+```
+
+Managing these manually means one of two bad options:
+
+| Approach | Problem |
+|---|---|
+| Commit the files | Pollutes the repo with personal AI config; causes conflicts across teammates |
+| Add to `.gitignore` | Leaks into every fork and clone; requires manual re-applying on each new worktree |
+| Copy-paste per project | No single source of truth; edits never sync back |
+
+**Skul eliminates all three problems.** It keeps a local library of bundles, injects on demand, tracks what it owns, and hides everything through `.git/info/exclude`.
+
+---
+
+## Demo
+
+```
+$ skul list
+
+Available Bundles
+
+react-expert (claude-code, cursor)
+python-data  (claude-code, opencode, codex)
+go-backend   (claude-code, cursor, codex)
+```
+
+```
+$ skul add react-expert
+
+Applied react-expert for claude-code, cursor
+```
+
+```
+$ skul status
+
+Repository Desired State
+Bundle: react-expert
+
+Current Worktree
+Path: /home/user/my-app
+Materialized: yes
+
+Files:
+  Bundle: react-expert
+    Tool: claude-code
+      .claude/skills/react-patterns.md
+      .claude/commands/gen-component.md
+      .claude/agents/component-reviewer.md
+    Tool: cursor
+      .cursor/skills/react-patterns.md
+      .cursor/commands/gen-component.md
+
+Git Exclude:
+  configured
+```
+
+```
+$ git status
+On branch main
+nothing to commit, working tree clean
+```
+
+The materialized files are present on disk but completely invisible to Git.
 
 ---
 
@@ -30,9 +105,11 @@ Skul solves all three. It keeps a local library of reusable bundles, injects the
 - [Supported AI Tools](#supported-ai-tools)
 - [Bundle Structure](#bundle-structure)
 - [How Skul Works](#how-skul-works)
+- [Use Cases](#use-cases)
 - [Use in AI Agents and CI Scripts](#use-in-ai-agents-and-ci-scripts)
 - [Safety and Non-Destructive Design](#safety-and-non-destructive-design)
 - [Development](#development)
+- [Contributing](#contributing)
 - [FAQ](#faq)
 
 ---
@@ -54,16 +131,16 @@ npm link            # makes `skul` available globally
 ## Quick Start
 
 ```bash
-# List AI configuration bundles in your local library
+# See what bundles are in your local library
 skul list
 
-# Apply a bundle to the current project
+# Apply an AI configuration bundle to the current project
 skul add react-expert
 
-# See what Skul has materialized in the current worktree
+# Check materialization state for the current worktree
 skul status
 
-# Remove all Skul-managed AI config files
+# Remove all Skul-managed files from the current worktree
 skul reset
 ```
 
@@ -107,7 +184,7 @@ skul remove react-expert --dry-run
 
 ---
 
-### `skul apply` — Re-materialize bundles after a new worktree
+### `skul apply` — Re-materialize bundles into a new worktree
 
 Re-materializes every bundle in the project's desired state into the current worktree. Run this after `git worktree add` or cloning onto a new machine.
 
@@ -128,9 +205,9 @@ skul list --json
 
 ---
 
-### `skul status` — Check materialization state
+### `skul status` — Check current materialization state
 
-Shows the project's desired bundle set and each bundle's materialization state in the current worktree.
+Shows the project's desired bundle set and each bundle's materialization state for the current worktree.
 
 ```bash
 skul status
@@ -139,7 +216,7 @@ skul status --json
 
 ---
 
-### `skul reset` — Clean up all managed files
+### `skul reset` — Remove all managed AI config files
 
 Removes every Skul-managed file from the current worktree and clears the worktree's materialization state.
 
@@ -154,12 +231,12 @@ skul reset --dry-run
 
 Skul materializes bundles for any combination of the following tools. Each tool has its own native directory layout that Skul resolves automatically.
 
-| Tool | Skills directory | Commands directory | Agents directory |
+| Tool | Skills | Commands | Agents |
 |---|---|---|---|
-| **Claude Code** | `.claude/skills` | `.claude/commands` | `.claude/agents` |
-| **Cursor** | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` |
-| **OpenCode** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` |
-| **Codex** | `.agents/skills` | — | `.codex/agents` |
+| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | `.claude/skills` | `.claude/commands` | `.claude/agents` |
+| **[Cursor](https://cursor.sh)** | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` |
+| **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` |
+| **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` |
 
 Use `--tool <name>` with `skul add` to target a single tool instead of all of them.
 
@@ -167,11 +244,11 @@ Use `--tool <name>` with `skul add` to target a single tool instead of all of th
 
 ## Bundle Structure
 
-Bundles are stored under `~/.skul/library/<source>/<bundle-name>/`. Skul supports two layouts and an optional manifest file.
+Bundles live under `~/.skul/library/<source>/<bundle-name>/`. Skul supports three authoring formats.
 
 ### Option 1 — Canonical layout (recommended)
 
-Create top-level `skills/`, `commands/`, and/or `agents/` directories. Skul copies them to every tool that supports each target type.
+Top-level `skills/`, `commands/`, and/or `agents/` directories. Skul copies each to every tool that supports the target type — write once, deploy everywhere.
 
 ```
 ~/.skul/library/local/react-expert/
@@ -185,7 +262,7 @@ Create top-level `skills/`, `commands/`, and/or `agents/` directories. Skul copi
 
 ### Option 2 — Native layout
 
-Use tool-native dotdirs to pre-author content for a specific tool only.
+Tool-native dotdirs for content that should only go to a specific tool.
 
 ```
 ~/.skul/library/local/react-expert/
@@ -197,9 +274,9 @@ Use tool-native dotdirs to pre-author content for a specific tool only.
         └── gen-component.md
 ```
 
-### Option 3 — Explicit manifest
+### Option 3 — Explicit `manifest.json`
 
-Add a `manifest.json` to override path resolution for any tool/target combination.
+Override path resolution for any tool/target combination.
 
 ```json
 {
@@ -216,7 +293,7 @@ Add a `manifest.json` to override path resolution for any tool/target combinatio
 }
 ```
 
-**`manifest.json` field reference:**
+**`manifest.json` fields:**
 
 | Field | Type | Description |
 |---|---|---|
@@ -231,7 +308,7 @@ Valid target names: `skills`, `commands`, `agents`.
 
 ## How Skul Works
 
-Skul keeps all state under `~/.skul/`:
+Skul stores all state under `~/.skul/`:
 
 ```
 ~/.skul/
@@ -241,28 +318,81 @@ Skul keeps all state under `~/.skul/`:
 └── registry.json         # desired state + per-worktree materialization records
 ```
 
-**Two-level registry:** the registry records two things separately:
+**Two-level registry** — the registry tracks two things independently:
 
-- **Repo-level desired state** — which bundles this repo wants.
+- **Repo-level desired state** — which bundles this repository wants (shared across all worktrees).
 - **Worktree-level materialization** — which files were actually written in each worktree.
 
-This means a freshly-created linked worktree sees the desired bundles in `skul status` (because the repo wants them) without pretending the files are already there. Running `skul apply` then materializes them.
+A freshly-created linked worktree sees the desired bundles in `skul status` (the repo wants them) without claiming they're already materialized. Run `skul apply` to bring a new worktree up to date.
 
-**Git stealth mode:** Skul appends ignore rules to `.git/info/exclude` — the per-repo, non-committed ignore file — so materialized AI config files stay invisible to Git without touching `.gitignore`.
+**Git stealth mode** — Skul appends rules to `.git/info/exclude`, the per-repo non-committed ignore file. Materialized AI config files stay invisible to Git without modifying `.gitignore` or leaving any trace in the repo history.
 
-**Conflict handling:** if a target file already exists and is not Skul-managed, you are prompted to rename the incoming file, apply a prefix, or skip it. In headless mode the default prefix is applied automatically.
+**Conflict handling** — if a target path already exists and is not Skul-managed, you choose: rename the incoming file, apply a prefix, or skip. In headless mode the default prefix (`_skul_`) is applied automatically.
+
+---
+
+## Use Cases
+
+### Share a curated AI skill set across every project
+
+Build a `react-expert` bundle once with your best React skills, component-generation commands, and code-review agents. Run `skul add react-expert` in any repo. Every tool gets the right files, nothing touches Git.
+
+### Bootstrap a new Git worktree in one command
+
+Add a worktree for a new feature branch with `git worktree add`. The new worktree sees your configured bundles in `skul status`. Run `skul apply` and all files are materialized immediately — no copy-paste, no re-adding anything.
+
+### Run as part of an autonomous AI agent pipeline
+
+An AI agent clones a repo, sets up the working environment, and runs `SKUL_NO_TUI=1 skul apply` to inject the project's configured AI context into the right tool directories. No user interaction needed. Exit codes and JSON output make it scriptable.
+
+### Keep personal AI configuration out of shared repos
+
+Teammates can commit their own code without your `.claude/skills/` and `.cursor/commands/` showing up in `git status`. Skul-managed files are per-developer, per-machine — never pushed, never conflicting.
+
+### Quickly switch AI context between client projects
+
+Maintain separate bundles for different domains — `python-data`, `go-backend`, `react-frontend`. Use `skul remove` and `skul add` to swap the active skill set when switching projects.
 
 ---
 
 ## Use in AI Agents and CI Scripts
 
-Skul is built for non-interactive use in autonomous AI agent pipelines and CI environments.
+Skul is designed for non-interactive use in autonomous AI agent pipelines and CI environments.
 
 ### Machine-readable JSON output
 
 ```bash
 skul list --json
 skul status --json
+```
+
+Example `skul status --json` output:
+
+```json
+{
+  "repo": {
+    "desired_state": [
+      { "bundle": "react-expert" }
+    ]
+  },
+  "worktree": {
+    "path": "/home/user/my-app",
+    "materialized": true,
+    "bundles": {
+      "react-expert": {
+        "tools": {
+          "claude-code": {
+            "files": [
+              ".claude/skills/react-patterns.md",
+              ".claude/commands/gen-component.md"
+            ]
+          }
+        }
+      }
+    },
+    "git_exclude_configured": true
+  }
+}
 ```
 
 ### Dry-run before mutating
@@ -273,12 +403,11 @@ skul remove react-expert --dry-run
 skul reset --dry-run
 ```
 
-### Headless mode (no interactive prompts)
-
-Set `SKUL_NO_TUI=1` to suppress all prompts. Conflicts auto-resolve with a safe default; operations that require confirmation fail immediately with a clear error and recovery hint.
+### Headless mode (suppress all interactive prompts)
 
 ```bash
 SKUL_NO_TUI=1 skul add react-expert
+SKUL_NO_TUI=1 skul apply
 SKUL_NO_TUI=1 skul reset
 ```
 
@@ -292,16 +421,16 @@ SKUL_NO_TUI=1 skul reset
 
 ## Safety and Non-Destructive Design
 
-- **No `.gitignore` edits** — ignore rules go to `.git/info/exclude` only.
-- **No Git config or history changes** — Skul never touches commits, refs, or config.
-- **Registry-driven cleanup** — file removal uses tracked paths, not filename guessing.
-- **Modified-file guard** — files edited after materialization require explicit confirmation before removal (or fail fast in headless mode).
-- **`--dry-run` on all mutating commands** — inspect any change before it happens.
-- **Missing bundle recovery** — Skul lists available cached bundle names when a requested bundle is not found.
-- **Corrupt registry guard** — a malformed `registry.json` halts execution and explains how to repair or remove it.
+- **No `.gitignore` edits** — ignore rules go to `.git/info/exclude` only; nothing touches the committed ignore file.
+- **No Git config or history changes** — Skul never modifies commits, refs, branches, or Git config.
+- **Registry-driven cleanup** — file removal uses registry-tracked absolute paths, not filename guessing.
+- **Modified-file guard** — files you edit after materialization require explicit confirmation before removal, or fail fast in headless mode.
+- **`--dry-run` on all mutating commands** — preview every change before it happens with `add`, `remove`, and `reset`.
+- **Missing bundle recovery** — when a bundle isn't found, Skul lists the cached bundle names it can see.
+- **Corrupt registry guard** — a malformed `~/.skul/registry.json` halts execution immediately and tells you how to repair or remove it.
 
 **Current limitations:**
-- Cross-tool content transforms (front matter changes, `disable-model-invocation`, `agent.toml` generation) are not yet applied during materialization.
+- Cross-tool content transforms (front matter, `disable-model-invocation`, `agent.toml` generation) are not yet applied during materialization.
 
 ---
 
@@ -312,14 +441,14 @@ pnpm install            # install dependencies
 pnpm run typecheck      # type-check without emitting
 pnpm run test           # run tests once
 pnpm run build          # compile to dist/
-pnpm run dev -- --help  # run CLI via tsx (use instead of a global skul)
+pnpm run dev -- --help  # run CLI via tsx (use instead of a global `skul`)
 ```
 
 ### Source layout
 
 ```
 src/
-  index.ts                  # CLI entrypoint
+  index.ts                  # CLI entrypoint and command dispatch
   cli.ts                    # Command parsing and prompt clients
   registry.ts               # Registry schema, parsing, persistence
   state-layout.ts           # Global state paths (~/.skul/)
@@ -336,25 +465,54 @@ src/
 
 ---
 
+## Contributing
+
+1. Fork the repo and create a feature branch.
+2. Run `pnpm run typecheck && pnpm run test` to verify your changes.
+3. Keep each commit focused — one logical change per commit.
+4. Open a pull request with a clear description of what changed and why.
+
+Bug reports, feature requests, and bundle format proposals are welcome as GitHub Issues.
+
+---
+
 ## FAQ
 
 **Does Skul modify `.gitignore`?**  
-No. Skul writes only to `.git/info/exclude`, which is never committed and does not appear in `git status`.
+No. Skul writes only to `.git/info/exclude`, which is never committed and never appears in `git diff` or `git status`.
+
+**Will Skul files show up when I push to GitHub?**  
+No. `.git/info/exclude` is a local, per-clone file. It is never pushed. No Skul-managed file will appear in a pull request or remote branch.
 
 **What happens to materialized files after `git worktree remove`?**  
-The registry tracks files per worktree path. If the worktree is removed externally, use `skul reset` in that directory beforehand, or the registry entry will remain until manually cleared.
+The registry tracks files per worktree path. Run `skul reset` in the worktree before removing it. If the worktree is removed externally the registry entry persists until manually cleared.
 
-**Can I use Skul in a CI/CD pipeline?**  
-Yes. Set `SKUL_NO_TUI=1` for non-interactive operation and pass `--json` to parse output programmatically.
+**Can I use Skul in a CI/CD pipeline or Docker build?**  
+Yes. Set `SKUL_NO_TUI=1` for non-interactive operation and use `--json` to parse output programmatically.
 
 **Can multiple worktrees use different bundles?**  
-Repo-level desired state is shared across worktrees. Per-worktree materialization is tracked independently, so `skul apply` in each worktree brings it up to date. Worktree-specific overrides are not yet supported.
+Repo-level desired state is shared across all worktrees for the same repo. Per-worktree materialization is tracked independently. Worktree-specific bundle overrides are not yet supported.
+
+**How does Skul differ from committing `.claude/` or `.cursor/` to the repo?**  
+Committed config files are shared with every teammate and every fork. Skul config is personal, per-machine, and per-developer. It never enters the repo's Git history.
+
+**How does Skul differ from adding `.claude/` to `.gitignore`?**  
+`.gitignore` is committed and cloned with the repo — it propagates to every fork and teammate. `.git/info/exclude` is local to the current clone only. Skul also tracks which files it owns, so cleanup is always one command.
 
 **What file types can a bundle contain?**  
-Any files — Skul copies them as-is. Typical content includes Markdown skill definitions, YAML agent configs, and slash-command files.
+Any files — Skul copies them as-is. Typical content includes Markdown skill definitions, YAML agent configs, TOML configuration files, and slash-command Markdown files.
 
 **How do I create my own bundle?**  
-Create a directory under `~/.skul/library/local/<bundle-name>/`, add `skills/`, `commands/`, and/or `agents/` subdirectories with your files, and run `skul add <bundle-name>`.
+Create a directory at `~/.skul/library/local/<bundle-name>/`, add `skills/`, `commands/`, and/or `agents/` subdirectories with your files, then run `skul add <bundle-name>`.
+
+**Can I share a bundle library with my team?**  
+A shared Git repository can serve as a bundle source. Use `skul add github.com/your-org/ai-bundles <bundle-name>` to pull from a team-managed source.
+
+**What happens if I edit a Skul-managed file?**  
+Skul stores a SHA-256 fingerprint of each file at materialization time. If the file has changed, `skul remove` and `skul reset` prompt for confirmation before deleting it. In headless mode the operation fails with a clear error.
+
+**Does Skul work with monorepos or workspaces?**  
+Yes. Each directory that contains a `.git` folder (or is a linked worktree) is treated as an independent worktree. Run Skul commands from the root of the worktree you want to manage.
 
 ---
 
