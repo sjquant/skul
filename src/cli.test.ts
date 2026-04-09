@@ -344,6 +344,43 @@ describe("run", () => {
     ).rejects.toThrowError(/Bundle name is required in headless mode/);
   });
 
+  it("errors in headless mode when a modified managed file would be deleted", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const { createHeadlessPromptClient } = await import("./cli");
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+
+    // When / Then: headless client throws instead of prompting
+    await expect(
+      run(["reset"], { homeDir, cwd: repoRoot, prompts: createHeadlessPromptClient() }),
+    ).rejects.toThrowError(/Modified managed file blocks reset in headless mode/);
+  });
+
+  it("activates headless mode via SKUL_NO_TUI environment variable", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    // When / Then: SKUL_NO_TUI=1 causes run() to select the headless client,
+    // which throws when no bundle is specified rather than opening a prompt.
+    process.env["SKUL_NO_TUI"] = "1";
+    try {
+      await expect(run(["add"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+        /Bundle name is required in headless mode/,
+      );
+    } finally {
+      delete process.env["SKUL_NO_TUI"];
+    }
+  });
+
   it("applies a cached bundle into the current repository and records ownership", async () => {
     // Given
     const homeDir = createHomeDir();

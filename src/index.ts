@@ -169,7 +169,7 @@ function renderStatus(options: {
           path: gitContext.worktreeRoot,
           materialized: false,
           bundles: {},
-          git_exclude_configured: false,
+          git_exclude_configured: hasSkulExcludeBlock({ gitDir: gitContext.gitDir }),
         };
 
     const suggestedAction =
