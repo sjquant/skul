@@ -11,16 +11,19 @@ export type CommandName = "add" | "list" | "status" | "reset" | "remove" | "appl
 
 export type CliParseResult =
   | { kind: "help" }
-  | { kind: "command"; command: "list" | "status" | "reset" | "apply" }
+  | { kind: "command"; command: "list"; options: { json: boolean } }
+  | { kind: "command"; command: "status"; options: { json: boolean } }
+  | { kind: "command"; command: "apply" }
+  | { kind: "command"; command: "reset"; options: { dryRun: boolean } }
   | {
       kind: "command";
       command: "add";
-      options: { mode: "stealth"; bundle: string; source?: string; tools: ToolName[] };
+      options: { mode: "stealth"; bundle: string; source?: string; tools: ToolName[]; dryRun: boolean };
     }
   | {
       kind: "command";
       command: "remove";
-      options: { bundle: string };
+      options: { bundle: string; dryRun: boolean };
     };
 
 export type FileConflictResolution =
@@ -35,6 +38,46 @@ export interface PromptClient {
 }
 
 const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove", "apply"];
+
+/**
+ * Returns true if the CLI should run in headless (non-interactive) mode.
+ * Detected via the SKUL_NO_TUI environment variable.
+ */
+export function isHeadlessMode(): boolean {
+  return process.env["SKUL_NO_TUI"] === "1" || process.env["SKUL_NO_TUI"] === "true";
+}
+
+/**
+ * Creates a prompt client that throws immediately instead of opening interactive
+ * prompts. Use this when SKUL_NO_TUI is set so agents never block waiting for input.
+ */
+export function createHeadlessPromptClient(): PromptClient {
+  return {
+    async selectBundle(source?: string): Promise<string> {
+      const hint = source
+        ? `skul add ${source} <bundle>`
+        : "skul add <bundle>";
+      throw new Error(
+        `Bundle name is required in headless mode.\nHint: run '${hint}' to specify the bundle explicitly`,
+      );
+    },
+    async resolveFileConflict(
+      conflictPath: string,
+      suggestedDestination: string,
+    ): Promise<FileConflictResolution> {
+      // In headless mode, auto-apply the default prefix to avoid blocking.
+      return { action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX };
+    },
+    async confirmManagedFileRemoval(
+      conflictPath: string,
+      operation: "reset" | "replace" | "remove",
+    ): Promise<boolean> {
+      throw new Error(
+        `Modified managed file blocks ${operation} in headless mode: ${conflictPath}\nHint: run 'skul status' to inspect managed files, or run the command interactively to confirm`,
+      );
+    },
+  };
+}
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   return {
@@ -221,17 +264,19 @@ function createProgram(
   program
     .command("add")
     .description("Add a bundle to the active set and materialize its files")
-    .argument("[source]")
-    .argument("[bundle]")
+    .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
+    .argument("[bundle]", "Bundle name")
     .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
-    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[] }) => {
+    .option("--dry-run", "Preview what would be written without making any changes")
+    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[]; dryRun?: boolean }) => {
       const tools = opts.tool;
+      const dryRun = opts.dryRun ?? false;
 
       if (!source && !bundle) {
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: await prompts.selectBundle(), tools },
+          options: { mode: "stealth", bundle: await prompts.selectBundle(), tools, dryRun },
         };
         return;
       }
@@ -240,7 +285,7 @@ function createProgram(
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: source, tools },
+          options: { mode: "stealth", bundle: source, tools, dryRun },
         };
         return;
       }
@@ -248,22 +293,24 @@ function createProgram(
       context.result = {
         kind: "command",
         command: "add",
-        options: { mode: "stealth", source, bundle: bundle!, tools },
+        options: { mode: "stealth", source, bundle: bundle!, tools, dryRun },
       };
     });
 
   program
     .command("list")
     .description("List available bundles in the local library")
-    .action(() => {
-      context.result = { kind: "command", command: "list" };
+    .option("--json", "Output as JSON (for scripting and agent use)")
+    .action((opts: { json?: boolean }) => {
+      context.result = { kind: "command", command: "list", options: { json: opts.json ?? false } };
     });
 
   program
     .command("status")
     .description("Show desired state and current worktree materialization")
-    .action(() => {
-      context.result = { kind: "command", command: "status" };
+    .option("--json", "Output as JSON (for scripting and agent use)")
+    .action((opts: { json?: boolean }) => {
+      context.result = { kind: "command", command: "status", options: { json: opts.json ?? false } };
     });
 
   program
@@ -276,19 +323,21 @@ function createProgram(
   program
     .command("reset")
     .description("Remove all Skul-managed files from the current worktree")
-    .action(() => {
-      context.result = { kind: "command", command: "reset" };
+    .option("--dry-run", "Preview what would be deleted without removing any files")
+    .action((opts: { dryRun?: boolean }) => {
+      context.result = { kind: "command", command: "reset", options: { dryRun: opts.dryRun ?? false } };
     });
 
   program
     .command("remove")
-    .description("Remove a bundle from the active set and delete its managed files from the current worktree")
-    .argument("<bundle>")
-    .action((bundle: string) => {
+    .description("Remove a bundle from the active set and delete its managed files")
+    .argument("<bundle>", "Bundle name to remove")
+    .option("--dry-run", "Preview what would be deleted without removing any files")
+    .action((bundle: string, opts: { dryRun?: boolean }) => {
       context.result = {
         kind: "command",
         command: "remove",
-        options: { bundle },
+        options: { bundle, dryRun: opts.dryRun ?? false },
       };
     });
 

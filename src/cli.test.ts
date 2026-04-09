@@ -35,9 +35,9 @@ describe("parseCliArgs", () => {
     const applyArgs = ["apply"];
 
     // When / Then
-    await expect(parseCliArgs(listArgs)).resolves.toEqual({ kind: "command", command: "list" });
-    await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status" });
-    await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset" });
+    await expect(parseCliArgs(listArgs)).resolves.toEqual({ kind: "command", command: "list", options: { json: false } });
+    await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status", options: { json: false } });
+    await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset", options: { dryRun: false } });
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply" });
   });
 
@@ -52,14 +52,14 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: [] },
+      options: { mode: "stealth", bundle: "react-expert", tools: [], dryRun: false },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: [] },
+      options: { mode: "stealth", bundle: "react-expert", tools: [], dryRun: false },
     });
 
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
@@ -70,6 +70,7 @@ describe("parseCliArgs", () => {
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         tools: [],
+        dryRun: false,
       },
     });
   });
@@ -79,7 +80,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code"] },
+      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code"], dryRun: false },
     });
   });
 
@@ -90,7 +91,7 @@ describe("parseCliArgs", () => {
     ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code", "cursor"] },
+      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code", "cursor"], dryRun: false },
     });
   });
 
@@ -99,7 +100,43 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["remove", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "remove",
-      options: { bundle: "react-expert" },
+      options: { bundle: "react-expert", dryRun: false },
+    });
+  });
+
+  it("parses --json flag on list and status", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["list", "--json"])).resolves.toEqual({
+      kind: "command",
+      command: "list",
+      options: { json: true },
+    });
+
+    await expect(parseCliArgs(["status", "--json"])).resolves.toEqual({
+      kind: "command",
+      command: "status",
+      options: { json: true },
+    });
+  });
+
+  it("parses --dry-run flag on add, remove, and reset", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "--dry-run"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", tools: [], dryRun: true },
+    });
+
+    await expect(parseCliArgs(["remove", "react-expert", "--dry-run"])).resolves.toEqual({
+      kind: "command",
+      command: "remove",
+      options: { bundle: "react-expert", dryRun: true },
+    });
+
+    await expect(parseCliArgs(["reset", "--dry-run"])).resolves.toEqual({
+      kind: "command",
+      command: "reset",
+      options: { dryRun: true },
     });
   });
 
@@ -164,6 +201,184 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["list"], { homeDir })).resolves.toBe(renderBundleListOutput("No cached bundles found."));
+  });
+
+  it("returns JSON bundle list when --json is passed", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+
+    // When
+    const output = await run(["list", "--json"], { homeDir });
+
+    // Then
+    expect(JSON.parse(output)).toEqual({
+      bundles: [{ name: "react-expert", tools: ["claude-code"] }],
+    });
+  });
+
+  it("returns JSON status when --json is passed", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    const output = await run(["status", "--json"], { homeDir, cwd: repoRoot });
+    const parsed = JSON.parse(output);
+
+    // Then
+    expect(parsed.repo.desired_state).toEqual([{ bundle: "react-expert" }]);
+    expect(parsed.worktree.materialized).toBe(true);
+    expect(parsed.worktree.git_exclude_configured).toBe(true);
+    expect(parsed.worktree.bundles["react-expert"].tools["claude-code"].files).toContain(
+      ".claude/skills/react/SKILL.md",
+    );
+  });
+
+  it("returns JSON status with suggested_action when bundles are not yet materialized", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // Create a new linked worktree that has not materialized yet
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+
+    // When
+    const output = await run(["status", "--json"], { homeDir, cwd: linkedWorktree });
+    const parsed = JSON.parse(output);
+
+    // Then
+    expect(parsed.worktree.materialized).toBe(false);
+    expect(parsed.suggested_action).toBe("skul apply");
+  });
+
+  it("dry-runs add without writing any files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+
+    // When
+    const output = await run(["add", "react-expert", "--dry-run"], { homeDir, cwd: repoRoot });
+
+    // Then: output describes intent without materializing files
+    expect(output).toMatch(/DRY RUN/);
+    expect(output).toContain("react-expert");
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+  });
+
+  it("dry-runs remove without deleting any files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    const output = await run(["remove", "react-expert", "--dry-run"], { homeDir, cwd: repoRoot });
+
+    // Then: output describes intent without deleting files
+    expect(output).toMatch(/DRY RUN/);
+    expect(output).toContain("react-expert");
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(true);
+  });
+
+  it("dry-runs reset without deleting any files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    const output = await run(["reset", "--dry-run"], { homeDir, cwd: repoRoot });
+
+    // Then: output describes intent without deleting files
+    expect(output).toMatch(/DRY RUN/);
+    expect(output).toContain(".claude/skills/react/SKILL.md");
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(true);
+  });
+
+  it("errors in headless mode when bundle is not specified for add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const { createHeadlessPromptClient } = await import("./cli");
+
+    // When / Then: headless prompt client throws with a hint instead of prompting
+    await expect(
+      run(["add"], { homeDir, cwd: repoRoot, prompts: createHeadlessPromptClient() }),
+    ).rejects.toThrowError(/Bundle name is required in headless mode/);
+  });
+
+  it("errors in headless mode when a modified managed file would be deleted", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const { createHeadlessPromptClient } = await import("./cli");
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+
+    // When / Then: headless client throws instead of prompting
+    await expect(
+      run(["reset"], { homeDir, cwd: repoRoot, prompts: createHeadlessPromptClient() }),
+    ).rejects.toThrowError(/Modified managed file blocks reset in headless mode/);
+  });
+
+  it("activates headless mode via SKUL_NO_TUI environment variable", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    // When / Then: SKUL_NO_TUI=1 causes run() to select the headless client,
+    // which throws when no bundle is specified rather than opening a prompt.
+    process.env["SKUL_NO_TUI"] = "1";
+    try {
+      await expect(run(["add"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+        /Bundle name is required in headless mode/,
+      );
+    } finally {
+      delete process.env["SKUL_NO_TUI"];
+    }
   });
 
   it("applies a cached bundle into the current repository and records ownership", async () => {
