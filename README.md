@@ -329,36 +329,6 @@ react-expert/
         └── gen-component.md
 ```
 
-### Layout 3 — Explicit `manifest.json`
-
-Override path resolution for any tool/target combination.
-
-```json
-{
-  "name": "react-expert",
-  "tools": {
-    "claude-code": {
-      "skills": { "path": "claude/skills" },
-      "commands": { "path": "claude/commands" }
-    },
-    "cursor": {
-      "skills": { "path": "cursor/skills" }
-    }
-  }
-}
-```
-
-**`manifest.json` fields:**
-
-| Field | Type | Description |
-|---|---|---|
-| `name` | `string` | Bundle identifier (must match the directory name). |
-| `tools` | `object` | Map of tool name → target name → `{ path }`. |
-| `tools.<tool>.<target>.path` | `string` | Relative path inside the bundle directory. |
-
-Valid tool names: `claude-code`, `cursor`, `opencode`, `codex`.  
-Valid target names: `skills`, `commands`, `agents`.
-
 ---
 
 ## How Skul Works
