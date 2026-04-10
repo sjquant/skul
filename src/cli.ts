@@ -7,7 +7,7 @@ import {
 } from "./conflict-resolution";
 import { type ToolName } from "./tool-mapping";
 
-export type CommandName = "add" | "list" | "status" | "reset" | "remove" | "apply" | "fetch" | "source";
+export type CommandName = "add" | "list" | "status" | "reset" | "remove" | "apply";
 
 export type CliParseResult =
   | { kind: "help" }
@@ -25,8 +25,7 @@ export type CliParseResult =
       command: "remove";
       options: { bundle: string; dryRun: boolean };
     }
-  | { kind: "command"; command: "fetch"; options: { source?: string } }
-  | { kind: "command"; command: "source"; options: { url?: string } };
+;
 
 export type FileConflictResolution =
   | { action: "rename"; destination: string }
@@ -39,7 +38,7 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove", "apply", "fetch", "source"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove", "apply"];
 
 /**
  * Returns true if the CLI should run in headless (non-interactive) mode.
@@ -341,22 +340,6 @@ function createProgram(
         command: "remove",
         options: { bundle, dryRun: opts.dryRun ?? false },
       };
-    });
-
-  program
-    .command("fetch")
-    .description("Fetch or update a bundle source from its remote Git repository")
-    .argument("[source]", "Bundle source to fetch (e.g. github.com/user/repo); defaults to the configured default source")
-    .action((source: string | undefined) => {
-      context.result = { kind: "command", command: "fetch", options: { source } };
-    });
-
-  program
-    .command("source")
-    .description("Show or set the default bundle source")
-    .argument("[url]", "Remote source to set as default (e.g. github.com/user/repo); omit to show the current value")
-    .action((url: string | undefined) => {
-      context.result = { kind: "command", command: "source", options: { url } };
     });
 
   return program;
