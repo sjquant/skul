@@ -3,8 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
+import { findCachedBundle, listCachedBundles, normalizeBundleSource } from "./bundle-discovery";
+import { fetchSource, isFetchableSource } from "./bundle-fetch";
 import { materializeBundle, type MaterializeBundleResult } from "./bundle-materialization";
+import { readSkulConfig, writeSkulConfig } from "./skul-config";
 import {
   createHeadlessPromptClient,
   createHelpText,
@@ -52,6 +54,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       prompts,
       registryFile: stateLayout.registryFile,
       libraryDir: stateLayout.libraryDir,
+      configFile: stateLayout.configFile,
       bundle: parsed.options.bundle,
       source: parsed.options.source,
       tools: parsed.options.tools,
@@ -96,6 +99,21 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       prompts,
       registryFile: stateLayout.registryFile,
       libraryDir: stateLayout.libraryDir,
+    });
+  }
+
+  if (parsed.command === "fetch") {
+    return fetchBundleSource({
+      libraryDir: stateLayout.libraryDir,
+      configFile: stateLayout.configFile,
+      source: parsed.options.source,
+    });
+  }
+
+  if (parsed.command === "source") {
+    return manageSource({
+      configFile: stateLayout.configFile,
+      url: parsed.options.url,
     });
   }
 
@@ -232,6 +250,7 @@ async function applyBundle(options: {
   prompts: PromptClient;
   registryFile: string;
   libraryDir: string;
+  configFile: string;
   bundle: string;
   source?: string;
   tools: ToolName[];
@@ -239,10 +258,30 @@ async function applyBundle(options: {
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
+  // Resolve effective source: explicit arg > config default
+  const config = readSkulConfig(options.configFile);
+  const effectiveSource = options.source ?? config.defaultSource;
+
+  // Auto-fetch from remote if the source is a fetchable remote and the bundle
+  // is not yet cached locally.
+  if (effectiveSource) {
+    const normalizedSource = normalizeBundleSource(effectiveSource);
+    if (isFetchableSource(normalizedSource)) {
+      const alreadyCached = isBundleCached({
+        libraryDir: options.libraryDir,
+        source: normalizedSource,
+        bundle: options.bundle,
+      });
+      if (!alreadyCached) {
+        fetchSource({ libraryDir: options.libraryDir, source: normalizedSource });
+      }
+    }
+  }
+
   const cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
     bundle: options.bundle,
-    source: options.source,
+    source: effectiveSource,
   });
 
   const availableTools = Object.keys(cachedBundle.manifest.tools);
@@ -656,6 +695,50 @@ function removeManagedPaths(
 
 function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
+}
+
+function isBundleCached(options: { libraryDir: string; source: string; bundle: string }): boolean {
+  try {
+    findCachedBundle({ libraryDir: options.libraryDir, source: options.source, bundle: options.bundle });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function fetchBundleSource(options: { libraryDir: string; configFile: string; source?: string }): string {
+  const config = readSkulConfig(options.configFile);
+  const rawSource = options.source ?? config.defaultSource;
+
+  if (!rawSource) {
+    throw new Error(
+      "No source specified and no default source configured.\nHint: run 'skul source <url>' to set a default source, or pass the source explicitly.",
+    );
+  }
+
+  const source = normalizeBundleSource(rawSource);
+
+  if (!isFetchableSource(source)) {
+    throw new Error(`Source '${source}' is local and cannot be fetched from a remote.`);
+  }
+
+  fetchSource({ libraryDir: options.libraryDir, source });
+  return `Fetched ${source}`;
+}
+
+function manageSource(options: { configFile: string; url?: string }): string {
+  if (!options.url) {
+    const config = readSkulConfig(options.configFile);
+    if (!config.defaultSource) {
+      return "No default source configured.\nHint: run 'skul source <url>' to set one.";
+    }
+    return `Default source: ${config.defaultSource}`;
+  }
+
+  const normalized = normalizeBundleSource(options.url);
+  const config = readSkulConfig(options.configFile);
+  writeSkulConfig(options.configFile, { ...config, defaultSource: normalized });
+  return `Default source set to ${normalized}`;
 }
 
 function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "reset" | "remove") {
