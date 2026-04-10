@@ -12,7 +12,8 @@ It keeps your AI coding assistant configuration **portable across projects and G
 
 ## Features
 
-- **One command to apply** — `skul add <bundle>` writes skills, commands, and agents to every supported tool at once
+- **Remote-first** — point `skul add` at any public GitHub repo and bundles are fetched, cached, and applied in one step
+- **One command to apply** — `skul add github.com/user/ai-vault react-expert` writes skills, commands, and agents to every supported tool at once
 - **Git-invisible by design** — uses `.git/info/exclude`, never `.gitignore`; zero repo pollution
 - **Multi-tool materialization** — a single bundle fans out to Claude Code, Cursor, OpenCode, and Codex simultaneously
 - **Worktree-aware** — repo intent carries across linked worktrees; `skul apply` re-materializes after `git worktree add`
@@ -47,20 +48,30 @@ Managing these manually means one of two bad options:
 
 ## Demo
 
-```
-$ skul list
+Point `skul add` at a GitHub repository and a bundle name. Skul fetches the repo into its local cache and materializes the files immediately — no manual cloning, no local setup required.
 
-Available Bundles
-
-react-expert (claude-code, cursor)
-python-data  (claude-code, opencode, codex)
-go-backend   (claude-code, cursor, codex)
 ```
+$ skul add github.com/sjquant/ai-bundles react-expert
+
+Applied react-expert for claude-code, cursor
+```
+
+Subsequent runs use the local cache, so subsequent `add` calls are instant:
 
 ```
 $ skul add react-expert
 
 Applied react-expert for claude-code, cursor
+```
+
+```
+$ skul list
+
+Available Bundles
+
+react-expert (claude-code, cursor)   [github.com/sjquant/ai-bundles]
+python-data  (claude-code, opencode, codex)   [github.com/sjquant/ai-bundles]
+go-backend   (claude-code, cursor, codex)   [github.com/sjquant/ai-bundles]
 ```
 
 ```
@@ -130,14 +141,19 @@ npm link            # makes `skul` available globally
 
 ## Quick Start
 
+The recommended way to use Skul is to point it at a GitHub repository that hosts your bundle collection. Skul fetches and caches the source on first use.
+
 ```bash
-# See what bundles are in your local library
+# Apply a bundle directly from a GitHub repository (fetches automatically)
+skul add github.com/sjquant/ai-bundles react-expert
+
+# Subsequent adds use the local cache — no network required
+skul add python-data
+
+# See all cached bundles and their sources
 skul list
 
-# Apply an AI configuration bundle to the current project
-skul add react-expert
-
-# Check materialization state for the current worktree
+# Check what has been materialized in the current worktree
 skul status
 
 # Remove all Skul-managed files from the current worktree
@@ -152,17 +168,26 @@ skul reset
 
 Adds a bundle to the project's active set and writes its files into tool-native directories.
 
+Pass a GitHub (or any remote Git) source to fetch and cache the bundle in one step — no prior setup needed.
+
 ```bash
-skul add react-expert                             # apply from local library
-skul add github.com/user/ai-vault react-expert    # apply from a specific source
-skul add react-expert --tool claude-code          # apply to one tool only
-skul add react-expert --dry-run                   # preview without writing any files
+# Recommended: fetch from a remote source and apply
+skul add github.com/user/ai-vault react-expert
+
+# Re-apply from the local cache (source already fetched before)
+skul add react-expert
+
+# Apply to a single tool only
+skul add github.com/user/ai-vault react-expert --tool claude-code
+
+# Preview without writing any files
+skul add github.com/user/ai-vault react-expert --dry-run
 ```
 
 | Argument / Option | Description |
 |---|---|
-| `[source]` | Bundle source (e.g. `github.com/user/repo`). Defaults to local library. |
-| `[bundle]` | Bundle name. Prompted interactively if omitted; required in headless mode. |
+| `[source]` | Remote bundle source (e.g. `github.com/user/ai-vault`). Fetched and cached on first use. Defaults to local cache when omitted. |
+| `[bundle]` | Bundle name within the source. Prompted interactively if omitted; required in headless mode. |
 | `--tool <name>` | Limit materialization to a specific tool. Repeatable. |
 | `--dry-run` | Preview what would be written without touching the filesystem. |
 
@@ -244,14 +269,44 @@ Use `--tool <name>` with `skul add` to target a single tool instead of all of th
 
 ## Bundle Structure
 
-Bundles live under `~/.skul/library/<source>/<bundle-name>/`. Skul supports three authoring formats.
+### Recommended: Remote Git repository as a bundle registry
 
-### Option 1 — Canonical layout (recommended)
+The simplest way to manage and share bundles is to keep them in a GitHub repository. Each subdirectory at the root of the repo is a bundle. Skul fetches and caches the entire repo when you first reference it.
+
+```
+github.com/sjquant/ai-bundles   ← the source (a GitHub repo)
+├── react-expert/
+│   ├── skills/
+│   │   └── react-patterns.md
+│   ├── commands/
+│   │   └── gen-component.md
+│   └── agents/
+│       └── component-reviewer.md
+├── python-data/
+│   └── skills/
+│       └── pandas-patterns.md
+└── go-backend/
+    └── skills/
+        └── go-patterns.md
+```
+
+```bash
+skul add github.com/sjquant/ai-bundles react-expert
+skul add github.com/sjquant/ai-bundles python-data
+```
+
+The repo is cloned once into `~/.skul/library/github.com/sjquant/ai-bundles/` and reused for all subsequent `add` calls. Pass the source again to refresh from the remote.
+
+---
+
+Bundles (whether remote or local) are stored under `~/.skul/library/<source>/<bundle-name>/`. Three directory layouts are supported inside a bundle:
+
+### Layout 1 — Canonical (recommended)
 
 Top-level `skills/`, `commands/`, and/or `agents/` directories. Skul copies each to every tool that supports the target type — write once, deploy everywhere.
 
 ```
-~/.skul/library/local/react-expert/
+react-expert/
 ├── skills/
 │   └── react-patterns.md
 ├── commands/
@@ -260,12 +315,12 @@ Top-level `skills/`, `commands/`, and/or `agents/` directories. Skul copies each
     └── component-reviewer.md
 ```
 
-### Option 2 — Native layout
+### Layout 2 — Native
 
-Tool-native dotdirs for content that should only go to a specific tool.
+Tool-native dotdirs for content that should go to a specific tool only.
 
 ```
-~/.skul/library/local/react-expert/
+react-expert/
 ├── .claude/
 │   └── skills/
 │       └── react-patterns.md
@@ -274,7 +329,7 @@ Tool-native dotdirs for content that should only go to a specific tool.
         └── gen-component.md
 ```
 
-### Option 3 — Explicit `manifest.json`
+### Layout 3 — Explicit `manifest.json`
 
 Override path resolution for any tool/target combination.
 
@@ -335,7 +390,7 @@ A freshly-created linked worktree sees the desired bundles in `skul status` (the
 
 ### Share a curated AI skill set across every project
 
-Build a `react-expert` bundle once with your best React skills, component-generation commands, and code-review agents. Run `skul add react-expert` in any repo. Every tool gets the right files, nothing touches Git.
+Publish a `react-expert` bundle to a GitHub repo once — skills, commands, and agents all in one place. Run `skul add github.com/your-org/ai-bundles react-expert` in any repo on any machine. Every tool gets the right files; nothing touches Git. Update the GitHub repo and all teammates get the new version on their next `skul add`.
 
 ### Bootstrap a new Git worktree in one command
 
@@ -502,11 +557,15 @@ Committed config files are shared with every teammate and every fork. Skul confi
 **What file types can a bundle contain?**  
 Any files — Skul copies them as-is. Typical content includes Markdown skill definitions, YAML agent configs, TOML configuration files, and slash-command Markdown files.
 
-**How do I create my own bundle?**  
-Create a directory at `~/.skul/library/local/<bundle-name>/`, add `skills/`, `commands/`, and/or `agents/` subdirectories with your files, then run `skul add <bundle-name>`.
+**How do I create and publish my own bundle library?**  
+Create a GitHub repository with one subdirectory per bundle, each containing `skills/`, `commands/`, and/or `agents/` folders. Teammates (and you) can then apply bundles directly:
+```bash
+skul add github.com/your-org/ai-bundles react-expert
+```
+For local-only bundles during authoring, create a directory at `~/.skul/library/local/<bundle-name>/` and run `skul add <bundle-name>`.
 
 **Can I share a bundle library with my team?**  
-A shared Git repository can serve as a bundle source. Use `skul add github.com/your-org/ai-bundles <bundle-name>` to pull from a team-managed source.
+Yes — a GitHub repository is the recommended way. Any team member runs `skul add github.com/your-org/ai-bundles <bundle-name>`. Skul fetches the repo on first use and caches it locally.
 
 **What happens if I edit a Skul-managed file?**  
 Skul stores a SHA-256 fingerprint of each file at materialization time. If the file has changed, `skul remove` and `skul reset` prompt for confirmation before deleting it. In headless mode the operation fails with a clear error.
