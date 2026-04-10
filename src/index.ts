@@ -3,10 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { findCachedBundle, listCachedBundles, normalizeBundleSource } from "./bundle-discovery";
-import { fetchSource, isFetchableSource } from "./bundle-fetch";
+import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import { materializeBundle, type MaterializeBundleResult } from "./bundle-materialization";
-import { readSkulConfig } from "./skul-config";
 import {
   createHeadlessPromptClient,
   createHelpText,
@@ -54,7 +52,6 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       prompts,
       registryFile: stateLayout.registryFile,
       libraryDir: stateLayout.libraryDir,
-      configFile: stateLayout.configFile,
       bundle: parsed.options.bundle,
       source: parsed.options.source,
       tools: parsed.options.tools,
@@ -235,7 +232,6 @@ async function applyBundle(options: {
   prompts: PromptClient;
   registryFile: string;
   libraryDir: string;
-  configFile: string;
   bundle: string;
   source?: string;
   tools: ToolName[];
@@ -243,30 +239,10 @@ async function applyBundle(options: {
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
-  // Resolve effective source: explicit arg > config default
-  const config = readSkulConfig(options.configFile);
-  const effectiveSource = options.source ?? config.defaultSource;
-
-  // Auto-fetch from remote if the source is a fetchable remote and the bundle
-  // is not yet cached locally.
-  if (effectiveSource) {
-    const normalizedSource = normalizeBundleSource(effectiveSource);
-    if (isFetchableSource(normalizedSource)) {
-      const alreadyCached = isBundleCached({
-        libraryDir: options.libraryDir,
-        source: normalizedSource,
-        bundle: options.bundle,
-      });
-      if (!alreadyCached) {
-        fetchSource({ libraryDir: options.libraryDir, source: normalizedSource });
-      }
-    }
-  }
-
   const cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
     bundle: options.bundle,
-    source: effectiveSource,
+    source: options.source,
   });
 
   const availableTools = Object.keys(cachedBundle.manifest.tools);
@@ -680,15 +656,6 @@ function removeManagedPaths(
 
 function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
-}
-
-function isBundleCached(options: { libraryDir: string; source: string; bundle: string }): boolean {
-  try {
-    findCachedBundle({ libraryDir: options.libraryDir, source: options.source, bundle: options.bundle });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "reset" | "remove") {

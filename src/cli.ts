@@ -24,8 +24,7 @@ export type CliParseResult =
       kind: "command";
       command: "remove";
       options: { bundle: string; dryRun: boolean };
-    }
-;
+    };
 
 export type FileConflictResolution =
   | { action: "rename"; destination: string }
