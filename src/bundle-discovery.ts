@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { parseBundleManifest, resolveCachedBundleLayout, type BundleManifest } from "./bundle-manifest";
+import {
+  inferBundleManifest,
+  parseBundleManifest,
+  resolveCachedBundleLayout,
+  type BundleManifest,
+} from "./bundle-manifest";
 
 const MANIFEST_FILE_NAME = "manifest.json";
 
@@ -55,38 +60,74 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
 
   const manifestFiles = findManifestFiles(options.libraryDir);
 
-  return manifestFiles
-    .flatMap((manifestFile) => {
-      try {
-        const manifest = parseBundleManifest(JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown);
-        const relativeManifestFile = path.relative(options.libraryDir, manifestFile);
-        const segments = relativeManifestFile.split(path.sep);
+  // Track which source dirs already have an explicit root manifest so we don't
+  // also produce an inferred bundle for them.
+  const sourceDirsWithRootManifest = new Set<string>();
 
-        if (segments.at(-1) !== MANIFEST_FILE_NAME) {
-          return [];
-        }
+  const explicit = manifestFiles.flatMap((manifestFile) => {
+    try {
+      const manifest = parseBundleManifest(JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown);
+      const relativeManifestFile = path.relative(options.libraryDir, manifestFile);
+      const segments = relativeManifestFile.split(path.sep);
 
-        // Repo-as-bundle: host/owner/repo/manifest.json (4 segments)
-        if (segments.length === 4) {
-          const source = segments.slice(0, 3).join("/");
-          return [{ source, bundle: manifest.name, manifestFile, manifest }];
-        }
-
-        // Subdirectory bundle: host/owner/repo/bundle-name/manifest.json (5 segments)
-        if (segments.length === 5) {
-          const source = segments.slice(0, 3).join("/");
-          const bundle = segments[3]!;
-          return [{ source, bundle, manifestFile, manifest }];
-        }
-
-        return [];
-      } catch {
+      if (segments.at(-1) !== MANIFEST_FILE_NAME) {
         return [];
       }
-    })
-    .sort((left, right) =>
-      left.source.localeCompare(right.source) || left.bundle.localeCompare(right.bundle),
-    );
+
+      // Repo-as-bundle: host/owner/repo/manifest.json (4 segments)
+      if (segments.length === 4) {
+        const source = segments.slice(0, 3).join("/");
+        sourceDirsWithRootManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
+        return [{ source, bundle: manifest.name, manifestFile, manifest }];
+      }
+
+      // Subdirectory bundle: host/owner/repo/bundle-name/manifest.json (5 segments)
+      if (segments.length === 5) {
+        const source = segments.slice(0, 3).join("/");
+        const bundle = segments[3]!;
+        return [{ source, bundle, manifestFile, manifest }];
+      }
+
+      return [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Inferred repo-as-bundle: repos without a root manifest.json but with
+  // recognisable bundle directories (skills/, commands/, agents/, .claude/, etc.).
+  // The bundle name defaults to the repository slug.
+  const inferred = findSourceDirs(options.libraryDir).flatMap((sourceDir) => {
+    if (sourceDirsWithRootManifest.has(sourceDir)) {
+      return [];
+    }
+
+    try {
+      const relativeSourceDir = path.relative(options.libraryDir, sourceDir);
+      const sourceSegments = relativeSourceDir.split(path.sep);
+      const bundleName = sourceSegments[2]!;
+      const manifest = inferBundleManifest(sourceDir, bundleName);
+
+      if (Object.keys(manifest.tools).length === 0) {
+        return [];
+      }
+
+      return [
+        {
+          source: sourceSegments.join("/"),
+          bundle: bundleName,
+          manifestFile: path.join(sourceDir, MANIFEST_FILE_NAME),
+          manifest,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
+
+  return [...explicit, ...inferred].sort(
+    (left, right) => left.source.localeCompare(right.source) || left.bundle.localeCompare(right.bundle),
+  );
 }
 
 export function findCachedBundle(options: {
@@ -112,12 +153,23 @@ export function findCachedBundle(options: {
       };
     }
 
-    // Fall back to repo-as-bundle: libraryDir/host/owner/repo/manifest.json
+    // Fall back to repo-as-bundle with explicit manifest: libraryDir/host/owner/repo/manifest.json
     const repoBundleManifestFile = path.join(layout.sourceDir, MANIFEST_FILE_NAME);
     if (fs.existsSync(repoBundleManifestFile)) {
-      const manifest = parseBundleManifest(JSON.parse(fs.readFileSync(repoBundleManifestFile, "utf8")) as unknown);
+      const manifest = parseBundleManifest(
+        JSON.parse(fs.readFileSync(repoBundleManifestFile, "utf8")) as unknown,
+      );
       if (manifest.name === options.bundle) {
         return { source, bundle: options.bundle, manifestFile: repoBundleManifestFile, manifest };
+      }
+    }
+
+    // Fall back to inferred repo-as-bundle: repo slug must match the requested bundle name.
+    const repoSlug = source.split("/").at(-1)!;
+    if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
+      const manifest = inferBundleManifest(layout.sourceDir, repoSlug);
+      if (Object.keys(manifest.tools).length > 0) {
+        return { source, bundle: repoSlug, manifestFile: repoBundleManifestFile, manifest };
       }
     }
 
@@ -150,6 +202,27 @@ function normalizeSourceParts(host: string, repoPath: string): string {
   return `${host}/${owner}/${repo}`;
 }
 
+function findSourceDirs(libraryDir: string): string[] {
+  const sourceDirs: string[] = [];
+
+  for (const hostEntry of safeReaddirSync(libraryDir)) {
+    if (!hostEntry.isDirectory()) continue;
+    const hostDir = path.join(libraryDir, hostEntry.name);
+
+    for (const ownerEntry of safeReaddirSync(hostDir)) {
+      if (!ownerEntry.isDirectory()) continue;
+      const ownerDir = path.join(hostDir, ownerEntry.name);
+
+      for (const repoEntry of safeReaddirSync(ownerDir)) {
+        if (!repoEntry.isDirectory()) continue;
+        sourceDirs.push(path.join(ownerDir, repoEntry.name));
+      }
+    }
+  }
+
+  return sourceDirs;
+}
+
 function findManifestFiles(rootDir: string): string[] {
   const manifestFiles: string[] = [];
   const queue = [rootDir];
@@ -172,4 +245,12 @@ function findManifestFiles(rootDir: string): string[] {
   }
 
   return manifestFiles;
+}
+
+function safeReaddirSync(dir: string): fs.Dirent[] {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
 }

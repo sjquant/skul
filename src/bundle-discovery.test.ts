@@ -175,6 +175,60 @@ describe("listCachedBundles", () => {
     // Then
     expect(bundles).toEqual([]);
   });
+
+  it("infers a repo-as-bundle from canonical directories when no manifest.json exists", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then — bundle name defaults to the repo slug
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      source: "github.com/user/react-bundle",
+      bundle: "react-bundle",
+    });
+    expect(Object.keys(bundles[0]!.manifest.tools).length).toBeGreaterThan(0);
+  });
+
+  it("ignores a repo dir that has no recognisable bundle directories", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "no-structure");
+    fs.mkdirSync(repoDir, { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "README.md"), "# hello\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toEqual([]);
+  });
+
+  it("does not produce a duplicate inferred bundle for a repo that already has an explicit root manifest", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+
+    writeManifestAtRepoRoot(libraryDir, "github.com/user/react-bundle", {
+      name: "my-bundle",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    // Also add a real skills/ dir that would trigger inference if the manifest were absent
+    const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then — only the explicit manifest bundle, no duplicate
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]!.bundle).toBe("my-bundle");
+  });
 });
 
 describe("findCachedBundle", () => {
@@ -308,6 +362,64 @@ describe("findCachedBundle", () => {
       source: "github.com/user/single-bundle-repo",
       bundle: "my-bundle",
     });
+  });
+
+  it("finds an inferred repo-as-bundle by source when bundle name equals the repo slug", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source: "github.com/user/react-bundle",
+      bundle: "react-bundle",
+    });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/user/react-bundle",
+      bundle: "react-bundle",
+    });
+    expect(Object.keys(bundle.manifest.tools).length).toBeGreaterThan(0);
+  });
+
+  it("finds an inferred repo-as-bundle without an explicit source", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const bundle = findCachedBundle({ libraryDir, bundle: "react-bundle" });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/user/react-bundle",
+      bundle: "react-bundle",
+    });
+  });
+
+  it("does not find an inferred repo-as-bundle when the requested name differs from the repo slug", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const findBundle = () =>
+      findCachedBundle({
+        libraryDir,
+        source: "github.com/user/react-bundle",
+        bundle: "different-name",
+      });
+
+    // Then
+    expect(findBundle).toThrowError(/bundle not found/i);
   });
 
   it.each([

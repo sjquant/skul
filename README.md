@@ -75,14 +75,15 @@ github.com/sjquant/ai-bundles
     └── skills/
 ```
 
-**Repo-as-bundle** — the repository root is a single bundle, identified by `manifest.name`:
+**Repo-as-bundle** — the repository root is a single bundle. No `manifest.json` is needed; Skul infers the tool targets from the directory structure. The bundle name defaults to the repository slug:
 
 ```
 github.com/sjquant/react-bundle
-├── manifest.json        ← declares name and tool targets
 ├── skills/
 └── commands/
 ```
+
+A `manifest.json` at the root is optional and only needed to override the bundle name or restrict targets to specific tools.
 
 Inside a bundle, two content layouts are supported:
 
@@ -134,7 +135,7 @@ pnpm run dev -- --help
 No. Ignore rules go to `.git/info/exclude` — a local, per-clone file that is never committed or pushed.
 
 **How do I publish a bundle?**
-Two options: (1) create a GitHub repo with one subdirectory per bundle, each containing `skills/`, `commands/`, and/or `agents/` — users run `skul add github.com/your-org/ai-bundles <bundle>`; or (2) make the repository itself the bundle by placing `skills/`, `commands/`, and/or `agents/` at the root with a `manifest.json` — users run `skul add github.com/your-org/my-bundle <name>`.
+Two options: (1) create a GitHub repo with one subdirectory per bundle, each containing `skills/`, `commands/`, and/or `agents/` — users run `skul add github.com/your-org/ai-bundles <bundle>`; or (2) place `skills/`, `commands/`, and/or `agents/` directly at the repository root — users run `skul add github.com/your-org/my-bundle my-bundle` where the bundle name matches the repo slug. No `manifest.json` required.
 
 **What happens if I edit a Skul-managed file?**
 Skul fingerprints files on write. Edited files require explicit confirmation before removal, or fail fast with `SKUL_NO_TUI=1`.
