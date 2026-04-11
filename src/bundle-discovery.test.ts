@@ -101,6 +101,53 @@ describe("listCachedBundles", () => {
     ]);
   });
 
+  it("discovers a repo-as-bundle manifest at the repository root", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+
+    writeManifestAtRepoRoot(libraryDir, "github.com/user/single-bundle-repo", {
+      name: "my-bundle",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toEqual([
+      {
+        bundle: "my-bundle",
+        source: "github.com/user/single-bundle-repo",
+        manifestFile: path.join(libraryDir, "github.com", "user", "single-bundle-repo", "manifest.json"),
+        manifest: {
+          name: "my-bundle",
+          tools: { "claude-code": { skills: { path: "skills" } } },
+        },
+      },
+    ]);
+  });
+
+  it("discovers both repo-as-bundle and subdirectory bundles from the same source", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+
+    writeManifestAtRepoRoot(libraryDir, "github.com/user/ai-vault", {
+      name: "root-bundle",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(2);
+    expect(bundles.map((b) => b.bundle)).toEqual(["react-expert", "root-bundle"]);
+  });
+
   it("ignores directories without a valid manifest file", () => {
     // Given
     const libraryDir = createLibraryDir();
@@ -140,6 +187,56 @@ describe("findCachedBundle", () => {
     });
   });
 
+  it("finds a repo-as-bundle by explicit source and manifest name", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+
+    writeManifestAtRepoRoot(libraryDir, "github.com/user/single-bundle-repo", {
+      name: "my-bundle",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source: "github.com/user/single-bundle-repo",
+      bundle: "my-bundle",
+    });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/user/single-bundle-repo",
+      bundle: "my-bundle",
+      manifestFile: path.join(libraryDir, "github.com", "user", "single-bundle-repo", "manifest.json"),
+    });
+  });
+
+  it("prefers a subdirectory bundle over a repo-as-bundle when both exist for the same source and name", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+
+    writeManifestAtRepoRoot(libraryDir, "github.com/user/ai-vault", {
+      name: "react-expert",
+      tools: { "claude-code": { commands: { path: "commands" } } },
+    });
+    writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source: "github.com/user/ai-vault",
+      bundle: "react-expert",
+    });
+
+    // Then — subdirectory bundle wins
+    expect(bundle.manifestFile).toBe(
+      path.join(libraryDir, "github.com", "user", "ai-vault", "react-expert", "manifest.json"),
+    );
+  });
+
   it("finds a uniquely named bundle without an explicit source", () => {
     // Given
     const libraryDir = createLibraryDir();
@@ -156,6 +253,25 @@ describe("findCachedBundle", () => {
     expect(bundle).toMatchObject({
       source: "github.com/user/ai-vault",
       bundle: "react-expert",
+    });
+  });
+
+  it("finds a uniquely named repo-as-bundle without an explicit source", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+
+    writeManifestAtRepoRoot(libraryDir, "github.com/user/single-bundle-repo", {
+      name: "my-bundle",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+
+    // When
+    const bundle = findCachedBundle({ libraryDir, bundle: "my-bundle" });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/user/single-bundle-repo",
+      bundle: "my-bundle",
     });
   });
 
@@ -206,4 +322,14 @@ function writeManifest(
   const bundleDir = path.join(libraryDir, ...source.split("/"), bundle);
   fs.mkdirSync(bundleDir, { recursive: true });
   fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+}
+
+function writeManifestAtRepoRoot(
+  libraryDir: string,
+  source: string,
+  manifest: object,
+): void {
+  const sourceDir = path.join(libraryDir, ...source.split("/"));
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 }

@@ -62,14 +62,24 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
         const relativeManifestFile = path.relative(options.libraryDir, manifestFile);
         const segments = relativeManifestFile.split(path.sep);
 
-        if (segments.length < 4 || segments.at(-1) !== MANIFEST_FILE_NAME) {
+        if (segments.at(-1) !== MANIFEST_FILE_NAME) {
           return [];
         }
 
-        const bundle = segments.at(-2)!;
-        const source = segments.slice(0, -2).join("/");
+        // Repo-as-bundle: host/owner/repo/manifest.json (4 segments)
+        if (segments.length === 4) {
+          const source = segments.slice(0, 3).join("/");
+          return [{ source, bundle: manifest.name, manifestFile, manifest }];
+        }
 
-        return [{ source, bundle, manifestFile, manifest }];
+        // Subdirectory bundle: host/owner/repo/bundle-name/manifest.json (5 segments)
+        if (segments.length === 5) {
+          const source = segments.slice(0, 3).join("/");
+          const bundle = segments[3]!;
+          return [{ source, bundle, manifestFile, manifest }];
+        }
+
+        return [];
       } catch {
         return [];
       }
@@ -92,16 +102,26 @@ export function findCachedBundle(options: {
       bundle: options.bundle,
     });
 
-    if (!fs.existsSync(layout.manifestFile)) {
-      throw new Error(`Bundle not found: ${options.bundle}`);
+    // Try subdirectory bundle first: libraryDir/host/owner/repo/bundle-name/manifest.json
+    if (fs.existsSync(layout.manifestFile)) {
+      return {
+        source,
+        bundle: options.bundle,
+        manifestFile: layout.manifestFile,
+        manifest: parseBundleManifest(JSON.parse(fs.readFileSync(layout.manifestFile, "utf8")) as unknown),
+      };
     }
 
-    return {
-      source,
-      bundle: options.bundle,
-      manifestFile: layout.manifestFile,
-      manifest: parseBundleManifest(JSON.parse(fs.readFileSync(layout.manifestFile, "utf8")) as unknown),
-    };
+    // Fall back to repo-as-bundle: libraryDir/host/owner/repo/manifest.json
+    const repoBundleManifestFile = path.join(layout.sourceDir, MANIFEST_FILE_NAME);
+    if (fs.existsSync(repoBundleManifestFile)) {
+      const manifest = parseBundleManifest(JSON.parse(fs.readFileSync(repoBundleManifestFile, "utf8")) as unknown);
+      if (manifest.name === options.bundle) {
+        return { source, bundle: options.bundle, manifestFile: repoBundleManifestFile, manifest };
+      }
+    }
+
+    throw new Error(`Bundle not found: ${options.bundle}`);
   }
 
   const matches = listCachedBundles({ libraryDir: options.libraryDir }).filter(
