@@ -161,6 +161,20 @@ describe("listCachedBundles", () => {
     // Then
     expect(bundles).toEqual([]);
   });
+
+  it("ignores a broken manifest at the repository root", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "broken-repo");
+    fs.mkdirSync(repoDir, { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "manifest.json"), "{not json");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toEqual([]);
+  });
 });
 
 describe("findCachedBundle", () => {
@@ -209,6 +223,27 @@ describe("findCachedBundle", () => {
       bundle: "my-bundle",
       manifestFile: path.join(libraryDir, "github.com", "user", "single-bundle-repo", "manifest.json"),
     });
+  });
+
+  it("rejects a repo-as-bundle when the root manifest name does not match the requested bundle", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+
+    writeManifestAtRepoRoot(libraryDir, "github.com/user/single-bundle-repo", {
+      name: "actual-name",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+
+    // When
+    const findBundle = () =>
+      findCachedBundle({
+        libraryDir,
+        source: "github.com/user/single-bundle-repo",
+        bundle: "requested-name",
+      });
+
+    // Then
+    expect(findBundle).toThrowError(/bundle not found/i);
   });
 
   it("prefers a subdirectory bundle over a repo-as-bundle when both exist for the same source and name", () => {
@@ -294,6 +329,22 @@ describe("findCachedBundle", () => {
         });
 
         return findCachedBundle({ libraryDir, bundle: "react-expert" });
+      },
+      /bundle name is ambiguous/i,
+    ],
+    [
+      "ambiguous bundle name across repo-as-bundles",
+      (libraryDir: string) => {
+        writeManifestAtRepoRoot(libraryDir, "github.com/user/repo1", {
+          name: "shared-name",
+          tools: { "claude-code": { skills: { path: "skills" } } },
+        });
+        writeManifestAtRepoRoot(libraryDir, "github.com/user/repo2", {
+          name: "shared-name",
+          tools: { "claude-code": { skills: { path: "skills" } } },
+        });
+
+        return findCachedBundle({ libraryDir, bundle: "shared-name" });
       },
       /bundle name is ambiguous/i,
     ],
