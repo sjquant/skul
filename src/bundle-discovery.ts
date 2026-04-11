@@ -60,9 +60,10 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
 
   const manifestFiles = findManifestFiles(options.libraryDir);
 
-  // Track which source dirs already have an explicit root manifest so we don't
-  // also produce an inferred bundle for them.
-  const sourceDirsWithRootManifest = new Set<string>();
+  // Track source dirs that already have any explicit manifest (root or subdirectory).
+  // These are excluded from inferred bundle detection to avoid ghost bundles on
+  // repos that were designed as multi-bundle libraries.
+  const sourceDirsWithExplicitManifest = new Set<string>();
 
   const explicit = manifestFiles.flatMap((manifestFile) => {
     try {
@@ -77,7 +78,7 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
       // Repo-as-bundle: host/owner/repo/manifest.json (4 segments)
       if (segments.length === 4) {
         const source = segments.slice(0, 3).join("/");
-        sourceDirsWithRootManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
+        sourceDirsWithExplicitManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
         return [{ source, bundle: manifest.name, manifestFile, manifest }];
       }
 
@@ -85,6 +86,7 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
       if (segments.length === 5) {
         const source = segments.slice(0, 3).join("/");
         const bundle = segments[3]!;
+        sourceDirsWithExplicitManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
         return [{ source, bundle, manifestFile, manifest }];
       }
 
@@ -98,7 +100,7 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
   // recognisable bundle directories (skills/, commands/, agents/, .claude/, etc.).
   // The bundle name defaults to the repository slug.
   const inferred = findSourceDirs(options.libraryDir).flatMap((sourceDir) => {
-    if (sourceDirsWithRootManifest.has(sourceDir)) {
+    if (sourceDirsWithExplicitManifest.has(sourceDir)) {
       return [];
     }
 

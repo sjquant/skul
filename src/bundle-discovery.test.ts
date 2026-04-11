@@ -229,6 +229,27 @@ describe("listCachedBundles", () => {
     expect(bundles).toHaveLength(1);
     expect(bundles[0]!.bundle).toBe("my-bundle");
   });
+
+  it("does not produce an inferred bundle for a multi-bundle repo that already has subdirectory bundles", () => {
+    // Given — a typical "bundle library" repo with named subdirs and a canonical dir at the root
+    const libraryDir = createLibraryDir();
+
+    writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    // A skills/ dir at the repo root would normally trigger inference
+    const repoDir = path.join(libraryDir, "github.com", "user", "ai-vault");
+    fs.mkdirSync(path.join(repoDir, "skills", "shared"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "shared", "SKILL.md"), "# shared\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then — only the explicit subdir bundle, no ghost inferred bundle
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]!.bundle).toBe("react-expert");
+  });
 });
 
 describe("findCachedBundle", () => {
