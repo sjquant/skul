@@ -56,7 +56,7 @@ export function parseBundleManifest(input: unknown): BundleManifest {
   }
 
   return {
-    name: expectNonEmptyString(manifest.name, "name"),
+    name: expectSinglePathSegment(manifest.name, "name"),
     tools,
   };
 }

@@ -158,6 +158,11 @@ describe("parseBundleManifest", () => {
       { name: "   ", tools: { "claude-code": { skills: { path: "skills" } } } },
       /name is required/i,
     ],
+    [
+      "name containing a path separator",
+      { name: "foo/bar", tools: { "claude-code": { skills: { path: "skills" } } } },
+      /name must be a single path segment/i,
+    ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given
     const parse = () => parseBundleManifest(input);
