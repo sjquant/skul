@@ -166,12 +166,24 @@ export function findCachedBundle(options: {
       }
     }
 
-    // Fall back to inferred repo-as-bundle: repo slug must match the requested bundle name.
+    // Fall back to inferred repo-as-bundle: repo slug must match the requested bundle name,
+    // and the repo must have no explicit manifest (root or subdirectory) — consistent
+    // with the exclusion applied in listCachedBundles.
     const repoSlug = source.split("/").at(-1)!;
     if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
-      const manifest = inferBundleManifest(layout.sourceDir, repoSlug);
-      if (Object.keys(manifest.tools).length > 0) {
-        return { source, bundle: repoSlug, manifestFile: repoBundleManifestFile, manifest };
+      const hasExplicitManifest =
+        fs.existsSync(repoBundleManifestFile) ||
+        safeReaddirSync(layout.sourceDir).some(
+          (entry) =>
+            entry.isDirectory() &&
+            fs.existsSync(path.join(layout.sourceDir, entry.name, MANIFEST_FILE_NAME)),
+        );
+
+      if (!hasExplicitManifest) {
+        const manifest = inferBundleManifest(layout.sourceDir, repoSlug);
+        if (Object.keys(manifest.tools).length > 0) {
+          return { source, bundle: repoSlug, manifestFile: repoBundleManifestFile, manifest };
+        }
       }
     }
 

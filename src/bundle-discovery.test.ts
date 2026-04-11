@@ -443,6 +443,54 @@ describe("findCachedBundle", () => {
     expect(findBundle).toThrowError(/bundle not found/i);
   });
 
+  it("does not find an inferred bundle via source when the repo has subdirectory bundles", () => {
+    // Given — multi-bundle repo: explicit subdir bundle + canonical dir at root
+    const libraryDir = createLibraryDir();
+
+    writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    const repoDir = path.join(libraryDir, "github.com", "user", "ai-vault");
+    fs.mkdirSync(path.join(repoDir, "skills", "shared"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "shared", "SKILL.md"), "# shared\n");
+
+    // When — try to find an inferred bundle by repo slug
+    const findBundle = () =>
+      findCachedBundle({
+        libraryDir,
+        source: "github.com/user/ai-vault",
+        bundle: "ai-vault",
+      });
+
+    // Then — must throw, consistent with listCachedBundles which also skips inference here
+    expect(findBundle).toThrowError(/bundle not found/i);
+  });
+
+  it("does not find an inferred bundle via source when the repo has an explicit root manifest", () => {
+    // Given — root manifest exists but its name doesn't match the repo slug
+    const libraryDir = createLibraryDir();
+
+    writeManifestAtRepoRoot(libraryDir, "github.com/user/ai-vault", {
+      name: "custom-name",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    const repoDir = path.join(libraryDir, "github.com", "user", "ai-vault");
+    fs.mkdirSync(path.join(repoDir, "commands"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "commands", "deploy.md"), "Deploy\n");
+
+    // When — request by repo slug (which differs from manifest.name)
+    const findBundle = () =>
+      findCachedBundle({
+        libraryDir,
+        source: "github.com/user/ai-vault",
+        bundle: "ai-vault",
+      });
+
+    // Then — must throw, not infer
+    expect(findBundle).toThrowError(/bundle not found/i);
+  });
+
   it.each([
     [
       "missing bundle",
