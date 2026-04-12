@@ -53,11 +53,9 @@ describe("listCachedBundles", () => {
     const libraryDir = createLibraryDir();
 
     writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
       tools: { "claude-code": { skills: { path: "skills" } } },
     });
     writeManifest(libraryDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
       tools: { codex: { skills: { path: "skills" } } },
     });
 
@@ -175,7 +173,6 @@ describe("listCachedBundles", () => {
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
     fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
     writeManifestAtRepoRoot(libraryDir, "github.com/user/react-bundle", {
-      name: "custom-name",
       tools: { codex: { skills: { path: "ignored" } } },
     });
 
@@ -209,7 +206,6 @@ describe("listCachedBundles", () => {
     const libraryDir = createLibraryDir();
 
     writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
       tools: { "claude-code": { skills: { path: "skills" } } },
     });
     // A skills/ dir at the repo root would normally trigger inference
@@ -232,7 +228,6 @@ describe("findCachedBundle", () => {
     const libraryDir = createLibraryDir();
 
     writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
       tools: { "claude-code": { skills: { path: "skills" } } },
     });
 
@@ -255,7 +250,6 @@ describe("findCachedBundle", () => {
     const libraryDir = createLibraryDir();
 
     writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
       tools: { "claude-code": { skills: { path: "skills" } } },
     });
 
@@ -298,7 +292,6 @@ describe("findCachedBundle", () => {
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
     fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
     writeManifestAtRepoRoot(libraryDir, "github.com/user/react-bundle", {
-      name: "custom-name",
       tools: { codex: { skills: { path: "ignored" } } },
     });
 
@@ -357,7 +350,6 @@ describe("findCachedBundle", () => {
     const libraryDir = createLibraryDir();
 
     writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
       tools: { "claude-code": { skills: { path: "skills" } } },
     });
     const repoDir = path.join(libraryDir, "github.com", "user", "ai-vault");
@@ -386,11 +378,9 @@ describe("findCachedBundle", () => {
       "ambiguous bundle name across sources",
       (libraryDir: string) => {
         writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
-          name: "react-expert",
           tools: { "claude-code": { skills: { path: "skills" } } },
         });
         writeManifest(libraryDir, "github.com/acme/shared-bundles", "react-expert", {
-          name: "react-expert",
           tools: { "claude-code": { skills: { path: "skills" } } },
         });
 

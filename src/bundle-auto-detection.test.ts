@@ -27,7 +27,7 @@ describe("inferBundleManifest", () => {
     writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
 
     // When
-    const manifest = inferBundleManifest(bundleDir, "react-pack");
+    const manifest = inferBundleManifest(bundleDir);
 
     // Then – every tool that supports skills should be included
     expect(manifest.tools["claude-code"]).toEqual({ skills: { path: "skills" } });
@@ -42,7 +42,7 @@ describe("inferBundleManifest", () => {
     writeFile(path.join(bundleDir, "commands", "review.md"), "# review\n");
 
     // When
-    const manifest = inferBundleManifest(bundleDir, "review-pack");
+    const manifest = inferBundleManifest(bundleDir);
 
     // Then
     expect(manifest.tools["claude-code"]).toEqual({ commands: { path: "commands" } });
@@ -57,7 +57,7 @@ describe("inferBundleManifest", () => {
     writeFile(path.join(bundleDir, "agents", "reviewer.md"), "# reviewer\n");
 
     // When
-    const manifest = inferBundleManifest(bundleDir, "review-pack");
+    const manifest = inferBundleManifest(bundleDir);
 
     // Then
     expect(manifest.tools["claude-code"]).toEqual({ agents: { path: "agents" } });
@@ -72,7 +72,7 @@ describe("inferBundleManifest", () => {
     writeFile(path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"), "# raw\n");
 
     // When
-    const manifest = inferBundleManifest(bundleDir, "react-pack");
+    const manifest = inferBundleManifest(bundleDir);
 
     // Then
     expect(manifest.tools["cursor"]).toEqual({ skills: { path: ".cursor/skills" } });
@@ -87,7 +87,7 @@ describe("inferBundleManifest", () => {
     writeFile(path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"), "# native\n");
 
     // When
-    const manifest = inferBundleManifest(bundleDir, "react-pack");
+    const manifest = inferBundleManifest(bundleDir);
 
     // Then – cursor uses native path, others use canonical
     expect(manifest.tools["cursor"]?.skills?.path).toBe(".cursor/skills");
@@ -103,7 +103,7 @@ describe("inferBundleManifest", () => {
     writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# native skill\n");
 
     // When
-    const manifest = inferBundleManifest(bundleDir, "mixed-pack");
+    const manifest = inferBundleManifest(bundleDir);
 
     // Then – claude-code has native skills + canonical commands
     expect(manifest.tools["claude-code"]).toEqual({
@@ -118,7 +118,7 @@ describe("inferBundleManifest", () => {
     writeFile(path.join(bundleDir, "README.md"), "# hello\n");
 
     // When
-    const manifest = inferBundleManifest(bundleDir, "empty-pack");
+    const manifest = inferBundleManifest(bundleDir);
 
     // Then
     expect(Object.keys(manifest.tools)).toHaveLength(0);

@@ -108,7 +108,7 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
       const relativeSourceDir = path.relative(options.libraryDir, sourceDir);
       const sourceSegments = relativeSourceDir.split(path.sep);
       const bundleName = sourceSegments[2]!;
-      const manifest = inferBundleManifest(sourceDir, bundleName);
+      const manifest = inferBundleManifest(sourceDir);
 
       if (Object.keys(manifest.tools).length === 0) {
         return [];
@@ -167,7 +167,7 @@ export function findCachedBundle(options: {
       );
 
       if (!hasSubdirectoryManifest) {
-        const manifest = inferBundleManifest(layout.sourceDir, repoSlug);
+        const manifest = inferBundleManifest(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
           return { source, bundle: repoSlug, manifestFile: repoBundleManifestFile, manifest };
         }

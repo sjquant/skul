@@ -57,7 +57,7 @@ export function parseBundleManifest(input: unknown): BundleManifest {
   return { tools };
 }
 
-export function inferBundleManifest(bundleDir: string, bundleName: string): BundleManifest {
+export function inferBundleManifest(bundleDir: string): BundleManifest {
   const tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>> = {};
   const allTools = listToolDefinitions();
   const canonicalTargetNames: ToolTargetName[] = ["skills", "commands", "agents"];
