@@ -162,17 +162,36 @@ describe("listCachedBundles", () => {
     expect(bundles).toEqual([]);
   });
 
-  it("ignores a broken manifest at the repository root", () => {
-    // Given
+  it("ignores a broken manifest at the repository root and does not infer a bundle for that repo", () => {
+    // Given — broken root manifest + canonical skills/ dir that would trigger inference if the
+    // manifest file were absent.  The broken file must still suppress inference.
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "broken-repo");
-    fs.mkdirSync(repoDir, { recursive: true });
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
     fs.writeFileSync(path.join(repoDir, "manifest.json"), "{not json");
 
     // When
     const bundles = listCachedBundles({ libraryDir });
 
     // Then
+    expect(bundles).toEqual([]);
+  });
+
+  it("does not infer a bundle for a repo that has a broken subdirectory manifest", () => {
+    // Given — broken subdir manifest + canonical skills/ dir at the repo root.
+    // The broken file marks the repo as having an explicit manifest, so inference is suppressed.
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "mixed-repo");
+    fs.mkdirSync(path.join(repoDir, "broken-bundle"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "broken-bundle", "manifest.json"), "{not json");
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then — no inferred bundle, no explicit bundle (broken manifest is skipped)
     expect(bundles).toEqual([]);
   });
 

@@ -60,10 +60,21 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
 
   const manifestFiles = findManifestFiles(options.libraryDir);
 
-  // Track source dirs that already have any explicit manifest (root or subdirectory).
+  // Track source dirs that already have any explicit manifest file (root or subdirectory).
+  // Derived from file existence before parsing — a broken manifest still marks its source
+  // dir as having an explicit manifest, preventing spurious inferred bundles.
   // These are excluded from inferred bundle detection to avoid ghost bundles on
   // repos that were designed as multi-bundle libraries.
   const sourceDirsWithExplicitManifest = new Set<string>();
+  for (const manifestFile of manifestFiles) {
+    const relativeManifestFile = path.relative(options.libraryDir, manifestFile);
+    const segments = relativeManifestFile.split(path.sep);
+    if (segments.at(-1) !== MANIFEST_FILE_NAME) continue;
+    // 4 segments = root manifest, 5 segments = subdirectory manifest — both mark the source dir
+    if (segments.length === 4 || segments.length === 5) {
+      sourceDirsWithExplicitManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
+    }
+  }
 
   const explicit = manifestFiles.flatMap((manifestFile) => {
     try {
@@ -78,7 +89,6 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
       // Repo-as-bundle: host/owner/repo/manifest.json (4 segments)
       if (segments.length === 4) {
         const source = segments.slice(0, 3).join("/");
-        sourceDirsWithExplicitManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
         return [{ source, bundle: manifest.name, manifestFile, manifest }];
       }
 
@@ -86,7 +96,6 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
       if (segments.length === 5) {
         const source = segments.slice(0, 3).join("/");
         const bundle = segments[3]!;
-        sourceDirsWithExplicitManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
         return [{ source, bundle, manifestFile, manifest }];
       }
 
