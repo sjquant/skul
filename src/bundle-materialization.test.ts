@@ -52,7 +52,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: { [tool]: { skills: { path: nativePath } } } as BundleManifest["tools"],
       },
     });
@@ -84,7 +83,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
     });
@@ -108,7 +106,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "review-pack",
         tools: { [tool]: { commands: { path: nativePath } } } as BundleManifest["tools"],
       },
     });
@@ -132,7 +129,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "review-pack",
         tools: { [tool]: { agents: { path: nativePath } } } as BundleManifest["tools"],
       },
     });
@@ -156,7 +152,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => ({
@@ -187,7 +182,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => ({ action: "prefix", prefix: "bundle" }),
@@ -212,7 +206,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => ({ action: "skip" }),
@@ -233,7 +226,6 @@ describe("materializeBundle", () => {
           repoRoot,
           bundleDir,
           manifest: {
-            name: "react-expert",
             tools: { "claude-code": { skills: { path: ".claude/skills" } } },
           },
         }),
@@ -248,7 +240,6 @@ describe("materializeBundle", () => {
           repoRoot,
           bundleDir,
           manifest: {
-            name: "react-expert",
             tools: { "claude-code": { skills: { path: ".claude/skills" } } },
           },
         });
@@ -285,7 +276,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => resolutions[callCount++],
@@ -305,14 +295,13 @@ describe("materializeBundle", () => {
 
     // When / Then
     await expect(
-      materializeBundle({
-        repoRoot,
-        bundleDir,
-        manifest: {
-          name: "react-expert",
-          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-        },
-      }),
+        materializeBundle({
+          repoRoot,
+          bundleDir,
+          manifest: {
+            tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+          },
+        }),
     ).rejects.toThrowError(/conflict detected/i);
   });
 
@@ -329,7 +318,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: {
           "claude-code": { skills: { path: ".claude/skills" } },
           cursor: { skills: { path: ".cursor/skills" } },
@@ -356,7 +344,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: {
           "claude-code": { skills: { path: ".claude/skills" } },
           cursor: { skills: { path: ".cursor/skills" } },
@@ -385,7 +372,6 @@ describe("materializeBundle", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-expert",
         tools: {
           "claude-code": { skills: { path: ".claude/skills" } },
           cursor: { skills: { path: ".cursor/skills" } },
@@ -408,14 +394,13 @@ describe("materializeBundle", () => {
 
     // When / Then
     await expect(
-      materializeBundle({
-        repoRoot,
-        bundleDir,
-        manifest: {
-          name: "react-expert",
-          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-        },
-      }),
+        materializeBundle({
+          repoRoot,
+          bundleDir,
+          manifest: {
+            tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+          },
+        }),
     ).rejects.toThrowError(/symlink/i);
   });
 
@@ -430,14 +415,13 @@ describe("materializeBundle", () => {
 
     // When / Then
     await expect(
-      materializeBundle({
-        repoRoot,
-        bundleDir,
-        manifest: {
-          name: "react-expert",
-          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-        },
-      }),
+        materializeBundle({
+          repoRoot,
+          bundleDir,
+          manifest: {
+            tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+          },
+        }),
     ).rejects.toThrowError(/symlink/i);
   });
 
@@ -452,14 +436,13 @@ describe("materializeBundle", () => {
 
     // When / Then
     await expect(
-      materializeBundle({
-        repoRoot,
-        bundleDir,
-        manifest: {
-          name: "react-expert",
-          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-        },
-      }),
+        materializeBundle({
+          repoRoot,
+          bundleDir,
+          manifest: {
+            tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+          },
+        }),
     ).rejects.toThrowError(/symlink/i);
   });
 });

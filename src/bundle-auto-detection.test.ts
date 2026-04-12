@@ -144,7 +144,6 @@ describe("materializeBundle: canonical → cursor", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-pack",
         tools: { cursor: { skills: { path: "skills" } } },
       },
     });
@@ -171,7 +170,6 @@ describe("materializeBundle: canonical → cursor", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "review-pack",
         tools: { cursor: { commands: { path: "commands" } } },
       },
     });
@@ -204,7 +202,6 @@ describe("materializeBundle: canonical → codex", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "review-pack",
         tools: { codex: { skills: { path: "skills" } } },
       },
     });
@@ -234,7 +231,6 @@ describe("materializeBundle: canonical → codex", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "task-pack",
         tools: { codex: { skills: { path: "skills" } } },
       },
     });
@@ -263,7 +259,6 @@ describe("materializeBundle: canonical → codex", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "reviewer-pack",
         tools: { codex: { agents: { path: "agents" } } },
       },
     });
@@ -296,7 +291,6 @@ describe("materializeBundle: canonical → opencode", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "react-pack",
         tools: { opencode: { skills: { path: "skills" } } },
       },
     });
@@ -325,7 +319,6 @@ describe("materializeBundle: canonical → opencode", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "fix-pack",
         tools: { opencode: { skills: { path: "skills" } } },
       },
     });
@@ -351,7 +344,6 @@ describe("materializeBundle: canonical → opencode", () => {
       repoRoot,
       bundleDir,
       manifest: {
-        name: "deploy-pack",
         tools: { opencode: { commands: { path: "commands" } } },
       },
     });
@@ -393,7 +385,6 @@ describe("materializeBundle: native dotdir passthrough", () => {
         repoRoot,
         bundleDir,
         manifest: {
-          name: "native-pack",
           tools: { [toolName]: { [targetName]: { path: nativePath } } } as any,
         },
       });
@@ -422,14 +413,13 @@ describe("materializeBundle: canonical multi-tool materialization", () => {
     );
 
     // When
-    const result = await materializeBundle({
-      repoRoot,
-      bundleDir,
-      manifest: {
-        name: "react-pack",
-        tools: {
-          "claude-code": { skills: { path: "skills" } },
-          cursor: { skills: { path: "skills" } },
+      const result = await materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          tools: {
+            "claude-code": { skills: { path: "skills" } },
+            cursor: { skills: { path: "skills" } },
           codex: { skills: { path: "skills" } },
         },
       },
