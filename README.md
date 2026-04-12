@@ -61,7 +61,9 @@ Use `--tool <name>` to target a single tool.
 
 ## Bundle Structure
 
-A bundle source is a GitHub repository where each subdirectory is a bundle. Skul clones it once into `~/.skul/library/` and reuses the cache for subsequent `add` calls.
+A bundle source is a GitHub repository. Skul clones it once into `~/.skul/library/` and reuses the cache for subsequent `add` calls. Two repository layouts are supported:
+
+**Multi-bundle** — each subdirectory is its own bundle, identified by the directory name:
 
 ```
 github.com/sjquant/ai-bundles
@@ -73,7 +75,15 @@ github.com/sjquant/ai-bundles
     └── skills/
 ```
 
-Inside a bundle, two layouts are supported:
+**Repo-as-bundle** — the repository root is a single bundle. No `manifest.json` is needed; Skul infers the tool targets from the directory structure. The bundle name defaults to the repository slug:
+
+```
+github.com/sjquant/react-bundle
+├── skills/
+└── commands/
+```
+
+Inside a bundle, two content layouts are supported:
 
 **Canonical** — `skills/`, `commands/`, `agents/` at the top level. Skul copies each directory to every tool that supports it.
 
@@ -122,8 +132,8 @@ pnpm run dev -- --help
 **Does Skul modify `.gitignore`?**
 No. Ignore rules go to `.git/info/exclude` — a local, per-clone file that is never committed or pushed.
 
-**How do I publish a bundle library?**
-Create a GitHub repo with one subdirectory per bundle, each containing `skills/`, `commands/`, and/or `agents/`. Anyone can then run `skul add github.com/your-org/ai-bundles <bundle>`.
+**How do I publish a bundle?**
+Two options: (1) create a GitHub repo with one subdirectory per bundle, each containing `skills/`, `commands/`, and/or `agents/` — users run `skul add github.com/your-org/ai-bundles <bundle>`; or (2) place `skills/`, `commands/`, and/or `agents/` directly at the repository root — users run `skul add github.com/your-org/my-bundle`, and Skul uses the repo slug as the bundle name. No `manifest.json` required.
 
 **What happens if I edit a Skul-managed file?**
 Skul fingerprints files on write. Edited files require explicit confirmation before removal, or fail fast with `SKUL_NO_TUI=1`.

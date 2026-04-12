@@ -10,7 +10,6 @@ export interface BundleManifestTarget {
 }
 
 export interface BundleManifest {
-  name: string;
   tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
 }
 
@@ -55,13 +54,10 @@ export function parseBundleManifest(input: unknown): BundleManifest {
     throw new Error("tools must declare at least one tool");
   }
 
-  return {
-    name: expectNonEmptyString(manifest.name, "name"),
-    tools,
-  };
+  return { tools };
 }
 
-export function inferBundleManifest(bundleDir: string, bundleName: string): BundleManifest {
+export function inferBundleManifest(bundleDir: string): BundleManifest {
   const tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>> = {};
   const allTools = listToolDefinitions();
   const canonicalTargetNames: ToolTargetName[] = ["skills", "commands", "agents"];
@@ -90,7 +86,7 @@ export function inferBundleManifest(bundleDir: string, bundleName: string): Bund
     }
   }
 
-  return { name: bundleName, tools };
+  return { tools };
 }
 
 function isExistingDirectory(dirPath: string): boolean {

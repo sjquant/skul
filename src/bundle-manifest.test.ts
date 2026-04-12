@@ -8,7 +8,6 @@ describe("parseBundleManifest", () => {
   it("accepts a single-tool bundle manifest", () => {
     // Given
     const manifest = {
-      name: "react-expert",
       tools: {
         "claude-code": {
           skills: { path: "skills" },
@@ -22,7 +21,6 @@ describe("parseBundleManifest", () => {
 
     // Then
     expect(parsed).toEqual({
-      name: "react-expert",
       tools: {
         "claude-code": {
           skills: { path: "skills" },
@@ -35,7 +33,6 @@ describe("parseBundleManifest", () => {
   it("accepts a multi-tool bundle manifest", () => {
     // Given
     const manifest = {
-      name: "react-expert",
       tools: {
         "claude-code": {
           skills: { path: "skills" },
@@ -52,7 +49,6 @@ describe("parseBundleManifest", () => {
 
     // Then
     expect(parsed).toEqual({
-      name: "react-expert",
       tools: {
         "claude-code": {
           skills: { path: "skills" },
@@ -69,7 +65,6 @@ describe("parseBundleManifest", () => {
     [
       "unsupported tool",
       {
-        name: "react-expert",
         tools: {
           copilot: { skills: { path: "skills" } },
         },
@@ -79,7 +74,6 @@ describe("parseBundleManifest", () => {
     [
       "unsupported target for the selected tool",
       {
-        name: "repo-standards",
         tools: {
           codex: { commands: { path: "commands" } },
         },
@@ -89,7 +83,6 @@ describe("parseBundleManifest", () => {
     [
       "absolute target content path",
       {
-        name: "react-expert",
         tools: {
           "claude-code": { skills: { path: "/tmp/skills" } },
         },
@@ -99,7 +92,6 @@ describe("parseBundleManifest", () => {
     [
       "target content path with parent traversal",
       {
-        name: "react-expert",
         tools: {
           "claude-code": { skills: { path: "../skills" } },
         },
@@ -109,7 +101,6 @@ describe("parseBundleManifest", () => {
     [
       "empty tools map",
       {
-        name: "react-expert",
         tools: {},
       },
       /tools must declare at least one tool/i,
@@ -117,7 +108,6 @@ describe("parseBundleManifest", () => {
     [
       "empty targets for a tool",
       {
-        name: "react-expert",
         tools: { "claude-code": {} },
       },
       /tools\.claude-code must declare at least one target/i,
@@ -125,7 +115,6 @@ describe("parseBundleManifest", () => {
     [
       "target content path equal to dot",
       {
-        name: "react-expert",
         tools: { "claude-code": { skills: { path: "." } } },
       },
       /tools\.claude-code\.skills\.path must be a relative path/i,
@@ -133,7 +122,6 @@ describe("parseBundleManifest", () => {
     [
       "target content path with embedded parent traversal",
       {
-        name: "react-expert",
         tools: { "claude-code": { skills: { path: "foo/../../etc/passwd" } } },
       },
       /tools\.claude-code\.skills\.path must be a relative path/i,
@@ -145,18 +133,8 @@ describe("parseBundleManifest", () => {
     ],
     [
       "tools is an array",
-      { name: "react-expert", tools: [{ "claude-code": { skills: { path: "skills" } } }] },
+      { tools: [{ "claude-code": { skills: { path: "skills" } } }] },
       /tools must be an object/i,
-    ],
-    [
-      "missing name",
-      { tools: { "claude-code": { skills: { path: "skills" } } } },
-      /name is required/i,
-    ],
-    [
-      "whitespace-only name",
-      { name: "   ", tools: { "claude-code": { skills: { path: "skills" } } } },
-      /name is required/i,
     ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given

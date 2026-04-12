@@ -1,5 +1,6 @@
 import { confirm, isCancel, select, text } from "@clack/prompts";
 import { Command, CommanderError } from "commander";
+import { normalizeBundleSource } from "./bundle-discovery";
 import {
   DEFAULT_CONFLICT_PREFIX,
   normalizeConflictDestination,
@@ -241,8 +242,8 @@ export async function parseCliArgs(
   return context.result ?? { kind: "help" };
 }
 
-function collectOption(value: ToolName, previous: ToolName[]): ToolName[] {
-  return [...previous, value];
+function collectOption(value: string, previous: ToolName[]): ToolName[] {
+  return [...previous, value as ToolName];
 }
 
 function createProgram(
@@ -282,11 +283,24 @@ function createProgram(
       }
 
       if (source && !bundle) {
-        context.result = {
-          kind: "command",
-          command: "add",
-          options: { mode: "stealth", bundle: source, tools, dryRun },
-        };
+        // If the single argument looks like a git source (host/owner/repo), treat the
+        // repo slug as the bundle name so `skul add github.com/user/react-bundle` works.
+        try {
+          const normalizedSource = normalizeBundleSource(source);
+          const repoSlug = normalizedSource.split("/").at(-1)!;
+          context.result = {
+            kind: "command",
+            command: "add",
+            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, tools, dryRun },
+          };
+        } catch {
+          // Not a valid source — treat as a plain bundle name.
+          context.result = {
+            kind: "command",
+            command: "add",
+            options: { mode: "stealth", bundle: source, tools, dryRun },
+          };
+        }
         return;
       }
 

@@ -75,6 +75,30 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("derives bundle name from repo slug when only a source URL is given", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "github.com/user/react-bundle"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/user/react-bundle",
+        bundle: "react-bundle",
+        tools: [],
+        dryRun: false,
+      },
+    });
+  });
+
+  it("treats a single arg as a plain bundle name when it is not a valid source URL", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", tools: [], dryRun: false },
+    });
+  });
+
   it("parses --tool flag as a single selected tool", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
