@@ -130,9 +130,8 @@ describe("listCachedBundles", () => {
     });
   });
 
-  it("does not infer a bundle for a repo that has a broken subdirectory manifest", () => {
+  it("ignores a broken subdirectory manifest and still infers the repo-root bundle", () => {
     // Given — broken subdir manifest + canonical skills/ dir at the repo root.
-    // Any bundle subdirectory manifest marks the repo as multi-bundle, so inference is suppressed.
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "mixed-repo");
     fs.mkdirSync(path.join(repoDir, "broken-bundle"), { recursive: true });
@@ -143,8 +142,32 @@ describe("listCachedBundles", () => {
     // When
     const bundles = listCachedBundles({ libraryDir });
 
-    // Then — no inferred bundle, no explicit bundle (broken manifest is skipped)
-    expect(bundles).toEqual([]);
+    // Then — broken child manifests do not block repo-root inference
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      source: "github.com/user/mixed-repo",
+      bundle: "mixed-repo",
+    });
+  });
+
+  it("ignores an unrelated child manifest.json and still infers the repo-root bundle", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "site-bundle");
+    fs.mkdirSync(path.join(repoDir, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "docs", "manifest.json"), JSON.stringify({ name: "pwa" }));
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      source: "github.com/user/site-bundle",
+      bundle: "site-bundle",
+    });
   });
 
   it("infers a repo-as-bundle from canonical directories when no manifest.json exists", () => {
@@ -306,6 +329,29 @@ describe("findCachedBundle", () => {
     expect(bundle).toMatchObject({
       source: "github.com/user/react-bundle",
       bundle: "react-bundle",
+    });
+  });
+
+  it("finds an inferred repo-as-bundle by source when a child manifest.json is unrelated", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "site-bundle");
+    fs.mkdirSync(path.join(repoDir, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "docs", "manifest.json"), JSON.stringify({ name: "pwa" }));
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source: "github.com/user/site-bundle",
+      bundle: "site-bundle",
+    });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/user/site-bundle",
+      bundle: "site-bundle",
     });
   });
 
