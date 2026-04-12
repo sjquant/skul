@@ -30,7 +30,6 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir, "react-pack");
 
     // Then – every tool that supports skills should be included
-    expect(manifest.name).toBe("react-pack");
     expect(manifest.tools["claude-code"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["cursor"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["opencode"]).toEqual({ skills: { path: "skills" } });

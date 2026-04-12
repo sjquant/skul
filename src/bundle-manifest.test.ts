@@ -22,7 +22,6 @@ describe("parseBundleManifest", () => {
 
     // Then
     expect(parsed).toEqual({
-      name: "react-expert",
       tools: {
         "claude-code": {
           skills: { path: "skills" },
@@ -52,7 +51,6 @@ describe("parseBundleManifest", () => {
 
     // Then
     expect(parsed).toEqual({
-      name: "react-expert",
       tools: {
         "claude-code": {
           skills: { path: "skills" },
@@ -147,21 +145,6 @@ describe("parseBundleManifest", () => {
       "tools is an array",
       { name: "react-expert", tools: [{ "claude-code": { skills: { path: "skills" } } }] },
       /tools must be an object/i,
-    ],
-    [
-      "missing name",
-      { tools: { "claude-code": { skills: { path: "skills" } } } },
-      /name is required/i,
-    ],
-    [
-      "whitespace-only name",
-      { name: "   ", tools: { "claude-code": { skills: { path: "skills" } } } },
-      /name is required/i,
-    ],
-    [
-      "name containing a path separator",
-      { name: "foo/bar", tools: { "claude-code": { skills: { path: "skills" } } } },
-      /name must be a single path segment/i,
     ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given

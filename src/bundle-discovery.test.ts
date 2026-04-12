@@ -78,7 +78,6 @@ describe("listCachedBundles", () => {
           "manifest.json",
         ),
         manifest: {
-          name: "react-expert",
           tools: { "claude-code": { skills: { path: "skills" } } },
         },
       },
@@ -94,7 +93,6 @@ describe("listCachedBundles", () => {
           "manifest.json",
         ),
         manifest: {
-          name: "repo-standards",
           tools: { codex: { skills: { path: "skills" } } },
         },
       },
@@ -190,7 +188,6 @@ describe("listCachedBundles", () => {
       source: "github.com/user/react-bundle",
       bundle: "react-bundle",
     });
-    expect(bundles[0]!.manifest.name).toBe("react-bundle");
   });
 
   it("ignores a repo dir that has no recognisable bundle directories", () => {
@@ -317,7 +314,6 @@ describe("findCachedBundle", () => {
       source: "github.com/user/react-bundle",
       bundle: "react-bundle",
     });
-    expect(bundle.manifest.name).toBe("react-bundle");
   });
 
   it("finds an inferred repo-as-bundle without an explicit source", () => {
