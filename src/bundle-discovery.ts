@@ -60,19 +60,16 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
 
   const manifestFiles = findManifestFiles(options.libraryDir);
 
-  // Track source dirs that already have any explicit manifest file (root or subdirectory).
-  // Derived from file existence before parsing — a broken manifest still marks its source
-  // dir as having an explicit manifest, preventing spurious inferred bundles.
-  // These are excluded from inferred bundle detection to avoid ghost bundles on
-  // repos that were designed as multi-bundle libraries.
-  const sourceDirsWithExplicitManifest = new Set<string>();
+  // Repos with any bundle subdirectory manifest are treated as multi-bundle
+  // sources and excluded from repo-root inference.
+  const sourceDirsWithSubdirectoryManifest = new Set<string>();
+
   for (const manifestFile of manifestFiles) {
     const relativeManifestFile = path.relative(options.libraryDir, manifestFile);
     const segments = relativeManifestFile.split(path.sep);
-    if (segments.at(-1) !== MANIFEST_FILE_NAME) continue;
-    // 4 segments = root manifest, 5 segments = subdirectory manifest — both mark the source dir
-    if (segments.length === 4 || segments.length === 5) {
-      sourceDirsWithExplicitManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
+
+    if (segments.length === 5 && segments.at(-1) === MANIFEST_FILE_NAME) {
+      sourceDirsWithSubdirectoryManifest.add(path.join(options.libraryDir, ...segments.slice(0, 3)));
     }
   }
 
@@ -84,12 +81,6 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
 
       if (segments.at(-1) !== MANIFEST_FILE_NAME) {
         return [];
-      }
-
-      // Repo-as-bundle: host/owner/repo/manifest.json (4 segments)
-      if (segments.length === 4) {
-        const source = segments.slice(0, 3).join("/");
-        return [{ source, bundle: manifest.name, manifestFile, manifest }];
       }
 
       // Subdirectory bundle: host/owner/repo/bundle-name/manifest.json (5 segments)
@@ -105,11 +96,11 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
     }
   });
 
-  // Inferred repo-as-bundle: repos without a root manifest.json but with
+  // Inferred repo-as-bundle: repos without subdirectory bundle manifests but with
   // recognisable bundle directories (skills/, commands/, agents/, .claude/, etc.).
   // The bundle name defaults to the repository slug.
   const inferred = findSourceDirs(options.libraryDir).flatMap((sourceDir) => {
-    if (sourceDirsWithExplicitManifest.has(sourceDir)) {
+    if (sourceDirsWithSubdirectoryManifest.has(sourceDir)) {
       return [];
     }
 
@@ -164,31 +155,18 @@ export function findCachedBundle(options: {
       };
     }
 
-    // Fall back to repo-as-bundle with explicit manifest: libraryDir/host/owner/repo/manifest.json
-    const repoBundleManifestFile = path.join(layout.sourceDir, MANIFEST_FILE_NAME);
-    if (fs.existsSync(repoBundleManifestFile)) {
-      const manifest = parseBundleManifest(
-        JSON.parse(fs.readFileSync(repoBundleManifestFile, "utf8")) as unknown,
-      );
-      if (manifest.name === options.bundle) {
-        return { source, bundle: options.bundle, manifestFile: repoBundleManifestFile, manifest };
-      }
-    }
-
     // Fall back to inferred repo-as-bundle: repo slug must match the requested bundle name,
-    // and the repo must have no explicit manifest (root or subdirectory) — consistent
-    // with the exclusion applied in listCachedBundles.
+    // and the repo must not expose subdirectory bundle manifests.
+    const repoBundleManifestFile = path.join(layout.sourceDir, MANIFEST_FILE_NAME);
     const repoSlug = source.split("/").at(-1)!;
     if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
-      const hasExplicitManifest =
-        fs.existsSync(repoBundleManifestFile) ||
-        safeReaddirSync(layout.sourceDir).some(
-          (entry) =>
-            entry.isDirectory() &&
-            fs.existsSync(path.join(layout.sourceDir, entry.name, MANIFEST_FILE_NAME)),
-        );
+      const hasSubdirectoryManifest = safeReaddirSync(layout.sourceDir).some(
+        (entry) =>
+          entry.isDirectory() &&
+          fs.existsSync(path.join(layout.sourceDir, entry.name, MANIFEST_FILE_NAME)),
+      );
 
-      if (!hasExplicitManifest) {
+      if (!hasSubdirectoryManifest) {
         const manifest = inferBundleManifest(layout.sourceDir, repoSlug);
         if (Object.keys(manifest.tools).length > 0) {
           return { source, bundle: repoSlug, manifestFile: repoBundleManifestFile, manifest };

@@ -242,8 +242,8 @@ export async function parseCliArgs(
   return context.result ?? { kind: "help" };
 }
 
-function collectOption(value: ToolName, previous: ToolName[]): ToolName[] {
-  return [...previous, value];
+function collectOption(value: string, previous: ToolName[]): ToolName[] {
+  return [...previous, value as ToolName];
 }
 
 function createProgram(

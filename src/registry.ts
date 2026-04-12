@@ -3,7 +3,11 @@ import path from "node:path";
 
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
 
-const KNOWN_TOOL_NAMES = new Set(listToolDefinitions().map((t) => t.name));
+const KNOWN_TOOL_NAMES = new Set<ToolName>(listToolDefinitions().map((t) => t.name));
+
+function isToolName(value: string): value is ToolName {
+  return KNOWN_TOOL_NAMES.has(value as ToolName);
+}
 
 export interface DesiredBundleEntry {
   bundle: string;
@@ -205,12 +209,12 @@ function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEn
       ? undefined
       : expectArray(entry.tools, `${label}.tools`).map((value, index) => {
           const name = expectNonEmptyString(value, `${label}.tools[${index}]`);
-          if (!KNOWN_TOOL_NAMES.has(name)) {
+          if (!isToolName(name)) {
             throw new Error(
               `${label}.tools[${index}] must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
             );
           }
-          return name as ToolName;
+          return name;
         });
 
   return {
@@ -260,7 +264,7 @@ function parseMaterializedBundleState(input: unknown, label: string): Materializ
 
   const tools = Object.fromEntries(
     Object.entries(toolsInput).map(([toolName, toolValue]) => {
-      if (!KNOWN_TOOL_NAMES.has(toolName)) {
+      if (!isToolName(toolName)) {
         throw new Error(
           `${label}.tools.${toolName} must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
         );
