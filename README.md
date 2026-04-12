@@ -83,8 +83,6 @@ github.com/sjquant/react-bundle
 └── commands/
 ```
 
-A `manifest.json` at the root is optional and only needed to override the bundle name or restrict targets to specific tools.
-
 Inside a bundle, two content layouts are supported:
 
 **Canonical** — `skills/`, `commands/`, `agents/` at the top level. Skul copies each directory to every tool that supports it.
