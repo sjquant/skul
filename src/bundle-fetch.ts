@@ -14,13 +14,23 @@ export interface FetchRemoteSourceResult {
   targetDir: string;
 }
 
+// Accepted characters in each segment of host/owner/repo.
+// Defense-in-depth: normalizeBundleSource validates upstream, but this keeps
+// the function safe as a standalone unit and prevents path traversal.
+const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
+
 /**
  * Ensures a remote git source is present in the local library cache.
  * If the target directory already exists the operation is a no-op (returns cloned: false).
- * Otherwise the repo is shallow-cloned into libraryDir/host/owner/repo.
+ * Otherwise the repo is shallow-cloned via HTTPS into libraryDir/host/owner/repo.
  */
 export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemoteSourceResult {
   const { source, libraryDir } = options;
+
+  if (!SAFE_SOURCE_RE.test(source)) {
+    throw new Error(`Invalid bundle source: ${source}`);
+  }
+
   const targetDir = path.join(libraryDir, ...source.split("/"));
 
   if (fs.existsSync(targetDir)) {
@@ -30,9 +40,14 @@ export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemot
   const cloneUrl = `https://${source}`;
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
+  process.stderr.write(`Cloning ${cloneUrl}...\n`);
+
   try {
     execFileSync("git", ["clone", "--depth=1", cloneUrl, targetDir], { stdio: "pipe" });
   } catch (error) {
+    // Remove any partial clone so future calls don't treat an empty directory as valid cache.
+    fs.rmSync(targetDir, { recursive: true, force: true });
+
     if (
       error instanceof Error &&
       "code" in error &&

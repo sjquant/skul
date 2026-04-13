@@ -103,4 +103,34 @@ describe("fetchRemoteSource", () => {
     expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }))
       .toThrowError(/Failed to clone https:\/\/github\.com\/user\/react-bundle/);
   });
+
+  it("removes the partial target directory when the clone fails", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    vi.mocked(execFileSync).mockImplementation(() => {
+      // Simulate git creating an empty dir before failing
+      fs.mkdirSync(targetDir, { recursive: true });
+      throw new Error("clone failed");
+    });
+
+    // When
+    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }))
+      .toThrowError(/Failed to clone/);
+
+    // Then — no partial directory left behind
+    expect(fs.existsSync(targetDir)).toBe(false);
+  });
+
+  it("rejects sources that do not match host/owner/repo format", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+
+    // When / Then
+    expect(() => fetchRemoteSource({ source: "../../../etc/passwd", libraryDir }))
+      .toThrowError(/Invalid bundle source/);
+    expect(() => fetchRemoteSource({ source: "github.com/user", libraryDir }))
+      .toThrowError(/Invalid bundle source/);
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
 });
