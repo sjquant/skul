@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
+import { fetchRemoteSource } from "./bundle-fetch";
 import { materializeBundle, type MaterializeBundleResult } from "./bundle-materialization";
 import {
   createHeadlessPromptClient,
@@ -239,6 +240,12 @@ async function applyBundle(options: {
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
+  const cloneLines: string[] = [];
+  if (options.source) {
+    const { cloned } = fetchRemoteSource({ source: options.source, libraryDir: options.libraryDir });
+    if (cloned) cloneLines.push(`Cloned ${options.source}`);
+  }
+
   const cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
     bundle: options.bundle,
@@ -261,7 +268,7 @@ async function applyBundle(options: {
   const toolLabel = (hasToolSelection ? options.tools : availableTools).join(", ");
 
   if (options.dryRun) {
-    return `DRY RUN: Would apply ${cachedBundle.bundle} for ${toolLabel}`;
+    return [...cloneLines, `DRY RUN: Would apply ${cachedBundle.bundle} for ${toolLabel}`].join("\n");
   }
 
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -357,7 +364,7 @@ async function applyBundle(options: {
   });
   writeRegistryFile(options.registryFile, registry);
 
-  return `Applied ${cachedBundle.bundle} for ${toolLabel}`;
+  return [...cloneLines, `Applied ${cachedBundle.bundle} for ${toolLabel}`].join("\n");
 }
 
 async function resetWorktree(options: {
@@ -535,8 +542,14 @@ async function applyWorktree(options: {
   }
 
   let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
+  const cloneLines: string[] = [];
 
   for (const entry of entriesToApply) {
+    if (entry.source) {
+      const { cloned } = fetchRemoteSource({ source: entry.source, libraryDir: options.libraryDir });
+      if (cloned) cloneLines.push(`Cloned ${entry.source}`);
+    }
+
     const cachedBundle = findCachedBundleWithGuidance({
       libraryDir: options.libraryDir,
       bundle: entry.bundle,
@@ -580,7 +593,7 @@ async function applyWorktree(options: {
   }
 
   const appliedNames = entriesToApply.map((e) => e.bundle).join(", ");
-  return `Applied ${appliedNames}`;
+  return [...cloneLines, `Applied ${appliedNames}`].join("\n");
 }
 
 // Flatten all files and directories from every tool within a single bundle
