@@ -189,6 +189,43 @@ describe("listCachedBundles", () => {
     expect(Object.keys(bundles[0]!.manifest.tools).length).toBeGreaterThan(0);
   });
 
+  it("infers a manifest-free subdirectory bundle from canonical directories", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const bundleDir = path.join(libraryDir, "github.com", "user", "ghosts", "core");
+    fs.mkdirSync(path.join(bundleDir, "skills", "wdd"), { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, "skills", "wdd", "SKILL.md"), "# wdd\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      source: "github.com/user/ghosts",
+      bundle: "core",
+    });
+    expect(Object.keys(bundles[0]!.manifest.tools).length).toBeGreaterThan(0);
+  });
+
+  it("does not misclassify a repo-root native dotdir as a subdirectory bundle", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "native-root");
+    fs.mkdirSync(path.join(repoDir, ".claude", "skills", "react"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      source: "github.com/user/native-root",
+      bundle: "native-root",
+    });
+  });
+
   it("ignores a repo-root manifest and still infers the bundle from the repo slug", () => {
     // Given
     const libraryDir = createLibraryDir();
@@ -306,6 +343,49 @@ describe("findCachedBundle", () => {
       bundle: "react-bundle",
     });
     expect(Object.keys(bundle.manifest.tools).length).toBeGreaterThan(0);
+  });
+
+  it("finds an inferred manifest-free subdirectory bundle by source", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const bundleDir = path.join(libraryDir, "github.com", "user", "ghosts", "core");
+    fs.mkdirSync(path.join(bundleDir, "skills", "wdd"), { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, "skills", "wdd", "SKILL.md"), "# wdd\n");
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source: "github.com/user/ghosts",
+      bundle: "core",
+    });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/user/ghosts",
+      bundle: "core",
+    });
+    expect(Object.keys(bundle.manifest.tools).length).toBeGreaterThan(0);
+  });
+
+  it("does not find an inferred repo-root bundle via source when only manifest-free subdirectory bundles exist", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "user", "ghosts");
+    fs.mkdirSync(path.join(repoDir, "core", "skills", "wdd"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "core", "skills", "wdd", "SKILL.md"), "# wdd\n");
+    fs.mkdirSync(path.join(repoDir, "skills", "shared"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "skills", "shared", "SKILL.md"), "# shared\n");
+
+    // When
+    const findBundle = () =>
+      findCachedBundle({
+        libraryDir,
+        source: "github.com/user/ghosts",
+        bundle: "ghosts",
+      });
+
+    // Then
+    expect(findBundle).toThrowError(/bundle not found/i);
   });
 
   it("finds an inferred repo-as-bundle by source even when a root manifest exists", () => {
