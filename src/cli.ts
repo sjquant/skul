@@ -304,10 +304,13 @@ function createProgram(
         return;
       }
 
+      const explicitSource = source!;
+      const normalizedSource = normalizeBundleSource(explicitSource);
+
       context.result = {
         kind: "command",
         command: "add",
-        options: { mode: "stealth", source, bundle: bundle!, tools, dryRun },
+        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, tools, dryRun },
       };
     });
 

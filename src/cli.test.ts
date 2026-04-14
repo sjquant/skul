@@ -75,6 +75,21 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("normalizes explicit HTTPS source URLs for add", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "https://github.com/user/ai-vault.git", "react-expert"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/user/ai-vault",
+        bundle: "react-expert",
+        tools: [],
+        dryRun: false,
+      },
+    });
+  });
+
   it("derives bundle name from repo slug when only a source URL is given", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "github.com/user/react-bundle"])).resolves.toEqual({

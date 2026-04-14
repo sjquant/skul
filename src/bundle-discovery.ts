@@ -83,17 +83,25 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
     }
   });
 
-  // Repos with any valid bundle subdirectory manifest are treated as multi-bundle
+  const explicitBundleKeys = new Set(explicit.map((bundle) => `${bundle.source}::${bundle.bundle}`));
+
+  const inferredSubdirectory = findSourceDirs(options.libraryDir).flatMap((sourceDir) =>
+    inferSubdirectoryBundles(sourceDir, explicitBundleKeys),
+  );
+
+  // Repos with any valid or inferred bundle subdirectory are treated as multi-bundle
   // sources and excluded from repo-root inference.
-  const sourceDirsWithSubdirectoryManifest = new Set(
-    explicit.map((bundle) => path.join(options.libraryDir, ...bundle.source.split("/"))),
+  const sourceDirsWithSubdirectoryBundle = new Set(
+    [...explicit, ...inferredSubdirectory].map((bundle) =>
+      path.join(options.libraryDir, ...bundle.source.split("/")),
+    ),
   );
 
   // Inferred repo-as-bundle: repos without subdirectory bundle manifests but with
   // recognisable bundle directories (skills/, commands/, agents/, .claude/, etc.).
   // The bundle name defaults to the repository slug.
   const inferred = findSourceDirs(options.libraryDir).flatMap((sourceDir) => {
-    if (sourceDirsWithSubdirectoryManifest.has(sourceDir)) {
+    if (sourceDirsWithSubdirectoryBundle.has(sourceDir)) {
       return [];
     }
 
@@ -120,7 +128,7 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
     }
   });
 
-  return [...explicit, ...inferred].sort(
+  return [...explicit, ...inferredSubdirectory, ...inferred].sort(
     (left, right) => left.source.localeCompare(right.source) || left.bundle.localeCompare(right.bundle),
   );
 }
@@ -148,14 +156,26 @@ export function findCachedBundle(options: {
       };
     }
 
+    if (fs.existsSync(layout.bundleDir)) {
+      const manifest = inferBundleManifest(layout.bundleDir);
+      if (Object.keys(manifest.tools).length > 0) {
+        return {
+          source,
+          bundle: options.bundle,
+          manifestFile: layout.manifestFile,
+          manifest,
+        };
+      }
+    }
+
     // Fall back to inferred repo-as-bundle: repo slug must match the requested bundle name,
     // and the repo must not expose valid subdirectory bundle manifests.
     const repoBundleManifestFile = path.join(layout.sourceDir, MANIFEST_FILE_NAME);
     const repoSlug = source.split("/").at(-1)!;
     if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
-      const hasSubdirectoryManifest = hasValidSubdirectoryBundleManifest(layout.sourceDir);
+      const hasNestedBundle = hasAnySubdirectoryBundle(layout.sourceDir);
 
-      if (!hasSubdirectoryManifest) {
+      if (!hasNestedBundle) {
         const manifest = inferBundleManifest(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
           return { source, bundle: repoSlug, manifestFile: repoBundleManifestFile, manifest };
@@ -245,9 +265,45 @@ function safeReaddirSync(dir: string): fs.Dirent[] {
   }
 }
 
+function inferSubdirectoryBundles(sourceDir: string, explicitBundleKeys: Set<string>): CachedBundle[] {
+  const sourceSegments = path.normalize(sourceDir).split(path.sep).slice(-3);
+  const source = sourceSegments.join("/");
+
+  return safeReaddirSync(sourceDir).flatMap((entry) => {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) {
+      return [];
+    }
+
+    const bundleDir = path.join(sourceDir, entry.name);
+    const manifest = inferBundleManifest(bundleDir);
+
+    if (Object.keys(manifest.tools).length === 0) {
+      return [];
+    }
+
+    const bundleKey = `${source}::${entry.name}`;
+    if (explicitBundleKeys.has(bundleKey)) {
+      return [];
+    }
+
+    return [
+      {
+        source,
+        bundle: entry.name,
+        manifestFile: path.join(bundleDir, MANIFEST_FILE_NAME),
+        manifest,
+      },
+    ];
+  });
+}
+
+function hasAnySubdirectoryBundle(sourceDir: string): boolean {
+  return hasValidSubdirectoryBundleManifest(sourceDir) || inferSubdirectoryBundles(sourceDir, new Set()).length > 0;
+}
+
 function hasValidSubdirectoryBundleManifest(sourceDir: string): boolean {
   return safeReaddirSync(sourceDir).some((entry) => {
-    if (!entry.isDirectory()) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) {
       return false;
     }
 
