@@ -19,7 +19,13 @@ export interface CachedBundle {
 
 /**
  * Infers the preferred clone protocol from a raw user-supplied source string.
- * Returns "ssh" when the input is a git-SSH URL (git@host:path), "https" otherwise.
+ *
+ * Returns "ssh" when the input starts with `git@` (the standard SCP-style SSH
+ * syntax, e.g. `git@github.com:owner/repo.git`). All other forms — HTTPS URLs
+ * (`https://…`) and plain `host/owner/repo` shorthand — return "https".
+ *
+ * This function operates on the *raw* input before normalization, so the `git@`
+ * prefix is still present and unambiguous.
  */
 export function detectSourceProtocol(input: string): "https" | "ssh" {
   return /^git@/.test(input.trim()) ? "ssh" : "https";
