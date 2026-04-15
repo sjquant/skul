@@ -52,14 +52,14 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "https", tools: [], dryRun: false },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "https", tools: [], dryRun: false },
     });
 
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
@@ -68,7 +68,7 @@ describe("parseCliArgs", () => {
       options: {
         mode: "stealth",
         source: "github.com/user/ai-vault",
-        bundle: "react-expert",
+        bundles: ["react-expert"],
         protocol: "https",
         tools: [],
         dryRun: false,
@@ -84,7 +84,7 @@ describe("parseCliArgs", () => {
       options: {
         mode: "stealth",
         source: "github.com/user/ai-vault",
-        bundle: "react-expert",
+        bundles: ["react-expert"],
         protocol: "https",
         tools: [],
         dryRun: false,
@@ -100,7 +100,7 @@ describe("parseCliArgs", () => {
       options: {
         mode: "stealth",
         source: "github.com/user/react-bundle",
-        bundle: "react-bundle",
+        bundles: ["react-bundle"],
         protocol: "https",
         tools: [],
         dryRun: false,
@@ -113,7 +113,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "https", tools: [], dryRun: false },
     });
   });
 
@@ -122,7 +122,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: ["claude-code"], dryRun: false },
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "https", tools: ["claude-code"], dryRun: false },
     });
   });
 
@@ -133,7 +133,41 @@ describe("parseCliArgs", () => {
     ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: ["claude-code", "cursor"], dryRun: false },
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "https", tools: ["claude-code", "cursor"], dryRun: false },
+    });
+  });
+
+  it("parses multiple plain bundle names when no source is provided", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "next-expert"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundles: ["react-expert", "next-expert"], protocol: "https", tools: [], dryRun: false },
+    });
+  });
+
+  it("parses a source followed by multiple bundle names", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "next-expert"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/user/ai-vault",
+        bundles: ["react-expert", "next-expert"],
+        protocol: "https",
+        tools: [],
+        dryRun: false,
+      },
+    });
+  });
+
+  it("treats all positional args as bundle names when the first arg is not a valid source", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "bundle-a", "bundle-b", "bundle-c"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundles: ["bundle-a", "bundle-b", "bundle-c"], protocol: "https", tools: [], dryRun: false },
     });
   });
 
@@ -169,7 +203,7 @@ describe("parseCliArgs", () => {
       options: {
         mode: "stealth",
         source: "github.com/user/ai-vault",
-        bundle: "react-expert",
+        bundles: ["react-expert"],
         protocol: "ssh",
         tools: [],
         dryRun: false,
@@ -187,7 +221,7 @@ describe("parseCliArgs", () => {
       options: {
         mode: "stealth",
         source: "github.com/user/ai-vault",
-        bundle: "react-expert",
+        bundles: ["react-expert"],
         protocol: "ssh",
         tools: [],
         dryRun: false,
@@ -203,7 +237,7 @@ describe("parseCliArgs", () => {
       options: {
         mode: "stealth",
         source: "github.com/user/react-bundle",
-        bundle: "react-bundle",
+        bundles: ["react-bundle"],
         protocol: "ssh",
         tools: [],
         dryRun: false,
@@ -216,7 +250,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "--dry-run"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: true },
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "https", tools: [], dryRun: true },
     });
 
     await expect(parseCliArgs(["remove", "react-expert", "--dry-run"])).resolves.toEqual({
@@ -246,9 +280,6 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["apply", "extra"])).rejects.toThrowError(
       /Command apply does not accept positional arguments/,
-    );
-    await expect(parseCliArgs(["add", "a", "b", "c"])).rejects.toThrowError(
-      /Command add accepts at most 2 positional arguments/,
     );
     await expect(parseCliArgs(["remove", "a", "b"])).rejects.toThrowError(
       /Command remove accepts exactly 1 positional argument/,
@@ -497,6 +528,40 @@ describe("run", () => {
     );
     expect(readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees).toHaveProperty(
       Object.keys(readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees)[0],
+    );
+  });
+
+  it("adds multiple bundles in a single command invocation", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
+      name: "next-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", ".claude/skills/next/SKILL.md", "# next\n");
+
+    // When
+    const output = await run(["add", "react-expert", "next-expert"], { homeDir, cwd: repoRoot });
+
+    // Then: both bundles are applied and reported
+    expect(output).toBe("Applied react-expert for claude-code\nApplied next-expert for claude-code");
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"), "utf8")).toBe("# next\n");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repo = registry.repos[Object.keys(registry.repos)[0]];
+    expect(repo.desired_state.map((e) => e.bundle)).toEqual(
+      expect.arrayContaining(["react-expert", "next-expert"]),
+    );
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(Object.keys(worktree.materialized_state.bundles)).toEqual(
+      expect.arrayContaining(["react-expert", "next-expert"]),
     );
   });
 

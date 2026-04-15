@@ -19,7 +19,7 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "add";
-      options: { mode: "stealth"; bundle: string; source?: string; protocol: "https" | "ssh"; tools: ToolName[]; dryRun: boolean };
+      options: { mode: "stealth"; bundles: string[]; source?: string; protocol: "https" | "ssh"; tools: ToolName[]; dryRun: boolean };
     }
   | {
       kind: "command";
@@ -57,7 +57,7 @@ export function createHeadlessPromptClient(): PromptClient {
     async selectBundle(source?: string): Promise<string> {
       const hint = source
         ? `skul add ${source} <bundle>`
-        : "skul add <bundle>";
+        : "skul add <bundle> [bundle...]";
       throw new Error(
         `Bundle name is required in headless mode.\nHint: run '${hint}' to specify the bundle explicitly`,
       );
@@ -264,56 +264,64 @@ function createProgram(
 
   program
     .command("add")
-    .description("Add a bundle to the active set and materialize its files")
+    .description("Add one or more bundles to the active set and materialize their files")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
-    .argument("[bundle]", "Bundle name")
+    .argument("[bundles...]", "Bundle names")
     .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
     .option("--dry-run", "Preview what would be written without making any changes")
     .option("--ssh", "Clone the bundle source using SSH instead of HTTPS")
-    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
+    .action(async (source: string | undefined, bundles: string[], opts: { tool: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
       const tools = opts.tool;
       const dryRun = opts.dryRun ?? false;
 
-      if (!source && !bundle) {
+      // No args → interactive selection of a single bundle
+      if (!source && bundles.length === 0) {
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: await prompts.selectBundle(), protocol: "https", tools, dryRun },
+          options: { mode: "stealth", bundles: [await prompts.selectBundle()], protocol: "https", tools, dryRun },
         };
         return;
       }
 
-      if (source && !bundle) {
-        // If the single argument looks like a git source (host/owner/repo), treat the
-        // repo slug as the bundle name so `skul add github.com/user/react-bundle` works.
-        try {
-          const detectedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(source);
-          const normalizedSource = normalizeBundleSource(source);
-          const repoSlug = normalizedSource.split("/").at(-1)!;
-          context.result = {
-            kind: "command",
-            command: "add",
-            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, tools, dryRun },
-          };
-        } catch {
-          // Not a valid source — treat as a plain bundle name.
-          context.result = {
-            kind: "command",
-            command: "add",
-            options: { mode: "stealth", bundle: source, protocol: "https", tools, dryRun },
-          };
-        }
-        return;
-      }
+      // At least one positional arg. Try to detect whether the first arg ('source') is
+      // actually a git source (host/owner/repo) or just a plain bundle name.
+      let normalizedSource: string | undefined;
+      let detectedProtocol: "https" | "ssh" = "https";
+      let finalBundles: string[];
 
-      const explicitSource = source!;
-      const detectedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(explicitSource);
-      const normalizedSource = normalizeBundleSource(explicitSource);
+      if (source) {
+        try {
+          detectedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(source);
+          normalizedSource = normalizeBundleSource(source);
+
+          if (bundles.length === 0) {
+            // Single arg is a valid source → infer bundle name from repo slug.
+            finalBundles = [normalizedSource.split("/").at(-1)!];
+          } else {
+            // Valid source followed by one or more explicit bundle names.
+            finalBundles = bundles;
+          }
+        } catch {
+          // Not a valid source — treat all positional args as plain bundle names.
+          normalizedSource = undefined;
+          finalBundles = [source, ...bundles];
+        }
+      } else {
+        finalBundles = bundles;
+      }
 
       context.result = {
         kind: "command",
         command: "add",
-        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, tools, dryRun },
+        options: {
+          mode: "stealth",
+          bundles: finalBundles,
+          ...(normalizedSource !== undefined ? { source: normalizedSource } : {}),
+          protocol: detectedProtocol,
+          tools,
+          dryRun,
+        },
       };
     });
 
@@ -370,10 +378,6 @@ function normalizeParseError(error: unknown, command: string): Error {
   }
 
   if (error.code === "commander.excessArguments") {
-    if (command === "add") {
-      return new Error("Command add accepts at most 2 positional arguments");
-    }
-
     if (command === "remove") {
       return new Error("Command remove accepts exactly 1 positional argument");
     }

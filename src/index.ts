@@ -48,17 +48,23 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
   }
 
   if (parsed.command === "add") {
-    return applyBundle({
-      cwd,
-      prompts,
-      registryFile: stateLayout.registryFile,
-      libraryDir: stateLayout.libraryDir,
-      bundle: parsed.options.bundle,
-      source: parsed.options.source,
-      protocol: parsed.options.protocol,
-      tools: parsed.options.tools,
-      dryRun: parsed.options.dryRun,
-    });
+    const outputs: string[] = [];
+    for (const bundle of parsed.options.bundles) {
+      outputs.push(
+        await applyBundle({
+          cwd,
+          prompts,
+          registryFile: stateLayout.registryFile,
+          libraryDir: stateLayout.libraryDir,
+          bundle,
+          source: parsed.options.source,
+          protocol: parsed.options.protocol,
+          tools: parsed.options.tools,
+          dryRun: parsed.options.dryRun,
+        }),
+      );
+    }
+    return outputs.join("\n");
   }
 
   if (parsed.command === "list") {
