@@ -14,6 +14,12 @@ Apply reusable AI bundles — skills, slash commands, and agents — into tool-n
 # Fetch from a GitHub registry and apply (first use clones the repo)
 skul add github.com/sjquant/ai-bundles react-expert
 
+# Clone via SSH instead of HTTPS
+skul add --ssh github.com/sjquant/ai-bundles react-expert
+
+# git@ URLs are auto-detected as SSH
+skul add git@github.com:sjquant/ai-bundles react-expert
+
 # Re-apply from cache — no network needed
 skul add react-expert
 
@@ -41,6 +47,8 @@ skul reset
 | `skul reset` | Remove all Skul-managed files from the current worktree |
 
 All mutating commands accept `--dry-run`. `skul list` and `skul status` accept `--json`.
+
+`skul add` accepts `--ssh` to clone via SSH. `git@host:owner/repo` URLs are auto-detected as SSH. The chosen protocol is persisted in the registry and reused by `skul apply`.
 
 For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
 
@@ -100,6 +108,19 @@ The registry tracks two things separately: which bundles a repo *wants*, and whi
 
 Skul writes ignore rules to `.git/info/exclude` only — never `.gitignore`, never Git history.
 
+### Cloning: HTTPS vs SSH
+
+By default Skul clones bundle sources over HTTPS. To use SSH, either pass `--ssh` or supply a `git@` URL — both are equivalent:
+
+```bash
+skul add --ssh github.com/sjquant/ai-bundles react-expert
+skul add git@github.com:sjquant/ai-bundles react-expert
+```
+
+The protocol choice is stored in the registry alongside the bundle entry. When `skul apply` re-clones a source in a new worktree it uses the same protocol automatically — no need to repeat `--ssh`.
+
+If SSH authentication fails (missing key, wrong host, etc.) Skul prints a hint pointing to the HTTPS equivalent command.
+
 ---
 
 ## Installation
@@ -137,6 +158,9 @@ Two options: (1) create a GitHub repo with one subdirectory per bundle, each con
 
 **What happens if I edit a Skul-managed file?**
 Skul fingerprints files on write. Edited files require explicit confirmation before removal, or fail fast with `SKUL_NO_TUI=1`.
+
+**Can I use SSH to clone bundle sources?**
+Yes. Pass `--ssh` to `skul add`, or use a `git@host:owner/repo` URL — Skul auto-detects it as SSH. The protocol is saved in the registry and reused by `skul apply`. If SSH auth fails, Skul shows a hint with the HTTPS equivalent.
 
 **What happens to files after `git worktree remove`?**
 Run `skul reset` before removing a worktree. If removed externally, the registry entry persists until cleared manually.

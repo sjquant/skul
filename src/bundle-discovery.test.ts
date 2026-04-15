@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  detectSourceProtocol,
   findCachedBundle,
   listCachedBundles,
   normalizeBundleSource,
@@ -16,6 +17,17 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("detectSourceProtocol", () => {
+  it.each([
+    ["git@github.com:user/repo.git", "ssh"],
+    ["git@gitlab.com:user/repo", "ssh"],
+    ["https://github.com/user/repo.git", "https"],
+    ["github.com/user/repo", "https"],
+  ])("detects protocol for %s as %s", (input, expected) => {
+    expect(detectSourceProtocol(input)).toBe(expected);
+  });
 });
 
 describe("normalizeBundleSource", () => {

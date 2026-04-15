@@ -6,6 +6,8 @@ export interface FetchRemoteSourceOptions {
   /** Normalized source identifier, e.g. "github.com/owner/repo" */
   source: string;
   libraryDir: string;
+  /** Transport protocol to use when cloning. Defaults to "https". */
+  protocol?: "https" | "ssh";
 }
 
 export interface FetchRemoteSourceResult {
@@ -19,10 +21,16 @@ export interface FetchRemoteSourceResult {
 // the function safe as a standalone unit and prevents path traversal.
 const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 
+// SSH stderr patterns that indicate authentication/key problems rather than
+// network or repository errors. Used to append an HTTPS hint.
+const SSH_AUTH_FAILURE_RE =
+  /permission denied|could not read from remote repository|host key verification failed/i;
+
 /**
  * Ensures a remote git source is present in the local library cache.
  * If the target directory already exists the operation is a no-op (returns cloned: false).
- * Otherwise the repo is shallow-cloned via HTTPS into libraryDir/host/owner/repo.
+ * Otherwise the repo is shallow-cloned into libraryDir/host/owner/repo using
+ * HTTPS (default) or SSH when protocol is "ssh".
  */
 export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemoteSourceResult {
   const { source, libraryDir } = options;
@@ -37,7 +45,12 @@ export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemot
     return { cloned: false, targetDir };
   }
 
-  const cloneUrl = `https://${source}`;
+  const [host, owner, repo] = source.split("/");
+  const cloneUrl =
+    options.protocol === "ssh"
+      ? `git@${host}:${owner}/${repo}.git`
+      : `https://${source}`;
+
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   process.stderr.write(`Cloning ${cloneUrl}...\n`);
@@ -63,7 +76,13 @@ export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemot
         ? String((error as { stderr: Buffer | string }).stderr).trim()
         : String(error);
 
-    throw new Error(`Failed to clone ${cloneUrl}${stderr ? `:\n${stderr}` : ""}`);
+    let message = `Failed to clone ${cloneUrl}${stderr ? `:\n${stderr}` : ""}`;
+
+    if (options.protocol === "ssh" && SSH_AUTH_FAILURE_RE.test(stderr)) {
+      message += `\nHint: SSH authentication failed. To clone via HTTPS instead, omit --ssh:\n  skul add ${source}`;
+    }
+
+    throw new Error(message);
   }
 
   return { cloned: true, targetDir };

@@ -55,6 +55,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       libraryDir: stateLayout.libraryDir,
       bundle: parsed.options.bundle,
       source: parsed.options.source,
+      protocol: parsed.options.protocol,
       tools: parsed.options.tools,
       dryRun: parsed.options.dryRun,
     });
@@ -235,6 +236,7 @@ async function applyBundle(options: {
   libraryDir: string;
   bundle: string;
   source?: string;
+  protocol: "https" | "ssh";
   tools: ToolName[];
   dryRun: boolean;
 }): Promise<string> {
@@ -242,7 +244,7 @@ async function applyBundle(options: {
 
   const cloneLines: string[] = [];
   if (options.source) {
-    const { cloned } = fetchRemoteSource({ source: options.source, libraryDir: options.libraryDir });
+    const { cloned } = fetchRemoteSource({ source: options.source, libraryDir: options.libraryDir, protocol: options.protocol });
     if (cloned) cloneLines.push(`Cloned ${options.source}`);
   }
 
@@ -332,6 +334,7 @@ async function applyBundle(options: {
     bundle: cachedBundle.bundle,
     ...(options.source !== undefined ? { source: options.source } : {}),
     ...(hasToolSelection ? { tools: options.tools } : {}),
+    protocol: options.protocol,
   };
   const newDesiredState = [
     ...existingDesiredState.filter((e) => e.bundle !== cachedBundle.bundle),
@@ -546,7 +549,7 @@ async function applyWorktree(options: {
 
   for (const entry of entriesToApply) {
     if (entry.source) {
-      const { cloned } = fetchRemoteSource({ source: entry.source, libraryDir: options.libraryDir });
+      const { cloned } = fetchRemoteSource({ source: entry.source, libraryDir: options.libraryDir, protocol: entry.protocol });
       if (cloned) cloneLines.push(`Cloned ${entry.source}`);
     }
 

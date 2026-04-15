@@ -22,7 +22,7 @@ const WORKTREE_ID = "worktree_xyz789";
 function makeRepoEntry(overrides: object = {}) {
   return {
     repo_root: "/Users/dev/project",
-    desired_state: [{ bundle: "react-expert" }],
+    desired_state: [{ bundle: "react-expert", protocol: "https" }],
     ...overrides,
   };
 }
@@ -75,7 +75,7 @@ describe("parseRegistry", () => {
           [REPO_FINGERPRINT]: {
             repo_root: "/Users/dev/project",
             remote_url: "git@github.com:org/project.git",
-            desired_state: [{ bundle: "react-expert" }],
+            desired_state: [{ bundle: "react-expert", protocol: "https" }],
           },
         },
         worktrees: {
@@ -103,7 +103,7 @@ describe("parseRegistry", () => {
         [REPO_FINGERPRINT]: {
           repo_root: "/Users/dev/project",
           remote_url: "git@github.com:org/project.git",
-          desired_state: [{ bundle: "react-expert" }],
+          desired_state: [{ bundle: "react-expert", protocol: "https" }],
         },
       },
       worktrees: {
@@ -127,7 +127,7 @@ describe("parseRegistry", () => {
     });
   });
 
-  it("accepts desired_state entries with source and tools selections", () => {
+  it("accepts desired_state entries with source, tools, and protocol", () => {
     expect(
       parseRegistry({
         version: 1,
@@ -135,7 +135,7 @@ describe("parseRegistry", () => {
           [REPO_FINGERPRINT]: {
             repo_root: "/Users/dev/project",
             desired_state: [
-              { bundle: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code", "cursor"] },
+              { bundle: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code", "cursor"], protocol: "https" },
             ],
           },
         },
@@ -145,11 +145,67 @@ describe("parseRegistry", () => {
       repos: {
         [REPO_FINGERPRINT]: {
           desired_state: [
-            { bundle: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code", "cursor"] },
+            { bundle: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code", "cursor"], protocol: "https" },
           ],
         },
       },
     });
+  });
+
+  it("parses and round-trips protocol field on desired_state entries", () => {
+    // Given
+    const input = {
+      version: 1,
+      repos: {
+        [REPO_FINGERPRINT]: {
+          repo_root: "/Users/dev/project",
+          desired_state: [
+            { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "ssh" },
+          ],
+        },
+      },
+      worktrees: {},
+    };
+
+    // When
+    const parsed = parseRegistry(input);
+
+    // Then — protocol is preserved
+    expect(parsed.repos[REPO_FINGERPRINT]?.desired_state[0]).toMatchObject({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+      protocol: "ssh",
+    });
+  });
+
+  it("rejects a desired_state entry with a missing protocol field", () => {
+    expect(() =>
+      parseRegistry({
+        version: 1,
+        repos: {
+          [REPO_FINGERPRINT]: {
+            repo_root: "/Users/dev/project",
+            desired_state: [{ bundle: "react-expert", source: "github.com/user/ai-vault" }],
+          },
+        },
+        worktrees: {},
+      }),
+    ).toThrowError(/protocol.*must be "https" or "ssh"/i);
+  });
+
+  it("rejects invalid protocol values", () => {
+    expect(() =>
+      parseRegistry({
+        version: 1,
+        repos: {
+          [REPO_FINGERPRINT]: {
+            repo_root: "/Users/dev/project",
+            desired_state: [{ bundle: "react-expert", protocol: "ftp" }],
+          },
+        },
+        worktrees: {},
+      }),
+    ).toThrowError(/protocol.*must be "https" or "ssh"/i);
   });
 
   it("allows repository entries without a remote url", () => {
@@ -159,7 +215,7 @@ describe("parseRegistry", () => {
         repos: {
           [REPO_FINGERPRINT]: {
             repo_root: "/Users/dev/project",
-            desired_state: [{ bundle: "nextjs-minimal" }],
+            desired_state: [{ bundle: "nextjs-minimal", protocol: "https" }],
           },
         },
         worktrees: {},
@@ -167,7 +223,7 @@ describe("parseRegistry", () => {
     ).toMatchObject({
       repos: {
         [REPO_FINGERPRINT]: {
-          desired_state: [{ bundle: "nextjs-minimal" }],
+          desired_state: [{ bundle: "nextjs-minimal", protocol: "https" }],
         },
       },
     });
@@ -269,7 +325,7 @@ describe("parseRegistry", () => {
         repos: {
           [REPO_FINGERPRINT]: {
             repo_root: "/Users/dev/project",
-            desired_state: [{ bundle: "react-expert", tools: ["claude-code", "unknown-tool"] }],
+            desired_state: [{ bundle: "react-expert", tools: ["claude-code", "unknown-tool"], protocol: "https" }],
           },
         },
         worktrees: {},
@@ -407,7 +463,7 @@ describe("registry persistence", () => {
 
     const withRepoState = upsertRepoState(createEmptyRegistry(), REPO_FINGERPRINT, {
       repo_root: "/Users/dev/project",
-      desired_state: [{ bundle: "react-expert" }],
+      desired_state: [{ bundle: "react-expert", protocol: "https" }],
     });
     const withWorktreeState = upsertWorktreeState(withRepoState, WORKTREE_ID, {
       repo_fingerprint: REPO_FINGERPRINT,
@@ -430,6 +486,30 @@ describe("registry persistence", () => {
 
     writeRegistryFile(registryFile, withWorktreeState);
     expect(readRegistryFile(registryFile)).toEqual(withWorktreeState);
+
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it("persists and reloads the protocol field on desired_state entries", () => {
+    // Given
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+
+    const registry = upsertRepoState(createEmptyRegistry(), REPO_FINGERPRINT, {
+      repo_root: "/Users/dev/project",
+      desired_state: [{ bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "ssh" }],
+    });
+
+    // When
+    writeRegistryFile(registryFile, registry);
+    const reloaded = readRegistryFile(registryFile);
+
+    // Then
+    expect(reloaded.repos[REPO_FINGERPRINT]?.desired_state[0]).toMatchObject({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+      protocol: "ssh",
+    });
 
     fs.rmSync(homeDir, { recursive: true, force: true });
   });

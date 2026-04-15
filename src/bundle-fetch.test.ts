@@ -122,6 +122,124 @@ describe("fetchRemoteSource", () => {
     expect(fs.existsSync(targetDir)).toBe(false);
   });
 
+  it("shallow-clones via SSH when protocol is ssh", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+
+    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
+
+    // When
+    const result = fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" });
+
+    // Then
+    expect(result).toEqual({ cloned: true, targetDir });
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["clone", "--depth=1", "git@github.com:user/react-bundle.git", targetDir],
+      { stdio: "pipe" },
+    );
+  });
+
+  it("shallow-clones via HTTPS when protocol is https (explicit)", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+
+    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
+
+    // When
+    fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "https" });
+
+    // Then
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["clone", "--depth=1", "https://github.com/user/react-bundle", targetDir],
+      { stdio: "pipe" },
+    );
+  });
+
+  it("includes the SSH clone URL in the error message when SSH clone fails", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const cloneError = Object.assign(new Error("Command failed"), {
+      stderr: Buffer.from("Permission denied (publickey)."),
+    });
+    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+
+    // When / Then
+    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" }))
+      .toThrowError(/Failed to clone git@github\.com:user\/react-bundle\.git[\s\S]*Permission denied/);
+  });
+
+  it("appends an HTTPS hint when SSH authentication fails with publickey error", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const cloneError = Object.assign(new Error("Command failed"), {
+      stderr: Buffer.from("git@github.com: Permission denied (publickey)."),
+    });
+    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+
+    // When / Then
+    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" }))
+      .toThrowError(/Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/react-bundle/);
+  });
+
+  it("appends an HTTPS hint when SSH authentication fails with 'could not read from remote' error", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const cloneError = Object.assign(new Error("Command failed"), {
+      stderr: Buffer.from("fatal: Could not read from remote repository."),
+    });
+    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+
+    // When / Then
+    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" }))
+      .toThrowError(/Hint: SSH authentication failed/);
+  });
+
+  it("does not append an HTTPS hint for non-auth SSH failures", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const cloneError = Object.assign(new Error("Command failed"), {
+      stderr: Buffer.from("ERROR: Repository 'git@github.com:user/react-bundle.git' not found."),
+    });
+    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+
+    // When
+    let caught: Error | undefined;
+    try {
+      fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" });
+    } catch (e) {
+      caught = e as Error;
+    }
+
+    // Then — error is thrown but contains no HTTPS hint
+    expect(caught?.message).toMatch(/Failed to clone git@github\.com/);
+    expect(caught?.message).not.toMatch(/Hint/);
+  });
+
+  it("does not append an HTTPS hint for HTTPS clone failures", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const cloneError = Object.assign(new Error("Command failed"), {
+      stderr: Buffer.from("Permission denied."),
+    });
+    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+
+    // When
+    let caught: Error | undefined;
+    try {
+      fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "https" });
+    } catch (e) {
+      caught = e as Error;
+    }
+
+    // Then — HTTPS failures never show SSH-specific hint
+    expect(caught?.message).toMatch(/Failed to clone https:\/\//);
+    expect(caught?.message).not.toMatch(/Hint/);
+  });
+
   it("rejects sources that do not match host/owner/repo format", () => {
     // Given
     const libraryDir = createLibraryDir();
