@@ -14,7 +14,7 @@ export interface DesiredBundleEntry {
   source?: string;
   tools?: ToolName[];
   /** Clone protocol used when the bundle source was first fetched. */
-  protocol?: "https" | "ssh";
+  protocol: "https" | "ssh";
 }
 
 export interface MaterializedToolState {
@@ -89,7 +89,7 @@ export function upsertRepoState(
           bundle: entry.bundle,
           ...(entry.source !== undefined ? { source: entry.source } : {}),
           ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
-          ...(entry.protocol !== undefined ? { protocol: entry.protocol } : {}),
+          protocol: entry.protocol,
         })),
       },
     },
@@ -219,16 +219,13 @@ function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEn
           }
           return name;
         });
-  const protocol =
-    entry.protocol === undefined
-      ? undefined
-      : expectProtocol(entry.protocol, `${label}.protocol`);
+  const protocol = expectProtocol(entry.protocol, `${label}.protocol`);
 
   return {
     bundle,
     ...(source !== undefined ? { source } : {}),
     ...(tools !== undefined ? { tools } : {}),
-    ...(protocol !== undefined ? { protocol } : {}),
+    protocol,
   };
 }
 
@@ -328,7 +325,7 @@ function sortRegistry(registry: Registry): Registry {
               bundle: entry.bundle,
               ...(entry.source !== undefined ? { source: entry.source } : {}),
               ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
-              ...(entry.protocol !== undefined ? { protocol: entry.protocol } : {}),
+              protocol: entry.protocol,
             })),
           },
         ]),

@@ -334,7 +334,7 @@ async function applyBundle(options: {
     bundle: cachedBundle.bundle,
     ...(options.source !== undefined ? { source: options.source } : {}),
     ...(hasToolSelection ? { tools: options.tools } : {}),
-    ...(options.protocol === "ssh" ? { protocol: "ssh" as const } : {}),
+    protocol: options.protocol,
   };
   const newDesiredState = [
     ...existingDesiredState.filter((e) => e.bundle !== cachedBundle.bundle),

@@ -330,7 +330,7 @@ describe("run", () => {
     const parsed = JSON.parse(output);
 
     // Then
-    expect(parsed.repo.desired_state).toEqual([{ bundle: "react-expert" }]);
+    expect(parsed.repo.desired_state).toEqual([{ bundle: "react-expert", protocol: "https" }]);
     expect(parsed.worktree.materialized).toBe(true);
     expect(parsed.worktree.git_exclude_configured).toBe(true);
     expect(parsed.worktree.bundles["react-expert"].tools["claude-code"].files).toContain(
@@ -583,7 +583,7 @@ describe("run", () => {
     const repo = registry.repos[Object.keys(registry.repos)[0]];
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(repo.desired_state).toEqual(
-      expect.arrayContaining([{ bundle: "react-expert" }, { bundle: "repo-standards" }]),
+      expect.arrayContaining([{ bundle: "react-expert", protocol: "https" }, { bundle: "repo-standards", protocol: "https" }]),
     );
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
@@ -732,7 +732,7 @@ describe("run", () => {
     const gitContext = detectGitContext({ cwd: repoRoot })!;
     const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
       repo_root: fs.realpathSync.native(repoRoot),
-      desired_state: [{ bundle: "react-expert" }],
+      desired_state: [{ bundle: "react-expert", protocol: "https" }],
     });
     writeRegistryFile(registryFile, registry);
 
@@ -838,7 +838,7 @@ describe("run", () => {
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     expect(registry.worktrees).toEqual({});
     expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert" },
+      { bundle: "react-expert", protocol: "https" },
     ]);
   });
 
@@ -1186,7 +1186,7 @@ describe("run", () => {
     // Then: registry reflects only repo-standards
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "repo-standards" }]);
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "repo-standards", protocol: "https" }]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
     expect(worktree.materialized_state.bundles).toHaveProperty("repo-standards");
@@ -1575,7 +1575,7 @@ describe("run", () => {
     // Then: registry still records next-expert; react-expert is gone from both desired and materialized state
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "next-expert" }]);
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "next-expert", protocol: "https" }]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
     expect(worktree.materialized_state.bundles).toHaveProperty("next-expert");
