@@ -152,6 +152,67 @@ describe("parseRegistry", () => {
     });
   });
 
+  it("parses and round-trips protocol field on desired_state entries", () => {
+    // Given
+    const input = {
+      version: 1,
+      repos: {
+        [REPO_FINGERPRINT]: {
+          repo_root: "/Users/dev/project",
+          desired_state: [
+            { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "ssh" },
+          ],
+        },
+      },
+      worktrees: {},
+    };
+
+    // When
+    const parsed = parseRegistry(input);
+
+    // Then — protocol is preserved
+    expect(parsed.repos[REPO_FINGERPRINT]?.desired_state[0]).toMatchObject({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+      protocol: "ssh",
+    });
+  });
+
+  it("treats missing protocol as undefined (backward-compatible with pre-SSH registry entries)", () => {
+    // Given
+    const input = {
+      version: 1,
+      repos: {
+        [REPO_FINGERPRINT]: {
+          repo_root: "/Users/dev/project",
+          desired_state: [{ bundle: "react-expert", source: "github.com/user/ai-vault" }],
+        },
+      },
+      worktrees: {},
+    };
+
+    // When
+    const parsed = parseRegistry(input);
+
+    // Then — no protocol field, defaults to undefined (HTTPS at clone time)
+    expect(parsed.repos[REPO_FINGERPRINT]?.desired_state[0]).not.toHaveProperty("protocol");
+  });
+
+  it("rejects invalid protocol values", () => {
+    expect(() =>
+      parseRegistry({
+        version: 1,
+        repos: {
+          [REPO_FINGERPRINT]: {
+            repo_root: "/Users/dev/project",
+            desired_state: [{ bundle: "react-expert", protocol: "ftp" }],
+          },
+        },
+        worktrees: {},
+      }),
+    ).toThrowError(/protocol.*must be "https" or "ssh"/i);
+  });
+
   it("allows repository entries without a remote url", () => {
     expect(
       parseRegistry({
@@ -430,6 +491,30 @@ describe("registry persistence", () => {
 
     writeRegistryFile(registryFile, withWorktreeState);
     expect(readRegistryFile(registryFile)).toEqual(withWorktreeState);
+
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it("persists and reloads the protocol field on desired_state entries", () => {
+    // Given
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+
+    const registry = upsertRepoState(createEmptyRegistry(), REPO_FINGERPRINT, {
+      repo_root: "/Users/dev/project",
+      desired_state: [{ bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "ssh" }],
+    });
+
+    // When
+    writeRegistryFile(registryFile, registry);
+    const reloaded = readRegistryFile(registryFile);
+
+    // Then
+    expect(reloaded.repos[REPO_FINGERPRINT]?.desired_state[0]).toMatchObject({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+      protocol: "ssh",
+    });
 
     fs.rmSync(homeDir, { recursive: true, force: true });
   });

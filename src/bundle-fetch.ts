@@ -21,6 +21,11 @@ export interface FetchRemoteSourceResult {
 // the function safe as a standalone unit and prevents path traversal.
 const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 
+// SSH stderr patterns that indicate authentication/key problems rather than
+// network or repository errors. Used to append an HTTPS hint.
+const SSH_AUTH_FAILURE_RE =
+  /permission denied|could not read from remote repository|host key verification failed/i;
+
 /**
  * Ensures a remote git source is present in the local library cache.
  * If the target directory already exists the operation is a no-op (returns cloned: false).
@@ -71,7 +76,13 @@ export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemot
         ? String((error as { stderr: Buffer | string }).stderr).trim()
         : String(error);
 
-    throw new Error(`Failed to clone ${cloneUrl}${stderr ? `:\n${stderr}` : ""}`);
+    let message = `Failed to clone ${cloneUrl}${stderr ? `:\n${stderr}` : ""}`;
+
+    if (options.protocol === "ssh" && SSH_AUTH_FAILURE_RE.test(stderr)) {
+      message += `\nHint: SSH authentication failed. To clone via HTTPS instead, omit --ssh:\n  skul add ${source}`;
+    }
+
+    throw new Error(message);
   }
 
   return { cloned: true, targetDir };

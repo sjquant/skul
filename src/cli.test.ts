@@ -161,6 +161,56 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses --ssh flag and sets protocol to ssh", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "--ssh"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/user/ai-vault",
+        bundle: "react-expert",
+        protocol: "ssh",
+        tools: [],
+        dryRun: false,
+      },
+    });
+  });
+
+  it("auto-detects SSH protocol from a git@ source URL with explicit bundle", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs(["add", "git@github.com:user/ai-vault.git", "react-expert"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/user/ai-vault",
+        bundle: "react-expert",
+        protocol: "ssh",
+        tools: [],
+        dryRun: false,
+      },
+    });
+  });
+
+  it("auto-detects SSH protocol and derives bundle name from a git@ source URL", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "git@github.com:user/react-bundle.git"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/user/react-bundle",
+        bundle: "react-bundle",
+        protocol: "ssh",
+        tools: [],
+        dryRun: false,
+      },
+    });
+  });
+
   it("parses --dry-run flag on add, remove, and reset", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "--dry-run"])).resolves.toEqual({
