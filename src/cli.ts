@@ -266,16 +266,17 @@ function createProgram(
     .command("add")
     .description("Add one or more bundles to the active set and materialize their files")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
-    .argument("[bundles...]", "Bundle names")
+    .option("--bundle <name>", "Bundle name to add (repeatable)", collectOption, [] as ToolName[])
     .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
     .option("--dry-run", "Preview what would be written without making any changes")
     .option("--ssh", "Clone the bundle source using SSH instead of HTTPS")
-    .action(async (source: string | undefined, bundles: string[], opts: { tool: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
+    .action(async (source: string | undefined, opts: { bundle: string[]; tool: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
       const tools = opts.tool;
       const dryRun = opts.dryRun ?? false;
+      const bundleArgs = opts.bundle;
 
-      // No args → interactive selection of a single bundle
-      if (!source && bundles.length === 0) {
+      // No source, no --bundle → interactive selection of a single bundle
+      if (!source && bundleArgs.length === 0) {
         context.result = {
           kind: "command",
           command: "add",
@@ -284,31 +285,29 @@ function createProgram(
         return;
       }
 
-      // At least one positional arg. Try to detect whether the first arg ('source') is
-      // actually a git source (host/owner/repo) or just a plain bundle name.
+      // --bundle flags only, no source → add from local cache
+      if (!source && bundleArgs.length > 0) {
+        context.result = {
+          kind: "command",
+          command: "add",
+          options: { mode: "stealth", bundles: bundleArgs, protocol: "https", tools, dryRun },
+        };
+        return;
+      }
+
+      // Source provided. Try to parse it as a git URL.
       let normalizedSource: string | undefined;
       let detectedProtocol: "https" | "ssh" = "https";
       let finalBundles: string[];
 
-      if (source) {
-        try {
-          detectedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(source);
-          normalizedSource = normalizeBundleSource(source);
-
-          if (bundles.length === 0) {
-            // Single arg is a valid source → infer bundle name from repo slug.
-            finalBundles = [normalizedSource.split("/").at(-1)!];
-          } else {
-            // Valid source followed by one or more explicit bundle names.
-            finalBundles = bundles;
-          }
-        } catch {
-          // Not a valid source — treat all positional args as plain bundle names.
-          normalizedSource = undefined;
-          finalBundles = [source, ...bundles];
-        }
-      } else {
-        finalBundles = bundles;
+      try {
+        detectedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(source!);
+        normalizedSource = normalizeBundleSource(source!);
+        // No --bundle flags → infer bundle name from repo slug.
+        finalBundles = bundleArgs.length > 0 ? bundleArgs : [normalizedSource.split("/").at(-1)!];
+      } catch {
+        // Not a valid source — fall back to treating it as a plain bundle name.
+        finalBundles = bundleArgs.length > 0 ? [source!, ...bundleArgs] : [source!];
       }
 
       context.result = {
@@ -378,6 +377,10 @@ function normalizeParseError(error: unknown, command: string): Error {
   }
 
   if (error.code === "commander.excessArguments") {
+    if (command === "add") {
+      return new Error("Command add accepts at most 1 positional argument (the bundle source). Use --bundle <name> for bundle names.");
+    }
+
     if (command === "remove") {
       return new Error("Command remove accepts exactly 1 positional argument");
     }

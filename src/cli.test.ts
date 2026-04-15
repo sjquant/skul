@@ -62,7 +62,7 @@ describe("parseCliArgs", () => {
       options: { mode: "stealth", bundles: ["react-expert"], protocol: "https", tools: [], dryRun: false },
     });
 
-    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
+    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "--bundle", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -78,7 +78,7 @@ describe("parseCliArgs", () => {
 
   it("normalizes explicit HTTPS source URLs for add", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "https://github.com/user/ai-vault.git", "react-expert"])).resolves.toEqual({
+    await expect(parseCliArgs(["add", "https://github.com/user/ai-vault.git", "--bundle", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -137,18 +137,22 @@ describe("parseCliArgs", () => {
     });
   });
 
-  it("parses multiple plain bundle names when no source is provided", async () => {
+  it("parses multiple --bundle flags with no source", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "next-expert"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "--bundle", "react-expert", "--bundle", "next-expert"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: { mode: "stealth", bundles: ["react-expert", "next-expert"], protocol: "https", tools: [], dryRun: false },
     });
   });
 
-  it("parses a source followed by multiple bundle names", async () => {
+  it("parses a source followed by multiple --bundle flags", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "next-expert"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "github.com/user/ai-vault", "--bundle", "react-expert", "--bundle", "next-expert"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -162,12 +166,12 @@ describe("parseCliArgs", () => {
     });
   });
 
-  it("treats all positional args as bundle names when the first arg is not a valid source", async () => {
+  it("parses a single --bundle flag with no source as a local bundle add", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "bundle-a", "bundle-b", "bundle-c"])).resolves.toEqual({
+    await expect(parseCliArgs(["add", "--bundle", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundles: ["bundle-a", "bundle-b", "bundle-c"], protocol: "https", tools: [], dryRun: false },
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "https", tools: [], dryRun: false },
     });
   });
 
@@ -197,7 +201,7 @@ describe("parseCliArgs", () => {
 
   it("parses --ssh flag and sets protocol to ssh", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "--ssh"])).resolves.toEqual({
+    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "--bundle", "react-expert", "--ssh"])).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -214,7 +218,7 @@ describe("parseCliArgs", () => {
   it("auto-detects SSH protocol from a git@ source URL with explicit bundle", async () => {
     // Given / When / Then
     await expect(
-      parseCliArgs(["add", "git@github.com:user/ai-vault.git", "react-expert"]),
+      parseCliArgs(["add", "git@github.com:user/ai-vault.git", "--bundle", "react-expert"]),
     ).resolves.toEqual({
       kind: "command",
       command: "add",
@@ -280,6 +284,9 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["apply", "extra"])).rejects.toThrowError(
       /Command apply does not accept positional arguments/,
+    );
+    await expect(parseCliArgs(["add", "github.com/user/repo", "extra"])).rejects.toThrowError(
+      /Command add accepts at most 1 positional argument.*--bundle/,
     );
     await expect(parseCliArgs(["remove", "a", "b"])).rejects.toThrowError(
       /Command remove accepts exactly 1 positional argument/,
@@ -547,7 +554,7 @@ describe("run", () => {
     writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", ".claude/skills/next/SKILL.md", "# next\n");
 
     // When
-    const output = await run(["add", "react-expert", "next-expert"], { homeDir, cwd: repoRoot });
+    const output = await run(["add", "--bundle", "react-expert", "--bundle", "next-expert"], { homeDir, cwd: repoRoot });
 
     // Then: both bundles are applied and reported
     expect(output).toBe("Applied react-expert for claude-code\nApplied next-expert for claude-code");
