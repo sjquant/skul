@@ -13,6 +13,8 @@ export interface DesiredBundleEntry {
   bundle: string;
   source?: string;
   tools?: ToolName[];
+  /** Clone protocol used when the bundle source was first fetched. */
+  protocol?: "https" | "ssh";
 }
 
 export interface MaterializedToolState {
@@ -87,6 +89,7 @@ export function upsertRepoState(
           bundle: entry.bundle,
           ...(entry.source !== undefined ? { source: entry.source } : {}),
           ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
+          ...(entry.protocol !== undefined ? { protocol: entry.protocol } : {}),
         })),
       },
     },
@@ -216,11 +219,16 @@ function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEn
           }
           return name;
         });
+  const protocol =
+    entry.protocol === undefined
+      ? undefined
+      : expectProtocol(entry.protocol, `${label}.protocol`);
 
   return {
     bundle,
     ...(source !== undefined ? { source } : {}),
     ...(tools !== undefined ? { tools } : {}),
+    ...(protocol !== undefined ? { protocol } : {}),
   };
 }
 
@@ -316,7 +324,12 @@ function sortRegistry(registry: Registry): Registry {
           repoFingerprint,
           {
             ...repoState,
-            desired_state: repoState.desired_state.map((entry) => ({ ...entry })),
+            desired_state: repoState.desired_state.map((entry) => ({
+              bundle: entry.bundle,
+              ...(entry.source !== undefined ? { source: entry.source } : {}),
+              ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
+              ...(entry.protocol !== undefined ? { protocol: entry.protocol } : {}),
+            })),
           },
         ]),
     ),
@@ -420,6 +433,13 @@ function expectBoolean(input: unknown, label: string): boolean {
 
 function pathDepth(value: string): number {
   return value.split(path.sep).length;
+}
+
+function expectProtocol(input: unknown, label: string): "https" | "ssh" {
+  if (input !== "https" && input !== "ssh") {
+    throw new Error(`${label} must be "https" or "ssh"`);
+  }
+  return input;
 }
 
 function parseFileFingerprints(

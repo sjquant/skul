@@ -17,6 +17,14 @@ export interface CachedBundle {
   manifest: BundleManifest;
 }
 
+/**
+ * Infers the preferred clone protocol from a raw user-supplied source string.
+ * Returns "ssh" when the input is a git-SSH URL (git@host:path), "https" otherwise.
+ */
+export function detectSourceProtocol(input: string): "https" | "ssh" {
+  return /^git@/.test(input.trim()) ? "ssh" : "https";
+}
+
 export function normalizeBundleSource(input: string): string {
   const value = input.trim();
 

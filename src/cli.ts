@@ -1,6 +1,6 @@
 import { confirm, isCancel, select, text } from "@clack/prompts";
 import { Command, CommanderError } from "commander";
-import { normalizeBundleSource } from "./bundle-discovery";
+import { detectSourceProtocol, normalizeBundleSource } from "./bundle-discovery";
 import {
   DEFAULT_CONFLICT_PREFIX,
   normalizeConflictDestination,
@@ -19,7 +19,7 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "add";
-      options: { mode: "stealth"; bundle: string; source?: string; tools: ToolName[]; dryRun: boolean };
+      options: { mode: "stealth"; bundle: string; source?: string; protocol: "https" | "ssh"; tools: ToolName[]; dryRun: boolean };
     }
   | {
       kind: "command";
@@ -269,7 +269,8 @@ function createProgram(
     .argument("[bundle]", "Bundle name")
     .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
     .option("--dry-run", "Preview what would be written without making any changes")
-    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[]; dryRun?: boolean }) => {
+    .option("--ssh", "Clone the bundle source using SSH instead of HTTPS")
+    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
       const tools = opts.tool;
       const dryRun = opts.dryRun ?? false;
 
@@ -277,7 +278,7 @@ function createProgram(
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: await prompts.selectBundle(), tools, dryRun },
+          options: { mode: "stealth", bundle: await prompts.selectBundle(), protocol: "https", tools, dryRun },
         };
         return;
       }
@@ -286,31 +287,33 @@ function createProgram(
         // If the single argument looks like a git source (host/owner/repo), treat the
         // repo slug as the bundle name so `skul add github.com/user/react-bundle` works.
         try {
+          const detectedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(source);
           const normalizedSource = normalizeBundleSource(source);
           const repoSlug = normalizedSource.split("/").at(-1)!;
           context.result = {
             kind: "command",
             command: "add",
-            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, tools, dryRun },
+            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, tools, dryRun },
           };
         } catch {
           // Not a valid source — treat as a plain bundle name.
           context.result = {
             kind: "command",
             command: "add",
-            options: { mode: "stealth", bundle: source, tools, dryRun },
+            options: { mode: "stealth", bundle: source, protocol: "https", tools, dryRun },
           };
         }
         return;
       }
 
       const explicitSource = source!;
+      const detectedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(explicitSource);
       const normalizedSource = normalizeBundleSource(explicitSource);
 
       context.result = {
         kind: "command",
         command: "add",
-        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, tools, dryRun },
+        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, tools, dryRun },
       };
     });
 

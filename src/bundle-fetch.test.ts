@@ -122,6 +122,56 @@ describe("fetchRemoteSource", () => {
     expect(fs.existsSync(targetDir)).toBe(false);
   });
 
+  it("shallow-clones via SSH when protocol is ssh", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+
+    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
+
+    // When
+    const result = fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" });
+
+    // Then
+    expect(result).toEqual({ cloned: true, targetDir });
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["clone", "--depth=1", "git@github.com:user/react-bundle.git", targetDir],
+      { stdio: "pipe" },
+    );
+  });
+
+  it("shallow-clones via HTTPS when protocol is https (explicit)", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+
+    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
+
+    // When
+    fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "https" });
+
+    // Then
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["clone", "--depth=1", "https://github.com/user/react-bundle", targetDir],
+      { stdio: "pipe" },
+    );
+  });
+
+  it("includes the SSH clone URL in the error message when SSH clone fails", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const cloneError = Object.assign(new Error("Command failed"), {
+      stderr: Buffer.from("Permission denied (publickey)."),
+    });
+    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+
+    // When / Then
+    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" }))
+      .toThrowError(/Failed to clone git@github\.com:user\/react-bundle\.git[\s\S]*Permission denied/);
+  });
+
   it("rejects sources that do not match host/owner/repo format", () => {
     // Given
     const libraryDir = createLibraryDir();

@@ -52,14 +52,14 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: [], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: [], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
     });
 
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
@@ -69,6 +69,7 @@ describe("parseCliArgs", () => {
         mode: "stealth",
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
+        protocol: "https",
         tools: [],
         dryRun: false,
       },
@@ -84,6 +85,7 @@ describe("parseCliArgs", () => {
         mode: "stealth",
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
+        protocol: "https",
         tools: [],
         dryRun: false,
       },
@@ -99,6 +101,7 @@ describe("parseCliArgs", () => {
         mode: "stealth",
         source: "github.com/user/react-bundle",
         bundle: "react-bundle",
+        protocol: "https",
         tools: [],
         dryRun: false,
       },
@@ -110,7 +113,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: [], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
     });
   });
 
@@ -119,7 +122,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code"], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: ["claude-code"], dryRun: false },
     });
   });
 
@@ -130,7 +133,7 @@ describe("parseCliArgs", () => {
     ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: ["claude-code", "cursor"], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: ["claude-code", "cursor"], dryRun: false },
     });
   });
 
@@ -163,7 +166,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "--dry-run"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", tools: [], dryRun: true },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: true },
     });
 
     await expect(parseCliArgs(["remove", "react-expert", "--dry-run"])).resolves.toEqual({

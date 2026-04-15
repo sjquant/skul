@@ -6,6 +6,8 @@ export interface FetchRemoteSourceOptions {
   /** Normalized source identifier, e.g. "github.com/owner/repo" */
   source: string;
   libraryDir: string;
+  /** Transport protocol to use when cloning. Defaults to "https". */
+  protocol?: "https" | "ssh";
 }
 
 export interface FetchRemoteSourceResult {
@@ -22,7 +24,8 @@ const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 /**
  * Ensures a remote git source is present in the local library cache.
  * If the target directory already exists the operation is a no-op (returns cloned: false).
- * Otherwise the repo is shallow-cloned via HTTPS into libraryDir/host/owner/repo.
+ * Otherwise the repo is shallow-cloned into libraryDir/host/owner/repo using
+ * HTTPS (default) or SSH when protocol is "ssh".
  */
 export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemoteSourceResult {
   const { source, libraryDir } = options;
@@ -37,7 +40,12 @@ export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemot
     return { cloned: false, targetDir };
   }
 
-  const cloneUrl = `https://${source}`;
+  const [host, owner, repo] = source.split("/");
+  const cloneUrl =
+    options.protocol === "ssh"
+      ? `git@${host}:${owner}/${repo}.git`
+      : `https://${source}`;
+
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   process.stderr.write(`Cloning ${cloneUrl}...\n`);
