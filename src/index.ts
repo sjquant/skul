@@ -48,22 +48,46 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
   }
 
   if (parsed.command === "add") {
+    const { bundles, source, protocol, tools, dryRun } = parsed.options;
     const outputs: string[] = [];
-    for (const bundle of parsed.options.bundles) {
-      outputs.push(
-        await applyBundle({
-          cwd,
-          prompts,
-          registryFile: stateLayout.registryFile,
-          libraryDir: stateLayout.libraryDir,
-          bundle,
-          source: parsed.options.source,
-          protocol: parsed.options.protocol,
-          tools: parsed.options.tools,
-          dryRun: parsed.options.dryRun,
-        }),
-      );
+    const appliedBundles: string[] = [];
+
+    try {
+      for (const bundle of bundles) {
+        outputs.push(
+          await applyBundle({
+            cwd,
+            prompts,
+            registryFile: stateLayout.registryFile,
+            libraryDir: stateLayout.libraryDir,
+            bundle,
+            source,
+            protocol,
+            tools,
+            dryRun,
+          }),
+        );
+        if (!dryRun) appliedBundles.push(bundle);
+      }
+    } catch (error) {
+      // Roll back any bundles that were already applied so the registry and
+      // worktree are not left in a partial state.
+      for (const bundle of appliedBundles) {
+        try {
+          await removeBundle({ cwd, prompts, registryFile: stateLayout.registryFile, bundle, dryRun: false });
+        } catch {
+          // Best-effort rollback — swallow secondary errors.
+        }
+      }
+      if (appliedBundles.length > 0) {
+        const rolledBack = appliedBundles.join(", ");
+        throw new Error(
+          `Add failed; rolled back: ${rolledBack}.\n${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      throw error;
     }
+
     return outputs.join("\n");
   }
 

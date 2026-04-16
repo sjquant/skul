@@ -249,6 +249,25 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("passes --ssh protocol through when no source is given", async () => {
+    // Given / When / Then
+    // Interactive path
+    const selectBundle = vi.fn().mockResolvedValue("react-expert");
+    const prompts = createPromptClientStub({ selectBundle });
+    await expect(parseCliArgs(["add", "--ssh"], prompts)).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "ssh", tools: [], dryRun: false },
+    });
+
+    // --bundle path
+    await expect(parseCliArgs(["add", "--bundle", "react-expert", "--ssh"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundles: ["react-expert"], protocol: "ssh", tools: [], dryRun: false },
+    });
+  });
+
   it("parses --dry-run flag on add, remove, and reset", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "--dry-run"])).resolves.toEqual({
@@ -570,6 +589,61 @@ describe("run", () => {
     expect(Object.keys(worktree.materialized_state.bundles)).toEqual(
       expect.arrayContaining(["react-expert", "next-expert"]),
     );
+  });
+
+  it("rolls back the first bundle when the second bundle fails to add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    // "missing-bundle" is intentionally not written to the cache
+
+    // When
+    await expect(
+      run(["add", "--bundle", "react-expert", "--bundle", "missing-bundle"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(/rolled back.*react-expert/i);
+
+    // Then: react-expert files must be gone and registry must be clean
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeIds = Object.keys(registry.worktrees);
+    const bundlesInWorktree = worktreeIds.length === 0
+      ? {}
+      : registry.worktrees[worktreeIds[0]].materialized_state.bundles;
+    expect("react-expert" in bundlesInWorktree).toBe(false);
+  });
+
+  it("dry-runs multiple bundles from a source without writing any files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
+      name: "next-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", ".claude/skills/next/SKILL.md", "# next\n");
+
+    // When
+    const output = await run(
+      ["add", "--bundle", "react-expert", "--bundle", "next-expert", "--dry-run"],
+      { homeDir, cwd: repoRoot },
+    );
+
+    // Then: output describes intent but no files written
+    expect(output).toMatch(/DRY RUN/);
+    expect(output).toContain("react-expert");
+    expect(output).toContain("next-expert");
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"))).toBe(false);
   });
 
   it("coexists with a previously added bundle for the same tool", async () => {

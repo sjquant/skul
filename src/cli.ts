@@ -56,8 +56,8 @@ export function createHeadlessPromptClient(): PromptClient {
   return {
     async selectBundle(source?: string): Promise<string> {
       const hint = source
-        ? `skul add ${source} <bundle>`
-        : "skul add <bundle> [bundle...]";
+        ? `skul add ${source} --bundle <bundle>`
+        : "skul add --bundle <bundle>";
       throw new Error(
         `Bundle name is required in headless mode.\nHint: run '${hint}' to specify the bundle explicitly`,
       );
@@ -246,6 +246,10 @@ function collectOption(value: string, previous: ToolName[]): ToolName[] {
   return [...previous, value as ToolName];
 }
 
+function collectStringOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 function createProgram(
   prompts: PromptClient,
   context: { result?: CliParseResult } = {},
@@ -266,7 +270,7 @@ function createProgram(
     .command("add")
     .description("Add one or more bundles to the active set and materialize their files")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
-    .option("--bundle <name>", "Bundle name to add (repeatable)", collectOption, [] as ToolName[])
+    .option("--bundle <name>", "Bundle name to add (repeatable)", collectStringOption, [] as string[])
     .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
     .option("--dry-run", "Preview what would be written without making any changes")
     .option("--ssh", "Clone the bundle source using SSH instead of HTTPS")
@@ -274,13 +278,14 @@ function createProgram(
       const tools = opts.tool;
       const dryRun = opts.dryRun ?? false;
       const bundleArgs = opts.bundle;
+      const protocol = opts.ssh ? "ssh" : "https";
 
       // No source, no --bundle → interactive selection of a single bundle
       if (!source && bundleArgs.length === 0) {
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundles: [await prompts.selectBundle()], protocol: "https", tools, dryRun },
+          options: { mode: "stealth", bundles: [await prompts.selectBundle()], protocol, tools, dryRun },
         };
         return;
       }
@@ -290,18 +295,18 @@ function createProgram(
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundles: bundleArgs, protocol: "https", tools, dryRun },
+          options: { mode: "stealth", bundles: bundleArgs, protocol, tools, dryRun },
         };
         return;
       }
 
       // Source provided. Try to parse it as a git URL.
       let normalizedSource: string | undefined;
-      let detectedProtocol: "https" | "ssh" = "https";
+      let resolvedProtocol: "https" | "ssh" = protocol;
       let finalBundles: string[];
 
       try {
-        detectedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(source!);
+        resolvedProtocol = opts.ssh ? "ssh" : detectSourceProtocol(source!);
         normalizedSource = normalizeBundleSource(source!);
         // No --bundle flags → infer bundle name from repo slug.
         finalBundles = bundleArgs.length > 0 ? bundleArgs : [normalizedSource.split("/").at(-1)!];
@@ -317,7 +322,7 @@ function createProgram(
           mode: "stealth",
           bundles: finalBundles,
           ...(normalizedSource !== undefined ? { source: normalizedSource } : {}),
-          protocol: detectedProtocol,
+          protocol: resolvedProtocol,
           tools,
           dryRun,
         },
