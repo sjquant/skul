@@ -6,7 +6,7 @@ import {
   normalizeConflictDestination,
   normalizeConflictPrefix,
 } from "./conflict-resolution";
-import { type ToolName } from "./tool-mapping";
+import { getToolDefinition, type ToolName } from "./tool-mapping";
 
 export type CommandName = "add" | "list" | "status" | "reset" | "remove" | "apply";
 
@@ -243,6 +243,9 @@ export async function parseCliArgs(
 }
 
 function collectOption(value: string, previous: ToolName[]): ToolName[] {
+  if (!getToolDefinition(value)) {
+    throw new Error(`Unknown tool: ${value}`);
+  }
   return [...previous, value as ToolName];
 }
 

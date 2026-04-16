@@ -52,6 +52,14 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     const outputs: string[] = [];
     const appliedBundles: string[] = [];
 
+    // Clone the remote source once before applying individual bundles so that
+    // every bundle in the list benefits from a single clone and the "Cloned …"
+    // line appears exactly once in the output (including in dry-run mode).
+    if (source) {
+      const { cloned } = fetchRemoteSource({ source, libraryDir: stateLayout.libraryDir, protocol });
+      if (cloned) outputs.push(`Cloned ${source}`);
+    }
+
     try {
       for (const bundle of bundles) {
         outputs.push(

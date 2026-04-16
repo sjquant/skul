@@ -1429,6 +1429,74 @@ describe("run", () => {
     );
   });
 
+  it("rejects an unknown --tool name at parse time before touching the filesystem", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    // When / Then: error surfaces during CLI parsing, not at materialization
+    await expect(
+      run(["add", "react-expert", "--tool", "not-a-real-tool"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(/Unknown tool: not-a-real-tool/);
+  });
+
+  it("applies --tool filter to every bundle in a multi-bundle add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } }, cursor: { skills: { path: ".cursor/rules" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".cursor/rules/react.mdc", "# react cursor\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
+      name: "next-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } }, cursor: { skills: { path: ".cursor/rules" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", ".claude/skills/next/SKILL.md", "# next\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", ".cursor/rules/next.mdc", "# next cursor\n");
+
+    // When: add both bundles but only for claude-code
+    await run(["add", "--bundle", "react-expert", "--bundle", "next-expert", "--tool", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+
+    // Then: claude-code files exist; cursor files do not
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(repoRoot, ".cursor", "rules", "react.mdc"))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, ".cursor", "rules", "next.mdc"))).toBe(false);
+  });
+
+  it("fails fast when --tool is not supported by one of the bundles in a multi-bundle add and rolls back", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeManifest(homeDir, "github.com/user/ai-vault", "cursor-only", {
+      name: "cursor-only",
+      tools: { cursor: { skills: { path: ".cursor/rules" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "cursor-only", ".cursor/rules/style.mdc", "# style\n");
+
+    // When: react-expert succeeds for claude-code; cursor-only fails (no claude-code support)
+    await expect(
+      run(["add", "--bundle", "react-expert", "--bundle", "cursor-only", "--tool", "claude-code"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).rejects.toThrowError(/Bundle does not support tool/);
+
+    // Then: react-expert was rolled back
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+  });
+
   it("rejects --tool names that are not supported by the bundle", async () => {
     // Given
     const homeDir = createHomeDir();
