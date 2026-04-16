@@ -311,8 +311,17 @@ function createProgram(
         // No --bundle flags → infer bundle name from repo slug.
         finalBundles = bundleArgs.length > 0 ? bundleArgs : [normalizedSource.split("/").at(-1)!];
       } catch {
-        // Not a valid source — fall back to treating it as a plain bundle name.
-        finalBundles = bundleArgs.length > 0 ? [source!, ...bundleArgs] : [source!];
+        if (bundleArgs.length > 0) {
+          // The user explicitly provided --bundle flags, so the first positional
+          // must have been intended as a source. Surface the parse failure rather
+          // than silently reinterpreting it as a bundle name.
+          throw new Error(
+            `Not a valid bundle source: ${source}\nExpected a git URL or host/owner/repo shorthand`,
+          );
+        }
+        // No --bundle flags — fall back to treating the single positional as a
+        // plain bundle name (e.g. `skul add react-expert`).
+        finalBundles = [source!];
       }
 
       context.result = {

@@ -70,22 +70,28 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
         if (!dryRun) appliedBundles.push(bundle);
       }
     } catch (error) {
+      if (appliedBundles.length === 0) throw error;
+
       // Roll back any bundles that were already applied so the registry and
       // worktree are not left in a partial state.
+      const rolledBack: string[] = [];
+      const rollbackFailed: string[] = [];
+
       for (const bundle of appliedBundles) {
         try {
           await removeBundle({ cwd, prompts, registryFile: stateLayout.registryFile, bundle, dryRun: false });
+          rolledBack.push(bundle);
         } catch {
-          // Best-effort rollback — swallow secondary errors.
+          rollbackFailed.push(bundle);
         }
       }
-      if (appliedBundles.length > 0) {
-        const rolledBack = appliedBundles.join(", ");
-        throw new Error(
-          `Add failed; rolled back: ${rolledBack}.\n${error instanceof Error ? error.message : String(error)}`,
-        );
+
+      const parts = [`Add failed.\n${error instanceof Error ? error.message : String(error)}`];
+      if (rolledBack.length > 0) parts.push(`Rolled back: ${rolledBack.join(", ")}`);
+      if (rollbackFailed.length > 0) {
+        parts.push(`Rollback failed (worktree may be in partial state): ${rollbackFailed.join(", ")}`);
       }
-      throw error;
+      throw new Error(parts.join("\n"));
     }
 
     return outputs.join("\n");

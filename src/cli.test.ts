@@ -289,6 +289,21 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("errors when the source positional is not a valid URL and --bundle flags are also present", async () => {
+    // Given / When / Then
+    // Without --bundle: "not-a-url" is treated as a plain bundle name (backward-compat fallback)
+    await expect(parseCliArgs(["add", "not-a-url"])).resolves.toMatchObject({
+      kind: "command",
+      command: "add",
+      options: { bundles: ["not-a-url"] },
+    });
+
+    // With --bundle: "not-a-url" must have been intended as a source — surface the parse error
+    await expect(parseCliArgs(["add", "not-a-url", "--bundle", "react-expert"])).rejects.toThrowError(
+      /Not a valid bundle source: not-a-url/,
+    );
+  });
+
   it("rejects unknown commands and invalid arity", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["deploy"])).rejects.toThrowError(/Unknown command: deploy/);
@@ -605,7 +620,7 @@ describe("run", () => {
     // When
     await expect(
       run(["add", "--bundle", "react-expert", "--bundle", "missing-bundle"], { homeDir, cwd: repoRoot }),
-    ).rejects.toThrowError(/rolled back.*react-expert/i);
+    ).rejects.toThrowError(/Rolled back:.*react-expert/i);
 
     // Then: react-expert files must be gone and registry must be clean
     expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
