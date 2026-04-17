@@ -52,14 +52,14 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
     });
 
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
@@ -70,7 +70,7 @@ describe("parseCliArgs", () => {
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         protocol: "https",
-        tools: [],
+        agents: [],
         dryRun: false,
       },
     });
@@ -86,7 +86,7 @@ describe("parseCliArgs", () => {
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         protocol: "https",
-        tools: [],
+        agents: [],
         dryRun: false,
       },
     });
@@ -102,7 +102,7 @@ describe("parseCliArgs", () => {
         source: "github.com/user/react-bundle",
         bundle: "react-bundle",
         protocol: "https",
-        tools: [],
+        agents: [],
         dryRun: false,
       },
     });
@@ -113,27 +113,27 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
     });
   });
 
-  it("parses --tool flag as a single selected tool", async () => {
+  it("parses --agent flag as a single selected tool", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
+    await expect(parseCliArgs(["add", "react-expert", "--agent", "claude-code"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: ["claude-code"], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
     });
   });
 
-  it("collects multiple --tool flags into an array", async () => {
+  it("collects multiple --agent flags into an array", async () => {
     // Given / When / Then
     await expect(
-      parseCliArgs(["add", "react-expert", "--tool", "claude-code", "--tool", "cursor"]),
+      parseCliArgs(["add", "react-expert", "--agent", "claude-code", "--agent", "cursor"]),
     ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: ["claude-code", "cursor"], dryRun: false },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
     });
   });
 
@@ -171,7 +171,7 @@ describe("parseCliArgs", () => {
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         protocol: "ssh",
-        tools: [],
+        agents: [],
         dryRun: false,
       },
     });
@@ -189,7 +189,7 @@ describe("parseCliArgs", () => {
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         protocol: "ssh",
-        tools: [],
+        agents: [],
         dryRun: false,
       },
     });
@@ -205,7 +205,7 @@ describe("parseCliArgs", () => {
         source: "github.com/user/react-bundle",
         bundle: "react-bundle",
         protocol: "ssh",
-        tools: [],
+        agents: [],
         dryRun: false,
       },
     });
@@ -216,7 +216,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "--dry-run"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", tools: [], dryRun: true },
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: true },
     });
 
     await expect(parseCliArgs(["remove", "react-expert", "--dry-run"])).resolves.toEqual({
@@ -906,12 +906,12 @@ describe("run", () => {
       tools: { "claude-code": { skills: { path: ".claude/skills" } }, codex: { skills: { path: ".agents/skills" } } },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
 
     // When / Then: re-adding the same bundle+tool should prompt and abort
     await expect(
-      run(["add", "react-expert", "--tool", "claude-code"], {
+      run(["add", "react-expert", "--agent", "claude-code"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
@@ -978,7 +978,7 @@ describe("run", () => {
     );
   });
 
-  it("applies only the selected tool when --tool is specified", async () => {
+  it("applies only the selected tool when --agent is specified", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -993,7 +993,7 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot }),
+      run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
@@ -1011,7 +1011,7 @@ describe("run", () => {
     });
   });
 
-  it("applies multiple selected tools when multiple --tool flags are provided", async () => {
+  it("applies multiple selected tools when multiple --agent flags are provided", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1028,7 +1028,7 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "react-expert", "--tool", "claude-code", "--tool", "cursor"], {
+      run(["add", "react-expert", "--agent", "claude-code", "--agent", "cursor"], {
         homeDir,
         cwd: repoRoot,
       }),
@@ -1057,11 +1057,11 @@ describe("run", () => {
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".cursor/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
 
     // When: add cursor tool to the same bundle
     await expect(
-      run(["add", "react-expert", "--tool", "cursor"], { homeDir, cwd: repoRoot }),
+      run(["add", "react-expert", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe("Applied react-expert for cursor");
 
     // Then: both tools' files exist
@@ -1268,7 +1268,7 @@ describe("run", () => {
     );
   });
 
-  it("rejects --tool names that are not supported by the bundle", async () => {
+  it("rejects --agent names that are not supported by the bundle", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1280,7 +1280,7 @@ describe("run", () => {
 
     // When / Then
     await expect(
-      run(["add", "react-expert", "--tool", "cursor"], { homeDir, cwd: repoRoot }),
+      run(["add", "react-expert", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
     ).rejects.toThrowError(/Bundle does not support tool\(s\): cursor[\s\S]*Supported tools: claude-code/i);
   });
 
@@ -1582,7 +1582,7 @@ describe("run", () => {
   });
 
   it("apply respects tool selection stored in desired state", async () => {
-    // Given: react-expert added with --tool claude-code; desired_state records tools: ['claude-code']
+    // Given: react-expert added with --agent claude-code; desired_state records agents: ['claude-code']
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     const linkedWorktree = createLinkedWorktree(repoRoot);
@@ -1594,7 +1594,7 @@ describe("run", () => {
       },
     });
     writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert", "--tool", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
 
     // When: apply in the linked worktree should honour the stored tool selection
     await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");

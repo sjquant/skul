@@ -56,7 +56,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       bundle: parsed.options.bundle,
       source: parsed.options.source,
       protocol: parsed.options.protocol,
-      tools: parsed.options.tools,
+      agents: parsed.options.agents,
       dryRun: parsed.options.dryRun,
     });
   }
@@ -237,7 +237,7 @@ async function applyBundle(options: {
   bundle: string;
   source?: string;
   protocol: "https" | "ssh";
-  tools: ToolName[];
+  agents: ToolName[];
   dryRun: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
@@ -255,10 +255,10 @@ async function applyBundle(options: {
   });
 
   const availableTools = Object.keys(cachedBundle.manifest.tools);
-  const hasToolSelection = options.tools.length > 0;
+  const hasToolSelection = options.agents.length > 0;
 
   if (hasToolSelection) {
-    const unknownTools = options.tools.filter((t) => !availableTools.includes(t));
+    const unknownTools = options.agents.filter((t) => !availableTools.includes(t));
 
     if (unknownTools.length > 0) {
       throw new Error(
@@ -267,7 +267,7 @@ async function applyBundle(options: {
     }
   }
 
-  const toolLabel = (hasToolSelection ? options.tools : availableTools).join(", ");
+  const toolLabel = (hasToolSelection ? options.agents : availableTools).join(", ");
 
   if (options.dryRun) {
     return [...cloneLines, `DRY RUN: Would apply ${cachedBundle.bundle} for ${toolLabel}`].join("\n");
@@ -278,9 +278,9 @@ async function applyBundle(options: {
   const existingBundleState = existingWorktreeState?.bundles[cachedBundle.bundle];
 
   if (existingBundleState) {
-    // When --tool is specified, only replace the selected tools; otherwise replace all tools for this bundle
+    // When --agent is specified, only replace the selected tools; otherwise replace all tools for this bundle
     const toolsToReplace = hasToolSelection
-      ? options.tools.filter((t) => t in existingBundleState.tools)
+      ? options.agents.filter((t) => t in existingBundleState.tools)
       : (Object.keys(existingBundleState.tools) as ToolName[]);
 
     const pathsToReplace = flattenBundleState({
@@ -305,7 +305,7 @@ async function applyBundle(options: {
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
-    tools: hasToolSelection ? options.tools : undefined,
+    tools: hasToolSelection ? options.agents : undefined,
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
@@ -315,7 +315,7 @@ async function applyBundle(options: {
     existingBundleState && hasToolSelection
       ? Object.fromEntries(
           Object.entries(existingBundleState.tools).filter(
-            ([t]) => !options.tools.includes(t as ToolName),
+            ([t]) => !options.agents.includes(t as ToolName),
           ),
         )
       : {};
@@ -333,7 +333,7 @@ async function applyBundle(options: {
   const newDesiredEntry: DesiredBundleEntry = {
     bundle: cachedBundle.bundle,
     ...(options.source !== undefined ? { source: options.source } : {}),
-    ...(hasToolSelection ? { tools: options.tools } : {}),
+    ...(hasToolSelection ? { tools: options.agents } : {}),
     protocol: options.protocol,
   };
   const newDesiredState = [

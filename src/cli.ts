@@ -19,7 +19,7 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "add";
-      options: { mode: "stealth"; bundle: string; source?: string; protocol: "https" | "ssh"; tools: ToolName[]; dryRun: boolean };
+      options: { mode: "stealth"; bundle: string; source?: string; protocol: "https" | "ssh"; agents: ToolName[]; dryRun: boolean };
     }
   | {
       kind: "command";
@@ -267,18 +267,18 @@ function createProgram(
     .description("Add a bundle to the active set and materialize its files")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
     .argument("[bundle]", "Bundle name")
-    .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
+    .option("--agent <name>", "Select a specific agent to materialize (repeatable)", collectOption, [] as ToolName[])
     .option("--dry-run", "Preview what would be written without making any changes")
     .option("--ssh", "Clone the bundle source using SSH instead of HTTPS")
-    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
-      const tools = opts.tool;
+    .action(async (source: string | undefined, bundle: string | undefined, opts: { agent: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
+      const agents = opts.agent;
       const dryRun = opts.dryRun ?? false;
 
       if (!source && !bundle) {
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: await prompts.selectBundle(), protocol: "https", tools, dryRun },
+          options: { mode: "stealth", bundle: await prompts.selectBundle(), protocol: "https", agents, dryRun },
         };
         return;
       }
@@ -293,14 +293,14 @@ function createProgram(
           context.result = {
             kind: "command",
             command: "add",
-            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, tools, dryRun },
+            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, agents, dryRun },
           };
         } catch {
           // Not a valid source — treat as a plain bundle name.
           context.result = {
             kind: "command",
             command: "add",
-            options: { mode: "stealth", bundle: source, protocol: "https", tools, dryRun },
+            options: { mode: "stealth", bundle: source, protocol: "https", agents, dryRun },
           };
         }
         return;
@@ -313,7 +313,7 @@ function createProgram(
       context.result = {
         kind: "command",
         command: "add",
-        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, tools, dryRun },
+        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, agents, dryRun },
       };
     });
 
