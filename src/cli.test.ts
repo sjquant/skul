@@ -137,6 +137,48 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("accepts -a as shorthand for --agent", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "-a", "claude-code"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+    });
+  });
+
+  it("accepts -n as shorthand for --dry-run", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "-n"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: true },
+    });
+  });
+
+  it("accepts -s as shorthand for --ssh", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "-s"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", source: "github.com/user/ai-vault", bundle: "react-expert", protocol: "ssh", agents: [], dryRun: false },
+    });
+  });
+
+  it("accepts -j as shorthand for --json on list and status", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["list", "-j"])).resolves.toEqual({
+      kind: "command",
+      command: "list",
+      options: { json: true },
+    });
+
+    await expect(parseCliArgs(["status", "-j"])).resolves.toEqual({
+      kind: "command",
+      command: "status",
+      options: { json: true },
+    });
+  });
+
   it("parses remove with a required bundle argument", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["remove", "react-expert"])).resolves.toEqual({
