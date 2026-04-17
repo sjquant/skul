@@ -117,7 +117,7 @@ describe("parseCliArgs", () => {
     });
   });
 
-  it("parses --agent flag as a single selected tool", async () => {
+  it("parses --agent flag as a single selected agent", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "--agent", "claude-code"])).resolves.toEqual({
       kind: "command",
@@ -978,7 +978,7 @@ describe("run", () => {
     );
   });
 
-  it("applies only the selected tool when --agent is specified", async () => {
+  it("applies only the selected agent when --agent is specified", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1011,7 +1011,7 @@ describe("run", () => {
     });
   });
 
-  it("applies multiple selected tools when multiple --agent flags are provided", async () => {
+  it("applies multiple selected agents when multiple --agent flags are provided", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1281,7 +1281,7 @@ describe("run", () => {
     // When / Then
     await expect(
       run(["add", "react-expert", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
-    ).rejects.toThrowError(/Bundle does not support tool\(s\): cursor[\s\S]*Supported tools: claude-code/i);
+    ).rejects.toThrowError(/Bundle does not support agent\(s\): cursor[\s\S]*Supported agents: claude-code/i);
   });
 
   it("lists bundles with their supported tools", async () => {
@@ -1582,7 +1582,7 @@ describe("run", () => {
   });
 
   it("apply respects tool selection stored in desired state", async () => {
-    // Given: react-expert added with --agent claude-code; desired_state records agents: ['claude-code']
+    // Given: react-expert added with --agent claude-code; desired_state records tools: ['claude-code']
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     const linkedWorktree = createLinkedWorktree(repoRoot);

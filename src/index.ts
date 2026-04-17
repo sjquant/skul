@@ -262,7 +262,7 @@ async function applyBundle(options: {
 
     if (unknownTools.length > 0) {
       throw new Error(
-        `Bundle does not support tool(s): ${unknownTools.join(", ")}\nSupported tools: ${availableTools.join(", ")}`,
+        `Bundle does not support agent(s): ${unknownTools.join(", ")}\nSupported agents: ${availableTools.join(", ")}`,
       );
     }
   }
@@ -278,7 +278,7 @@ async function applyBundle(options: {
   const existingBundleState = existingWorktreeState?.bundles[cachedBundle.bundle];
 
   if (existingBundleState) {
-    // When --agent is specified, only replace the selected tools; otherwise replace all tools for this bundle
+    // When --agent is specified, only replace the selected agents; otherwise replace all agents for this bundle
     const toolsToReplace = hasToolSelection
       ? options.agents.filter((t) => t in existingBundleState.tools)
       : (Object.keys(existingBundleState.tools) as ToolName[]);
