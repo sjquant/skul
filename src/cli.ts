@@ -19,7 +19,7 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "add";
-      options: { mode: "stealth"; bundle: string; source?: string; protocol: "https" | "ssh"; tools: ToolName[]; dryRun: boolean };
+      options: { mode: "stealth"; bundle: string; source?: string; protocol: "https" | "ssh"; agents: ToolName[]; dryRun: boolean };
     }
   | {
       kind: "command";
@@ -267,18 +267,18 @@ function createProgram(
     .description("Add a bundle to the active set and materialize its files")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
     .argument("[bundle]", "Bundle name")
-    .option("--tool <name>", "Select a specific tool to materialize (repeatable)", collectOption, [] as ToolName[])
-    .option("--dry-run", "Preview what would be written without making any changes")
-    .option("--ssh", "Clone the bundle source using SSH instead of HTTPS")
-    .action(async (source: string | undefined, bundle: string | undefined, opts: { tool: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
-      const tools = opts.tool;
+    .option("-a, --agent <name>", "Select a specific agent to materialize (repeatable)", collectOption, [] as ToolName[])
+    .option("-n, --dry-run", "Preview what would be written without making any changes")
+    .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
+    .action(async (source: string | undefined, bundle: string | undefined, opts: { agent: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
+      const agents = opts.agent;
       const dryRun = opts.dryRun ?? false;
 
       if (!source && !bundle) {
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: await prompts.selectBundle(), protocol: "https", tools, dryRun },
+          options: { mode: "stealth", bundle: await prompts.selectBundle(), protocol: "https", agents, dryRun },
         };
         return;
       }
@@ -293,14 +293,14 @@ function createProgram(
           context.result = {
             kind: "command",
             command: "add",
-            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, tools, dryRun },
+            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, agents, dryRun },
           };
         } catch {
           // Not a valid source — treat as a plain bundle name.
           context.result = {
             kind: "command",
             command: "add",
-            options: { mode: "stealth", bundle: source, protocol: "https", tools, dryRun },
+            options: { mode: "stealth", bundle: source, protocol: "https", agents, dryRun },
           };
         }
         return;
@@ -313,14 +313,14 @@ function createProgram(
       context.result = {
         kind: "command",
         command: "add",
-        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, tools, dryRun },
+        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, agents, dryRun },
       };
     });
 
   program
     .command("list")
     .description("List available bundles in the local library")
-    .option("--json", "Output as JSON (for scripting and agent use)")
+    .option("-j, --json", "Output as JSON (for scripting and agent use)")
     .action((opts: { json?: boolean }) => {
       context.result = { kind: "command", command: "list", options: { json: opts.json ?? false } };
     });
@@ -328,7 +328,7 @@ function createProgram(
   program
     .command("status")
     .description("Show desired state and current worktree materialization")
-    .option("--json", "Output as JSON (for scripting and agent use)")
+    .option("-j, --json", "Output as JSON (for scripting and agent use)")
     .action((opts: { json?: boolean }) => {
       context.result = { kind: "command", command: "status", options: { json: opts.json ?? false } };
     });
@@ -343,7 +343,7 @@ function createProgram(
   program
     .command("reset")
     .description("Remove all Skul-managed files from the current worktree")
-    .option("--dry-run", "Preview what would be deleted without removing any files")
+    .option("-n, --dry-run", "Preview what would be deleted without removing any files")
     .action((opts: { dryRun?: boolean }) => {
       context.result = { kind: "command", command: "reset", options: { dryRun: opts.dryRun ?? false } };
     });
@@ -352,7 +352,7 @@ function createProgram(
     .command("remove")
     .description("Remove a bundle from the active set and delete its managed files")
     .argument("<bundle>", "Bundle name to remove")
-    .option("--dry-run", "Preview what would be deleted without removing any files")
+    .option("-n, --dry-run", "Preview what would be deleted without removing any files")
     .action((bundle: string, opts: { dryRun?: boolean }) => {
       context.result = {
         kind: "command",
