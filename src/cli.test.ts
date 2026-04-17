@@ -146,6 +146,15 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("collects multiple -a flags into an array", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "-a", "claude-code", "-a", "cursor"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
+    });
+  });
+
   it("accepts -n as shorthand for --dry-run", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "-n"])).resolves.toEqual({
