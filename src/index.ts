@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 
 import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
-import { fetchRemoteSource } from "./bundle-fetch";
+import {
+  fetchRemoteSource,
+  inspectRemoteSource,
+  readCachedSourceRevision,
+  updateCachedRemoteSource,
+} from "./bundle-fetch";
 import { materializeBundle, type MaterializeBundleResult } from "./bundle-materialization";
 import {
   createHeadlessPromptClient,
@@ -70,6 +75,27 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       cwd,
       registryFile: stateLayout.registryFile,
       json: parsed.options.json,
+    });
+  }
+
+  if (parsed.command === "check") {
+    return renderUpdateCheck({
+      cwd,
+      registryFile: stateLayout.registryFile,
+      libraryDir: stateLayout.libraryDir,
+      bundle: parsed.options.bundle,
+      json: parsed.options.json,
+    });
+  }
+
+  if (parsed.command === "update") {
+    return updateBundles({
+      cwd,
+      prompts,
+      registryFile: stateLayout.registryFile,
+      libraryDir: stateLayout.libraryDir,
+      bundle: parsed.options.bundle,
+      dryRun: parsed.options.dryRun,
     });
   }
 
@@ -229,6 +255,255 @@ function renderStatus(options: {
   return lines.join("\n");
 }
 
+function renderUpdateCheck(options: {
+  cwd: string;
+  registryFile: string;
+  libraryDir: string;
+  bundle?: string;
+  json: boolean;
+}): string {
+  const gitContext = requireGitContext(options.cwd, "check");
+  const registry = readRegistryWithGuidance(options.registryFile);
+  const repoState = registry.repos[gitContext.repoFingerprint];
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const entries = selectDesiredEntries(repoState?.desired_state ?? [], options.bundle, "check");
+
+  if (entries.length === 0) {
+    return "No bundles configured for this repository";
+  }
+
+  const results = entries.map((entry) => {
+    const materializedBundle = worktreeState?.materialized_state.bundles[entry.bundle];
+
+    if (!entry.source) {
+      return {
+        bundle: entry.bundle,
+        status: "local-only",
+        source: null,
+        current_commit: null,
+        latest_commit: null,
+        worktree_commit: materializedBundle?.resolved_commit ?? null,
+        worktree_stale: false,
+      };
+    }
+
+    const remoteStatus = inspectRemoteSource({
+      source: entry.source,
+      libraryDir: options.libraryDir,
+      protocol: entry.protocol,
+      ref: entry.ref,
+    });
+    const desiredCommit = entry.resolved_commit ?? remoteStatus.currentCommit ?? null;
+    const worktreeCommit = materializedBundle?.resolved_commit ?? null;
+    const isPinned = remoteStatus.refKind === "commit";
+    const status =
+      isPinned
+        ? "pinned"
+        : desiredCommit !== null && desiredCommit === remoteStatus.remoteCommit
+          ? "up-to-date"
+          : "update-available";
+    const worktreeStale =
+      worktreeCommit !== null &&
+      desiredCommit !== null &&
+      worktreeCommit !== desiredCommit;
+
+    return {
+      bundle: entry.bundle,
+      status,
+      source: entry.source,
+      current_commit: desiredCommit,
+      latest_commit: isPinned ? desiredCommit : remoteStatus.remoteCommit,
+      worktree_commit: worktreeCommit,
+      worktree_stale: worktreeStale,
+    };
+  });
+
+  if (options.json) {
+    return JSON.stringify({ bundles: results }, null, 2);
+  }
+
+  return results
+    .map((result) => {
+      const updateSuffix =
+        result.status === "update-available" && result.current_commit && result.latest_commit
+          ? ` ${shortCommit(result.current_commit)} -> ${shortCommit(result.latest_commit)}`
+          : "";
+      const staleSuffix = result.worktree_stale ? " (worktree stale)" : "";
+      return `${result.bundle}: ${result.status}${updateSuffix}${staleSuffix}`;
+    })
+    .join("\n");
+}
+
+async function updateBundles(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  bundle?: string;
+  dryRun: boolean;
+}): Promise<string> {
+  const gitContext = requireGitContext(options.cwd, "update");
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const repoState = registry.repos[gitContext.repoFingerprint];
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const entries = selectDesiredEntries(repoState?.desired_state ?? [], options.bundle, "update");
+
+  if (entries.length === 0) {
+    return "No bundles configured for this repository";
+  }
+
+  const updatePlans = entries.flatMap((entry) => {
+    if (!entry.source) {
+      return [];
+    }
+
+    const remoteStatus = inspectRemoteSource({
+      source: entry.source,
+      libraryDir: options.libraryDir,
+      protocol: entry.protocol,
+      ref: entry.ref,
+    });
+    const currentCommit = entry.resolved_commit ?? remoteStatus.currentCommit;
+
+    if (
+      (currentCommit !== undefined && currentCommit === remoteStatus.remoteCommit) ||
+      remoteStatus.refKind === "commit"
+    ) {
+      return [];
+    }
+
+    return [{
+      entry,
+      currentCommit,
+      remoteStatus,
+    }];
+  });
+
+  if (updatePlans.length === 0) {
+    return "All selected bundles are already up to date";
+  }
+
+  if (options.dryRun) {
+    return updatePlans
+      .map(
+        ({ entry, currentCommit, remoteStatus }) =>
+          `DRY RUN: Would update ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
+      )
+      .join("\n");
+  }
+
+  const existingWorktreeState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
+  let currentBundles: MaterializedState["bundles"] = { ...(existingWorktreeState?.bundles ?? {}) };
+  const nextDesiredState = [...(repoState?.desired_state ?? [])];
+  const outputLines: string[] = [];
+
+  for (const { entry, currentCommit, remoteStatus } of updatePlans) {
+    const refreshed = updateCachedRemoteSource({
+      source: entry.source!,
+      libraryDir: options.libraryDir,
+      protocol: entry.protocol,
+      ref: entry.ref,
+    });
+    const existingBundleState = currentBundles[entry.bundle];
+    const desiredIndex = nextDesiredState.findIndex((candidate) => candidate.bundle === entry.bundle);
+    const toolsToRefresh = getToolsToRefresh(entry, existingBundleState);
+
+    nextDesiredState[desiredIndex] = {
+      ...nextDesiredState[desiredIndex]!,
+      ...(toolsToRefresh !== undefined ? { tools: toolsToRefresh } : {}),
+      ...(refreshed.resolvedRef !== undefined ? { resolved_ref: refreshed.resolvedRef } : {}),
+      resolved_commit: refreshed.currentCommit,
+    };
+
+    if (existingBundleState) {
+      const bundleStateToReplace =
+        toolsToRefresh && toolsToRefresh.length > 0
+          ? {
+              ...existingBundleState,
+              tools: Object.fromEntries(
+                Object.entries(existingBundleState.tools).filter(([toolName]) =>
+                  toolsToRefresh.includes(toolName as ToolName),
+                ),
+              ),
+            }
+          : existingBundleState;
+      const replacementAllowed = await confirmManagedFileRemovals(
+        gitContext.worktreeRoot,
+        flattenBundleState(bundleStateToReplace),
+        options.prompts,
+        "replace",
+      );
+
+      if (!replacementAllowed) {
+        throw new Error("Replacement aborted because a modified managed file was kept");
+      }
+
+      removeManagedPaths(gitContext.worktreeRoot, flattenBundleState(bundleStateToReplace));
+
+      const cachedBundle = findCachedBundleWithGuidance({
+        libraryDir: options.libraryDir,
+        bundle: entry.bundle,
+        source: entry.source,
+      });
+      const materializedResult = await materializeBundle({
+        repoRoot: gitContext.worktreeRoot,
+        bundleDir: path.dirname(cachedBundle.manifestFile),
+        manifest: cachedBundle.manifest,
+        tools: toolsToRefresh,
+        resolveFileConflict: options.prompts.resolveFileConflict,
+      });
+
+      currentBundles = {
+        ...currentBundles,
+        [entry.bundle]: buildMaterializedBundleState({
+          existingBundleState,
+          materializedResult,
+          repoRoot: gitContext.worktreeRoot,
+          source: entry.source,
+          resolvedCommit: refreshed.currentCommit,
+          selectedTools: toolsToRefresh,
+        }),
+      };
+    }
+
+    outputLines.push(
+      `Updated ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
+    );
+  }
+
+  registry = upsertRepoState(registry, gitContext.repoFingerprint, {
+    repo_root: gitContext.repoRoot,
+    desired_state: nextDesiredState,
+  });
+
+  if (registry.worktrees[gitContext.worktreeId] || Object.keys(currentBundles).length > 0) {
+    const newMaterializedState: MaterializedState = {
+      bundles: currentBundles,
+      exclude_configured: Object.keys(currentBundles).length > 0,
+    };
+
+    if (Object.keys(currentBundles).length > 0) {
+      configureSkulExcludeBlock({
+        gitDir: gitContext.gitDir,
+        files: collectAllFiles(newMaterializedState),
+      });
+
+      registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+        repo_fingerprint: gitContext.repoFingerprint,
+        path: gitContext.worktreeRoot,
+        materialized_state: newMaterializedState,
+      });
+    } else {
+      removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+      registry = removeWorktreeState(registry, gitContext.worktreeId);
+    }
+  }
+
+  writeRegistryFile(options.registryFile, registry);
+
+  return outputLines.join("\n");
+}
+
 async function applyBundle(options: {
   cwd: string;
   prompts: PromptClient;
@@ -247,6 +522,13 @@ async function applyBundle(options: {
     const { cloned } = fetchRemoteSource({ source: options.source, libraryDir: options.libraryDir, protocol: options.protocol });
     if (cloned) cloneLines.push(`Cloned ${options.source}`);
   }
+  const sourceRevision = options.source
+    ? readCachedSourceRevision({
+        source: options.source,
+        libraryDir: options.libraryDir,
+        protocol: options.protocol,
+      })
+    : undefined;
 
   const cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
@@ -309,32 +591,28 @@ async function applyBundle(options: {
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
-  // Build per-tool registry entries from the materialization result, preserving
-  // existing tool states that were not part of this (partial) materialization run
-  const preservedTools =
-    existingBundleState && hasToolSelection
-      ? Object.fromEntries(
-          Object.entries(existingBundleState.tools).filter(
-            ([t]) => !options.agents.includes(t as ToolName),
-          ),
-        )
-      : {};
-
-  const newBundleState: MaterializedBundleState = {
-    ...(options.source !== undefined ? { source: options.source } : {}),
-    tools: {
-      ...preservedTools,
-      ...buildMaterializedToolStates(gitContext.worktreeRoot, materializedResult),
-    },
-  };
+  const newBundleState = buildMaterializedBundleState({
+    existingBundleState,
+    materializedResult,
+    repoRoot: gitContext.worktreeRoot,
+    source: options.source,
+    resolvedCommit: sourceRevision?.currentCommit,
+    selectedTools: hasToolSelection ? options.agents : undefined,
+  });
 
   // Append to desired_state if this bundle isn't already listed (idempotent add)
   const existingDesiredState = registry.repos[gitContext.repoFingerprint]?.desired_state ?? [];
+  const mergedDesiredTools = mergeDesiredTools({
+    existingEntry: existingDesiredState.find((entry) => entry.bundle === cachedBundle.bundle),
+    requestedTools: hasToolSelection ? options.agents : undefined,
+  });
   const newDesiredEntry: DesiredBundleEntry = {
     bundle: cachedBundle.bundle,
     ...(options.source !== undefined ? { source: options.source } : {}),
-    ...(hasToolSelection ? { tools: options.agents } : {}),
+    ...(mergedDesiredTools !== undefined ? { tools: mergedDesiredTools } : {}),
     protocol: options.protocol,
+    ...(sourceRevision?.currentRef !== undefined ? { resolved_ref: sourceRevision.currentRef } : {}),
+    ...(sourceRevision?.currentCommit !== undefined ? { resolved_commit: sourceRevision.currentCommit } : {}),
   };
   const newDesiredState = [
     ...existingDesiredState.filter((e) => e.bundle !== cachedBundle.bundle),
@@ -552,6 +830,13 @@ async function applyWorktree(options: {
       const { cloned } = fetchRemoteSource({ source: entry.source, libraryDir: options.libraryDir, protocol: entry.protocol });
       if (cloned) cloneLines.push(`Cloned ${entry.source}`);
     }
+    const sourceRevision = entry.source
+      ? readCachedSourceRevision({
+          source: entry.source,
+          libraryDir: options.libraryDir,
+          protocol: entry.protocol,
+        })
+      : undefined;
 
     const cachedBundle = findCachedBundleWithGuidance({
       libraryDir: options.libraryDir,
@@ -571,10 +856,13 @@ async function applyWorktree(options: {
 
     currentBundles = {
       ...currentBundles,
-      [cachedBundle.bundle]: {
-        ...(entry.source !== undefined ? { source: entry.source } : {}),
-        tools: buildMaterializedToolStates(gitContext.worktreeRoot, materializedResult),
-      },
+      [cachedBundle.bundle]: buildMaterializedBundleState({
+        materializedResult,
+        repoRoot: gitContext.worktreeRoot,
+        source: entry.source,
+        resolvedCommit: entry.resolved_commit ?? sourceRevision?.currentCommit,
+        selectedTools: hasToolSelection ? entry.tools : undefined,
+      }),
     };
 
     const newMatState: MaterializedState = {
@@ -635,6 +923,33 @@ function buildMaterializedToolStates(
   );
 }
 
+function buildMaterializedBundleState(options: {
+  existingBundleState?: MaterializedBundleState;
+  materializedResult: MaterializeBundleResult;
+  repoRoot: string;
+  source?: string;
+  resolvedCommit?: string;
+  selectedTools?: ToolName[];
+}): MaterializedBundleState {
+  const preservedTools =
+    options.existingBundleState && options.selectedTools
+      ? Object.fromEntries(
+          Object.entries(options.existingBundleState.tools).filter(
+            ([toolName]) => !options.selectedTools!.includes(toolName as ToolName),
+          ),
+        )
+      : {};
+
+  return {
+    ...(options.source !== undefined ? { source: options.source } : {}),
+    ...(options.resolvedCommit !== undefined ? { resolved_commit: options.resolvedCommit } : {}),
+    tools: {
+      ...preservedTools,
+      ...buildMaterializedToolStates(options.repoRoot, options.materializedResult),
+    },
+  };
+}
+
 // Collect all files across every bundle and tool for git-exclude configuration
 function collectAllFiles(materializedState: MaterializedState): string[] {
   return Object.values(materializedState.bundles).flatMap((bundleState) =>
@@ -674,7 +989,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "reset" | "remove") {
+function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "check" | "update" | "reset" | "remove") {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {
@@ -682,6 +997,68 @@ function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "r
   }
 
   return gitContext;
+}
+
+function selectDesiredEntries(
+  desiredState: DesiredBundleEntry[],
+  bundle: string | undefined,
+  command: "check" | "update",
+): DesiredBundleEntry[] {
+  if (!bundle) {
+    return desiredState;
+  }
+
+  const matchingEntry = desiredState.find((entry) => entry.bundle === bundle);
+
+  if (!matchingEntry) {
+    throw new Error(`Bundle not found in active set: ${bundle}`);
+  }
+
+  return [matchingEntry];
+}
+
+function mergeDesiredTools(options: {
+  existingEntry?: DesiredBundleEntry;
+  requestedTools?: ToolName[];
+}): ToolName[] | undefined {
+  if (options.requestedTools === undefined) {
+    return options.existingEntry?.tools;
+  }
+
+  if (options.existingEntry?.tools === undefined) {
+    return [...options.requestedTools];
+  }
+
+  return Array.from(new Set([...options.existingEntry.tools, ...options.requestedTools])).sort(
+    (left, right) => left.localeCompare(right),
+  ) as ToolName[];
+}
+
+function getToolsToRefresh(
+  entry: DesiredBundleEntry,
+  existingBundleState: MaterializedBundleState | undefined,
+): ToolName[] | undefined {
+  if (entry.tools === undefined) {
+    return undefined;
+  }
+
+  const existingTools = existingBundleState
+    ? (Object.keys(existingBundleState.tools) as ToolName[])
+    : [];
+
+  return Array.from(new Set([...entry.tools, ...existingTools])).sort(
+    (left, right) => left.localeCompare(right),
+  ) as ToolName[];
+}
+
+function formatCommitTransition(currentCommit: string | undefined, nextCommit: string): string {
+  return currentCommit
+    ? ` ${shortCommit(currentCommit)} -> ${shortCommit(nextCommit)}`
+    : ` to ${shortCommit(nextCommit)}`;
+}
+
+function shortCommit(commit: string): string {
+  return commit.slice(0, 7);
 }
 
 function readRegistryWithGuidance(registryFile: string) {
