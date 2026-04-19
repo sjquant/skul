@@ -516,10 +516,11 @@ describe("run", () => {
     });
   });
 
-  it("updates a legacy remote-backed bundle when resolved commit metadata is missing", async () => {
+  it("aborts update without leaking a newer cached revision into apply", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
     const remoteSource = createRemoteBundleSource(homeDir, {
       bundle: "react-expert",
       manifest: {
@@ -530,33 +531,35 @@ describe("run", () => {
       },
     });
     await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified locally\n");
     const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      ".claude/skills/react/SKILL.md": "# react legacy v2\n",
+      ".claude/skills/react/SKILL.md": "# react v2\n",
     });
 
-    const registryFile = path.join(homeDir, ".skul", "registry.json");
-    const registry = readRegistryFile(registryFile);
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    registry.repos[repoFingerprint] = {
-      ...registry.repos[repoFingerprint]!,
-      desired_state: registry.repos[repoFingerprint]!.desired_state.map((entry) => ({
-        bundle: entry.bundle,
-        ...(entry.source !== undefined ? { source: entry.source } : {}),
-        ...(entry.tools !== undefined ? { tools: entry.tools } : {}),
-        protocol: entry.protocol,
-      })),
-    };
-    writeRegistryFile(registryFile, registry);
+    // When / Then
+    await expect(
+      run(["update"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => false,
+        }),
+      }),
+    ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
 
-    // When
-    await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      `Updated react-expert ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}`,
-    );
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoEntry = registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
 
-    // Then
+    expect(repoEntry.desired_state[0]).toMatchObject({
+      bundle: "react-expert",
+      resolved_commit: remoteSource.initialCommit,
+    });
+
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
-    ).toBe("# react legacy v2\n");
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(updatedCommit).not.toBe(remoteSource.initialCommit);
   });
 
   it("dry-runs add without writing any files", async () => {
@@ -1280,6 +1283,92 @@ describe("run", () => {
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
       { bundle: "react-expert", tools: ["claude-code", "cursor"], protocol: "https" },
     ]);
+  });
+
+  it("clears prior tool selection when the bundle is re-added without --agent", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: ".claude/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".cursor/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+
+    // When
+    await expect(run(["add", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code, cursor",
+    );
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+
+    // Then
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      { bundle: "react-expert", protocol: "https" },
+    ]);
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+  });
+
+  it("preserves remote metadata when a remote-backed bundle is re-added without --agent", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: ".claude/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
+        },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+        ".cursor/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle, "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["add", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code, cursor",
+    );
+
+    // Then
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoEntry = registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+    const worktreeEntry = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(repoEntry.desired_state).toEqual([
+      {
+        bundle: "react-expert",
+        source: remoteSource.source,
+        protocol: "https",
+        resolved_ref: "main",
+        resolved_commit: remoteSource.initialCommit,
+      },
+    ]);
+    expect(worktreeEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+      source: remoteSource.source,
+      resolved_commit: remoteSource.initialCommit,
+    });
+    await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe("react-expert: up-to-date");
   });
 
   it("resets all materialized bundles from the current worktree", async () => {

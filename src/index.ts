@@ -398,35 +398,21 @@ async function updateBundles(options: {
   const outputLines: string[] = [];
 
   for (const { entry, currentCommit, remoteStatus } of updatePlans) {
-    const refreshed = updateCachedRemoteSource({
-      source: entry.source!,
-      libraryDir: options.libraryDir,
-      protocol: entry.protocol,
-      ref: entry.ref,
-    });
     const existingBundleState = currentBundles[entry.bundle];
-    const desiredIndex = nextDesiredState.findIndex((candidate) => candidate.bundle === entry.bundle);
     const toolsToRefresh = getToolsToRefresh(entry, existingBundleState);
-
-    nextDesiredState[desiredIndex] = {
-      ...nextDesiredState[desiredIndex]!,
-      ...(toolsToRefresh !== undefined ? { tools: toolsToRefresh } : {}),
-      ...(refreshed.resolvedRef !== undefined ? { resolved_ref: refreshed.resolvedRef } : {}),
-      resolved_commit: refreshed.currentCommit,
-    };
+    const bundleStateToReplace =
+      existingBundleState && toolsToRefresh && toolsToRefresh.length > 0
+        ? {
+            ...existingBundleState,
+            tools: Object.fromEntries(
+              Object.entries(existingBundleState.tools).filter(([toolName]) =>
+                toolsToRefresh.includes(toolName as ToolName),
+              ),
+            ),
+          }
+        : existingBundleState;
 
     if (existingBundleState) {
-      const bundleStateToReplace =
-        toolsToRefresh && toolsToRefresh.length > 0
-          ? {
-              ...existingBundleState,
-              tools: Object.fromEntries(
-                Object.entries(existingBundleState.tools).filter(([toolName]) =>
-                  toolsToRefresh.includes(toolName as ToolName),
-                ),
-              ),
-            }
-          : existingBundleState;
       const replacementAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
         flattenBundleState(bundleStateToReplace),
@@ -437,7 +423,24 @@ async function updateBundles(options: {
       if (!replacementAllowed) {
         throw new Error("Replacement aborted because a modified managed file was kept");
       }
+    }
 
+    const refreshed = updateCachedRemoteSource({
+      source: entry.source!,
+      libraryDir: options.libraryDir,
+      protocol: entry.protocol,
+      ref: entry.ref,
+    });
+    const desiredIndex = nextDesiredState.findIndex((candidate) => candidate.bundle === entry.bundle);
+
+    nextDesiredState[desiredIndex] = {
+      ...nextDesiredState[desiredIndex]!,
+      ...(toolsToRefresh !== undefined ? { tools: toolsToRefresh } : {}),
+      ...(refreshed.resolvedRef !== undefined ? { resolved_ref: refreshed.resolvedRef } : {}),
+      resolved_commit: refreshed.currentCommit,
+    };
+
+    if (bundleStateToReplace) {
       removeManagedPaths(gitContext.worktreeRoot, flattenBundleState(bundleStateToReplace));
 
       const cachedBundle = findCachedBundleWithGuidance({
@@ -602,17 +605,30 @@ async function applyBundle(options: {
 
   // Append to desired_state if this bundle isn't already listed (idempotent add)
   const existingDesiredState = registry.repos[gitContext.repoFingerprint]?.desired_state ?? [];
+  const existingDesiredEntry = existingDesiredState.find((entry) => entry.bundle === cachedBundle.bundle);
   const mergedDesiredTools = mergeDesiredTools({
-    existingEntry: existingDesiredState.find((entry) => entry.bundle === cachedBundle.bundle),
+    existingEntry: existingDesiredEntry,
     requestedTools: hasToolSelection ? options.agents : undefined,
   });
   const newDesiredEntry: DesiredBundleEntry = {
     bundle: cachedBundle.bundle,
-    ...(options.source !== undefined ? { source: options.source } : {}),
+    ...(options.source !== undefined
+      ? { source: options.source }
+      : existingDesiredEntry?.source !== undefined
+        ? { source: existingDesiredEntry.source }
+        : {}),
     ...(mergedDesiredTools !== undefined ? { tools: mergedDesiredTools } : {}),
-    protocol: options.protocol,
-    ...(sourceRevision?.currentRef !== undefined ? { resolved_ref: sourceRevision.currentRef } : {}),
-    ...(sourceRevision?.currentCommit !== undefined ? { resolved_commit: sourceRevision.currentCommit } : {}),
+    protocol: options.protocol ?? existingDesiredEntry?.protocol ?? "https",
+    ...(sourceRevision?.currentRef !== undefined
+      ? { resolved_ref: sourceRevision.currentRef }
+      : existingDesiredEntry?.resolved_ref !== undefined
+        ? { resolved_ref: existingDesiredEntry.resolved_ref }
+        : {}),
+    ...(sourceRevision?.currentCommit !== undefined
+      ? { resolved_commit: sourceRevision.currentCommit }
+      : existingDesiredEntry?.resolved_commit !== undefined
+        ? { resolved_commit: existingDesiredEntry.resolved_commit }
+        : {}),
   };
   const newDesiredState = [
     ...existingDesiredState.filter((e) => e.bundle !== cachedBundle.bundle),
@@ -813,19 +829,8 @@ async function applyWorktree(options: {
 
   const worktreeState = registry.worktrees[gitContext.worktreeId];
   const materializedBundles = worktreeState?.materialized_state.bundles ?? {};
-
-  const entriesToApply = repoState.desired_state.filter(
-    (entry) => !(entry.bundle in materializedBundles),
-  );
-
-  if (entriesToApply.length === 0) {
-    return "All bundles are already materialized";
-  }
-
-  let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
   const cloneLines: string[] = [];
-
-  for (const entry of entriesToApply) {
+  const applyPlans = repoState.desired_state.flatMap((entry) => {
     if (entry.source) {
       const { cloned } = fetchRemoteSource({ source: entry.source, libraryDir: options.libraryDir, protocol: entry.protocol });
       if (cloned) cloneLines.push(`Cloned ${entry.source}`);
@@ -843,14 +848,46 @@ async function applyWorktree(options: {
       bundle: entry.bundle,
       source: entry.source,
     });
+    const existingBundleState = materializedBundles[entry.bundle];
 
-    const hasToolSelection = (entry.tools?.length ?? 0) > 0;
+    if (
+      existingBundleState &&
+      isDesiredBundleMaterialized({
+        desiredEntry: entry,
+        materializedBundleState: existingBundleState,
+        availableTools: Object.keys(cachedBundle.manifest.tools) as ToolName[],
+      })
+    ) {
+      return [];
+    }
+
+    return [{
+      entry,
+      sourceRevision,
+      cachedBundle,
+      existingBundleState,
+      availableTools: Object.keys(cachedBundle.manifest.tools) as ToolName[],
+    }];
+  });
+
+  if (applyPlans.length === 0) {
+    return "All bundles are already materialized";
+  }
+
+  let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
+
+  for (const { entry, sourceRevision, cachedBundle, existingBundleState, availableTools } of applyPlans) {
+    const toolsToApply = getToolsToApply({
+      desiredEntry: entry,
+      materializedBundleState: existingBundleState,
+      availableTools,
+    });
 
     const materializedResult = await materializeBundle({
       repoRoot: gitContext.worktreeRoot,
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
-      tools: hasToolSelection ? entry.tools : undefined,
+      tools: toolsToApply,
       resolveFileConflict: options.prompts.resolveFileConflict,
     });
 
@@ -861,7 +898,7 @@ async function applyWorktree(options: {
         repoRoot: gitContext.worktreeRoot,
         source: entry.source,
         resolvedCommit: entry.resolved_commit ?? sourceRevision?.currentCommit,
-        selectedTools: hasToolSelection ? entry.tools : undefined,
+        selectedTools: toolsToApply,
       }),
     };
 
@@ -883,8 +920,34 @@ async function applyWorktree(options: {
     writeRegistryFile(options.registryFile, registry);
   }
 
-  const appliedNames = entriesToApply.map((e) => e.bundle).join(", ");
+  const appliedNames = applyPlans.map(({ entry }) => entry.bundle).join(", ");
   return [...cloneLines, `Applied ${appliedNames}`].join("\n");
+}
+
+function isDesiredBundleMaterialized(options: {
+  desiredEntry: DesiredBundleEntry;
+  materializedBundleState: MaterializedBundleState;
+  availableTools: ToolName[];
+}): boolean {
+  const expectedTools = options.desiredEntry.tools ?? options.availableTools;
+
+  return expectedTools.every((toolName) => toolName in options.materializedBundleState.tools);
+}
+
+function getToolsToApply(options: {
+  desiredEntry: DesiredBundleEntry;
+  materializedBundleState?: MaterializedBundleState;
+  availableTools: ToolName[];
+}): ToolName[] | undefined {
+  const expectedTools = options.desiredEntry.tools ?? options.availableTools;
+
+  if (!options.materializedBundleState) {
+    return options.desiredEntry.tools;
+  }
+
+  const existingTools = options.materializedBundleState.tools;
+
+  return expectedTools.filter((toolName) => !(toolName in existingTools));
 }
 
 // Flatten all files and directories from every tool within a single bundle
@@ -941,8 +1004,16 @@ function buildMaterializedBundleState(options: {
       : {};
 
   return {
-    ...(options.source !== undefined ? { source: options.source } : {}),
-    ...(options.resolvedCommit !== undefined ? { resolved_commit: options.resolvedCommit } : {}),
+    ...(options.source !== undefined
+      ? { source: options.source }
+      : options.existingBundleState?.source !== undefined
+        ? { source: options.existingBundleState.source }
+        : {}),
+    ...(options.resolvedCommit !== undefined
+      ? { resolved_commit: options.resolvedCommit }
+      : options.existingBundleState?.resolved_commit !== undefined
+        ? { resolved_commit: options.existingBundleState.resolved_commit }
+        : {}),
     tools: {
       ...preservedTools,
       ...buildMaterializedToolStates(options.repoRoot, options.materializedResult),
@@ -1022,7 +1093,7 @@ function mergeDesiredTools(options: {
   requestedTools?: ToolName[];
 }): ToolName[] | undefined {
   if (options.requestedTools === undefined) {
-    return options.existingEntry?.tools;
+    return undefined;
   }
 
   if (options.existingEntry?.tools === undefined) {
