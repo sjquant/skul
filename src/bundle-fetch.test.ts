@@ -54,7 +54,7 @@ describe("fetchRemoteSource", () => {
     expect(execFileSync).toHaveBeenCalledWith(
       "git",
       ["clone", "--depth=1", "https://github.com/user/react-bundle", targetDir],
-      { stdio: "pipe" },
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
   });
 
@@ -137,7 +137,7 @@ describe("fetchRemoteSource", () => {
     expect(execFileSync).toHaveBeenCalledWith(
       "git",
       ["clone", "--depth=1", "git@github.com:user/react-bundle.git", targetDir],
-      { stdio: "pipe" },
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
   });
 
@@ -155,7 +155,7 @@ describe("fetchRemoteSource", () => {
     expect(execFileSync).toHaveBeenCalledWith(
       "git",
       ["clone", "--depth=1", "https://github.com/user/react-bundle", targetDir],
-      { stdio: "pipe" },
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
   });
 
