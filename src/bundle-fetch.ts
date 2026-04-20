@@ -16,6 +16,15 @@ export interface FetchRemoteSourceResult {
   targetDir: string;
 }
 
+export interface ClearCachedSourceResult {
+  cleared: boolean;
+  targetDir: string;
+}
+
+export interface ClearAllCachedSourcesResult {
+  clearedSources: string[];
+}
+
 export interface CachedSourceRevision {
   cached: boolean;
   targetDir: string;
@@ -148,9 +157,83 @@ export function updateCachedRemoteSource(
   };
 }
 
+export function clearCachedSource(options: FetchRemoteSourceOptions): ClearCachedSourceResult {
+  const targetDir = getTargetDir(options);
+
+  if (!fs.existsSync(targetDir)) {
+    return { cleared: false, targetDir };
+  }
+
+  fs.rmSync(targetDir, { recursive: true, force: true });
+  removeEmptyLibraryAncestors(path.dirname(targetDir), options.libraryDir);
+
+  return { cleared: true, targetDir };
+}
+
+export function clearAllCachedSources(options: { libraryDir: string }): ClearAllCachedSourcesResult {
+  const clearedSources: string[] = [];
+
+  for (const source of listCachedSources(options.libraryDir)) {
+    const result = clearCachedSource({ source, libraryDir: options.libraryDir });
+
+    if (result.cleared) {
+      clearedSources.push(source);
+    }
+  }
+
+  return { clearedSources };
+}
+
+export function listCachedSources(libraryDir: string): string[] {
+  if (!fs.existsSync(libraryDir)) {
+    return [];
+  }
+
+  const sources: string[] = [];
+
+  for (const hostEntry of safeReaddirSync(libraryDir)) {
+    if (!hostEntry.isDirectory()) continue;
+    const hostDir = path.join(libraryDir, hostEntry.name);
+
+    for (const ownerEntry of safeReaddirSync(hostDir)) {
+      if (!ownerEntry.isDirectory()) continue;
+      const ownerDir = path.join(hostDir, ownerEntry.name);
+
+      for (const repoEntry of safeReaddirSync(ownerDir)) {
+        if (!repoEntry.isDirectory()) continue;
+        sources.push(`${hostEntry.name}/${ownerEntry.name}/${repoEntry.name}`);
+      }
+    }
+  }
+
+  return sources.sort((left, right) => left.localeCompare(right));
+}
+
 function getTargetDir(options: FetchRemoteSourceOptions): string {
   assertSafeSource(options.source);
   return path.join(options.libraryDir, ...options.source.split("/"));
+}
+
+function removeEmptyLibraryAncestors(currentDir: string, libraryDir: string): void {
+  let directory = currentDir;
+  const libraryRoot = path.resolve(libraryDir);
+
+  while (directory.startsWith(libraryRoot) && directory !== libraryRoot) {
+    if (fs.readdirSync(directory).length > 0) {
+      return;
+    }
+
+    fs.rmdirSync(directory);
+    directory = path.dirname(directory);
+  }
+}
+
+function safeReaddirSync(directory: string): fs.Dirent[] {
+  try {
+    return fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
 }
 
 function getCloneUrl(source: string, protocol: "https" | "ssh" = "https"): string {
