@@ -15,7 +15,7 @@ Apply reusable AI bundles — skills, slash commands, and agents — into tool-n
 skul add github.com/sjquant/ai-bundles react-expert
 
 # GitHub is also the default registry for owner/repo shorthand
-skul add sjquant/ghosts core --agent codex
+skul add acme/shared-bundles core --agent codex
 
 # Clone via SSH instead of HTTPS
 skul add --ssh github.com/sjquant/ai-bundles react-expert
@@ -42,7 +42,7 @@ skul update
 skul reset
 
 # Clear a stale cached remote source so the next add reclones it
-skul clear-cache sjquant/ghosts
+skul clear-cache acme/shared-bundles
 
 # Clear all cached remote sources
 skul clear-cache --all
@@ -144,8 +144,8 @@ If SSH authentication fails (missing key, wrong host, etc.) Skul prints a hint p
 If a cached remote source becomes stale or corrupted, remove it from `~/.skul/library` and let the next `skul add` re-clone it:
 
 ```bash
-skul clear-cache sjquant/ghosts
-skul add sjquant/ghosts core --agent codex
+skul clear-cache acme/shared-bundles
+skul add acme/shared-bundles core --agent codex
 ```
 
 To wipe the entire cache:
