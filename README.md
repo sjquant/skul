@@ -137,7 +137,7 @@ If SSH authentication fails (missing key, wrong host, etc.) Skul prints a hint p
 git clone https://github.com/sjquant/skul
 cd skul
 pnpm install && pnpm run build
-npm link
+pnpm link --global
 ```
 
 **Requirements:** Node.js >=20, pnpm

@@ -46,6 +46,10 @@ export interface PromptClient {
 }
 
 const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "reset", "remove", "apply"];
+let clackPromptsModulePromise: Promise<typeof import("@clack/prompts")> | undefined;
+const loadEsmModule = new Function("specifier", "return import(specifier);") as (
+  specifier: string,
+) => Promise<unknown>;
 
 /**
  * Returns true if the CLI should run in headless (non-interactive) mode.
@@ -103,7 +107,7 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
         );
       }
 
-      const { isCancel, select } = await loadClackPrompts();
+      const { isCancel, select } = await loadClackPromptsModule();
       const choice = await select({
         message: source ? `Select a bundle from ${source}` : "Select a bundle",
         options: availableBundles.map((bundle) => ({
@@ -122,7 +126,7 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       conflictPath: string,
       suggestedDestination: string,
     ): Promise<FileConflictResolution> {
-      const { isCancel, select, text } = await loadClackPrompts();
+      const { isCancel, select, text } = await loadClackPromptsModule();
       const action = await select({
         message: `Conflict detected: ${conflictPath} already exists`,
         options: [
@@ -202,7 +206,7 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       conflictPath: string,
       operation: "reset" | "replace" | "remove",
     ): Promise<boolean> {
-      const { confirm, isCancel } = await loadClackPrompts();
+      const { confirm, isCancel } = await loadClackPromptsModule();
       const message =
         operation === "replace"
           ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
@@ -221,6 +225,11 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       return confirmed;
     },
   };
+}
+
+function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
+  clackPromptsModulePromise ??= loadEsmModule("@clack/prompts") as Promise<typeof import("@clack/prompts")>;
+  return clackPromptsModulePromise;
 }
 
 export function createHelpText(): string {
@@ -255,10 +264,6 @@ export async function parseCliArgs(
   }
 
   return context.result ?? { kind: "help" };
-}
-
-async function loadClackPrompts(): Promise<typeof import("@clack/prompts")> {
-  return import("@clack/prompts");
 }
 
 function collectOption(value: string, previous: ToolName[]): ToolName[] {
