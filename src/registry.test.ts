@@ -152,6 +152,63 @@ describe("parseRegistry", () => {
     });
   });
 
+  it("accepts remote tracking metadata on desired and materialized bundle state", () => {
+    // Given
+    const input = {
+      version: 1,
+      repos: {
+        [REPO_FINGERPRINT]: {
+          repo_root: "/Users/dev/project",
+          desired_state: [
+            {
+              bundle: "react-expert",
+              source: "github.com/user/ai-vault",
+              protocol: "https",
+              ref: "main",
+              resolved_ref: "main",
+              resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
+            },
+          ],
+        },
+      },
+      worktrees: {
+        [WORKTREE_ID]: {
+          repo_fingerprint: REPO_FINGERPRINT,
+          path: "/Users/dev/project",
+          materialized_state: {
+            bundles: {
+              "react-expert": {
+                source: "github.com/user/ai-vault",
+                resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
+                tools: {
+                  "claude-code": {
+                    files: [".claude/skills/react/SKILL.md"],
+                  },
+                },
+              },
+            },
+            exclude_configured: true,
+          },
+        },
+      },
+    };
+
+    // When
+    const parsed = parseRegistry(input);
+
+    // Then
+    expect(parsed.repos[REPO_FINGERPRINT]?.desired_state[0]).toMatchObject({
+      ref: "main",
+      resolved_ref: "main",
+      resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
+    });
+    expect(
+      parsed.worktrees[WORKTREE_ID]?.materialized_state.bundles["react-expert"],
+    ).toMatchObject({
+      resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
+    });
+  });
+
   it("parses and round-trips protocol field on desired_state entries", () => {
     // Given
     const input = {
@@ -206,6 +263,29 @@ describe("parseRegistry", () => {
         worktrees: {},
       }),
     ).toThrowError(/protocol.*must be "https" or "ssh"/i);
+  });
+
+  it("rejects invalid resolved commit metadata", () => {
+    // Given
+    const input = {
+      version: 1,
+      repos: {
+        [REPO_FINGERPRINT]: {
+          repo_root: "/Users/dev/project",
+          desired_state: [
+            {
+              bundle: "react-expert",
+              protocol: "https",
+              resolved_commit: "not-a-commit",
+            },
+          ],
+        },
+      },
+      worktrees: {},
+    };
+
+    // When / Then
+    expect(() => parseRegistry(input)).toThrowError(/resolved_commit.*commit SHA/i);
   });
 
   it("allows repository entries without a remote url", () => {
@@ -509,6 +589,61 @@ describe("registry persistence", () => {
       bundle: "react-expert",
       source: "github.com/user/ai-vault",
       protocol: "ssh",
+    });
+
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it("persists and reloads remote tracking metadata", () => {
+    // Given
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const registry = upsertRepoState(createEmptyRegistry(), REPO_FINGERPRINT, {
+      repo_root: "/Users/dev/project",
+      desired_state: [
+        {
+          bundle: "react-expert",
+          source: "github.com/user/ai-vault",
+          protocol: "https",
+          ref: "main",
+          resolved_ref: "main",
+          resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
+        },
+      ],
+    });
+    const withWorktreeState = upsertWorktreeState(registry, WORKTREE_ID, {
+      repo_fingerprint: REPO_FINGERPRINT,
+      path: "/Users/dev/project",
+      materialized_state: {
+        bundles: {
+          "react-expert": {
+            source: "github.com/user/ai-vault",
+            resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
+            tools: {
+              "claude-code": {
+                files: [".claude/skills/react/SKILL.md"],
+              },
+            },
+          },
+        },
+        exclude_configured: true,
+      },
+    });
+
+    // When
+    writeRegistryFile(registryFile, withWorktreeState);
+    const reloaded = readRegistryFile(registryFile);
+
+    // Then
+    expect(reloaded.repos[REPO_FINGERPRINT]?.desired_state[0]).toMatchObject({
+      ref: "main",
+      resolved_ref: "main",
+      resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
+    });
+    expect(
+      reloaded.worktrees[WORKTREE_ID]?.materialized_state.bundles["react-expert"],
+    ).toMatchObject({
+      resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
     });
 
     fs.rmSync(homeDir, { recursive: true, force: true });

@@ -31,12 +31,16 @@ describe("parseCliArgs", () => {
     // Given
     const listArgs = ["list"];
     const statusArgs = ["status"];
+    const checkArgs = ["check"];
+    const updateArgs = ["update"];
     const resetArgs = ["reset"];
     const applyArgs = ["apply"];
 
     // When / Then
     await expect(parseCliArgs(listArgs)).resolves.toEqual({ kind: "command", command: "list", options: { json: false } });
     await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status", options: { json: false } });
+    await expect(parseCliArgs(checkArgs)).resolves.toEqual({ kind: "command", command: "check", options: { json: false } });
+    await expect(parseCliArgs(updateArgs)).resolves.toEqual({ kind: "command", command: "update", options: { dryRun: false } });
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset", options: { dryRun: false } });
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply" });
   });
@@ -186,6 +190,12 @@ describe("parseCliArgs", () => {
       command: "status",
       options: { json: true },
     });
+
+    await expect(parseCliArgs(["check", "-j"])).resolves.toEqual({
+      kind: "command",
+      command: "check",
+      options: { json: true },
+    });
   });
 
   it("parses remove with a required bundle argument", async () => {
@@ -209,6 +219,27 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "status",
       options: { json: true },
+    });
+
+    await expect(parseCliArgs(["check", "--json"])).resolves.toEqual({
+      kind: "command",
+      command: "check",
+      options: { json: true },
+    });
+  });
+
+  it("parses bundle-scoped check and update commands", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["check", "react-expert"])).resolves.toEqual({
+      kind: "command",
+      command: "check",
+      options: { bundle: "react-expert", json: false },
+    });
+
+    await expect(parseCliArgs(["update", "react-expert", "--dry-run"])).resolves.toEqual({
+      kind: "command",
+      command: "update",
+      options: { bundle: "react-expert", dryRun: true },
     });
   });
 
@@ -303,6 +334,12 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["remove", "a", "b"])).rejects.toThrowError(
       /Command remove accepts exactly 1 positional argument/,
+    );
+    await expect(parseCliArgs(["check", "a", "b"])).rejects.toThrowError(
+      /Command check accepts at most 1 positional argument/,
+    );
+    await expect(parseCliArgs(["update", "a", "b"])).rejects.toThrowError(
+      /Command update accepts at most 1 positional argument/,
     );
     await expect(parseCliArgs(["remove"])).rejects.toThrowError(
       /missing required argument 'bundle'/,
@@ -411,6 +448,200 @@ describe("run", () => {
     // Then
     expect(parsed.worktree.materialized).toBe(false);
     expect(parsed.suggested_action).toBe("skul apply");
+  });
+
+  it("reports upstream updates for a remote-backed bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".claude/skills/react/SKILL.md": "# react v2\n",
+    });
+
+    // When / Then
+    await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `react-expert: update-available ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}`,
+    );
+  });
+
+  it("updates a remote-backed bundle and refreshes the current worktree", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".claude/skills/react/SKILL.md": "# react v2\n",
+    });
+
+    // When
+    await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `Updated react-expert ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}`,
+    );
+
+    // Then
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react v2\n");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoEntry = registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+    const worktreeEntry = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(repoEntry.desired_state[0]).toMatchObject({
+      bundle: "react-expert",
+      resolved_ref: "main",
+      resolved_commit: updatedCommit,
+    });
+    expect(worktreeEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+      resolved_commit: updatedCommit,
+    });
+  });
+
+  it("aborts update without leaking a newer cached revision into apply", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified locally\n");
+    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".claude/skills/react/SKILL.md": "# react v2\n",
+    });
+
+    // When / Then
+    await expect(
+      run(["update"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => false,
+        }),
+      }),
+    ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoEntry = registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+
+    expect(repoEntry.desired_state[0]).toMatchObject({
+      bundle: "react-expert",
+      resolved_commit: remoteSource.initialCommit,
+    });
+
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(updatedCommit).not.toBe(remoteSource.initialCommit);
+  });
+
+  it("refreshes a stale linked worktree when apply runs after update", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".claude/skills/react/SKILL.md": "# react v2\n",
+    });
+    await run(["update"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+
+    // Then
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react v2\n");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const linkedEntry = registry.worktrees[detectGitContext({ cwd: linkedWorktree })!.worktreeId]!;
+
+    expect(linkedEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+      resolved_commit: updatedCommit,
+    });
+  });
+
+  it("keeps desired tool selection narrowed during update", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: ".claude/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
+        },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+        ".cursor/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".claude/skills/react/SKILL.md": "# react v2\n",
+      ".cursor/skills/react/SKILL.md": "# react v2\n",
+    });
+
+    // When
+    await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `Updated react-expert ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}`,
+    );
+
+    // Then
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoEntry = registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+
+    expect(repoEntry.desired_state).toEqual([
+      {
+        bundle: "react-expert",
+        source: remoteSource.source,
+        tools: ["claude-code"],
+        protocol: "https",
+        resolved_ref: "main",
+        resolved_commit: updatedCommit,
+      },
+    ]);
   });
 
   it("dry-runs add without writing any files", async () => {
@@ -1125,11 +1356,177 @@ describe("run", () => {
 
     // And the registry records both tools for this bundle
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state.bundles["react-expert"].tools).toMatchObject({
       "claude-code": { files: [".claude/skills/react/SKILL.md"] },
       cursor: { files: [".cursor/skills/react/SKILL.md"] },
     });
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      { bundle: "react-expert", tools: ["claude-code", "cursor"], protocol: "https" },
+    ]);
+  });
+
+  it("clears prior tool selection when the bundle is re-added without --agent", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { skills: { path: ".claude/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".cursor/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+
+    // When
+    await expect(run(["add", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code, cursor",
+    );
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+
+    // Then
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      { bundle: "react-expert", protocol: "https" },
+    ]);
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react\n");
+  });
+
+  it("preserves remote metadata when a remote-backed bundle is re-added without --agent", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: ".claude/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
+        },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+        ".cursor/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle, "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    runGit(remoteSource.remoteRepoPath, ["branch", "stable"]);
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registryWithRef = readRegistryFile(registryFile);
+
+    writeRegistryFile(
+      registryFile,
+      upsertRepoState(registryWithRef, repoFingerprint, {
+        repo_root: repoRoot,
+        desired_state: [{
+          ...registryWithRef.repos[repoFingerprint]!.desired_state[0]!,
+          ref: "stable",
+        }],
+      }),
+    );
+
+    // When
+    await expect(run(["add", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code, cursor",
+    );
+
+    // Then
+    const registry = readRegistryFile(registryFile);
+    const repoEntry = registry.repos[repoFingerprint]!;
+    const worktreeEntry = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(repoEntry.desired_state).toEqual([
+      {
+        bundle: "react-expert",
+        source: remoteSource.source,
+        protocol: "https",
+        ref: "stable",
+        resolved_ref: "main",
+        resolved_commit: remoteSource.initialCommit,
+      },
+    ]);
+    expect(worktreeEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+      source: remoteSource.source,
+      resolved_commit: remoteSource.initialCommit,
+    });
+    await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe("react-expert: up-to-date");
+  });
+
+  it("drops a preserved ref when the bundle is re-added from a different source", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSourceA = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/ai-vault-a",
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react a\n",
+      },
+    });
+    const remoteSourceB = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/ai-vault-b",
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react b\n",
+      },
+    });
+    await run(["add", remoteSourceA.source, remoteSourceA.bundle], { homeDir, cwd: repoRoot });
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registryWithRef = readRegistryFile(registryFile);
+
+    writeRegistryFile(
+      registryFile,
+      upsertRepoState(registryWithRef, repoFingerprint, {
+        repo_root: repoRoot,
+        desired_state: [{
+          ...registryWithRef.repos[repoFingerprint]!.desired_state[0]!,
+          ref: "stable",
+        }],
+      }),
+    );
+
+    // When
+    await expect(run(["add", remoteSourceB.source, remoteSourceB.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    const registry = readRegistryFile(registryFile);
+    const repoEntry = registry.repos[repoFingerprint]!;
+
+    expect(repoEntry.desired_state).toEqual([
+      {
+        bundle: "react-expert",
+        source: remoteSourceB.source,
+        protocol: "https",
+        resolved_ref: "main",
+        resolved_commit: remoteSourceB.initialCommit,
+      },
+    ]);
   });
 
   it("resets all materialized bundles from the current worktree", async () => {
@@ -1689,6 +2086,71 @@ function writeBundleFile(
   const filePath = path.join(homeDir, ".skul", "library", ...source.split("/"), bundle, ...relativePath.split("/"));
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
+}
+
+function createRemoteBundleSource(
+  homeDir: string,
+  options: {
+    source?: string;
+    bundle: string;
+    manifest: object;
+    files: Record<string, string>;
+  },
+): {
+  source: string;
+  bundle: string;
+  remoteRepoPath: string;
+  initialCommit: string;
+} {
+  const source = options.source ?? "github.com/user/ai-vault";
+  const remoteRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "skul-remote-source-"));
+  tempDirs.push(remoteRepoPath);
+
+  runGit(remoteRepoPath, ["init", "--initial-branch=main"]);
+  runGit(remoteRepoPath, ["config", "user.name", "Skul Remote"]);
+  runGit(remoteRepoPath, ["config", "user.email", "skul-remote@example.com"]);
+  runGit(remoteRepoPath, ["config", "commit.gpgsign", "false"]);
+
+  const bundleDir = path.join(remoteRepoPath, options.bundle);
+  fs.mkdirSync(bundleDir, { recursive: true });
+  fs.writeFileSync(path.join(bundleDir, "manifest.json"), `${JSON.stringify(options.manifest, null, 2)}\n`);
+
+  for (const [relativePath, content] of Object.entries(options.files)) {
+    const targetPath = path.join(bundleDir, ...relativePath.split("/"));
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, content);
+  }
+
+  runGit(remoteRepoPath, ["add", "."]);
+  runGit(remoteRepoPath, ["commit", "-m", "Initial bundle"]);
+
+  const targetDir = path.join(homeDir, ".skul", "library", ...source.split("/"));
+  fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+  runGit(path.dirname(targetDir), ["clone", remoteRepoPath, targetDir]);
+
+  return {
+    source,
+    bundle: options.bundle,
+    remoteRepoPath,
+    initialCommit: runGit(remoteRepoPath, ["rev-parse", "HEAD"]),
+  };
+}
+
+function updateRemoteBundleSource(
+  remoteRepoPath: string,
+  bundle: string,
+  files: Record<string, string>,
+): string {
+  for (const [relativePath, content] of Object.entries(files)) {
+    const targetPath = path.join(remoteRepoPath, bundle, ...relativePath.split("/"));
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, content);
+  }
+
+  runGit(remoteRepoPath, ["add", "."]);
+  runGit(remoteRepoPath, ["commit", "-m", "Update bundle"]);
+
+  return runGit(remoteRepoPath, ["rev-parse", "HEAD"]);
 }
 
 function createRepository(): string {

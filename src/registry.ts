@@ -15,6 +15,12 @@ export interface DesiredBundleEntry {
   tools?: ToolName[];
   /** Clone protocol used when the bundle source was first fetched. */
   protocol: "https" | "ssh";
+  /** Optional user-selected branch, tag, or commit selector for remote-backed bundles. */
+  ref?: string;
+  /** Last resolved branch or tag name when the selector was refreshed. */
+  resolved_ref?: string;
+  /** Last resolved commit SHA for the desired bundle source. */
+  resolved_commit?: string;
 }
 
 export interface MaterializedToolState {
@@ -25,6 +31,8 @@ export interface MaterializedToolState {
 
 export interface MaterializedBundleState {
   source?: string;
+  /** Commit SHA last materialized in this worktree for the bundle. */
+  resolved_commit?: string;
   tools: Record<string, MaterializedToolState>;
 }
 
@@ -90,6 +98,11 @@ export function upsertRepoState(
           ...(entry.source !== undefined ? { source: entry.source } : {}),
           ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
           protocol: entry.protocol,
+          ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
+          ...(entry.resolved_ref !== undefined ? { resolved_ref: entry.resolved_ref } : {}),
+          ...(entry.resolved_commit !== undefined
+            ? { resolved_commit: entry.resolved_commit }
+            : {}),
         })),
       },
     },
@@ -220,12 +233,25 @@ function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEn
           return name;
         });
   const protocol = expectProtocol(entry.protocol, `${label}.protocol`);
+  const ref =
+    entry.ref === undefined ? undefined : expectNonEmptyString(entry.ref, `${label}.ref`);
+  const resolvedRef =
+    entry.resolved_ref === undefined
+      ? undefined
+      : expectNonEmptyString(entry.resolved_ref, `${label}.resolved_ref`);
+  const resolvedCommit =
+    entry.resolved_commit === undefined
+      ? undefined
+      : expectCommitSha(entry.resolved_commit, `${label}.resolved_commit`);
 
   return {
     bundle,
     ...(source !== undefined ? { source } : {}),
     ...(tools !== undefined ? { tools } : {}),
     protocol,
+    ...(ref !== undefined ? { ref } : {}),
+    ...(resolvedRef !== undefined ? { resolved_ref: resolvedRef } : {}),
+    ...(resolvedCommit !== undefined ? { resolved_commit: resolvedCommit } : {}),
   };
 }
 
@@ -265,6 +291,10 @@ function parseMaterializedBundleState(input: unknown, label: string): Materializ
     bundle.source === undefined
       ? undefined
       : expectNonEmptyString(bundle.source, `${label}.source`);
+  const resolvedCommit =
+    bundle.resolved_commit === undefined
+      ? undefined
+      : expectCommitSha(bundle.resolved_commit, `${label}.resolved_commit`);
   const toolsInput = expectRecord(bundle.tools, `${label}.tools`);
 
   const tools = Object.fromEntries(
@@ -280,6 +310,7 @@ function parseMaterializedBundleState(input: unknown, label: string): Materializ
 
   return {
     ...(source !== undefined ? { source } : {}),
+    ...(resolvedCommit !== undefined ? { resolved_commit: resolvedCommit } : {}),
     tools,
   };
 }
@@ -326,6 +357,11 @@ function sortRegistry(registry: Registry): Registry {
               ...(entry.source !== undefined ? { source: entry.source } : {}),
               ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
               protocol: entry.protocol,
+              ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
+              ...(entry.resolved_ref !== undefined ? { resolved_ref: entry.resolved_ref } : {}),
+              ...(entry.resolved_commit !== undefined
+                ? { resolved_commit: entry.resolved_commit }
+                : {}),
             })),
           },
         ]),
@@ -348,6 +384,9 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
             bundleName,
             {
               ...(bundleState.source !== undefined ? { source: bundleState.source } : {}),
+              ...(bundleState.resolved_commit !== undefined
+                ? { resolved_commit: bundleState.resolved_commit }
+                : {}),
               tools: Object.fromEntries(
                 Object.entries(bundleState.tools).map(([toolName, toolState]) => [
                   toolName,
@@ -437,6 +476,16 @@ function expectProtocol(input: unknown, label: string): "https" | "ssh" {
     throw new Error(`${label} must be "https" or "ssh"`);
   }
   return input;
+}
+
+function expectCommitSha(input: unknown, label: string): string {
+  const value = expectNonEmptyString(input, label);
+
+  if (!/^[0-9a-f]{7,40}$/i.test(value)) {
+    throw new Error(`${label} must be a 7-40 character hexadecimal commit SHA`);
+  }
+
+  return value;
 }
 
 function parseFileFingerprints(

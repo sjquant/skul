@@ -7,12 +7,14 @@ import {
 } from "./conflict-resolution";
 import { type ToolName } from "./tool-mapping";
 
-export type CommandName = "add" | "list" | "status" | "reset" | "remove" | "apply";
+export type CommandName = "add" | "list" | "status" | "check" | "update" | "reset" | "remove" | "apply";
 
 export type CliParseResult =
   | { kind: "help" }
   | { kind: "command"; command: "list"; options: { json: boolean } }
   | { kind: "command"; command: "status"; options: { json: boolean } }
+  | { kind: "command"; command: "check"; options: { bundle?: string; json: boolean } }
+  | { kind: "command"; command: "update"; options: { bundle?: string; dryRun: boolean } }
   | { kind: "command"; command: "apply" }
   | { kind: "command"; command: "reset"; options: { dryRun: boolean } }
   | {
@@ -37,7 +39,7 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "reset", "remove", "apply"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "reset", "remove", "apply"];
 let clackPromptsModulePromise: Promise<typeof import("@clack/prompts")> | undefined;
 const loadEsmModule = new Function("specifier", "return import(specifier);") as (
   specifier: string,
@@ -345,6 +347,32 @@ function createProgram(
     });
 
   program
+    .command("check")
+    .description("Check remote-backed bundles for upstream updates")
+    .argument("[bundle]", "Bundle name to check")
+    .option("-j, --json", "Output as JSON (for scripting and agent use)")
+    .action((bundle: string | undefined, opts: { json?: boolean }) => {
+      context.result = {
+        kind: "command",
+        command: "check",
+        options: { ...(bundle !== undefined ? { bundle } : {}), json: opts.json ?? false },
+      };
+    });
+
+  program
+    .command("update")
+    .description("Update remote-backed bundles to the latest upstream revision")
+    .argument("[bundle]", "Bundle name to update")
+    .option("-n, --dry-run", "Preview what would be updated without making any changes")
+    .action((bundle: string | undefined, opts: { dryRun?: boolean }) => {
+      context.result = {
+        kind: "command",
+        command: "update",
+        options: { ...(bundle !== undefined ? { bundle } : {}), dryRun: opts.dryRun ?? false },
+      };
+    });
+
+  program
     .command("apply")
     .description("Materialize all desired-state bundles into the current worktree")
     .action(() => {
@@ -387,6 +415,10 @@ function normalizeParseError(error: unknown, command: string): Error {
 
     if (command === "remove") {
       return new Error("Command remove accepts exactly 1 positional argument");
+    }
+
+    if (command === "check" || command === "update") {
+      return new Error(`Command ${command} accepts at most 1 positional argument`);
     }
 
     return new Error(`Command ${command} does not accept positional arguments`);
