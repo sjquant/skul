@@ -112,6 +112,22 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("normalizes owner/repo.git sources to the GitHub registry for add", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "sjquant/ghosts.git", "core", "--agent", "codex"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/sjquant/ghosts",
+        bundle: "core",
+        protocol: "https",
+        agents: ["codex"],
+        dryRun: false,
+      },
+    });
+  });
+
   it("derives bundle name from repo slug when only a source URL is given", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "github.com/user/react-bundle"])).resolves.toEqual({
@@ -121,6 +137,22 @@ describe("parseCliArgs", () => {
         mode: "stealth",
         source: "github.com/user/react-bundle",
         bundle: "react-bundle",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+      },
+    });
+  });
+
+  it("derives bundle name from the repo slug when owner/repo.git shorthand is given", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "sjquant/ghosts.git"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/sjquant/ghosts",
+        bundle: "ghosts",
         protocol: "https",
         agents: [],
         dryRun: false,
@@ -290,6 +322,15 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "clear-cache",
       options: { source: "github.com/sjquant/ghosts", all: false, dryRun: true },
+    });
+  });
+
+  it("normalizes owner/repo.git sources for clear-cache", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["clear-cache", "sjquant/ghosts.git"])).resolves.toEqual({
+      kind: "command",
+      command: "clear-cache",
+      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: false },
     });
   });
 

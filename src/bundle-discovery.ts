@@ -84,7 +84,13 @@ function normalizeGitHubShortcut(input: string): string | undefined {
     return undefined;
   }
 
-  return `github.com/${owner}/${repo}`;
+  const normalizedRepo = repo.replace(/\.git$/, "");
+
+  if (!normalizedRepo) {
+    return undefined;
+  }
+
+  return `github.com/${owner}/${normalizedRepo}`;
 }
 
 export function listCachedBundles(options: { libraryDir: string }): CachedBundle[] {

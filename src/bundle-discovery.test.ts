@@ -35,6 +35,7 @@ describe("normalizeBundleSource", () => {
   it.each([
     ["github.com/user/ai-vault", "github.com/user/ai-vault"],
     ["user/ai-vault", "github.com/user/ai-vault"],
+    ["user/ai-vault.git", "github.com/user/ai-vault"],
     ["https://github.com/user/ai-vault.git", "github.com/user/ai-vault"],
     ["git@github.com:user/ai-vault.git", "github.com/user/ai-vault"],
   ])("normalizes %s", (input, expected) => {
