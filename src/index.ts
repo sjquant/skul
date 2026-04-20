@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { findCachedBundle, listCachedBundles } from "./bundle-discovery";
+import { detectSourceProtocol, findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import {
   fetchRemoteSource,
   inspectRemoteSource,
@@ -14,9 +14,11 @@ import {
 } from "./bundle-fetch";
 import { materializeBundle, type MaterializeBundleResult } from "./bundle-materialization";
 import {
+  type BundleSelection,
   createHeadlessPromptClient,
   createHelpText,
   createPromptClient,
+  createPromptClientForSelections,
   isHeadlessMode,
   type PromptClient,
   parseCliArgs,
@@ -45,9 +47,9 @@ export interface RunOptions {
 }
 
 export async function run(argv: string[], options: RunOptions = {}): Promise<string> {
-  const prompts = options.prompts ?? (isHeadlessMode() ? createHeadlessPromptClient() : createPromptClient());
-  const parsed = await parseCliArgs(argv, prompts);
   const stateLayout = resolveGlobalStateLayout({ homeDir: options.homeDir ?? os.homedir() });
+  const prompts = options.prompts ?? createDefaultPromptClient(stateLayout.libraryDir);
+  const parsed = await parseCliArgs(argv, prompts);
   const cwd = options.cwd ?? process.cwd();
 
   if (parsed.kind === "help") {
@@ -131,6 +133,43 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
 
   // All known commands are handled above — this branch is unreachable at runtime.
   return "Command not implemented";
+}
+
+function createDefaultPromptClient(libraryDir: string): PromptClient {
+  if (isHeadlessMode()) {
+    return createHeadlessPromptClient();
+  }
+
+  const availableBundles = listCachedBundles({ libraryDir })
+    .map((bundle) => buildBundleSelection(bundle.source, bundle.bundle, libraryDir))
+    .sort(compareBundleSelections);
+
+  return createPromptClientForSelections(availableBundles);
+}
+
+function buildBundleSelection(
+  source: string,
+  bundle: string,
+  libraryDir: string,
+): BundleSelection {
+  const revision = readCachedSourceRevision({ source, libraryDir });
+  const protocol = revision.remoteUrl ? detectSourceProtocol(revision.remoteUrl) : "https";
+
+  return {
+    bundle,
+    source,
+    protocol,
+  };
+}
+
+function compareBundleSelections(left: BundleSelection, right: BundleSelection): number {
+  const bundleNameComparison = left.bundle.localeCompare(right.bundle);
+
+  if (bundleNameComparison !== 0) {
+    return bundleNameComparison;
+  }
+
+  return (left.source ?? "").localeCompare(right.source ?? "");
 }
 
 function renderBundleList(options: { libraryDir: string; json: boolean }): string {
@@ -893,21 +932,9 @@ async function applyWorktree(options: {
     });
 
     if (refreshesExistingBundle && existingBundleState) {
-      const bundleStateToReplace =
-        toolsToApply && toolsToApply.length > 0
-          ? {
-              ...existingBundleState,
-              tools: Object.fromEntries(
-                Object.entries(existingBundleState.tools).filter(([toolName]) =>
-                  toolsToApply.includes(toolName as ToolName),
-                ),
-              ),
-            }
-          : existingBundleState;
-
       const replacementAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
-        flattenBundleState(bundleStateToReplace),
+        flattenBundleState(existingBundleState),
         options.prompts,
         "replace",
       );
@@ -916,7 +943,7 @@ async function applyWorktree(options: {
         throw new Error("Replacement aborted because a modified managed file was kept");
       }
 
-      removeManagedPaths(gitContext.worktreeRoot, flattenBundleState(bundleStateToReplace));
+      removeManagedPaths(gitContext.worktreeRoot, flattenBundleState(existingBundleState));
     }
 
     const materializedResult = await materializeBundle({
@@ -935,7 +962,7 @@ async function applyWorktree(options: {
         repoRoot: gitContext.worktreeRoot,
         source: entry.source,
         resolvedCommit: entry.resolved_commit ?? sourceRevision?.currentCommit,
-        selectedTools: toolsToApply,
+        selectedTools: refreshesExistingBundle ? undefined : toolsToApply,
       }),
     };
 

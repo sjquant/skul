@@ -47,7 +47,7 @@ describe("parseCliArgs", () => {
 
   it("parses add in interactive, cached, and explicit source modes", async () => {
     // Given
-    const selectBundle = vi.fn().mockResolvedValue("react-expert");
+    const selectBundle = vi.fn().mockResolvedValue({ bundle: "react-expert" });
     const prompts = createPromptClientStub({ selectBundle });
 
     // When / Then
@@ -644,6 +644,54 @@ describe("run", () => {
     ]);
   });
 
+  it("removes stale tools from a linked worktree when apply refreshes a narrowed bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: ".claude/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
+        },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+        ".cursor/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".claude/skills/react/SKILL.md": "# react v2\n",
+      ".cursor/skills/react/SKILL.md": "# react v2\n",
+    });
+    await run(["update"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+
+    // Then
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# react v2\n");
+    expect(pathExists(path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const linkedEntry = registry.worktrees[detectGitContext({ cwd: linkedWorktree })!.worktreeId]!;
+
+    expect(linkedEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+      resolved_commit: updatedCommit,
+      tools: {
+        "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) },
+      },
+    });
+    expect(linkedEntry.materialized_state.bundles["react-expert"].tools).not.toHaveProperty("cursor");
+  });
+
   it("dry-runs add without writing any files", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -753,6 +801,122 @@ describe("run", () => {
     } finally {
       delete process.env["SKUL_NO_TUI"];
     }
+  });
+
+  it("selects a cached bundle interactively when add is run without a bundle name", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    const selectBundle = vi.fn().mockResolvedValue({ bundle: "react-expert" });
+
+    // When
+    await expect(
+      run(["add"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundle }),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(selectBundle).toHaveBeenCalledWith();
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(true);
+  });
+
+  it("selects the cached source when duplicate bundle names exist", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# first\n",
+    );
+    writeManifest(homeDir, "github.com/other/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/other/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# second\n",
+    );
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "react-expert",
+      source: "github.com/other/ai-vault",
+    });
+
+    // When
+    await expect(
+      run(["add"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundle }),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+    ).toBe("# second\n");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: "github.com/other/ai-vault",
+      protocol: "https",
+    });
+  });
+
+  it("preserves the selected bundle protocol when add is run without arguments", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+      protocol: "ssh",
+    });
+
+    // When
+    await expect(
+      run(["add"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundle }),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+      protocol: "ssh",
+    });
   });
 
   it("applies a cached bundle into the current repository and records ownership", async () => {
@@ -2188,7 +2352,7 @@ function pathExists(targetPath: string): boolean {
 
 function createPromptClientStub(overrides: Partial<PromptClient> = {}): PromptClient {
   return {
-    selectBundle: async () => "react-expert",
+    selectBundle: async () => ({ bundle: "react-expert" }),
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
     confirmManagedFileRemoval: async () => true,
     ...overrides,

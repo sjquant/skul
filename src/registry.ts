@@ -451,12 +451,13 @@ function expectAbsolutePath(input: unknown, label: string): string {
 
 function expectRelativePath(input: unknown, label: string): string {
   const value = expectNonEmptyString(input, label);
+  const normalized = path.normalize(value);
 
-  if (path.isAbsolute(value) || value.startsWith("../") || value === "..") {
+  if (path.isAbsolute(value) || normalized === "." || normalized.startsWith("..")) {
     throw new Error(`${label} must be a relative path`);
   }
 
-  return value;
+  return normalized;
 }
 
 function expectBoolean(input: unknown, label: string): boolean {

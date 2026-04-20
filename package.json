@@ -2,9 +2,17 @@
   "name": "skul",
   "version": "0.1.0",
   "description": "AI configuration layer manager for project-scoped bundles (project setup only)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "skul": "./dist/index.js"
+    "skul": "bin/skul.js"
   },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -17,10 +25,6 @@
     "ai",
     "tooling",
     "worktree"
-  ],
-  "files": [
-    "dist",
-    "README.md"
   ],
   "author": "",
   "license": "ISC",

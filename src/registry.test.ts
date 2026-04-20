@@ -347,6 +347,32 @@ describe("parseRegistry", () => {
     });
   });
 
+  it("rejects worktree file paths that escape the repository via parent traversal", () => {
+    // Given / When / Then
+    expect(() =>
+      parseRegistry({
+        version: 1,
+        repos: { [REPO_FINGERPRINT]: makeRepoEntry() },
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            materialized_state: {
+              bundles: {
+                "react-expert": {
+                  tools: {
+                    "claude-code": {
+                      files: ["managed/../../outside.txt"],
+                    },
+                  },
+                },
+              },
+              exclude_configured: true,
+            },
+          }),
+        },
+      }),
+    ).toThrowError(/must be a relative path/);
+  });
+
   it("accepts tracked file fingerprints for modified-file protection", () => {
     expect(
       parseRegistry({
