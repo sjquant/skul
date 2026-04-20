@@ -26,7 +26,7 @@ export type CliParseResult =
   | { kind: "command"; command: "update"; options: { bundle?: string; dryRun: boolean } }
   | { kind: "command"; command: "apply" }
   | { kind: "command"; command: "reset"; options: { dryRun: boolean } }
-  | { kind: "command"; command: "clear-cache"; options: { source: string; dryRun: boolean } }
+  | { kind: "command"; command: "clear-cache"; options: { source?: string; all: boolean; dryRun: boolean } }
   | {
       kind: "command";
       command: "add";
@@ -432,13 +432,26 @@ function createProgram(
   program
     .command("clear-cache")
     .description("Remove a cached remote source from the global library")
-    .argument("<source>", "Cached bundle source (e.g. github.com/user/repo)")
+    .argument("[source]", "Cached bundle source (e.g. github.com/user/repo)")
+    .option("--all", "Remove every cached remote source from the global library")
     .option("-n, --dry-run", "Preview what would be deleted without removing any files")
-    .action((source: string, opts: { dryRun?: boolean }) => {
+    .action((source: string | undefined, opts: { all?: boolean; dryRun?: boolean }) => {
+      if (opts.all && source) {
+        throw new Error("Command clear-cache accepts either a source or --all");
+      }
+
+      if (!opts.all && !source) {
+        throw new Error("Command clear-cache requires a source or --all");
+      }
+
       context.result = {
         kind: "command",
         command: "clear-cache",
-        options: { source: normalizeBundleSource(source), dryRun: opts.dryRun ?? false },
+        options: {
+          ...(source !== undefined ? { source: normalizeBundleSource(source) } : {}),
+          all: opts.all ?? false,
+          dryRun: opts.dryRun ?? false,
+        },
       };
     });
 
@@ -460,7 +473,7 @@ function normalizeParseError(error: unknown, command: string): Error {
     }
 
     if (command === "clear-cache") {
-      return new Error("Command clear-cache accepts exactly 1 positional argument");
+      return new Error("Command clear-cache accepts at most 1 positional argument");
     }
 
     if (command === "check" || command === "update") {

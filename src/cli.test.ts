@@ -280,7 +280,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["clear-cache", "sjquant/ghosts"])).resolves.toEqual({
       kind: "command",
       command: "clear-cache",
-      options: { source: "github.com/sjquant/ghosts", dryRun: false },
+      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: false },
     });
   });
 
@@ -289,7 +289,16 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["clear-cache", "https://github.com/sjquant/ghosts.git", "--dry-run"])).resolves.toEqual({
       kind: "command",
       command: "clear-cache",
-      options: { source: "github.com/sjquant/ghosts", dryRun: true },
+      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: true },
+    });
+  });
+
+  it("parses clear-cache --all without a source", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["clear-cache", "--all"])).resolves.toEqual({
+      kind: "command",
+      command: "clear-cache",
+      options: { all: true, dryRun: false },
     });
   });
 
@@ -392,13 +401,16 @@ describe("parseCliArgs", () => {
       /Command update accepts at most 1 positional argument/,
     );
     await expect(parseCliArgs(["clear-cache", "a", "b"])).rejects.toThrowError(
-      /Command clear-cache accepts exactly 1 positional argument/,
+      /Command clear-cache accepts at most 1 positional argument/,
     );
     await expect(parseCliArgs(["remove"])).rejects.toThrowError(
       /missing required argument 'bundle'/,
     );
     await expect(parseCliArgs(["clear-cache"])).rejects.toThrowError(
-      /missing required argument 'source'/,
+      /Command clear-cache requires a source or --all/,
+    );
+    await expect(parseCliArgs(["clear-cache", "sjquant/ghosts", "--all"])).rejects.toThrowError(
+      /Command clear-cache accepts either a source or --all/,
     );
   });
 });
@@ -492,6 +504,48 @@ describe("run", () => {
     // When / Then
     await expect(run(["clear-cache", "sjquant/ghosts"], { homeDir })).resolves.toBe(
       "No cached source found for github.com/sjquant/ghosts",
+    );
+  });
+
+  it("clears all cached sources without requiring a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const firstSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
+    const secondSourceDir = path.join(homeDir, ".skul", "library", "github.com", "acme", "shared-bundles");
+    fs.mkdirSync(firstSourceDir, { recursive: true });
+    fs.mkdirSync(secondSourceDir, { recursive: true });
+
+    // When / Then
+    await expect(run(["clear-cache", "--all"], { homeDir })).resolves.toBe(
+      "Cleared cache for 2 source(s)",
+    );
+    expect(pathExists(firstSourceDir)).toBe(false);
+    expect(pathExists(secondSourceDir)).toBe(false);
+  });
+
+  it("dry-runs clear-cache --all without deleting cached sources", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const firstSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
+    const secondSourceDir = path.join(homeDir, ".skul", "library", "github.com", "acme", "shared-bundles");
+    fs.mkdirSync(firstSourceDir, { recursive: true });
+    fs.mkdirSync(secondSourceDir, { recursive: true });
+
+    // When / Then
+    await expect(run(["clear-cache", "--all", "--dry-run"], { homeDir })).resolves.toBe(
+      "DRY RUN: Would clear cache for 2 source(s)",
+    );
+    expect(pathExists(firstSourceDir)).toBe(true);
+    expect(pathExists(secondSourceDir)).toBe(true);
+  });
+
+  it("reports when clear-cache --all finds no cached sources", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    // When / Then
+    await expect(run(["clear-cache", "--all"], { homeDir })).resolves.toBe(
+      "No cached sources found",
     );
   });
 

@@ -43,6 +43,9 @@ skul reset
 
 # Clear a stale cached remote source so the next add reclones it
 skul clear-cache sjquant/ghosts
+
+# Clear all cached remote sources
+skul clear-cache --all
 ```
 
 ---
@@ -59,7 +62,7 @@ skul clear-cache sjquant/ghosts
 | `skul check [bundle]` | Check remote-backed bundles for upstream updates |
 | `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
 | `skul reset` | Remove all Skul-managed files from the current worktree |
-| `skul clear-cache <source>` | Remove a cached remote source from the global library |
+| `skul clear-cache [source] --all` | Remove one cached source or all cached remote sources from the global library |
 
 All mutating commands accept `--dry-run`. `skul list`, `skul status`, and `skul check` accept `--json`.
 
@@ -143,6 +146,12 @@ If a cached remote source becomes stale or corrupted, remove it from `~/.skul/li
 ```bash
 skul clear-cache sjquant/ghosts
 skul add sjquant/ghosts core --agent codex
+```
+
+To wipe the entire cache:
+
+```bash
+skul clear-cache --all
 ```
 
 ---

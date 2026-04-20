@@ -21,6 +21,10 @@ export interface ClearCachedSourceResult {
   targetDir: string;
 }
 
+export interface ClearAllCachedSourcesResult {
+  clearedSources: string[];
+}
+
 export interface CachedSourceRevision {
   cached: boolean;
   targetDir: string;
@@ -166,6 +170,45 @@ export function clearCachedSource(options: FetchRemoteSourceOptions): ClearCache
   return { cleared: true, targetDir };
 }
 
+export function clearAllCachedSources(options: { libraryDir: string }): ClearAllCachedSourcesResult {
+  const clearedSources: string[] = [];
+
+  for (const source of listCachedSources(options.libraryDir)) {
+    const result = clearCachedSource({ source, libraryDir: options.libraryDir });
+
+    if (result.cleared) {
+      clearedSources.push(source);
+    }
+  }
+
+  return { clearedSources };
+}
+
+export function listCachedSources(libraryDir: string): string[] {
+  if (!fs.existsSync(libraryDir)) {
+    return [];
+  }
+
+  const sources: string[] = [];
+
+  for (const hostEntry of safeReaddirSync(libraryDir)) {
+    if (!hostEntry.isDirectory()) continue;
+    const hostDir = path.join(libraryDir, hostEntry.name);
+
+    for (const ownerEntry of safeReaddirSync(hostDir)) {
+      if (!ownerEntry.isDirectory()) continue;
+      const ownerDir = path.join(hostDir, ownerEntry.name);
+
+      for (const repoEntry of safeReaddirSync(ownerDir)) {
+        if (!repoEntry.isDirectory()) continue;
+        sources.push(`${hostEntry.name}/${ownerEntry.name}/${repoEntry.name}`);
+      }
+    }
+  }
+
+  return sources.sort((left, right) => left.localeCompare(right));
+}
+
 function getTargetDir(options: FetchRemoteSourceOptions): string {
   assertSafeSource(options.source);
   return path.join(options.libraryDir, ...options.source.split("/"));
@@ -182,6 +225,14 @@ function removeEmptyLibraryAncestors(currentDir: string, libraryDir: string): vo
 
     fs.rmdirSync(directory);
     directory = path.dirname(directory);
+  }
+}
+
+function safeReaddirSync(directory: string): fs.Dirent[] {
+  try {
+    return fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return [];
   }
 }
 

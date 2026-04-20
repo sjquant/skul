@@ -7,9 +7,11 @@ import path from "node:path";
 
 import { detectSourceProtocol, findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import {
+  clearAllCachedSources,
   clearCachedSource,
   fetchRemoteSource,
   inspectRemoteSource,
+  listCachedSources,
   readCachedSourceRevision,
   updateCachedRemoteSource,
 } from "./bundle-fetch";
@@ -126,6 +128,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
   if (parsed.command === "clear-cache") {
     return clearBundleCache({
       source: parsed.options.source,
+      all: parsed.options.all,
       libraryDir: stateLayout.libraryDir,
       dryRun: parsed.options.dryRun,
     });
@@ -212,29 +215,46 @@ function renderBundleList(options: { libraryDir: string; json: boolean }): strin
 }
 
 function clearBundleCache(options: {
-  source: string;
+  source?: string;
+  all: boolean;
   libraryDir: string;
   dryRun: boolean;
 }): string {
+  if (options.all) {
+    const cachedSources = listCachedSources(options.libraryDir);
+
+    if (options.dryRun) {
+      return cachedSources.length > 0
+        ? `DRY RUN: Would clear cache for ${cachedSources.length} source(s)`
+        : "DRY RUN: No cached sources found";
+    }
+
+    const result = clearAllCachedSources({ libraryDir: options.libraryDir });
+
+    return result.clearedSources.length > 0
+      ? `Cleared cache for ${result.clearedSources.length} source(s)`
+      : "No cached sources found";
+  }
+
   const revision = readCachedSourceRevision({
-    source: options.source,
+    source: options.source!,
     libraryDir: options.libraryDir,
   });
 
   if (options.dryRun) {
     return revision.cached
-      ? `DRY RUN: Would clear cache for ${options.source}`
-      : `DRY RUN: No cached source found for ${options.source}`;
+      ? `DRY RUN: Would clear cache for ${options.source!}`
+      : `DRY RUN: No cached source found for ${options.source!}`;
   }
 
   const result = clearCachedSource({
-    source: options.source,
+    source: options.source!,
     libraryDir: options.libraryDir,
   });
 
   return result.cleared
-    ? `Cleared cache for ${options.source}`
-    : `No cached source found for ${options.source}`;
+    ? `Cleared cache for ${options.source!}`
+    : `No cached source found for ${options.source!}`;
 }
 
 function renderStatus(options: {
