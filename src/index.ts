@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -435,7 +437,6 @@ async function updateBundles(options: {
 
     nextDesiredState[desiredIndex] = {
       ...nextDesiredState[desiredIndex]!,
-      ...(toolsToRefresh !== undefined ? { tools: toolsToRefresh } : {}),
       ...(refreshed.resolvedRef !== undefined ? { resolved_ref: refreshed.resolvedRef } : {}),
       resolved_commit: refreshed.currentCommit,
     };
@@ -610,6 +611,9 @@ async function applyBundle(options: {
     existingEntry: existingDesiredEntry,
     requestedTools: hasToolSelection ? options.agents : undefined,
   });
+  const preservesExistingRef =
+    existingDesiredEntry?.ref !== undefined &&
+    (options.source === undefined || options.source === existingDesiredEntry.source);
   const newDesiredEntry: DesiredBundleEntry = {
     bundle: cachedBundle.bundle,
     ...(options.source !== undefined
@@ -619,6 +623,7 @@ async function applyBundle(options: {
         : {}),
     ...(mergedDesiredTools !== undefined ? { tools: mergedDesiredTools } : {}),
     protocol: options.protocol ?? existingDesiredEntry?.protocol ?? "https",
+    ...(preservesExistingRef ? { ref: existingDesiredEntry.ref } : {}),
     ...(sourceRevision?.currentRef !== undefined
       ? { resolved_ref: sourceRevision.currentRef }
       : existingDesiredEntry?.resolved_ref !== undefined
@@ -877,11 +882,42 @@ async function applyWorktree(options: {
   let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
 
   for (const { entry, sourceRevision, cachedBundle, existingBundleState, availableTools } of applyPlans) {
+    const refreshesExistingBundle =
+      existingBundleState !== undefined &&
+      entry.resolved_commit !== undefined &&
+      existingBundleState.resolved_commit !== entry.resolved_commit;
     const toolsToApply = getToolsToApply({
       desiredEntry: entry,
       materializedBundleState: existingBundleState,
       availableTools,
     });
+
+    if (refreshesExistingBundle && existingBundleState) {
+      const bundleStateToReplace =
+        toolsToApply && toolsToApply.length > 0
+          ? {
+              ...existingBundleState,
+              tools: Object.fromEntries(
+                Object.entries(existingBundleState.tools).filter(([toolName]) =>
+                  toolsToApply.includes(toolName as ToolName),
+                ),
+              ),
+            }
+          : existingBundleState;
+
+      const replacementAllowed = await confirmManagedFileRemovals(
+        gitContext.worktreeRoot,
+        flattenBundleState(bundleStateToReplace),
+        options.prompts,
+        "replace",
+      );
+
+      if (!replacementAllowed) {
+        throw new Error("Replacement aborted because a modified managed file was kept");
+      }
+
+      removeManagedPaths(gitContext.worktreeRoot, flattenBundleState(bundleStateToReplace));
+    }
 
     const materializedResult = await materializeBundle({
       repoRoot: gitContext.worktreeRoot,
@@ -894,6 +930,7 @@ async function applyWorktree(options: {
     currentBundles = {
       ...currentBundles,
       [cachedBundle.bundle]: buildMaterializedBundleState({
+        existingBundleState,
         materializedResult,
         repoRoot: gitContext.worktreeRoot,
         source: entry.source,
@@ -931,7 +968,13 @@ function isDesiredBundleMaterialized(options: {
 }): boolean {
   const expectedTools = options.desiredEntry.tools ?? options.availableTools;
 
-  return expectedTools.every((toolName) => toolName in options.materializedBundleState.tools);
+  return (
+    expectedTools.every((toolName) => toolName in options.materializedBundleState.tools) &&
+    (
+      options.desiredEntry.resolved_commit === undefined ||
+      options.materializedBundleState.resolved_commit === options.desiredEntry.resolved_commit
+    )
+  );
 }
 
 function getToolsToApply(options: {
@@ -943,6 +986,13 @@ function getToolsToApply(options: {
 
   if (!options.materializedBundleState) {
     return options.desiredEntry.tools;
+  }
+
+  if (
+    options.desiredEntry.resolved_commit !== undefined &&
+    options.materializedBundleState.resolved_commit !== options.desiredEntry.resolved_commit
+  ) {
+    return options.desiredEntry.tools ?? options.availableTools;
   }
 
   const existingTools = options.materializedBundleState.tools;
