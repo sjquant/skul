@@ -7,7 +7,16 @@ import {
 } from "./conflict-resolution";
 import { type ToolName } from "./tool-mapping";
 
-export type CommandName = "add" | "list" | "status" | "check" | "update" | "reset" | "remove" | "apply";
+export type CommandName =
+  | "add"
+  | "list"
+  | "status"
+  | "check"
+  | "update"
+  | "reset"
+  | "remove"
+  | "apply"
+  | "clear-cache";
 
 export type CliParseResult =
   | { kind: "help" }
@@ -17,6 +26,7 @@ export type CliParseResult =
   | { kind: "command"; command: "update"; options: { bundle?: string; dryRun: boolean } }
   | { kind: "command"; command: "apply" }
   | { kind: "command"; command: "reset"; options: { dryRun: boolean } }
+  | { kind: "command"; command: "clear-cache"; options: { source: string; dryRun: boolean } }
   | {
       kind: "command";
       command: "add";
@@ -45,7 +55,7 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "reset", "remove", "apply"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "reset", "remove", "apply", "clear-cache"];
 let clackPromptsModulePromise: Promise<typeof import("@clack/prompts")> | undefined;
 const loadEsmModule = new Function("specifier", "return import(specifier);") as (
   specifier: string,
@@ -419,6 +429,19 @@ function createProgram(
       };
     });
 
+  program
+    .command("clear-cache")
+    .description("Remove a cached remote source from the global library")
+    .argument("<source>", "Cached bundle source (e.g. github.com/user/repo)")
+    .option("-n, --dry-run", "Preview what would be deleted without removing any files")
+    .action((source: string, opts: { dryRun?: boolean }) => {
+      context.result = {
+        kind: "command",
+        command: "clear-cache",
+        options: { source: normalizeBundleSource(source), dryRun: opts.dryRun ?? false },
+      };
+    });
+
   return program;
 }
 
@@ -434,6 +457,10 @@ function normalizeParseError(error: unknown, command: string): Error {
 
     if (command === "remove") {
       return new Error("Command remove accepts exactly 1 positional argument");
+    }
+
+    if (command === "clear-cache") {
+      return new Error("Command clear-cache accepts exactly 1 positional argument");
     }
 
     if (command === "check" || command === "update") {

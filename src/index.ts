@@ -7,6 +7,7 @@ import path from "node:path";
 
 import { detectSourceProtocol, findCachedBundle, listCachedBundles } from "./bundle-discovery";
 import {
+  clearCachedSource,
   fetchRemoteSource,
   inspectRemoteSource,
   readCachedSourceRevision,
@@ -122,6 +123,14 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
+  if (parsed.command === "clear-cache") {
+    return clearBundleCache({
+      source: parsed.options.source,
+      libraryDir: stateLayout.libraryDir,
+      dryRun: parsed.options.dryRun,
+    });
+  }
+
   if (parsed.command === "apply") {
     return applyWorktree({
       cwd,
@@ -200,6 +209,32 @@ function renderBundleList(options: { libraryDir: string; json: boolean }): strin
       return `${bundle.bundle} (${tools})`;
     }),
   ].join("\n");
+}
+
+function clearBundleCache(options: {
+  source: string;
+  libraryDir: string;
+  dryRun: boolean;
+}): string {
+  const revision = readCachedSourceRevision({
+    source: options.source,
+    libraryDir: options.libraryDir,
+  });
+
+  if (options.dryRun) {
+    return revision.cached
+      ? `DRY RUN: Would clear cache for ${options.source}`
+      : `DRY RUN: No cached source found for ${options.source}`;
+  }
+
+  const result = clearCachedSource({
+    source: options.source,
+    libraryDir: options.libraryDir,
+  });
+
+  return result.cleared
+    ? `Cleared cache for ${options.source}`
+    : `No cached source found for ${options.source}`;
 }
 
 function renderStatus(options: {

@@ -22,7 +22,7 @@ export interface CachedBundle {
  *
  * Returns "ssh" when the input starts with `git@` (the standard SCP-style SSH
  * syntax, e.g. `git@github.com:owner/repo.git`). All other forms — HTTPS URLs
- * (`https://…`) and plain `host/owner/repo` shorthand — return "https".
+ * (`https://…`) and plain source shorthand — return "https".
  *
  * This function operates on the *raw* input before normalization, so the `git@`
  * prefix is still present and unambiguous.
@@ -58,6 +58,12 @@ export function normalizeBundleSource(input: string): string {
     throw new Error(`Unsupported git source: ${input}`);
   }
 
+  const shorthandSource = normalizeGitHubShortcut(value);
+
+  if (shorthandSource) {
+    return shorthandSource;
+  }
+
   const [host, owner, repo, ...rest] = value.split("/");
 
   if (!host || !owner || !repo || rest.length > 0) {
@@ -65,6 +71,20 @@ export function normalizeBundleSource(input: string): string {
   }
 
   return `${host}/${owner}/${repo}`;
+}
+
+function normalizeGitHubShortcut(input: string): string | undefined {
+  const [owner, repo, ...rest] = input.split("/");
+
+  if (!owner || !repo || rest.length > 0) {
+    return undefined;
+  }
+
+  if (owner.includes(".") || owner.includes(":")) {
+    return undefined;
+  }
+
+  return `github.com/${owner}/${repo}`;
 }
 
 export function listCachedBundles(options: { libraryDir: string }): CachedBundle[] {

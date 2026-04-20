@@ -14,6 +14,9 @@ Apply reusable AI bundles — skills, slash commands, and agents — into tool-n
 # Fetch from a GitHub registry and apply (first use clones the repo)
 skul add github.com/sjquant/ai-bundles react-expert
 
+# GitHub is also the default registry for owner/repo shorthand
+skul add sjquant/ghosts core --agent codex
+
 # Clone via SSH instead of HTTPS
 skul add --ssh github.com/sjquant/ai-bundles react-expert
 
@@ -37,6 +40,9 @@ skul update
 
 # Remove all Skul-managed files
 skul reset
+
+# Clear a stale cached remote source so the next add reclones it
+skul clear-cache sjquant/ghosts
 ```
 
 ---
@@ -53,10 +59,11 @@ skul reset
 | `skul check [bundle]` | Check remote-backed bundles for upstream updates |
 | `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
 | `skul reset` | Remove all Skul-managed files from the current worktree |
+| `skul clear-cache <source>` | Remove a cached remote source from the global library |
 
 All mutating commands accept `--dry-run`. `skul list`, `skul status`, and `skul check` accept `--json`.
 
-`skul add` accepts `--ssh` to clone via SSH. `git@host:owner/repo` URLs are auto-detected as SSH. The chosen protocol is persisted in the registry and reused by `skul apply`.
+`skul add` accepts `--ssh` to clone via SSH. `git@host:owner/repo` URLs are auto-detected as SSH. Bare `owner/repo` sources default to `github.com/owner/repo`. The chosen protocol is persisted in the registry and reused by `skul apply`.
 
 For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
 
@@ -128,6 +135,15 @@ skul add git@github.com:sjquant/ai-bundles react-expert
 The protocol choice is stored in the registry alongside the bundle entry. When `skul apply` re-clones a source in a new worktree it uses the same protocol automatically — no need to repeat `--ssh`.
 
 If SSH authentication fails (missing key, wrong host, etc.) Skul prints a hint pointing to the HTTPS equivalent command.
+
+### Clearing a Cached Source
+
+If a cached remote source becomes stale or corrupted, remove it from `~/.skul/library` and let the next `skul add` re-clone it:
+
+```bash
+skul clear-cache sjquant/ghosts
+skul add sjquant/ghosts core --agent codex
+```
 
 ---
 

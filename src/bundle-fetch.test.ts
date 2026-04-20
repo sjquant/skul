@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchRemoteSource } from "./bundle-fetch";
+import { clearCachedSource, fetchRemoteSource } from "./bundle-fetch";
 
 vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 
@@ -250,5 +250,49 @@ describe("fetchRemoteSource", () => {
     expect(() => fetchRemoteSource({ source: "github.com/user", libraryDir }))
       .toThrowError(/Invalid bundle source/);
     expect(execFileSync).not.toHaveBeenCalled();
+  });
+});
+
+describe("clearCachedSource", () => {
+  it("removes an existing cached source directory", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, "README.md"), "# cached\n");
+
+    // When
+    const result = clearCachedSource({ source: "github.com/user/react-bundle", libraryDir });
+
+    // Then
+    expect(result).toEqual({ cleared: true, targetDir });
+    expect(fs.existsSync(targetDir)).toBe(false);
+  });
+
+  it("returns cleared: false when the cached source does not exist", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+
+    // When
+    const result = clearCachedSource({ source: "github.com/user/react-bundle", libraryDir });
+
+    // Then
+    expect(result).toEqual({ cleared: false, targetDir });
+  });
+
+  it("removes empty parent directories after clearing the cached source", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const ownerDir = path.join(libraryDir, "github.com", "user");
+    const targetDir = path.join(ownerDir, "react-bundle");
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, "README.md"), "# cached\n");
+
+    // When
+    clearCachedSource({ source: "github.com/user/react-bundle", libraryDir });
+
+    // Then
+    expect(fs.existsSync(ownerDir)).toBe(false);
   });
 });

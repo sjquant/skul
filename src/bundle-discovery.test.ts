@@ -25,6 +25,7 @@ describe("detectSourceProtocol", () => {
     ["git@gitlab.com:user/repo", "ssh"],
     ["https://github.com/user/repo.git", "https"],
     ["github.com/user/repo", "https"],
+    ["user/repo", "https"],
   ])("detects protocol for %s as %s", (input, expected) => {
     expect(detectSourceProtocol(input)).toBe(expected);
   });
@@ -33,6 +34,7 @@ describe("detectSourceProtocol", () => {
 describe("normalizeBundleSource", () => {
   it.each([
     ["github.com/user/ai-vault", "github.com/user/ai-vault"],
+    ["user/ai-vault", "github.com/user/ai-vault"],
     ["https://github.com/user/ai-vault.git", "github.com/user/ai-vault"],
     ["git@github.com:user/ai-vault.git", "github.com/user/ai-vault"],
   ])("normalizes %s", (input, expected) => {
