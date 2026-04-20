@@ -29,6 +29,12 @@ skul list
 # Check materialization state
 skul status
 
+# See whether remote-backed bundles have updates
+skul check
+
+# Update remote-backed bundles to the latest upstream revision
+skul update
+
 # Remove all Skul-managed files
 skul reset
 ```
@@ -44,9 +50,11 @@ skul reset
 | `skul apply` | Re-materialize all desired bundles in the current worktree |
 | `skul list` | List cached bundles |
 | `skul status` | Show desired state and materialization status |
+| `skul check [bundle]` | Check remote-backed bundles for upstream updates |
+| `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
 | `skul reset` | Remove all Skul-managed files from the current worktree |
 
-All mutating commands accept `--dry-run`. `skul list` and `skul status` accept `--json`.
+All mutating commands accept `--dry-run`. `skul list`, `skul status`, and `skul check` accept `--json`.
 
 `skul add` accepts `--ssh` to clone via SSH. `git@host:owner/repo` URLs are auto-detected as SSH. The chosen protocol is persisted in the registry and reused by `skul apply`.
 
@@ -63,7 +71,7 @@ For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive pro
 | **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` |
 | **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` |
 
-Use `--tool <name>` to target a single tool.
+Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 
 ---
 

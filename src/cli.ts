@@ -1,4 +1,3 @@
-import { confirm, isCancel, select, text } from "@clack/prompts";
 import { Command, CommanderError } from "commander";
 import { detectSourceProtocol, normalizeBundleSource } from "./bundle-discovery";
 import {
@@ -34,8 +33,14 @@ export type FileConflictResolution =
   | { action: "prefix"; prefix: string }
   | { action: "skip" };
 
+export interface BundleSelection {
+  bundle: string;
+  source?: string;
+  protocol?: "https" | "ssh";
+}
+
 export interface PromptClient {
-  selectBundle(source?: string): Promise<string>;
+  selectBundle(source?: string): Promise<BundleSelection>;
   resolveFileConflict(conflictPath: string, suggestedDestination: string): Promise<FileConflictResolution>;
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
@@ -56,7 +61,7 @@ export function isHeadlessMode(): boolean {
  */
 export function createHeadlessPromptClient(): PromptClient {
   return {
-    async selectBundle(source?: string): Promise<string> {
+    async selectBundle(source?: string): Promise<BundleSelection> {
       const hint = source
         ? `skul add ${source} <bundle>`
         : "skul add <bundle>";
@@ -83,8 +88,13 @@ export function createHeadlessPromptClient(): PromptClient {
 }
 
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
+  const bundleSelections = availableBundles.map((bundle) => ({ bundle }));
+  return createPromptClientForSelections(bundleSelections);
+}
+
+export function createPromptClientForSelections(availableBundles: BundleSelection[]): PromptClient {
   return {
-    async selectBundle(source?: string): Promise<string> {
+    async selectBundle(source?: string): Promise<BundleSelection> {
       if (availableBundles.length === 0) {
         throw new Error(
           source
@@ -93,11 +103,12 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
         );
       }
 
+      const { isCancel, select } = await loadClackPrompts();
       const choice = await select({
         message: source ? `Select a bundle from ${source}` : "Select a bundle",
         options: availableBundles.map((bundle) => ({
           value: bundle,
-          label: bundle,
+          label: formatBundleSelectionLabel(bundle, availableBundles),
         })),
       });
 
@@ -111,6 +122,7 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
       conflictPath: string,
       suggestedDestination: string,
     ): Promise<FileConflictResolution> {
+      const { isCancel, select, text } = await loadClackPrompts();
       const action = await select({
         message: `Conflict detected: ${conflictPath} already exists`,
         options: [
@@ -190,6 +202,7 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
       conflictPath: string,
       operation: "reset" | "replace" | "remove",
     ): Promise<boolean> {
+      const { confirm, isCancel } = await loadClackPrompts();
       const message =
         operation === "replace"
           ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
@@ -212,7 +225,7 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
 
 export function createHelpText(): string {
   return createProgram({
-    selectBundle: async () => "",
+    selectBundle: async () => ({ bundle: "" }),
     resolveFileConflict: async () => ({ action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX }),
     confirmManagedFileRemoval: async () => true,
   }).helpInformation();
@@ -242,6 +255,10 @@ export async function parseCliArgs(
   }
 
   return context.result ?? { kind: "help" };
+}
+
+async function loadClackPrompts(): Promise<typeof import("@clack/prompts")> {
+  return import("@clack/prompts");
 }
 
 function collectOption(value: string, previous: ToolName[]): ToolName[] {
@@ -277,10 +294,18 @@ function createProgram(
       const dryRun = opts.dryRun ?? false;
 
       if (!source && !bundle) {
+        const selection = await prompts.selectBundle();
         context.result = {
           kind: "command",
           command: "add",
-          options: { mode: "stealth", bundle: await prompts.selectBundle(), protocol: "https", agents, dryRun },
+          options: {
+            mode: "stealth",
+            ...(selection.source !== undefined ? { source: selection.source } : {}),
+            bundle: selection.bundle,
+            protocol: selection.protocol ?? "https",
+            agents,
+            dryRun,
+          },
         };
         return;
       }
@@ -414,4 +439,19 @@ function normalizeParseError(error: unknown, command: string): Error {
   }
 
   return new Error(error.message.replace(/^error: /, ""));
+}
+
+function formatBundleSelectionLabel(
+  selection: BundleSelection,
+  availableBundles: BundleSelection[],
+): string {
+  const hasDuplicateBundleName = availableBundles.some(
+    (bundle) => bundle.bundle === selection.bundle && bundle.source !== selection.source,
+  );
+
+  if (hasDuplicateBundleName && selection.source) {
+    return `${selection.bundle} (${selection.source})`;
+  }
+
+  return selection.bundle;
 }
