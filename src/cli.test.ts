@@ -96,6 +96,38 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("defaults owner/repo sources to the GitHub registry for add", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "sjquant/ghosts", "core", "--agent", "codex"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/sjquant/ghosts",
+        bundle: "core",
+        protocol: "https",
+        agents: ["codex"],
+        dryRun: false,
+      },
+    });
+  });
+
+  it("normalizes owner/repo.git sources to the GitHub registry for add", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "sjquant/ghosts.git", "core", "--agent", "codex"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/sjquant/ghosts",
+        bundle: "core",
+        protocol: "https",
+        agents: ["codex"],
+        dryRun: false,
+      },
+    });
+  });
+
   it("derives bundle name from repo slug when only a source URL is given", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "github.com/user/react-bundle"])).resolves.toEqual({
@@ -105,6 +137,38 @@ describe("parseCliArgs", () => {
         mode: "stealth",
         source: "github.com/user/react-bundle",
         bundle: "react-bundle",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+      },
+    });
+  });
+
+  it("derives bundle name from the repo slug when owner/repo.git shorthand is given", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "sjquant/ghosts.git"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/sjquant/ghosts",
+        bundle: "ghosts",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+      },
+    });
+  });
+
+  it("derives bundle name from the repo slug when only owner/repo shorthand is given", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "sjquant/ghosts"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        mode: "stealth",
+        source: "github.com/sjquant/ghosts",
+        bundle: "ghosts",
         protocol: "https",
         agents: [],
         dryRun: false,
@@ -243,6 +307,42 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses clear-cache with a normalized GitHub source", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["clear-cache", "sjquant/ghosts"])).resolves.toEqual({
+      kind: "command",
+      command: "clear-cache",
+      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: false },
+    });
+  });
+
+  it("parses --dry-run flag on clear-cache", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["clear-cache", "https://github.com/sjquant/ghosts.git", "--dry-run"])).resolves.toEqual({
+      kind: "command",
+      command: "clear-cache",
+      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: true },
+    });
+  });
+
+  it("normalizes owner/repo.git sources for clear-cache", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["clear-cache", "sjquant/ghosts.git"])).resolves.toEqual({
+      kind: "command",
+      command: "clear-cache",
+      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: false },
+    });
+  });
+
+  it("parses clear-cache --all without a source", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["clear-cache", "--all"])).resolves.toEqual({
+      kind: "command",
+      command: "clear-cache",
+      options: { all: true, dryRun: false },
+    });
+  });
+
   it("parses --ssh flag and sets protocol to ssh", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "--ssh"])).resolves.toEqual({
@@ -341,8 +441,17 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["update", "a", "b"])).rejects.toThrowError(
       /Command update accepts at most 1 positional argument/,
     );
+    await expect(parseCliArgs(["clear-cache", "a", "b"])).rejects.toThrowError(
+      /Command clear-cache accepts at most 1 positional argument/,
+    );
     await expect(parseCliArgs(["remove"])).rejects.toThrowError(
       /missing required argument 'bundle'/,
+    );
+    await expect(parseCliArgs(["clear-cache"])).rejects.toThrowError(
+      /Command clear-cache requires a source or --all/,
+    );
+    await expect(parseCliArgs(["clear-cache", "sjquant/ghosts", "--all"])).rejects.toThrowError(
+      /Command clear-cache accepts either a source or --all/,
     );
   });
 });
@@ -399,6 +508,86 @@ describe("run", () => {
     expect(JSON.parse(output)).toEqual({
       bundles: [{ name: "react-expert", tools: ["claude-code"] }],
     });
+  });
+
+  it("clears a cached source without requiring a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cachedSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
+    fs.mkdirSync(cachedSourceDir, { recursive: true });
+    fs.writeFileSync(path.join(cachedSourceDir, "README.md"), "# ghosts\n");
+
+    // When / Then
+    await expect(run(["clear-cache", "sjquant/ghosts"], { homeDir })).resolves.toBe(
+      "Cleared cache for github.com/sjquant/ghosts",
+    );
+    expect(pathExists(cachedSourceDir)).toBe(false);
+  });
+
+  it("dry-runs clear-cache without deleting the cached source", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cachedSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
+    fs.mkdirSync(cachedSourceDir, { recursive: true });
+    fs.writeFileSync(path.join(cachedSourceDir, "README.md"), "# ghosts\n");
+
+    // When / Then
+    await expect(run(["clear-cache", "sjquant/ghosts", "--dry-run"], { homeDir })).resolves.toBe(
+      "DRY RUN: Would clear cache for github.com/sjquant/ghosts",
+    );
+    expect(pathExists(cachedSourceDir)).toBe(true);
+  });
+
+  it("reports when clear-cache targets a missing source", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    // When / Then
+    await expect(run(["clear-cache", "sjquant/ghosts"], { homeDir })).resolves.toBe(
+      "No cached source found for github.com/sjquant/ghosts",
+    );
+  });
+
+  it("clears all cached sources without requiring a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const firstSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
+    const secondSourceDir = path.join(homeDir, ".skul", "library", "github.com", "acme", "shared-bundles");
+    fs.mkdirSync(firstSourceDir, { recursive: true });
+    fs.mkdirSync(secondSourceDir, { recursive: true });
+
+    // When / Then
+    await expect(run(["clear-cache", "--all"], { homeDir })).resolves.toBe(
+      "Cleared cache for 2 source(s)",
+    );
+    expect(pathExists(firstSourceDir)).toBe(false);
+    expect(pathExists(secondSourceDir)).toBe(false);
+  });
+
+  it("dry-runs clear-cache --all without deleting cached sources", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const firstSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
+    const secondSourceDir = path.join(homeDir, ".skul", "library", "github.com", "acme", "shared-bundles");
+    fs.mkdirSync(firstSourceDir, { recursive: true });
+    fs.mkdirSync(secondSourceDir, { recursive: true });
+
+    // When / Then
+    await expect(run(["clear-cache", "--all", "--dry-run"], { homeDir })).resolves.toBe(
+      "DRY RUN: Would clear cache for 2 source(s)",
+    );
+    expect(pathExists(firstSourceDir)).toBe(true);
+    expect(pathExists(secondSourceDir)).toBe(true);
+  });
+
+  it("reports when clear-cache --all finds no cached sources", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    // When / Then
+    await expect(run(["clear-cache", "--all"], { homeDir })).resolves.toBe(
+      "No cached sources found",
+    );
   });
 
   it("returns JSON status when --json is passed", async () => {
