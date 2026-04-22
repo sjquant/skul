@@ -57,7 +57,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
   const cwd = options.cwd ?? process.cwd();
 
   if (parsed.kind === "help") {
-    return createHelpText();
+    return createHelpText(parsed.command);
   }
 
   if (parsed.command === "add") {
@@ -1323,7 +1323,9 @@ function findCachedBundleWithGuidance(options: {
       );
 
       if (availableBundles.length === 0) {
-        throw error;
+        throw new Error(
+          `${error.message}\n\nNo bundles are cached yet. Add one from a Git source:\n  skul add github.com/<owner>/<repo> <bundle-name>`,
+        );
       }
 
       throw new Error(
