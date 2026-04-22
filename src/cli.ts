@@ -10,7 +10,7 @@ import { type ToolName } from "./tool-mapping";
 export type CommandName = "add" | "list" | "status" | "check" | "update" | "reset" | "remove" | "apply";
 
 export type CliParseResult =
-  | { kind: "help" }
+  | { kind: "help"; command?: CommandName }
   | { kind: "command"; command: "list"; options: { json: boolean } }
   | { kind: "command"; command: "status"; options: { json: boolean } }
   | { kind: "command"; command: "check"; options: { bundle?: string; json: boolean } }
@@ -232,12 +232,36 @@ function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
   return clackPromptsModulePromise;
 }
 
-export function createHelpText(): string {
-  return createProgram({
+const GETTING_STARTED = `
+Getting Started:
+  1. Cache a bundle source:  skul add github.com/<owner>/<repo> <bundle-name>
+  2. Check what's cached:    skul list
+  3. See current status:     skul status
+  4. Re-apply in a worktree: skul apply
+
+Examples:
+  skul add github.com/owner/ai-bundles react-expert
+  skul add react-expert --agent claude-code
+  skul add github.com/owner/ai-bundles react-expert --ssh
+  skul list
+  skul status
+`;
+
+export function createHelpText(command?: CommandName): string {
+  const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
     resolveFileConflict: async () => ({ action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX }),
     confirmManagedFileRemoval: async () => true,
-  }).helpInformation();
+  });
+
+  if (command) {
+    const subcommand = program.commands.find((c) => c.name() === command);
+    if (subcommand) {
+      return subcommand.helpInformation();
+    }
+  }
+
+  return program.helpInformation() + GETTING_STARTED;
 }
 
 export async function parseCliArgs(
@@ -252,6 +276,11 @@ export async function parseCliArgs(
 
   if (!COMMANDS.includes(command as CommandName)) {
     throw new Error(`Unknown command: ${command}`);
+  }
+
+  const restArgs = argv.slice(1);
+  if (restArgs.includes("--help") || restArgs.includes("-h")) {
+    return { kind: "help", command: command as CommandName };
   }
 
   const context: { result?: CliParseResult } = {};
