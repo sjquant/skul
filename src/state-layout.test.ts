@@ -12,7 +12,6 @@ describe("resolveGlobalStateLayout", () => {
       rootDir: path.join("/Users/dev", ".skul"),
       registryFile: path.join("/Users/dev", ".skul", "registry.json"),
       libraryDir: path.join("/Users/dev", ".skul", "library"),
-      configFile: path.join("/Users/dev", ".skul", "config.json"),
     });
     expect(layout.resolveLibraryPath).toBeTypeOf("function");
   });

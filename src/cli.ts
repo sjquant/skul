@@ -32,7 +32,7 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "add";
-      options: { mode: "stealth"; bundle: string; source?: string; protocol: "https" | "ssh"; agents: ToolName[]; dryRun: boolean };
+      options: { bundle: string; source?: string; protocol: "https" | "ssh"; agents: ToolName[]; dryRun: boolean };
     }
   | {
       kind: "command";
@@ -297,7 +297,9 @@ function createProgram(
 
   program
     .name("skul")
-    .description("Manage project-scoped AI configuration bundles")
+    .description(
+      "Manage project-scoped AI configuration bundles\n\nEnv vars:\n  SKUL_NO_TUI=1   Run in headless/non-interactive mode (auto-resolves prompts)",
+    )
     .helpCommand(false)
     .configureOutput({
       writeOut: () => undefined,
@@ -323,7 +325,6 @@ function createProgram(
           kind: "command",
           command: "add",
           options: {
-            mode: "stealth",
             ...(selection.source !== undefined ? { source: selection.source } : {}),
             bundle: selection.bundle,
             protocol: selection.protocol ?? "https",
@@ -344,14 +345,14 @@ function createProgram(
           context.result = {
             kind: "command",
             command: "add",
-            options: { mode: "stealth", source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, agents, dryRun },
+            options: { source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, agents, dryRun },
           };
         } catch {
           // Not a valid source — treat as a plain bundle name.
           context.result = {
             kind: "command",
             command: "add",
-            options: { mode: "stealth", bundle: source, protocol: "https", agents, dryRun },
+            options: { bundle: source, protocol: "https", agents, dryRun },
           };
         }
         return;
@@ -364,7 +365,7 @@ function createProgram(
       context.result = {
         kind: "command",
         command: "add",
-        options: { mode: "stealth", source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, agents, dryRun },
+        options: { source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, agents, dryRun },
       };
     });
 

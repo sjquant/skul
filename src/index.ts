@@ -210,7 +210,7 @@ function renderBundleList(options: { libraryDir: string; json: boolean }): strin
     "",
     ...bundles.map((bundle) => {
       const tools = Object.keys(bundle.manifest.tools).join(", ");
-      return `${bundle.bundle} (${tools})`;
+      return `${bundle.bundle} [${bundle.source}] (${tools})`;
     }),
   ].join("\n");
 }
@@ -421,6 +421,9 @@ function renderUpdateCheck(options: {
 
   return results
     .map((result) => {
+      if (result.status === "local-only") {
+        return `${result.bundle}: local-only (no remote source to check)`;
+      }
       const updateSuffix =
         result.status === "update-available" && result.current_commit && result.latest_commit
           ? ` ${shortCommit(result.current_commit)} -> ${shortCommit(result.latest_commit)}`
@@ -449,8 +452,10 @@ async function updateBundles(options: {
     return "No bundles configured for this repository";
   }
 
+  const skippedLocalOnly: string[] = [];
   const updatePlans = entries.flatMap((entry) => {
     if (!entry.source) {
+      skippedLocalOnly.push(entry.bundle);
       return [];
     }
 
@@ -476,17 +481,20 @@ async function updateBundles(options: {
     }];
   });
 
+  const localOnlyNote = skippedLocalOnly.length > 0
+    ? `Skipped (local-only): ${skippedLocalOnly.join(", ")}\n`
+    : "";
+
   if (updatePlans.length === 0) {
-    return "All selected bundles are already up to date";
+    return `${localOnlyNote}All selected bundles are already up to date`.trim();
   }
 
   if (options.dryRun) {
-    return updatePlans
-      .map(
-        ({ entry, currentCommit, remoteStatus }) =>
-          `DRY RUN: Would update ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
-      )
-      .join("\n");
+    const dryLines = updatePlans.map(
+      ({ entry, currentCommit, remoteStatus }) =>
+        `DRY RUN: Would update ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
+    );
+    return [localOnlyNote, ...dryLines].filter(Boolean).join("\n");
   }
 
   const existingWorktreeState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
@@ -600,7 +608,7 @@ async function updateBundles(options: {
 
   writeRegistryFile(options.registryFile, registry);
 
-  return outputLines.join("\n");
+  return [localOnlyNote, ...outputLines].filter(Boolean).join("\n");
 }
 
 async function applyBundle(options: {

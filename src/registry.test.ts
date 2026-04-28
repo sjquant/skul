@@ -74,7 +74,6 @@ describe("parseRegistry", () => {
         repos: {
           [REPO_FINGERPRINT]: {
             repo_root: "/Users/dev/project",
-            remote_url: "git@github.com:org/project.git",
             desired_state: [{ bundle: "react-expert", protocol: "https" }],
           },
         },
@@ -102,7 +101,6 @@ describe("parseRegistry", () => {
       repos: {
         [REPO_FINGERPRINT]: {
           repo_root: "/Users/dev/project",
-          remote_url: "git@github.com:org/project.git",
           desired_state: [{ bundle: "react-expert", protocol: "https" }],
         },
       },
