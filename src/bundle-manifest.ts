@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { listToolDefinitions, type ToolDefinition, type ToolName, type ToolTargetName } from "./tool-mapping";
 
-const MANIFEST_FILE_NAME = "manifest.json";
+export const MANIFEST_FILE_NAME = "manifest.json";
 
 export interface BundleManifestTarget {
   path: string;

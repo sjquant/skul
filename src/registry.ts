@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { pathDepth } from "./fs-utils";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
 
 const KNOWN_TOOL_NAMES = new Set<ToolName>(listToolDefinitions().map((t) => t.name));
@@ -468,9 +469,6 @@ function expectBoolean(input: unknown, label: string): boolean {
   return input;
 }
 
-function pathDepth(value: string): number {
-  return value.split(path.sep).length;
-}
 
 function expectProtocol(input: unknown, label: string): "https" | "ssh" {
   if (input !== "https" && input !== "ssh") {

@@ -1,3 +1,4 @@
+import { escapeRegExp } from "./fs-utils";
 import { getToolDefinition, type ToolName, type ToolTargetName } from "./tool-mapping";
 
 type ScalarValue = string | boolean;
@@ -599,6 +600,3 @@ function isMetadataMap(value: MetadataValue): value is MetadataMap {
   return typeof value === "object" && value !== null;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

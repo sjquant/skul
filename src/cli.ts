@@ -5,7 +5,9 @@ import {
   normalizeConflictDestination,
   normalizeConflictPrefix,
 } from "./conflict-resolution";
-import { type ToolName } from "./tool-mapping";
+import { listToolDefinitions, type ToolName } from "./tool-mapping";
+
+const VALID_TOOL_NAMES = new Set<string>(listToolDefinitions().map((t) => t.name));
 
 export type CommandName =
   | "add"
@@ -24,7 +26,7 @@ export type CliParseResult =
   | { kind: "command"; command: "status"; options: { json: boolean } }
   | { kind: "command"; command: "check"; options: { bundle?: string; json: boolean } }
   | { kind: "command"; command: "update"; options: { bundle?: string; dryRun: boolean } }
-  | { kind: "command"; command: "apply" }
+  | { kind: "command"; command: "apply"; options: { dryRun: boolean } }
   | { kind: "command"; command: "reset"; options: { dryRun: boolean } }
   | { kind: "command"; command: "clear-cache"; options: { source?: string; all: boolean; dryRun: boolean } }
   | {
@@ -87,7 +89,9 @@ export function createHeadlessPromptClient(): PromptClient {
       conflictPath: string,
       suggestedDestination: string,
     ): Promise<FileConflictResolution> {
-      // In headless mode, auto-apply the default prefix to avoid blocking.
+      process.stderr.write(
+        `skul: conflict on ${conflictPath} — auto-prefixing with "${DEFAULT_CONFLICT_PREFIX}" (headless mode)\n`,
+      );
       return { action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX };
     },
     async confirmManagedFileRemoval(
@@ -112,8 +116,8 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       if (availableBundles.length === 0) {
         throw new Error(
           source
-            ? `Interactive bundle selection is not available for source ${source} yet`
-            : "Interactive bundle selection is not available until bundle discovery is implemented",
+            ? `No bundles cached for ${source}. Run 'skul add ${source} <bundle>' to fetch one first`
+            : "No bundles cached. Run 'skul add <source> <bundle>' to fetch one first",
         );
       }
 
@@ -277,6 +281,11 @@ export async function parseCliArgs(
 }
 
 function collectOption(value: string, previous: ToolName[]): ToolName[] {
+  if (!VALID_TOOL_NAMES.has(value)) {
+    throw new Error(
+      `Unknown agent: ${value}\nValid agents: ${Array.from(VALID_TOOL_NAMES).sort().join(", ")}`,
+    );
+  }
   return [...previous, value as ToolName];
 }
 
@@ -404,8 +413,9 @@ function createProgram(
   program
     .command("apply")
     .description("Materialize all desired-state bundles into the current worktree")
-    .action(() => {
-      context.result = { kind: "command", command: "apply" };
+    .option("-n, --dry-run", "Preview what would be written without making any changes")
+    .action((opts: { dryRun?: boolean }) => {
+      context.result = { kind: "command", command: "apply", options: { dryRun: opts.dryRun ?? false } };
     });
 
   program

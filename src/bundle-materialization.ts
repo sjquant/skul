@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { type BundleManifest } from "./bundle-manifest";
+import { pathDepth } from "./fs-utils";
 import { translateAgent, translateCommand, translateSkill } from "./bundle-translation";
 import { type FileConflictResolution } from "./cli";
 import {
@@ -218,9 +219,6 @@ function ensureOwnedParentDirectories(
   }
 }
 
-function pathDepth(value: string): number {
-  return value.split(path.sep).length;
-}
 
 function assertNotSymlink(entry: fs.Dirent, parentDir: string): void {
   if (entry.isSymbolicLink()) {

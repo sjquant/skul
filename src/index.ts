@@ -140,6 +140,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       prompts,
       registryFile: stateLayout.registryFile,
       libraryDir: stateLayout.libraryDir,
+      dryRun: parsed.options.dryRun,
     });
   }
 
@@ -917,6 +918,7 @@ async function applyWorktree(options: {
   prompts: PromptClient;
   registryFile: string;
   libraryDir: string;
+  dryRun: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "apply");
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -970,7 +972,18 @@ async function applyWorktree(options: {
   });
 
   if (applyPlans.length === 0) {
-    return "All bundles are already materialized";
+    return options.dryRun ? "DRY RUN: All bundles are already materialized" : "All bundles are already materialized";
+  }
+
+  if (options.dryRun) {
+    const lines = [
+      ...cloneLines.map((l) => `DRY RUN: ${l}`),
+      ...applyPlans.map(({ entry, cachedBundle }) => {
+        const tools = entry.tools ?? Object.keys(cachedBundle.manifest.tools);
+        return `DRY RUN: Would apply ${entry.bundle} for ${tools.join(", ")}`;
+      }),
+    ];
+    return lines.join("\n");
   }
 
   let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
@@ -1267,8 +1280,9 @@ function shortCommit(commit: string): string {
 function readRegistryWithGuidance(registryFile: string) {
   try {
     return readRegistryFile(registryFile);
-  } catch {
-    throw new Error(`Registry is corrupted. Please repair or remove ${registryFile} and try again.`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Registry is corrupted (${detail}). Please repair or remove ${registryFile} and try again.`);
   }
 }
 
@@ -1348,7 +1362,11 @@ function captureManagedFileFingerprints(
 }
 
 function fingerprintFile(filePath: string): string {
-  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  try {
+    return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  } catch {
+    return "";
+  }
 }
 
 if (require.main === module) {

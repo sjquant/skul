@@ -42,7 +42,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(checkArgs)).resolves.toEqual({ kind: "command", command: "check", options: { json: false } });
     await expect(parseCliArgs(updateArgs)).resolves.toEqual({ kind: "command", command: "update", options: { dryRun: false } });
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset", options: { dryRun: false } });
-    await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply" });
+    await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply", options: { dryRun: false } });
   });
 
   it("parses add in interactive, cached, and explicit source modes", async () => {
