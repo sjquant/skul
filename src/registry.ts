@@ -463,7 +463,6 @@ function expectBoolean(input: unknown, label: string): boolean {
   return input;
 }
 
-
 function expectProtocol(input: unknown, label: string): "https" | "ssh" {
   if (input !== "https" && input !== "ssh") {
     throw new Error(`${label} must be "https" or "ssh"`);

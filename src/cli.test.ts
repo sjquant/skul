@@ -2520,6 +2520,41 @@ describe("run", () => {
     expect(pathExists(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
   });
 
+  it("dry-runs apply reporting intent without cloning when source is not cached", async () => {
+    // Given: desired state references a remote source, but nothing is cached locally yet
+    const homeDir = createHomeDir();
+    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: { name: "react-expert", tools: { "claude-code": { skills: { path: ".claude/skills" } } } },
+      files: { ".claude/skills/react/SKILL.md": "# react\n" },
+    });
+
+    // Set up desired state manually without materializing (simulate a fresh worktree)
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    let registry = readRegistryFile(registryFile);
+    registry = upsertRepoState(registry, repoFingerprint, {
+      repo_root: repoRoot,
+      desired_state: [{ bundle, source, protocol: "https" }],
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // Remove the cached source so it is not available locally
+    fs.rmSync(path.join(homeDir, ".skul", "library", ...source.split("/")), { recursive: true, force: true });
+
+    // When
+    const output = await run(["apply", "--dry-run"], { homeDir, cwd: repoRoot });
+
+    // Then: output reports intent without cloning
+    expect(output).toMatch(new RegExp(`DRY RUN: Would clone ${source.replace(/\./g, "\\.")} then apply ${bundle}`));
+
+    // Then: no clone was performed
+    expect(pathExists(path.join(homeDir, ".skul", "library", ...source.split("/")))).toBe(false);
+
+    void remoteRepoPath;
+  });
+
   it("rejects unknown --agent names with a helpful error", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "--agent", "copilot"])).rejects.toThrowError(

@@ -10,7 +10,7 @@ export function safeReaddirSync(directory: string): fs.Dirent[] {
 }
 
 export function pathDepth(value: string): number {
-  return value.split(path.sep).length;
+  return value.split("/").length;
 }
 
 export function escapeRegExp(value: string): string {
