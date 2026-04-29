@@ -5,6 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import pc from "picocolors";
+
 import { detectSourceProtocol, findCachedBundle, listCachedBundles, type CachedBundle } from "./bundle-discovery";
 import {
   clearAllCachedSources,
@@ -204,20 +206,20 @@ function renderBundleList(options: { libraryDir: string; json: boolean }): strin
 
   if (bundles.length === 0) {
     return [
-      "Available Bundles",
+      pc.bold("Available Bundles"),
       "",
       "No cached bundles found.",
       "",
-      "Add one with: skul add github.com/<owner>/<repo> <bundle-name>",
+      pc.dim("Add one with: skul add github.com/<owner>/<repo> <bundle-name>"),
     ].join("\n");
   }
 
   return [
-    "Available Bundles",
+    pc.bold("Available Bundles"),
     "",
     ...bundles.map((bundle) => {
       const tools = Object.keys(bundle.manifest.tools).join(", ");
-      return `${bundle.bundle} [${bundle.source}] (${tools})`;
+      return `${pc.cyan(bundle.bundle)} [${bundle.source}] ${pc.dim(`(${tools})`)}`;
     }),
   ].join("\n");
 }
@@ -318,33 +320,34 @@ function renderStatus(options: {
     );
   }
 
-  const lines: string[] = ["Repository Desired State"];
+  const lines: string[] = [pc.bold("Repository Desired State")];
 
   if (repoState && repoState.desired_state.length > 0) {
     for (const entry of repoState.desired_state) {
       const toolSuffix = entry.tools ? ` (${entry.tools.join(", ")})` : "";
-      lines.push(`Bundle: ${entry.bundle}${toolSuffix}`);
+      lines.push(`Bundle: ${pc.cyan(entry.bundle)}${toolSuffix}`);
     }
   } else {
-    lines.push("Configured: no");
+    lines.push(pc.dim("Configured: no"));
+    lines.push(pc.dim('Run "skul add <bundle>" to get started.'));
   }
 
-  lines.push("", "Current Worktree", `Path: ${gitContext.worktreeRoot}`);
+  lines.push("", pc.bold("Current Worktree"), `Path: ${gitContext.worktreeRoot}`);
 
   if (!worktreeState) {
-    lines.push("Materialized: no");
+    lines.push(pc.dim("Materialized: no"));
 
     if (repoState && repoState.desired_state.length > 0) {
-      lines.push('Suggested Action: run "skul apply"');
+      lines.push(pc.yellow('Suggested Action: run "skul apply"'));
     }
 
     return lines.join("\n");
   }
 
-  lines.push("Materialized: yes", "", "Files:");
+  lines.push(pc.green("Materialized: yes"), "", "Files:");
 
   for (const [bundleName, bundleState] of Object.entries(worktreeState.materialized_state.bundles)) {
-    lines.push(`  Bundle: ${bundleName}`);
+    lines.push(`  Bundle: ${pc.cyan(bundleName)}`);
     for (const [toolName, toolState] of Object.entries(bundleState.tools)) {
       lines.push(`    Tool: ${toolName}`);
       for (const file of toolState.files) {
@@ -353,8 +356,8 @@ function renderStatus(options: {
     }
   }
 
-  lines.push("", "Git Exclude:");
-  lines.push(`  ${hasSkulExcludeBlock({ gitDir: gitContext.gitDir }) ? "configured" : "missing"}`);
+  lines.push("", pc.bold("Git Exclude:"));
+  lines.push(`  ${hasSkulExcludeBlock({ gitDir: gitContext.gitDir }) ? pc.green("configured") : pc.yellow("missing")}`);
 
   return lines.join("\n");
 }
@@ -493,13 +496,16 @@ async function updateBundles(options: {
     : "";
 
   if (updatePlans.length === 0) {
+    if (skippedLocalOnly.length === entries.length) {
+      return `No remote-backed bundles to update (${skippedLocalOnly.join(", ")} ${skippedLocalOnly.length === 1 ? "is" : "are"} local-only).`;
+    }
     return [localOnlyNote, "All selected bundles are already up to date"].filter(Boolean).join("\n");
   }
 
   if (options.dryRun) {
     const dryLines = updatePlans.map(
       ({ entry, currentCommit, remoteStatus }) =>
-        `DRY RUN: Would update ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
+        `${pc.yellow("DRY RUN:")} Would update ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
     );
     return [localOnlyNote, ...dryLines].filter(Boolean).join("\n");
   }
@@ -581,7 +587,7 @@ async function updateBundles(options: {
     }
 
     outputLines.push(
-      `Updated ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
+      pc.green(`Updated ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`),
     );
   }
 
@@ -634,7 +640,7 @@ async function applyBundle(options: {
   const cloneLines: string[] = [];
   if (options.source) {
     const { cloned } = fetchRemoteSource({ source: options.source, libraryDir: options.libraryDir, protocol: options.protocol });
-    if (cloned) cloneLines.push(`Cloned ${options.source}`);
+    if (cloned) cloneLines.push(pc.dim(`Cloned ${options.source}`));
   }
   const sourceRevision = options.source
     ? readCachedSourceRevision({
@@ -666,7 +672,7 @@ async function applyBundle(options: {
   const toolLabel = (hasToolSelection ? options.agents : availableTools).join(", ");
 
   if (options.dryRun) {
-    return [...cloneLines, `DRY RUN: Would apply ${cachedBundle.bundle} for ${toolLabel}`].join("\n");
+    return [...cloneLines, `${pc.yellow("DRY RUN:")} Would apply ${cachedBundle.bundle} for ${toolLabel}`].join("\n");
   }
 
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -776,7 +782,7 @@ async function applyBundle(options: {
   });
   writeRegistryFile(options.registryFile, registry);
 
-  return [...cloneLines, `Applied ${cachedBundle.bundle} for ${toolLabel}`].join("\n");
+  return [...cloneLines, pc.green(`Applied ${cachedBundle.bundle} for ${toolLabel}`)].join("\n");
 }
 
 async function resetWorktree(options: {
@@ -792,14 +798,14 @@ async function resetWorktree(options: {
 
   if (options.dryRun) {
     if (!worktreeState) {
-      return "DRY RUN: No Skul-managed files found in the current worktree";
+      return `${pc.yellow("DRY RUN:")} No Skul-managed files found in the current worktree`;
     }
 
     const allFiles = Object.values(worktreeState.materialized_state.bundles).flatMap(
       (bundleState) => Object.values(bundleState.tools).flatMap((toolState) => toolState.files),
     );
 
-    const lines = [`DRY RUN: Would remove ${allFiles.length} file(s) from ${gitContext.worktreeRoot}`];
+    const lines = [`${pc.yellow("DRY RUN:")} Would remove ${allFiles.length} file(s) from ${gitContext.worktreeRoot}`];
     for (const file of allFiles) {
       lines.push(`  ${file}`);
     }
@@ -838,7 +844,7 @@ async function resetWorktree(options: {
     return "No Skul-managed files found in the current worktree";
   }
 
-  return "Reset Skul-managed files from the current worktree";
+  return pc.green("Reset Skul-managed files from the current worktree");
 }
 
 async function removeBundle(options: {
@@ -858,20 +864,24 @@ async function removeBundle(options: {
   const bundleMaterializedState = worktreeState?.materialized_state.bundles[options.bundle];
 
   if (!isInDesiredState && !bundleMaterializedState) {
-    throw new Error(`Bundle not found in active set: ${options.bundle}. Run "skul status" to see configured bundles.`);
+    const configured = repoState?.desired_state.map((e) => e.bundle) ?? [];
+    const hint = configured.length > 0
+      ? `Configured bundles: ${configured.join(", ")}`
+      : `No bundles are configured yet. Run "skul add <bundle>" to add one.`;
+    throw new Error(`Bundle not found in active set: ${options.bundle}. ${hint}`);
   }
 
   if (options.dryRun) {
     if (bundleMaterializedState) {
       const files = Object.values(bundleMaterializedState.tools).flatMap((toolState) => toolState.files);
-      const lines = [`DRY RUN: Would remove ${options.bundle} (${files.length} file(s))`];
+      const lines = [`${pc.yellow("DRY RUN:")} Would remove ${options.bundle} (${files.length} file(s))`];
       for (const file of files) {
         lines.push(`  ${file}`);
       }
       return lines.join("\n");
     }
 
-    return `DRY RUN: Would remove ${options.bundle} from desired state (not yet materialized in this worktree)`;
+    return `${pc.yellow("DRY RUN:")} Would remove ${options.bundle} from desired state (not yet materialized in this worktree)`;
   }
 
   if (bundleMaterializedState) {
@@ -925,7 +935,7 @@ async function removeBundle(options: {
 
   writeRegistryFile(options.registryFile, registry);
 
-  return `Removed ${options.bundle}`;
+  return pc.green(`Removed ${options.bundle}`);
 }
 
 async function applyWorktree(options: {
@@ -967,7 +977,7 @@ async function applyWorktree(options: {
       }
       // Non-dry-run: fetch the source so the manifest is available below.
       const { cloned } = fetchRemoteSource({ source: entry.source, libraryDir: options.libraryDir, protocol: entry.protocol });
-      if (cloned) cloneLines.push(`Cloned ${entry.source}`);
+      if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
     }
 
     const cachedBundle = findCachedBundleWithGuidance({
@@ -1081,8 +1091,8 @@ async function applyWorktree(options: {
     writeRegistryFile(options.registryFile, registry);
   }
 
-  const appliedNames = applyPlans.map((plan) => plan.entry.bundle).join(", ");
-  return [...cloneLines, `Applied ${appliedNames}`].join("\n");
+  const appliedNames = applyPlans.map(({ entry }) => entry.bundle).join(", ");
+  return [...cloneLines, pc.green(`Applied ${appliedNames}`)].join("\n");
 }
 
 function isDesiredBundleMaterialized(options: {

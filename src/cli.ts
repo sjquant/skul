@@ -142,11 +142,11 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
     ): Promise<FileConflictResolution> {
       const { isCancel, select, text } = await loadClackPromptsModule();
       const action = await select({
-        message: `Conflict detected: ${conflictPath} already exists`,
+        message: `Conflict: ${conflictPath} already exists`,
         options: [
-          { value: "rename", label: "Rename incoming file" },
-          { value: "prefix", label: `Apply prefix (${suggestedDestination})` },
-          { value: "skip", label: "Skip file" },
+          { value: "rename", label: "Save with a different name (you choose)" },
+          { value: "prefix", label: `Add a prefix to avoid the conflict (saves as ${suggestedDestination})` },
+          { value: "skip", label: "Skip this file (won't be written)" },
         ],
       });
 
