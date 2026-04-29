@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 
 export function safeReaddirSync(directory: string): fs.Dirent[] {
   try {

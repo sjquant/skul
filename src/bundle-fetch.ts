@@ -226,7 +226,7 @@ function removeEmptyLibraryAncestors(currentDir: string, libraryDir: string): vo
   const libraryRoot = path.resolve(libraryDir);
 
   while (directory.startsWith(libraryRoot) && directory !== libraryRoot) {
-    if (fs.readdirSync(directory).length > 0) {
+    if (safeReaddirSync(directory).length > 0) {
       return;
     }
 
@@ -234,7 +234,6 @@ function removeEmptyLibraryAncestors(currentDir: string, libraryDir: string): vo
     directory = path.dirname(directory);
   }
 }
-
 
 function getCloneUrl(source: string, protocol: "https" | "ssh" = "https"): string {
   assertSafeSource(source);

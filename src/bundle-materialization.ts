@@ -219,7 +219,6 @@ function ensureOwnedParentDirectories(
   }
 }
 
-
 function assertNotSymlink(entry: fs.Dirent, parentDir: string): void {
   if (entry.isSymbolicLink()) {
     throw new Error(`Bundle contains a symlink which is not allowed: ${path.join(parentDir, entry.name)}`);
