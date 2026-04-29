@@ -275,8 +275,8 @@ export async function parseCliArgs(
 
   if (!COMMANDS.includes(command as CommandName)) {
     const suggestion = findClosestCommand(command, COMMANDS);
-    const hint = suggestion ? ` Did you mean "${suggestion}"?` : "";
-    throw new Error(`Unknown command: ${command}.${hint}`);
+    const hint = suggestion ? `, did you mean "${suggestion}"?` : "";
+    throw new Error(`Unknown command: "${command}"${hint}`);
   }
 
   const restArgs = argv.slice(1);

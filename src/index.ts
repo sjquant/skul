@@ -46,7 +46,12 @@ import {
 import { resolveGlobalStateLayout } from "./state-layout";
 import { type ToolName } from "./tool-mapping";
 
-const pc = createColors(isColorSupported && !isHeadlessMode());
+// Lazily evaluated so that SKUL_NO_TUI set after module load (e.g. in tests) is respected.
+const pc = new Proxy({} as ReturnType<typeof createColors>, {
+  get(_t, prop: string) {
+    return createColors(isColorSupported && !isHeadlessMode())[prop as keyof ReturnType<typeof createColors>];
+  },
+});
 
 export interface RunOptions {
   homeDir?: string;
@@ -331,7 +336,7 @@ function renderStatus(options: {
     }
   } else {
     lines.push(pc.dim("Configured: no"));
-    lines.push(pc.dim('Run "skul add <bundle>" to get started.'));
+    lines.push(pc.dim('Run "skul add <bundle>" to get started'));
   }
 
   lines.push("", pc.bold("Current Worktree"), `Path: ${gitContext.worktreeRoot}`);
@@ -378,7 +383,7 @@ function renderUpdateCheck(options: {
   const entries = selectDesiredEntries(repoState?.desired_state ?? [], options.bundle, "check");
 
   if (entries.length === 0) {
-    return `No bundles configured for this repository. Run "skul add <bundle>" to add one.`;
+    return `No bundles configured for this repository. Run "skul add <bundle>" to add one`;
   }
 
   const results = entries.map((entry) => {
@@ -445,7 +450,7 @@ function renderUpdateCheck(options: {
 
   const hasUpdates = results.some((r) => r.status === "update-available");
   if (hasUpdates) {
-    lines.push("", pc.dim('Run "skul update" to apply available updates.'));
+    lines.push("", pc.dim('Run "skul update" to apply available updates'));
   }
 
   return lines.join("\n");
@@ -466,7 +471,7 @@ async function updateBundles(options: {
   const entries = selectDesiredEntries(repoState?.desired_state ?? [], options.bundle, "update");
 
   if (entries.length === 0) {
-    return `No bundles configured for this repository. Run "skul add <bundle>" to add one.`;
+    return `No bundles configured for this repository. Run "skul add <bundle>" to add one`;
   }
 
   const skippedLocalOnly: string[] = [];
@@ -504,7 +509,7 @@ async function updateBundles(options: {
 
   if (updatePlans.length === 0) {
     if (skippedLocalOnly.length === entries.length) {
-      return `No remote-backed bundles to update (${skippedLocalOnly.join(", ")} ${skippedLocalOnly.length === 1 ? "is" : "are"} local-only).`;
+      return `No remote-backed bundles to update (${skippedLocalOnly.join(", ")} ${skippedLocalOnly.length === 1 ? "is" : "are"} local-only)`;
     }
     return [localOnlyNote, "All selected bundles are already up to date"].filter(Boolean).join("\n");
   }
@@ -874,7 +879,7 @@ async function removeBundle(options: {
     const configured = repoState?.desired_state.map((e) => e.bundle) ?? [];
     const hint = configured.length > 0
       ? `Configured bundles: ${configured.join(", ")}`
-      : `No bundles are configured yet. Run "skul add <bundle>" to add one.`;
+      : `No bundles are configured yet. Run "skul add <bundle>" to add one`;
     throw new Error(`Bundle not found in active set: ${options.bundle}. ${hint}`);
   }
 
@@ -957,7 +962,7 @@ async function applyWorktree(options: {
   const repoState = registry.repos[gitContext.repoFingerprint];
 
   if (!repoState || repoState.desired_state.length === 0) {
-    return `No bundles configured for this repository. Run "skul add <bundle>" to add one.`;
+    return `No bundles configured for this repository. Run "skul add <bundle>" to add one`;
   }
 
   type ApplyPlan =
@@ -1255,7 +1260,7 @@ function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "c
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {
-    throw new Error(`skul ${command} requires a Git repository. Run "git init" to initialize one.`);
+    throw new Error(`skul ${command} requires a Git repository. Run "git init" to initialize one`);
   }
 
   return gitContext;

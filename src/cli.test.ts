@@ -406,7 +406,7 @@ describe("parseCliArgs", () => {
 
   it("rejects unknown commands and invalid arity", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["deploy"])).rejects.toThrowError(/Unknown command: deploy/);
+    await expect(parseCliArgs(["deploy"])).rejects.toThrowError(/Unknown command: "deploy"/);
     await expect(parseCliArgs(["list", "extra"])).rejects.toThrowError(
       /Command list does not accept positional arguments/,
     );
@@ -443,6 +443,24 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["clear-cache", "sjquant/ghosts", "--all"])).rejects.toThrowError(
       /Command clear-cache accepts either a source or --all/,
     );
+  });
+
+  it("suggests a close command when an unknown command is typed", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["addd"])).rejects.toThrowError(/did you mean "add"\?/);
+    await expect(parseCliArgs(["statuss"])).rejects.toThrowError(/did you mean "status"\?/);
+  });
+
+  it("does not suggest a command when the input is too different", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["foobar"])).rejects.toThrowError(/Unknown command: "foobar"$/);
+  });
+
+  it("returns per-command help when --help follows a known command", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "--help"])).resolves.toEqual({ kind: "help", command: "add" });
+    await expect(parseCliArgs(["status", "--help"])).resolves.toEqual({ kind: "help", command: "status" });
+    await expect(parseCliArgs(["list", "-h"])).resolves.toEqual({ kind: "help", command: "list" });
   });
 });
 
@@ -654,7 +672,23 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      `react-expert: update-available ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}\n\nRun "skul update" to apply available updates.`,
+      `react-expert: update-available ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}\n\nRun "skul update" to apply available updates`,
+    );
+  });
+
+  it("reports a specific message when all bundles are local-only during update", async () => {
+    // Given — bundle is in the library but added without a source, so no source is tracked in the registry
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "local-bundle", {
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "local-bundle", ".claude/skills/local/SKILL.md", "# local\n");
+    await run(["add", "local-bundle"], { homeDir, cwd: repoRoot });
+
+    // When / Then
+    await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "No remote-backed bundles to update (local-bundle is local-only)",
     );
   });
 
@@ -2052,6 +2086,22 @@ describe("run", () => {
     );
   });
 
+  it("includes configured bundle names in the error when removing an unknown bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When / Then
+    await expect(run(["remove", "nonexistent-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Configured bundles: react-expert/,
+    );
+  });
+
   it("surfaces a clear error when remove runs outside a Git repository", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -2213,7 +2263,7 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["apply"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      `No bundles configured for this repository. Run "skul add <bundle>" to add one.`,
+      `No bundles configured for this repository. Run "skul add <bundle>" to add one`,
     );
   });
 
@@ -2577,14 +2627,23 @@ function writeManifest(homeDir: string, source: string, bundle: string, manifest
   fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 }
 
+function writeBundleManifest(homeDir: string, source: string | undefined, bundle: string, manifest: object): void {
+  const libraryDir = path.join(homeDir, ".skul", "library");
+  const bundleDir = source ? path.join(libraryDir, ...source.split("/"), bundle) : path.join(libraryDir, bundle);
+  fs.mkdirSync(bundleDir, { recursive: true });
+  fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+}
+
 function writeBundleFile(
   homeDir: string,
-  source: string,
+  source: string | undefined,
   bundle: string,
   relativePath: string,
   content: string,
 ): void {
-  const filePath = path.join(homeDir, ".skul", "library", ...source.split("/"), bundle, ...relativePath.split("/"));
+  const libraryDir = path.join(homeDir, ".skul", "library");
+  const bundleDir = source ? path.join(libraryDir, ...source.split("/"), bundle) : path.join(libraryDir, bundle);
+  const filePath = path.join(bundleDir, ...relativePath.split("/"));
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
 }
