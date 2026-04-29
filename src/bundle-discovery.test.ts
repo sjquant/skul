@@ -53,6 +53,8 @@ describe("normalizeBundleSource", () => {
     ["empty source", "", /source is required/i],
     ["source with query string", "https://github.com/user/ai-vault?ref=main", /unsupported git source/i],
     ["source without owner and repo", "github.com/user", /unsupported git source/i],
+    ["owner/repo shorthand with dotted owner (treated as host)", "acme.io/repo", /unsupported git source/i],
+    ["owner/repo shorthand with colon in owner (SSH-style)", "acme:user/repo", /unsupported git source/i],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given
     const normalize = () => normalizeBundleSource(input);

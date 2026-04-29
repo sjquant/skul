@@ -5,10 +5,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { detectSourceProtocol, findCachedBundle, listCachedBundles } from "./bundle-discovery";
+import { detectSourceProtocol, findCachedBundle, listCachedBundles, type CachedBundle } from "./bundle-discovery";
 import {
   clearAllCachedSources,
   clearCachedSource,
+  type CachedSourceRevision,
   fetchRemoteSource,
   inspectRemoteSource,
   listCachedSources,
@@ -140,6 +141,7 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
       prompts,
       registryFile: stateLayout.registryFile,
       libraryDir: stateLayout.libraryDir,
+      dryRun: parsed.options.dryRun,
     });
   }
 
@@ -209,7 +211,7 @@ function renderBundleList(options: { libraryDir: string; json: boolean }): strin
     "",
     ...bundles.map((bundle) => {
       const tools = Object.keys(bundle.manifest.tools).join(", ");
-      return `${bundle.bundle} (${tools})`;
+      return `${bundle.bundle} [${bundle.source}] (${tools})`;
     }),
   ].join("\n");
 }
@@ -420,6 +422,9 @@ function renderUpdateCheck(options: {
 
   return results
     .map((result) => {
+      if (result.status === "local-only") {
+        return `${result.bundle}: local-only (no remote source to check)`;
+      }
       const updateSuffix =
         result.status === "update-available" && result.current_commit && result.latest_commit
           ? ` ${shortCommit(result.current_commit)} -> ${shortCommit(result.latest_commit)}`
@@ -448,8 +453,10 @@ async function updateBundles(options: {
     return "No bundles configured for this repository";
   }
 
+  const skippedLocalOnly: string[] = [];
   const updatePlans = entries.flatMap((entry) => {
     if (!entry.source) {
+      skippedLocalOnly.push(entry.bundle);
       return [];
     }
 
@@ -475,17 +482,20 @@ async function updateBundles(options: {
     }];
   });
 
+  const localOnlyNote = skippedLocalOnly.length > 0
+    ? `Skipped (local-only): ${skippedLocalOnly.join(", ")}`
+    : "";
+
   if (updatePlans.length === 0) {
-    return "All selected bundles are already up to date";
+    return [localOnlyNote, "All selected bundles are already up to date"].filter(Boolean).join("\n");
   }
 
   if (options.dryRun) {
-    return updatePlans
-      .map(
-        ({ entry, currentCommit, remoteStatus }) =>
-          `DRY RUN: Would update ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
-      )
-      .join("\n");
+    const dryLines = updatePlans.map(
+      ({ entry, currentCommit, remoteStatus }) =>
+        `DRY RUN: Would update ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
+    );
+    return [localOnlyNote, ...dryLines].filter(Boolean).join("\n");
   }
 
   const existingWorktreeState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
@@ -599,7 +609,7 @@ async function updateBundles(options: {
 
   writeRegistryFile(options.registryFile, registry);
 
-  return outputLines.join("\n");
+  return [localOnlyNote, ...outputLines].filter(Boolean).join("\n");
 }
 
 async function applyBundle(options: {
@@ -917,6 +927,7 @@ async function applyWorktree(options: {
   prompts: PromptClient;
   registryFile: string;
   libraryDir: string;
+  dryRun: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "apply");
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -926,14 +937,16 @@ async function applyWorktree(options: {
     return "No bundles configured for this repository";
   }
 
+  type ApplyPlan =
+    | { uncached: true; entry: DesiredBundleEntry }
+    | { uncached: false; entry: DesiredBundleEntry; sourceRevision: CachedSourceRevision | undefined; cachedBundle: CachedBundle; existingBundleState: MaterializedBundleState | undefined; availableTools: ToolName[] };
+
   const worktreeState = registry.worktrees[gitContext.worktreeId];
   const materializedBundles = worktreeState?.materialized_state.bundles ?? {};
   const cloneLines: string[] = [];
-  const applyPlans = repoState.desired_state.flatMap((entry) => {
-    if (entry.source) {
-      const { cloned } = fetchRemoteSource({ source: entry.source, libraryDir: options.libraryDir, protocol: entry.protocol });
-      if (cloned) cloneLines.push(`Cloned ${entry.source}`);
-    }
+  const applyPlans: ApplyPlan[] = repoState.desired_state.flatMap((entry): ApplyPlan[] => {
+    // In dry-run mode skip actual cloning; if the source is not yet cached we
+    // can still report intent without a manifest.
     const sourceRevision = entry.source
       ? readCachedSourceRevision({
           source: entry.source,
@@ -941,6 +954,15 @@ async function applyWorktree(options: {
           protocol: entry.protocol,
         })
       : undefined;
+
+    if (entry.source && !sourceRevision?.cached) {
+      if (options.dryRun) {
+        return [{ uncached: true, entry }];
+      }
+      // Non-dry-run: fetch the source so the manifest is available below.
+      const { cloned } = fetchRemoteSource({ source: entry.source, libraryDir: options.libraryDir, protocol: entry.protocol });
+      if (cloned) cloneLines.push(`Cloned ${entry.source}`);
+    }
 
     const cachedBundle = findCachedBundleWithGuidance({
       libraryDir: options.libraryDir,
@@ -961,6 +983,7 @@ async function applyWorktree(options: {
     }
 
     return [{
+      uncached: false,
       entry,
       sourceRevision,
       cachedBundle,
@@ -970,12 +993,25 @@ async function applyWorktree(options: {
   });
 
   if (applyPlans.length === 0) {
-    return "All bundles are already materialized";
+    return options.dryRun ? "DRY RUN: All bundles are already materialized" : "All bundles are already materialized";
+  }
+
+  if (options.dryRun) {
+    const lines = applyPlans.map((plan) => {
+      if (plan.uncached) {
+        return `DRY RUN: Would clone ${plan.entry.source!} then apply ${plan.entry.bundle}`;
+      }
+      const tools = plan.entry.tools ?? Object.keys(plan.cachedBundle.manifest.tools);
+      return `DRY RUN: Would apply ${plan.entry.bundle} for ${tools.join(", ")}`;
+    });
+    return lines.join("\n");
   }
 
   let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
 
-  for (const { entry, sourceRevision, cachedBundle, existingBundleState, availableTools } of applyPlans) {
+  for (const plan of applyPlans) {
+    if (plan.uncached) continue;
+    const { entry, sourceRevision, cachedBundle, existingBundleState, availableTools } = plan;
     const refreshesExistingBundle =
       existingBundleState !== undefined &&
       entry.resolved_commit !== undefined &&
@@ -1039,7 +1075,7 @@ async function applyWorktree(options: {
     writeRegistryFile(options.registryFile, registry);
   }
 
-  const appliedNames = applyPlans.map(({ entry }) => entry.bundle).join(", ");
+  const appliedNames = applyPlans.map((plan) => plan.entry.bundle).join(", ");
   return [...cloneLines, `Applied ${appliedNames}`].join("\n");
 }
 
@@ -1267,8 +1303,9 @@ function shortCommit(commit: string): string {
 function readRegistryWithGuidance(registryFile: string) {
   try {
     return readRegistryFile(registryFile);
-  } catch {
-    throw new Error(`Registry is corrupted. Please repair or remove ${registryFile} and try again.`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Registry is corrupted (${detail}). Please repair or remove ${registryFile} and try again.`);
   }
 }
 
@@ -1348,7 +1385,13 @@ function captureManagedFileFingerprints(
 }
 
 function fingerprintFile(filePath: string): string {
-  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  try {
+    return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  } catch {
+    // On read failure treat the file as modified so callers prompt before deletion
+    // rather than silently skipping a managed file that may still exist.
+    return "";
+  }
 }
 
 if (require.main === module) {

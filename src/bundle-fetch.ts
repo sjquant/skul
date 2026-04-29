@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { escapeRegExp, safeReaddirSync } from "./fs-utils";
+
 export interface FetchRemoteSourceOptions {
   /** Normalized source identifier, e.g. "github.com/owner/repo" */
   source: string;
@@ -64,8 +66,6 @@ export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemot
   const cloneUrl = getCloneUrl(options.source, options.protocol);
 
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
-
-  process.stderr.write(`Cloning ${cloneUrl}...\n`);
 
   try {
     runGit(["clone", "--depth=1", cloneUrl, targetDir]);
@@ -134,15 +134,22 @@ export function updateCachedRemoteSource(
     };
   }
 
-  if (status.refKind === "branch") {
-    runGit(["-C", targetDir, "fetch", "--depth=1", "origin", `refs/heads/${status.resolvedRef!}`]);
-    runGit(["-C", targetDir, "checkout", "-B", status.resolvedRef!, "FETCH_HEAD"]);
-  } else if (status.refKind === "tag") {
-    runGit(["-C", targetDir, "fetch", "--depth=1", "origin", `refs/tags/${status.resolvedRef!}`]);
-    runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
-  } else {
-    runGit(["-C", targetDir, "fetch", "--depth=1", "origin", status.remoteCommit]);
-    runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
+  try {
+    if (status.refKind === "branch") {
+      runGit(["-C", targetDir, "fetch", "--depth=1", "origin", `refs/heads/${status.resolvedRef!}`]);
+      runGit(["-C", targetDir, "checkout", "-B", status.resolvedRef!, "FETCH_HEAD"]);
+    } else if (status.refKind === "tag") {
+      runGit(["-C", targetDir, "fetch", "--depth=1", "origin", `refs/tags/${status.resolvedRef!}`]);
+      runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
+    } else {
+      runGit(["-C", targetDir, "fetch", "--depth=1", "origin", status.remoteCommit]);
+      runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
+    }
+  } catch (error) {
+    throw normalizeGitError(error, `Failed to update ${options.source}`, {
+      source: options.source,
+      protocol: options.protocol,
+    });
   }
 
   const refreshed = readCachedSourceRevision(options);
@@ -219,20 +226,12 @@ function removeEmptyLibraryAncestors(currentDir: string, libraryDir: string): vo
   const libraryRoot = path.resolve(libraryDir);
 
   while (directory.startsWith(libraryRoot) && directory !== libraryRoot) {
-    if (fs.readdirSync(directory).length > 0) {
+    if (safeReaddirSync(directory).length > 0) {
       return;
     }
 
     fs.rmdirSync(directory);
     directory = path.dirname(directory);
-  }
-}
-
-function safeReaddirSync(directory: string): fs.Dirent[] {
-  try {
-    return fs.readdirSync(directory, { withFileTypes: true });
-  } catch {
-    return [];
   }
 }
 
@@ -417,6 +416,3 @@ function isCommitSha(value: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(value);
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

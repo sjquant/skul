@@ -3,12 +3,12 @@ import path from "node:path";
 
 import {
   inferBundleManifest,
+  MANIFEST_FILE_NAME,
   parseBundleManifest,
   resolveCachedBundleLayout,
   type BundleManifest,
 } from "./bundle-manifest";
-
-const MANIFEST_FILE_NAME = "manifest.json";
+import { safeReaddirSync } from "./fs-utils";
 
 export interface CachedBundle {
   source: string;
@@ -297,13 +297,6 @@ function findManifestFiles(rootDir: string): string[] {
   return manifestFiles;
 }
 
-function safeReaddirSync(dir: string): fs.Dirent[] {
-  try {
-    return fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
 
 function inferSubdirectoryBundles(sourceDir: string, explicitBundleKeys: Set<string>): CachedBundle[] {
   const sourceSegments = path.normalize(sourceDir).split(path.sep).slice(-3);

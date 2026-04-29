@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { pathDepth } from "./fs-utils";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
 
 const KNOWN_TOOL_NAMES = new Set<ToolName>(listToolDefinitions().map((t) => t.name));
@@ -43,7 +44,6 @@ export interface MaterializedState {
 
 export interface RepoState {
   repo_root: string;
-  remote_url?: string;
   desired_state: DesiredBundleEntry[];
 }
 
@@ -195,15 +195,10 @@ export function parseRegistry(input: unknown): Registry {
 
 function parseRepoState(input: unknown, label: string): RepoState {
   const repo = expectRecord(input, label);
-  const remoteUrl =
-    repo.remote_url === undefined
-      ? undefined
-      : expectNonEmptyString(repo.remote_url, `${label}.remote_url`);
 
   return {
     repo_root: expectAbsolutePath(repo.repo_root, `${label}.repo_root`),
     desired_state: parseDesiredState(repo.desired_state, `${label}.desired_state`),
-    ...(remoteUrl === undefined ? {} : { remote_url: remoteUrl }),
   };
 }
 
@@ -466,10 +461,6 @@ function expectBoolean(input: unknown, label: string): boolean {
   }
 
   return input;
-}
-
-function pathDepth(value: string): number {
-  return value.split(path.sep).length;
 }
 
 function expectProtocol(input: unknown, label: string): "https" | "ssh" {

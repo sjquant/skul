@@ -42,7 +42,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(checkArgs)).resolves.toEqual({ kind: "command", command: "check", options: { json: false } });
     await expect(parseCliArgs(updateArgs)).resolves.toEqual({ kind: "command", command: "update", options: { dryRun: false } });
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset", options: { dryRun: false } });
-    await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply" });
+    await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply", options: { dryRun: false } });
   });
 
   it("parses add in interactive, cached, and explicit source modes", async () => {
@@ -56,21 +56,20 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
+      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
+      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
     });
 
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         protocol: "https",
@@ -86,7 +85,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         protocol: "https",
@@ -102,7 +100,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/sjquant/ghosts",
         bundle: "core",
         protocol: "https",
@@ -118,7 +115,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/sjquant/ghosts",
         bundle: "core",
         protocol: "https",
@@ -134,7 +130,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/user/react-bundle",
         bundle: "react-bundle",
         protocol: "https",
@@ -150,7 +145,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/sjquant/ghosts",
         bundle: "ghosts",
         protocol: "https",
@@ -166,7 +160,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/sjquant/ghosts",
         bundle: "ghosts",
         protocol: "https",
@@ -181,7 +174,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
+      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
     });
   });
 
@@ -190,7 +183,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "--agent", "claude-code"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
     });
   });
 
@@ -201,7 +194,7 @@ describe("parseCliArgs", () => {
     ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
+      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
     });
   });
 
@@ -210,7 +203,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "-a", "claude-code"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
     });
   });
 
@@ -219,7 +212,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "-a", "claude-code", "-a", "cursor"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
+      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
     });
   });
 
@@ -228,7 +221,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "-n"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: true },
+      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: true },
     });
   });
 
@@ -237,7 +230,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "-s"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", source: "github.com/user/ai-vault", bundle: "react-expert", protocol: "ssh", agents: [], dryRun: false },
+      options: { source: "github.com/user/ai-vault", bundle: "react-expert", protocol: "ssh", agents: [], dryRun: false },
     });
   });
 
@@ -349,7 +342,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         protocol: "ssh",
@@ -367,7 +359,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/user/ai-vault",
         bundle: "react-expert",
         protocol: "ssh",
@@ -383,7 +374,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "add",
       options: {
-        mode: "stealth",
         source: "github.com/user/react-bundle",
         bundle: "react-bundle",
         protocol: "ssh",
@@ -398,7 +388,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "--dry-run"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { mode: "stealth", bundle: "react-expert", protocol: "https", agents: [], dryRun: true },
+      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: true },
     });
 
     await expect(parseCliArgs(["remove", "react-expert", "--dry-run"])).resolves.toEqual({
@@ -480,7 +470,10 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["list"], { homeDir })).resolves.toBe(
-      renderBundleListOutput("react-expert (claude-code)", "repo-standards (codex)"),
+      renderBundleListOutput(
+        "react-expert [github.com/user/ai-vault] (claude-code)",
+        "repo-standards [github.com/user/ai-vault] (codex)",
+      ),
     );
   });
 
@@ -2099,7 +2092,10 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["list"], { homeDir })).resolves.toBe(
-      renderBundleListOutput("react-expert (claude-code, cursor)", "repo-standards (codex)"),
+      renderBundleListOutput(
+        "react-expert [github.com/user/ai-vault] (claude-code, cursor)",
+        "repo-standards [github.com/user/ai-vault] (codex)",
+      ),
     );
   });
 
@@ -2414,6 +2410,156 @@ describe("run", () => {
       "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) },
     });
     expect(worktreeState.materialized_state.bundles["react-expert"].tools).not.toHaveProperty("cursor");
+  });
+
+  it("surfaces a clear error when status runs outside a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
+    tempDirs.push(cwd);
+
+    // When / Then
+    await expect(run(["status"], { homeDir, cwd })).rejects.toThrowError(
+      /skul status requires a Git repository/,
+    );
+  });
+
+  it("surfaces a clear error when check runs outside a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
+    tempDirs.push(cwd);
+
+    // When / Then
+    await expect(run(["check"], { homeDir, cwd })).rejects.toThrowError(
+      /skul check requires a Git repository/,
+    );
+  });
+
+  it("surfaces a clear error when update runs outside a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skul-non-git-"));
+    tempDirs.push(cwd);
+
+    // When / Then
+    await expect(run(["update"], { homeDir, cwd })).rejects.toThrowError(
+      /skul update requires a Git repository/,
+    );
+  });
+
+  it("dry-runs update without fetching or modifying files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: { name: "react-expert", tools: { "claude-code": { skills: { path: ".claude/skills" } } } },
+      files: { ".claude/skills/react/SKILL.md": "# v1\n" },
+    });
+    await run(["add", source, bundle], { homeDir, cwd: repoRoot });
+    const commitBefore = updateRemoteBundleSource(remoteRepoPath, bundle, {
+      ".claude/skills/react/SKILL.md": "# v2\n",
+    });
+
+    // When
+    const output = await run(["update", "--dry-run"], { homeDir, cwd: repoRoot });
+
+    // Then: output describes what would happen without actually updating
+    expect(output).toMatch(/DRY RUN: Would update react-expert/);
+
+    // Then: the local cached source is not fetched / updated
+    const skillFile = path.join(repoRoot, ".claude", "skills", "react", "SKILL.md");
+    expect(fs.readFileSync(skillFile, "utf8")).toBe("# v1\n");
+    void commitBefore; // silence unused-var warning
+  });
+
+  it("returns JSON output for check", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    const output = await run(["check", "--json"], { homeDir, cwd: repoRoot });
+    const parsed = JSON.parse(output);
+
+    // Then
+    expect(parsed.bundles).toHaveLength(1);
+    expect(parsed.bundles[0]).toMatchObject({
+      bundle: "react-expert",
+      status: "local-only",
+      source: null,
+    });
+  });
+
+  it("dry-runs apply without materializing files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When: dry-run apply in a linked worktree that has nothing materialized yet
+    const output = await run(["apply", "--dry-run"], { homeDir, cwd: linkedWorktree });
+
+    // Then: output describes what would happen
+    expect(output).toMatch(/DRY RUN: Would apply react-expert/);
+
+    // Then: no files were written to the linked worktree
+    expect(pathExists(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+  });
+
+  it("dry-runs apply reporting intent without cloning when source is not cached", async () => {
+    // Given: desired state references a remote source, but nothing is cached locally yet
+    const homeDir = createHomeDir();
+    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: { name: "react-expert", tools: { "claude-code": { skills: { path: ".claude/skills" } } } },
+      files: { ".claude/skills/react/SKILL.md": "# react\n" },
+    });
+
+    // Set up desired state manually without materializing (simulate a fresh worktree)
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    let registry = readRegistryFile(registryFile);
+    registry = upsertRepoState(registry, repoFingerprint, {
+      repo_root: repoRoot,
+      desired_state: [{ bundle, source, protocol: "https" }],
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // Remove the cached source so it is not available locally
+    fs.rmSync(path.join(homeDir, ".skul", "library", ...source.split("/")), { recursive: true, force: true });
+
+    // When
+    const output = await run(["apply", "--dry-run"], { homeDir, cwd: repoRoot });
+
+    // Then: output reports intent without cloning
+    expect(output).toMatch(new RegExp(`DRY RUN: Would clone ${source.replace(/\./g, "\\.")} then apply ${bundle}`));
+
+    // Then: no clone was performed
+    expect(pathExists(path.join(homeDir, ".skul", "library", ...source.split("/")))).toBe(false);
+
+    void remoteRepoPath;
+  });
+
+  it("rejects unknown --agent names with a helpful error", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "--agent", "copilot"])).rejects.toThrowError(
+      /Unknown agent: copilot[\s\S]*Valid agents:/,
+    );
   });
 });
 
