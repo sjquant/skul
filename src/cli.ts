@@ -274,7 +274,9 @@ export async function parseCliArgs(
   }
 
   if (!COMMANDS.includes(command as CommandName)) {
-    throw new Error(`Unknown command: ${command}`);
+    const suggestion = findClosestCommand(command, COMMANDS);
+    const hint = suggestion ? ` Did you mean "${suggestion}"?` : "";
+    throw new Error(`Unknown command: ${command}.${hint}`);
   }
 
   const restArgs = argv.slice(1);
@@ -509,6 +511,36 @@ function normalizeParseError(error: unknown, command: string): Error {
   }
 
   return new Error(error.message.replace(/^error: /, ""));
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i]![j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1]![j - 1]!
+        : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
+    }
+  }
+  return dp[m]![n]!;
+}
+
+function findClosestCommand(input: string, commands: readonly string[]): string | undefined {
+  const MAX_DISTANCE = 3;
+  let best: string | undefined;
+  let bestDistance = Infinity;
+  for (const cmd of commands) {
+    const d = levenshtein(input, cmd);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = cmd;
+    }
+  }
+  return bestDistance <= MAX_DISTANCE ? best : undefined;
 }
 
 function formatBundleSelectionLabel(

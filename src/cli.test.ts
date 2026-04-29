@@ -482,7 +482,9 @@ describe("run", () => {
     const homeDir = createHomeDir();
 
     // When / Then
-    await expect(run(["list"], { homeDir })).resolves.toBe(renderBundleListOutput("No cached bundles found."));
+    await expect(run(["list"], { homeDir })).resolves.toBe(
+      renderBundleListOutput("No cached bundles found.", "", "Add one with: skul add github.com/<owner>/<repo> <bundle-name>"),
+    );
   });
 
   it("returns JSON bundle list when --json is passed", async () => {
@@ -2211,7 +2213,7 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["apply"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "No bundles configured for this repository",
+      `No bundles configured for this repository. Run "skul add <bundle>" to add one.`,
     );
   });
 

@@ -203,7 +203,13 @@ function renderBundleList(options: { libraryDir: string; json: boolean }): strin
   }
 
   if (bundles.length === 0) {
-    return ["Available Bundles", "", "No cached bundles found."].join("\n");
+    return [
+      "Available Bundles",
+      "",
+      "No cached bundles found.",
+      "",
+      "Add one with: skul add github.com/<owner>/<repo> <bundle-name>",
+    ].join("\n");
   }
 
   return [
@@ -367,7 +373,7 @@ function renderUpdateCheck(options: {
   const entries = selectDesiredEntries(repoState?.desired_state ?? [], options.bundle, "check");
 
   if (entries.length === 0) {
-    return "No bundles configured for this repository";
+    return `No bundles configured for this repository. Run "skul add <bundle>" to add one.`;
   }
 
   const results = entries.map((entry) => {
@@ -450,7 +456,7 @@ async function updateBundles(options: {
   const entries = selectDesiredEntries(repoState?.desired_state ?? [], options.bundle, "update");
 
   if (entries.length === 0) {
-    return "No bundles configured for this repository";
+    return `No bundles configured for this repository. Run "skul add <bundle>" to add one.`;
   }
 
   const skippedLocalOnly: string[] = [];
@@ -852,7 +858,7 @@ async function removeBundle(options: {
   const bundleMaterializedState = worktreeState?.materialized_state.bundles[options.bundle];
 
   if (!isInDesiredState && !bundleMaterializedState) {
-    throw new Error(`Bundle not found in active set: ${options.bundle}`);
+    throw new Error(`Bundle not found in active set: ${options.bundle}. Run "skul status" to see configured bundles.`);
   }
 
   if (options.dryRun) {
@@ -934,7 +940,7 @@ async function applyWorktree(options: {
   const repoState = registry.repos[gitContext.repoFingerprint];
 
   if (!repoState || repoState.desired_state.length === 0) {
-    return "No bundles configured for this repository";
+    return `No bundles configured for this repository. Run "skul add <bundle>" to add one.`;
   }
 
   type ApplyPlan =
@@ -1232,7 +1238,7 @@ function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "c
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {
-    throw new Error(`skul ${command} requires a Git repository`);
+    throw new Error(`skul ${command} requires a Git repository. Run "git init" to initialize one.`);
   }
 
   return gitContext;
@@ -1250,7 +1256,7 @@ function selectDesiredEntries(
   const matchingEntry = desiredState.find((entry) => entry.bundle === bundle);
 
   if (!matchingEntry) {
-    throw new Error(`Bundle not found in active set: ${bundle}`);
+    throw new Error(`Bundle not found in active set: ${bundle}. Run "skul status" to see configured bundles.`);
   }
 
   return [matchingEntry];
