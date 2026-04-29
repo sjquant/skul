@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import pc from "picocolors";
+import { createColors, isColorSupported } from "picocolors";
 
 import { detectSourceProtocol, findCachedBundle, listCachedBundles, type CachedBundle } from "./bundle-discovery";
 import {
@@ -29,6 +29,8 @@ import {
   type PromptClient,
   parseCliArgs,
 } from "./cli";
+
+const pc = createColors(isColorSupported && !isHeadlessMode());
 import { detectGitContext } from "./git-context";
 import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
 import {
