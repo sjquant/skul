@@ -29,8 +29,6 @@ import {
   type PromptClient,
   parseCliArgs,
 } from "./cli";
-
-const pc = createColors(isColorSupported && !isHeadlessMode());
 import { detectGitContext } from "./git-context";
 import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
 import {
@@ -47,6 +45,8 @@ import {
 } from "./registry";
 import { resolveGlobalStateLayout } from "./state-layout";
 import { type ToolName } from "./tool-mapping";
+
+const pc = createColors(isColorSupported && !isHeadlessMode());
 
 export interface RunOptions {
   homeDir?: string;
@@ -431,19 +431,24 @@ function renderUpdateCheck(options: {
     return JSON.stringify({ bundles: results }, null, 2);
   }
 
-  return results
-    .map((result) => {
-      if (result.status === "local-only") {
-        return `${result.bundle}: local-only (no remote source to check)`;
-      }
-      const updateSuffix =
-        result.status === "update-available" && result.current_commit && result.latest_commit
-          ? ` ${shortCommit(result.current_commit)} -> ${shortCommit(result.latest_commit)}`
-          : "";
-      const staleSuffix = result.worktree_stale ? " (worktree stale)" : "";
-      return `${result.bundle}: ${result.status}${updateSuffix}${staleSuffix}`;
-    })
-    .join("\n");
+  const lines = results.map((result) => {
+    if (result.status === "local-only") {
+      return `${pc.cyan(result.bundle)}: local-only (no remote source to check)`;
+    }
+    const updateSuffix =
+      result.status === "update-available" && result.current_commit && result.latest_commit
+        ? ` ${shortCommit(result.current_commit)} -> ${shortCommit(result.latest_commit)}`
+        : "";
+    const staleSuffix = result.worktree_stale ? " (worktree stale)" : "";
+    return `${pc.cyan(result.bundle)}: ${result.status}${updateSuffix}${staleSuffix}`;
+  });
+
+  const hasUpdates = results.some((r) => r.status === "update-available");
+  if (hasUpdates) {
+    lines.push("", pc.dim('Run "skul update" to apply available updates.'));
+  }
+
+  return lines.join("\n");
 }
 
 async function updateBundles(options: {

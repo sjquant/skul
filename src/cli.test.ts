@@ -654,7 +654,7 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      `react-expert: update-available ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}`,
+      `react-expert: update-available ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}\n\nRun "skul update" to apply available updates.`,
     );
   });
 
