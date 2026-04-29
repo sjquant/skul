@@ -246,21 +246,6 @@ function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
   return clackPromptsModulePromise;
 }
 
-const GETTING_STARTED = `
-Getting Started:
-  1. Cache a bundle source:  skul add github.com/<owner>/<repo> <bundle-name>
-  2. Check what's cached:    skul list
-  3. See current status:     skul status
-  4. Re-apply in a worktree: skul apply
-
-Examples:
-  skul add github.com/owner/ai-bundles react-expert
-  skul add react-expert --agent claude-code
-  skul add github.com/owner/ai-bundles react-expert --ssh
-  skul list
-  skul status
-`;
-
 export function createHelpText(command?: CommandName): string {
   const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
@@ -275,7 +260,7 @@ export function createHelpText(command?: CommandName): string {
     }
   }
 
-  return program.helpInformation() + GETTING_STARTED;
+  return program.helpInformation();
 }
 
 export async function parseCliArgs(
