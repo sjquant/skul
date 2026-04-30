@@ -2627,13 +2627,6 @@ function writeManifest(homeDir: string, source: string, bundle: string, manifest
   fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 }
 
-function writeBundleManifest(homeDir: string, source: string | undefined, bundle: string, manifest: object): void {
-  const libraryDir = path.join(homeDir, ".skul", "library");
-  const bundleDir = source ? path.join(libraryDir, ...source.split("/"), bundle) : path.join(libraryDir, bundle);
-  fs.mkdirSync(bundleDir, { recursive: true });
-  fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
-}
-
 function writeBundleFile(
   homeDir: string,
   source: string | undefined,

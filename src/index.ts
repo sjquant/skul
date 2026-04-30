@@ -1278,7 +1278,7 @@ function selectDesiredEntries(
   const matchingEntry = desiredState.find((entry) => entry.bundle === bundle);
 
   if (!matchingEntry) {
-    throw new Error(`Bundle not found in active set: ${bundle}. Run "skul status" to see configured bundles.`);
+    throw new Error(`Bundle not found in active set: ${bundle}. Run "skul status" to see configured bundles`);
   }
 
   return [matchingEntry];
