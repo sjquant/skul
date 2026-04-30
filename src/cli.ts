@@ -21,7 +21,7 @@ export type CommandName =
   | "clear-cache";
 
 export type CliParseResult =
-  | { kind: "help" }
+  | { kind: "help"; command?: CommandName }
   | { kind: "command"; command: "list"; options: { json: boolean } }
   | { kind: "command"; command: "status"; options: { json: boolean } }
   | { kind: "command"; command: "check"; options: { bundle?: string; json: boolean } }
@@ -142,11 +142,11 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
     ): Promise<FileConflictResolution> {
       const { isCancel, select, text } = await loadClackPromptsModule();
       const action = await select({
-        message: `Conflict detected: ${conflictPath} already exists`,
+        message: `Conflict: ${conflictPath} already exists`,
         options: [
-          { value: "rename", label: "Rename incoming file" },
-          { value: "prefix", label: `Apply prefix (${suggestedDestination})` },
-          { value: "skip", label: "Skip file" },
+          { value: "rename", label: "Save with a different name (you choose)" },
+          { value: "prefix", label: `Add a prefix to avoid the conflict (saves as ${suggestedDestination})` },
+          { value: "skip", label: "Skip this file (won't be written)" },
         ],
       });
 
@@ -246,12 +246,21 @@ function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
   return clackPromptsModulePromise;
 }
 
-export function createHelpText(): string {
-  return createProgram({
+export function createHelpText(command?: CommandName): string {
+  const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
     resolveFileConflict: async () => ({ action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX }),
     confirmManagedFileRemoval: async () => true,
-  }).helpInformation();
+  });
+
+  if (command) {
+    const subcommand = program.commands.find((c) => c.name() === command);
+    if (subcommand) {
+      return subcommand.helpInformation();
+    }
+  }
+
+  return program.helpInformation();
 }
 
 export async function parseCliArgs(
@@ -265,7 +274,14 @@ export async function parseCliArgs(
   }
 
   if (!COMMANDS.includes(command as CommandName)) {
-    throw new Error(`Unknown command: ${command}`);
+    const suggestion = findClosestCommand(command, COMMANDS);
+    const hint = suggestion ? `, did you mean "${suggestion}"?` : "";
+    throw new Error(`Unknown command: "${command}"${hint}`);
+  }
+
+  const restArgs = argv.slice(1);
+  if (restArgs.includes("--help") || restArgs.includes("-h")) {
+    return { kind: "help", command: command as CommandName };
   }
 
   const context: { result?: CliParseResult } = {};
@@ -495,6 +511,36 @@ function normalizeParseError(error: unknown, command: string): Error {
   }
 
   return new Error(error.message.replace(/^error: /, ""));
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i]![j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1]![j - 1]!
+        : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
+    }
+  }
+  return dp[m]![n]!;
+}
+
+function findClosestCommand(input: string, commands: readonly string[]): string | undefined {
+  const MAX_DISTANCE = 3;
+  let best: string | undefined;
+  let bestDistance = Infinity;
+  for (const cmd of commands) {
+    const d = levenshtein(input, cmd);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = cmd;
+    }
+  }
+  return bestDistance <= MAX_DISTANCE ? best : undefined;
 }
 
 function formatBundleSelectionLabel(
