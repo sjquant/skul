@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -216,6 +217,88 @@ describe("materializeBundle", () => {
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "user file\n",
     );
+  });
+
+  it("rejects root-instruction conflict renames that leave the root-instruction filename family", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+
+    writeFile(path.join(repoRoot, "AGENTS.md"), "user file\n");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "bundle root instruction\n");
+
+    // When
+    const materialize = materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
+      },
+      resolveFileConflict: async () => ({
+        action: "rename",
+        destination: "README.md",
+      }),
+    });
+
+    // Then
+    await expect(materialize).rejects.toThrowError(/root instruction target/i);
+  });
+
+  it("rejects root-instruction conflict renames that target a tracked missing root-level file", async () => {
+    // Given
+    const repoRoot = createRepository();
+    const bundleDir = createTempDir("skul-bundle-");
+
+    writeFile(path.join(repoRoot, "AGENTS.md"), "user file\n");
+    writeFile(path.join(repoRoot, "docs-AGENTS.md"), "tracked shadow\n");
+    runGit(repoRoot, ["add", "--", "AGENTS.md", "docs-AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track root files"]);
+    fs.rmSync(path.join(repoRoot, "docs-AGENTS.md"));
+    runGit(repoRoot, ["rm", "--cached", "--", "docs-AGENTS.md"]);
+
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "bundle root instruction\n");
+
+    // When
+    const materialize = materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
+      },
+      resolveFileConflict: async () => ({
+        action: "rename",
+        destination: "docs-AGENTS.md",
+      }),
+    });
+
+    // Then
+    await expect(materialize).rejects.toThrowError(/must not target a tracked file/i);
+  });
+
+  it("allows root-instruction conflict renames to a prefixed filename in a non-git directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+
+    writeFile(path.join(repoRoot, "AGENTS.md"), "user file\n");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "bundle root instruction\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
+      },
+      resolveFileConflict: async () => ({
+        action: "rename",
+        destination: "p-AGENTS.md",
+      }),
+    });
+
+    // Then
+    expect(result.byTool.codex!.files).toEqual(["p-AGENTS.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "p-AGENTS.md"), "utf8")).toBe("bundle root instruction\n");
   });
 
   it.each([
@@ -453,7 +536,30 @@ function createTempDir(prefix: string): string {
   return dir;
 }
 
+function createRepository(): string {
+  const repoRoot = createTempDir("skul-materialize-repo-");
+
+  runGit(repoRoot, ["init", "--initial-branch=main"]);
+  runGit(repoRoot, ["config", "user.name", "Skul Test"]);
+  runGit(repoRoot, ["config", "user.email", "skul@example.com"]);
+  runGit(repoRoot, ["config", "commit.gpgsign", "false"]);
+
+  writeFile(path.join(repoRoot, "README.md"), "# test\n");
+  runGit(repoRoot, ["add", "--", "README.md"]);
+  runGit(repoRoot, ["commit", "-m", "init"]);
+
+  return repoRoot;
+}
+
 function writeFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
+}
+
+function runGit(repoRoot: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }

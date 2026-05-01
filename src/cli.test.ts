@@ -2130,6 +2130,33 @@ describe("run", () => {
     ).rejects.toThrowError(/Bundle does not support agent\(s\): cursor[\s\S]*Supported agents: claude-code/i);
   });
 
+  it("materializes AGENTS.md for codex when the bundle only provides CLAUDE.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { "claude-code": { root_instruction: { path: "CLAUDE.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "CLAUDE.md",
+      "# Shared instructions\nUse consistent conventions.\n",
+    );
+
+    // When
+    await expect(
+      run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied repo-standards for codex");
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# Shared instructions\nUse consistent conventions.\n",
+    );
+  });
+
   it("lists bundles with their supported tools", async () => {
     // Given
     const homeDir = createHomeDir();

@@ -59,7 +59,7 @@ export function parseBundleManifest(input: unknown): BundleManifest {
     throw new Error("tools must declare at least one tool");
   }
 
-  return { tools };
+  return expandRootInstructionTargets({ tools });
 }
 
 export function inferBundleManifest(bundleDir: string): BundleManifest {
@@ -93,7 +93,7 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
     }
   }
 
-  return { tools };
+  return expandRootInstructionTargets({ tools });
 }
 
 function isExistingDirectory(dirPath: string): boolean {
@@ -111,6 +111,50 @@ function isExistingToolTarget(targetPath: string, kind: "directory" | "file"): b
   } catch {
     return false;
   }
+}
+
+function expandRootInstructionTargets(manifest: BundleManifest): BundleManifest {
+  const sourcePath = selectRootInstructionSourcePath(manifest.tools);
+
+  if (!sourcePath) {
+    return manifest;
+  }
+
+  const expandedTools = Object.fromEntries(
+    Object.entries(manifest.tools).map(([toolName, targets]) => [toolName, { ...targets }]),
+  ) as BundleManifest["tools"];
+
+  for (const toolDef of listToolDefinitions()) {
+    if (!toolDef.targets.root_instruction) {
+      continue;
+    }
+
+    if (!expandedTools[toolDef.name]) {
+      expandedTools[toolDef.name] = {};
+    }
+
+    if (!expandedTools[toolDef.name]!.root_instruction) {
+      expandedTools[toolDef.name]!.root_instruction = { path: sourcePath };
+    }
+  }
+
+  return { tools: expandedTools };
+}
+
+function selectRootInstructionSourcePath(
+  tools: BundleManifest["tools"],
+): string | null {
+  const preferredToolOrder: ToolName[] = ["claude-code", "cursor", "opencode", "codex"];
+
+  for (const toolName of preferredToolOrder) {
+    const sourcePath = tools[toolName]?.root_instruction?.path;
+
+    if (sourcePath) {
+      return sourcePath;
+    }
+  }
+
+  return null;
 }
 
 export function resolveCachedBundleLayout(options: {

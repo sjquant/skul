@@ -11,6 +11,7 @@ interface MetadataMap {
 type SkillTool = "claude" | "cursor" | "codex" | "opencode";
 type CommandTool = "claude" | "cursor" | "opencode";
 type AgentTool = "claude" | "cursor" | "codex" | "opencode";
+type RootInstructionTool = "claude" | "cursor" | "codex" | "opencode";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
@@ -81,6 +82,15 @@ export function translateAgent(options: {
 }): Record<string, string> {
   const model = parseAgent(options.sourceTool, options.source);
   return renderAgent(options.targetTool, model);
+}
+
+export function translateRootInstruction(options: {
+  targetTool: RootInstructionTool;
+  source: string;
+}): Record<string, string> {
+  return {
+    [rootInstructionFilePath(options.targetTool)]: options.source,
+  };
 }
 
 function parseSkill(sourceTool: SkillTool, files: Record<string, string>): SkillModel {
@@ -491,7 +501,11 @@ function agentFilePath(tool: AgentTool, name: string): string {
   return `${targetBasePath(tool, "agents")}/${name}.${tool === "codex" ? "toml" : "md"}`;
 }
 
-function targetBasePath(tool: SkillTool | CommandTool | AgentTool, target: ToolTargetName): string {
+function rootInstructionFilePath(tool: RootInstructionTool): string {
+  return targetBasePath(tool, "root_instruction");
+}
+
+function targetBasePath(tool: SkillTool | CommandTool | AgentTool | RootInstructionTool, target: ToolTargetName): string {
   const path = getToolDefinition(toToolMappingName(tool))?.targets[target]?.path;
 
   if (!path) {
@@ -505,7 +519,7 @@ function unsupportedTargetPath(tool: string, target: string): never {
   throw new Error(`Unsupported ${target} target for ${tool}`);
 }
 
-function toToolMappingName(tool: SkillTool | CommandTool | AgentTool): ToolName {
+function toToolMappingName(tool: SkillTool | CommandTool | AgentTool | RootInstructionTool): ToolName {
   if (tool === "claude") {
     return "claude-code";
   }

@@ -102,6 +102,38 @@ describe("parseBundleManifest", () => {
     });
   });
 
+  it("expands a declared root instruction source to all root-instruction tools", () => {
+    // Given
+    const manifest = {
+      tools: {
+        "claude-code": {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+      },
+    };
+
+    // When
+    const parsed = parseBundleManifest(manifest);
+
+    // Then
+    expect(parsed).toEqual({
+      tools: {
+        "claude-code": {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        cursor: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        opencode: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        codex: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+      },
+    });
+  });
+
   it.each([
     [
       "unsupported tool",

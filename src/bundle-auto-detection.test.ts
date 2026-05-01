@@ -78,10 +78,10 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["claude-code"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
     expect(manifest.tools["cursor"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
     expect(manifest.tools["opencode"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
-    expect(manifest.tools["codex"]).toBeUndefined();
+    expect(manifest.tools["codex"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
   });
 
-  it("infers a Codex root instruction file for codex only", () => {
+  it("infers an AGENTS.md root instruction file for all root-instruction tools", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "AGENTS.md"), "# codex instructions\n");
@@ -90,9 +90,9 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toBeUndefined();
-    expect(manifest.tools["cursor"]).toBeUndefined();
-    expect(manifest.tools["opencode"]).toBeUndefined();
+    expect(manifest.tools["claude-code"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+    expect(manifest.tools["cursor"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+    expect(manifest.tools["opencode"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
     expect(manifest.tools["codex"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
   });
 
@@ -164,7 +164,30 @@ describe("inferBundleManifest", () => {
       skills: { path: "skills" },
       root_instruction: { path: "CLAUDE.md" },
     });
-    expect(manifest.tools["codex"]).toEqual({ skills: { path: "skills" } });
+    expect(manifest.tools["codex"]).toEqual({
+      skills: { path: "skills" },
+      root_instruction: { path: "CLAUDE.md" },
+    });
+  });
+
+  it("materializes a CLAUDE root instruction into AGENTS.md for codex", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "# shared rules\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
+      },
+    });
+
+    // Then
+    expect(result.byTool["codex"]!.files).toEqual(["AGENTS.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# shared rules\n");
   });
 
   it("returns empty tools for a bundle dir with no recognisable structure", () => {
