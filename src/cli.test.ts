@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseCliArgs, type PromptClient } from "./cli";
 import { detectGitContext } from "./git-context";
-import { run } from "./index";
+import { assertTrackedRootInstructionShadowSafety, run } from "./index";
 import { createEmptyRegistry, readRegistryFile, upsertRepoState, writeRegistryFile } from "./registry";
 
 const tempDirs: string[] = [];
@@ -2641,6 +2641,197 @@ function writeBundleFile(
   fs.writeFileSync(filePath, content);
 }
 
+describe("tracked root-instruction shadow safety", () => {
+  it("refuses add when materialization targets a tracked root instruction with staged changes", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# staged\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+
+    vi.resetModules();
+    vi.doMock("./bundle-materialization", async () => {
+      const actual = await vi.importActual<typeof import("./bundle-materialization")>("./bundle-materialization");
+
+      return {
+        ...actual,
+        previewMaterializeBundleWriteTargets: vi.fn(() => ["AGENTS.md"]),
+        materializeBundle: vi.fn(async () => {
+          throw new Error("materializeBundle should not run after preflight rejection");
+        }),
+      };
+    });
+
+    // When / Then
+    try {
+      const { run: isolatedRun } = await import("./index");
+
+      await expect(isolatedRun(["add", "react-expert"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+        /target has staged changes/,
+      );
+    } finally {
+      vi.doUnmock("./bundle-materialization");
+      vi.resetModules();
+    }
+  });
+
+  it("refuses tracked root-instruction shadow creation when the target has staged changes", () => {
+    // Given
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# staged\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+
+    // When / Then
+    expect(() =>
+      assertTrackedRootInstructionShadowSafety({
+        repoRoot,
+        filePath: "AGENTS.md",
+        operation: "create",
+      }),
+    ).toThrowError(/target has staged changes/);
+  });
+
+  it("refuses tracked root-instruction shadow refresh when the target has unstaged changes", () => {
+    // Given
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# unstaged\n");
+
+    // When / Then
+    expect(() =>
+      assertTrackedRootInstructionShadowSafety({
+        repoRoot,
+        filePath: "AGENTS.md",
+        operation: "refresh",
+      }),
+    ).toThrowError(/target has unstaged changes/);
+  });
+
+  it("refuses tracked root-instruction shadow creation when the target is unmerged", () => {
+    // Given
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+
+    runGit(repoRoot, ["checkout", "-b", "feature"]);
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# feature\n");
+    runGit(repoRoot, ["commit", "-am", "feature change"]);
+
+    runGit(repoRoot, ["checkout", "main"]);
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# main\n");
+    runGit(repoRoot, ["commit", "-am", "main change"]);
+    runGit(repoRoot, ["merge", "feature"], { allowFailure: true });
+
+    // When / Then
+    expect(() =>
+      assertTrackedRootInstructionShadowSafety({
+        repoRoot,
+        filePath: "AGENTS.md",
+        operation: "create",
+      }),
+    ).toThrowError(/target has unmerged index entries/);
+  });
+
+  it("refuses tracked root-instruction shadow creation when the target has no HEAD content", () => {
+    // Given
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# staged only\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+
+    // When / Then
+    expect(() =>
+      assertTrackedRootInstructionShadowSafety({
+        repoRoot,
+        filePath: "AGENTS.md",
+        operation: "create",
+      }),
+    ).toThrowError(/does not have HEAD content/);
+  });
+
+  it("refuses tracked root-instruction shadow refresh when the target has incompatible index flags", () => {
+    // Given
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    runGit(repoRoot, ["update-index", "--assume-unchanged", "--", "AGENTS.md"]);
+
+    // When / Then
+    expect(() =>
+      assertTrackedRootInstructionShadowSafety({
+        repoRoot,
+        filePath: "AGENTS.md",
+        operation: "refresh",
+      }),
+    ).toThrowError(/incompatible index flags: h/);
+  });
+
+  it("refuses bundle refresh before deleting existing managed files when a tracked root instruction is dirty", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    const managedFilePath = path.join(repoRoot, ".claude", "skills", "react", "SKILL.md");
+    expect(fs.existsSync(managedFilePath)).toBe(true);
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# unstaged\n");
+
+    vi.resetModules();
+    vi.doMock("./bundle-materialization", async () => {
+      const actual = await vi.importActual<typeof import("./bundle-materialization")>("./bundle-materialization");
+
+      return {
+        ...actual,
+        previewMaterializeBundleWriteTargets: vi.fn(() => ["AGENTS.md"]),
+        materializeBundle: vi.fn(async () => {
+          throw new Error("materializeBundle should not run after preflight rejection");
+        }),
+      };
+    });
+
+    // When / Then
+    try {
+      const { run: isolatedRun } = await import("./index");
+
+      await expect(isolatedRun(["add", "react-expert"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+        /target has unstaged changes/,
+      );
+      expect(fs.existsSync(managedFilePath)).toBe(true);
+    } finally {
+      vi.doUnmock("./bundle-materialization");
+      vi.resetModules();
+    }
+  });
+
+});
+
 function createRemoteBundleSource(
   homeDir: string,
   options: {
@@ -2727,12 +2918,20 @@ function createLinkedWorktree(repoRoot: string): string {
   return worktreeRoot;
 }
 
-function runGit(cwd: string, args: string[]): string {
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+function runGit(cwd: string, args: string[], options: { allowFailure?: boolean } = {}): string {
+  try {
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  } catch (error) {
+    if (options.allowFailure) {
+      return "";
+    }
+
+    throw error;
+  }
 }
 
 function pathExists(targetPath: string): boolean {

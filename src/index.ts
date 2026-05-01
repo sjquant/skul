@@ -15,10 +15,16 @@ import {
   fetchRemoteSource,
   inspectRemoteSource,
   listCachedSources,
+  removeCachedRemoteSource,
   readCachedSourceRevision,
+  restoreCachedRemoteSourceRevision,
   updateCachedRemoteSource,
 } from "./bundle-fetch";
-import { materializeBundle, type MaterializeBundleResult } from "./bundle-materialization";
+import {
+  materializeBundle,
+  previewMaterializeBundleWriteTargets,
+  type MaterializeBundleResult,
+} from "./bundle-materialization";
 import {
   type BundleSelection,
   createHeadlessPromptClient,
@@ -30,6 +36,7 @@ import {
   parseCliArgs,
 } from "./cli";
 import { detectGitContext } from "./git-context";
+import { inspectRootInstructionShadowTarget } from "./git-index";
 import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
 import {
   type DesiredBundleEntry,
@@ -555,52 +562,96 @@ async function updateBundles(options: {
       }
     }
 
-    const refreshed = updateCachedRemoteSource({
+    const initialRevision = readCachedSourceRevision({
       source: entry.source!,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
       ref: entry.ref,
     });
-    const desiredIndex = nextDesiredState.findIndex((candidate) => candidate.bundle === entry.bundle);
 
-    nextDesiredState[desiredIndex] = {
-      ...nextDesiredState[desiredIndex]!,
-      ...(refreshed.resolvedRef !== undefined ? { resolved_ref: refreshed.resolvedRef } : {}),
-      resolved_commit: refreshed.currentCommit,
-    };
-
-    if (bundleStateToReplace) {
-      removeManagedPaths(gitContext.worktreeRoot, flattenBundleState(bundleStateToReplace));
-
+    try {
+      const refreshed = updateCachedRemoteSource({
+        source: entry.source!,
+        libraryDir: options.libraryDir,
+        protocol: entry.protocol,
+        ref: entry.ref,
+      });
       const cachedBundle = findCachedBundleWithGuidance({
         libraryDir: options.libraryDir,
         bundle: entry.bundle,
         source: entry.source,
       });
-      const materializedResult = await materializeBundle({
-        repoRoot: gitContext.worktreeRoot,
-        bundleDir: path.dirname(cachedBundle.manifestFile),
-        manifest: cachedBundle.manifest,
-        tools: toolsToRefresh,
-        resolveFileConflict: options.prompts.resolveFileConflict,
-      });
 
-      currentBundles = {
-        ...currentBundles,
-        [entry.bundle]: buildMaterializedBundleState({
-          existingBundleState,
-          materializedResult,
+      if (existingBundleState) {
+        assertTrackedRootInstructionShadowSafetyForPaths({
           repoRoot: gitContext.worktreeRoot,
-          source: entry.source,
-          resolvedCommit: refreshed.currentCommit,
-          selectedTools: toolsToRefresh,
-        }),
-      };
-    }
+          operation: "refresh",
+          filePaths: previewMaterializeBundleWriteTargets({
+            repoRoot: gitContext.worktreeRoot,
+            bundleDir: path.dirname(cachedBundle.manifestFile),
+            manifest: cachedBundle.manifest,
+            tools: toolsToRefresh,
+          }),
+        });
+      }
+      const desiredIndex = nextDesiredState.findIndex((candidate) => candidate.bundle === entry.bundle);
 
-    outputLines.push(
-      pc.green(`Updated ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`),
-    );
+      nextDesiredState[desiredIndex] = {
+        ...nextDesiredState[desiredIndex]!,
+        ...(refreshed.resolvedRef !== undefined ? { resolved_ref: refreshed.resolvedRef } : {}),
+        resolved_commit: refreshed.currentCommit,
+      };
+
+      if (bundleStateToReplace) {
+        removeManagedPaths(gitContext.worktreeRoot, flattenBundleState(bundleStateToReplace));
+        const materializedResult = await materializeBundle({
+          repoRoot: gitContext.worktreeRoot,
+          bundleDir: path.dirname(cachedBundle.manifestFile),
+          manifest: cachedBundle.manifest,
+          tools: toolsToRefresh,
+          assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
+            repoRoot: gitContext.worktreeRoot,
+            operation: existingBundleState ? "refresh" : "create",
+          }),
+          resolveFileConflict: options.prompts.resolveFileConflict,
+        });
+
+        currentBundles = {
+          ...currentBundles,
+          [entry.bundle]: buildMaterializedBundleState({
+            existingBundleState,
+            materializedResult,
+            repoRoot: gitContext.worktreeRoot,
+            source: entry.source,
+            resolvedCommit: refreshed.currentCommit,
+            selectedTools: toolsToRefresh,
+          }),
+        };
+      }
+
+      outputLines.push(
+        pc.green(`Updated ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`),
+      );
+    } catch (error) {
+      if (!initialRevision.cached) {
+        removeCachedRemoteSource({
+          source: entry.source!,
+          libraryDir: options.libraryDir,
+          protocol: entry.protocol,
+        });
+      } else if (initialRevision.currentCommit) {
+        restoreCachedRemoteSourceRevision({
+          source: entry.source!,
+          libraryDir: options.libraryDir,
+          protocol: entry.protocol,
+          ref: entry.ref,
+          commit: initialRevision.currentCommit,
+          refName: initialRevision.currentRef,
+        });
+      }
+
+      throw error;
+    }
   }
 
   registry = upsertRepoState(registry, gitContext.repoFingerprint, {
@@ -690,8 +741,20 @@ async function applyBundle(options: {
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingWorktreeState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
   const existingBundleState = existingWorktreeState?.bundles[cachedBundle.bundle];
+  const plannedWriteTargets = previewMaterializeBundleWriteTargets({
+    repoRoot: gitContext.worktreeRoot,
+    bundleDir: path.dirname(cachedBundle.manifestFile),
+    manifest: cachedBundle.manifest,
+    tools: hasToolSelection ? options.agents : undefined,
+  });
 
   if (existingBundleState) {
+    assertTrackedRootInstructionShadowSafetyForPaths({
+      repoRoot: gitContext.worktreeRoot,
+      operation: "refresh",
+      filePaths: plannedWriteTargets,
+    });
+
     // When --agent is specified, only replace the selected agents; otherwise replace all agents for this bundle
     const toolsToReplace = hasToolSelection
       ? options.agents.filter((t) => t in existingBundleState.tools)
@@ -715,11 +778,21 @@ async function applyBundle(options: {
     removeManagedPaths(gitContext.worktreeRoot, pathsToReplace);
   }
 
+  assertTrackedRootInstructionShadowSafetyForPaths({
+    repoRoot: gitContext.worktreeRoot,
+    operation: existingBundleState ? "refresh" : "create",
+    filePaths: plannedWriteTargets,
+  });
+
   const materializedResult = await materializeBundle({
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
     tools: hasToolSelection ? options.agents : undefined,
+    assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
+      repoRoot: gitContext.worktreeRoot,
+      operation: existingBundleState ? "refresh" : "create",
+    }),
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
@@ -1049,8 +1122,20 @@ async function applyWorktree(options: {
       materializedBundleState: existingBundleState,
       availableTools,
     });
+    const plannedWriteTargets = previewMaterializeBundleWriteTargets({
+      repoRoot: gitContext.worktreeRoot,
+      bundleDir: path.dirname(cachedBundle.manifestFile),
+      manifest: cachedBundle.manifest,
+      tools: toolsToApply,
+    });
 
     if (refreshesExistingBundle && existingBundleState) {
+      assertTrackedRootInstructionShadowSafetyForPaths({
+        repoRoot: gitContext.worktreeRoot,
+        operation: "refresh",
+        filePaths: plannedWriteTargets,
+      });
+
       const replacementAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
         flattenBundleState(existingBundleState),
@@ -1065,11 +1150,21 @@ async function applyWorktree(options: {
       removeManagedPaths(gitContext.worktreeRoot, flattenBundleState(existingBundleState));
     }
 
+    assertTrackedRootInstructionShadowSafetyForPaths({
+      repoRoot: gitContext.worktreeRoot,
+      operation: existingBundleState ? "refresh" : "create",
+      filePaths: plannedWriteTargets,
+    });
+
     const materializedResult = await materializeBundle({
       repoRoot: gitContext.worktreeRoot,
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
+      assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
+        repoRoot: gitContext.worktreeRoot,
+        operation: existingBundleState ? "refresh" : "create",
+      }),
       resolveFileConflict: options.prompts.resolveFileConflict,
     });
 
@@ -1264,6 +1359,92 @@ function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "c
   }
 
   return gitContext;
+}
+
+export function assertTrackedRootInstructionShadowSafety(options: {
+  repoRoot: string;
+  filePath: string;
+  operation: "create" | "refresh";
+}): void {
+  const inspection = inspectRootInstructionShadowTarget({
+    repoRoot: options.repoRoot,
+    filePath: options.filePath,
+  });
+
+  if (!inspection.tracked) {
+    return;
+  }
+
+  const actionLabel = options.operation === "create" ? "create" : "refresh";
+
+  if (inspection.issues.includes("unmerged")) {
+    throw new Error(
+      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target has unmerged index entries`,
+    );
+  }
+
+  if (inspection.issues.includes("missing-head")) {
+    throw new Error(
+      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target does not have HEAD content`,
+    );
+  }
+
+  if (inspection.issues.includes("staged-changes")) {
+    throw new Error(
+      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target has staged changes`,
+    );
+  }
+
+  if (inspection.issues.includes("unstaged-changes")) {
+    throw new Error(
+      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target has unstaged changes`,
+    );
+  }
+
+  if (inspection.issues.includes("incompatible-index-flags")) {
+    throw new Error(
+      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target has incompatible index flags: ${inspection.indexFlags.join(", ")}`,
+    );
+  }
+}
+
+function assertTrackedRootInstructionShadowSafetyForPaths(options: {
+  repoRoot: string;
+  operation: "create" | "refresh";
+  filePaths: string[];
+}): void {
+  for (const filePath of options.filePaths) {
+    if (!isRootInstructionPath(filePath)) {
+      continue;
+    }
+
+    assertTrackedRootInstructionShadowSafety({
+      repoRoot: options.repoRoot,
+      filePath,
+      operation: options.operation,
+    });
+  }
+}
+
+function createTrackedRootInstructionShadowSafetyAssertion(options: {
+  repoRoot: string;
+  operation: "create" | "refresh";
+}): (repoRelativePath: string) => void {
+  return (repoRelativePath: string) => {
+    if (!isRootInstructionPath(repoRelativePath)) {
+      return;
+    }
+
+    assertTrackedRootInstructionShadowSafety({
+      repoRoot: options.repoRoot,
+      filePath: repoRelativePath,
+      operation: options.operation,
+    });
+  };
+}
+
+function isRootInstructionPath(repoRelativePath: string): boolean {
+  return repoRelativePath === "AGENTS.md" || repoRelativePath === "CLAUDE.md";
 }
 
 function selectDesiredEntries(

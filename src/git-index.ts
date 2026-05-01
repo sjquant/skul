@@ -13,8 +13,73 @@ export interface GitHeadBlob {
   content: string;
 }
 
+export type RootInstructionShadowSafetyIssue =
+  | "unmerged"
+  | "missing-head"
+  | "staged-changes"
+  | "unstaged-changes"
+  | "incompatible-index-flags";
+
+export interface RootInstructionShadowSafetyInspection {
+  tracked: boolean;
+  stageEntries: GitIndexStageEntry[];
+  headBlob: GitHeadBlob | null;
+  indexFlags: string[];
+  issues: RootInstructionShadowSafetyIssue[];
+}
+
 export function isTrackedGitPath(options: { repoRoot: string; filePath: string }): boolean {
   return inspectGitIndexStages(options).length > 0 || readGitHeadBlob(options) !== null;
+}
+
+export function inspectRootInstructionShadowTarget(options: {
+  repoRoot: string;
+  filePath: string;
+}): RootInstructionShadowSafetyInspection {
+  const stageEntries = inspectGitIndexStages(options);
+  const headBlob = readGitHeadBlob(options);
+  const indexFlags = readGitIndexFlags(options);
+  const tracked = stageEntries.length > 0 || headBlob !== null;
+
+  if (!tracked) {
+    return {
+      tracked: false,
+      stageEntries,
+      headBlob,
+      indexFlags,
+      issues: [],
+    };
+  }
+
+  const issues: RootInstructionShadowSafetyIssue[] = [];
+
+  if (hasUnmergedEntries(stageEntries)) {
+    issues.push("unmerged");
+  }
+
+  if (!headBlob) {
+    issues.push("missing-head");
+  }
+
+  if (!issues.includes("unmerged") && hasStagedChanges(options.repoRoot, options.filePath)) {
+    issues.push("staged-changes");
+  }
+
+  if (!issues.includes("unmerged") && hasUnstagedChanges(options.repoRoot, options.filePath)) {
+    issues.push("unstaged-changes");
+  }
+
+  if (hasIncompatibleIndexFlags(indexFlags)) {
+    issues.push("incompatible-index-flags");
+  }
+
+  return {
+    tracked,
+    stageEntries,
+    headBlob,
+    indexFlags,
+    issues,
+  };
 }
 
 export function readGitHeadBlob(options: { repoRoot: string; filePath: string }): GitHeadBlob | null {
@@ -69,6 +134,22 @@ export function clearGitSkipWorktree(options: { repoRoot: string; filePath: stri
   runGit(options.repoRoot, ["update-index", "--no-skip-worktree", "--", repoRelativePath]);
 }
 
+function hasUnmergedEntries(stageEntries: GitIndexStageEntry[]): boolean {
+  return stageEntries.some((entry) => entry.stage !== 0);
+}
+
+function hasStagedChanges(repoRoot: string, filePath: string): boolean {
+  return gitCommandExitCode(repoRoot, ["diff", "--cached", "--quiet", "--", normalizeRepoRelativePath(filePath)]) === 1;
+}
+
+function hasUnstagedChanges(repoRoot: string, filePath: string): boolean {
+  return gitCommandExitCode(repoRoot, ["diff", "--quiet", "--", normalizeRepoRelativePath(filePath)]) === 1;
+}
+
+function hasIncompatibleIndexFlags(indexFlags: string[]): boolean {
+  return indexFlags.some((flag) => flag !== "H" && flag !== "S");
+}
+
 function normalizeRepoRelativePath(filePath: string): string {
   return filePath.split(path.sep).join("/");
 }
@@ -96,6 +177,23 @@ function parseGitIndexFlag(line: string): string {
   }
 
   return match[1];
+}
+
+function gitCommandExitCode(repoRoot: string, args: string[]): number {
+  try {
+    execFileSync("git", args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return 0;
+  } catch (error) {
+    if (error instanceof Error && "status" in error && typeof error.status === "number") {
+      return error.status;
+    }
+
+    throw error;
+  }
 }
 
 function runGit(repoRoot: string, args: string[]): string {
