@@ -43,6 +43,18 @@ export interface MaterializedState {
   root_instruction_base_contents?: Record<string, string>;
 }
 
+export type ShadowStrategy = "append" | "prepend" | "replace";
+
+export interface ShadowedFileState {
+  tool: ToolName;
+  bundle: string;
+  strategy: ShadowStrategy;
+  base_blob: string;
+  overlay_fingerprint: string;
+  rendered_fingerprint: string;
+  skip_worktree: boolean;
+}
+
 export interface RepoState {
   repo_root: string;
   desired_state: DesiredBundleEntry[];
@@ -52,6 +64,7 @@ export interface WorktreeState {
   repo_fingerprint: string;
   path: string;
   materialized_state: MaterializedState;
+  shadowed_files: Record<string, ShadowedFileState>;
 }
 
 export interface Registry {
@@ -246,7 +259,7 @@ function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEn
   const resolvedCommit =
     entry.resolved_commit === undefined
       ? undefined
-      : expectCommitSha(entry.resolved_commit, `${label}.resolved_commit`);
+      : expectGitObjectId(entry.resolved_commit, `${label}.resolved_commit`);
 
   return {
     bundle,
@@ -269,6 +282,7 @@ function parseWorktreeState(input: unknown, label: string): WorktreeState {
       worktree.materialized_state,
       `${label}.materialized_state`,
     ),
+    shadowed_files: parseShadowedFiles(worktree.shadowed_files, `${label}.shadowed_files`),
   };
 }
 
@@ -309,7 +323,7 @@ function parseMaterializedBundleState(input: unknown, label: string): Materializ
   const resolvedCommit =
     bundle.resolved_commit === undefined
       ? undefined
-      : expectCommitSha(bundle.resolved_commit, `${label}.resolved_commit`);
+      : expectGitObjectId(bundle.resolved_commit, `${label}.resolved_commit`);
   const toolsInput = expectRecord(bundle.tools, `${label}.tools`);
 
   const tools = Object.fromEntries(
@@ -354,6 +368,51 @@ function parseMaterializedToolState(input: unknown, label: string): Materialized
     files,
     ...(fileFingerprints === undefined ? {} : { file_fingerprints: fileFingerprints }),
     ...(directories === undefined ? {} : { directories }),
+  };
+}
+
+function parseShadowedFiles(
+  input: unknown,
+  label: string,
+): Record<string, ShadowedFileState> {
+  if (input === undefined) {
+    return {};
+  }
+
+  const record = expectRecord(input, label);
+
+  return Object.fromEntries(
+    Object.entries(record).map(([relativePath, value]) => [
+      expectRelativePath(relativePath, `${label}.${relativePath}`),
+      parseShadowedFileState(value, `${label}.${relativePath}`),
+    ]),
+  );
+}
+
+function parseShadowedFileState(input: unknown, label: string): ShadowedFileState {
+  const shadowedFile = expectRecord(input, label);
+  const tool = expectNonEmptyString(shadowedFile.tool, `${label}.tool`);
+
+  if (!isToolName(tool)) {
+    throw new Error(
+      `${label}.tool must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
+    );
+  }
+
+  return {
+    tool,
+    bundle: expectNonEmptyString(shadowedFile.bundle, `${label}.bundle`),
+    strategy: expectShadowStrategy(shadowedFile.strategy, `${label}.strategy`),
+    base_blob: expectGitObjectId(shadowedFile.base_blob, `${label}.base_blob`),
+    overlay_fingerprint: expectNonEmptyString(
+      shadowedFile.overlay_fingerprint,
+      `${label}.overlay_fingerprint`,
+    ),
+    rendered_fingerprint: expectNonEmptyString(
+      shadowedFile.rendered_fingerprint,
+      `${label}.rendered_fingerprint`,
+    ),
+    skip_worktree: expectBoolean(shadowedFile.skip_worktree, `${label}.skip_worktree`),
   };
 }
 
@@ -429,6 +488,11 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
           }
         : {}),
     },
+    shadowed_files: Object.fromEntries(
+      Object.entries(worktreeState.shadowed_files)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([relativePath, shadowedFile]) => [relativePath, { ...shadowedFile }]),
+    ),
   };
 }
 
@@ -515,11 +579,19 @@ function expectProtocol(input: unknown, label: string): "https" | "ssh" {
   return input;
 }
 
-function expectCommitSha(input: unknown, label: string): string {
+function expectShadowStrategy(input: unknown, label: string): ShadowStrategy {
+  if (input !== "append" && input !== "prepend" && input !== "replace") {
+    throw new Error(`${label} must be "append", "prepend", or "replace"`);
+  }
+
+  return input;
+}
+
+function expectGitObjectId(input: unknown, label: string): string {
   const value = expectNonEmptyString(input, label);
 
   if (!/^[0-9a-f]{7,40}$/i.test(value)) {
-    throw new Error(`${label} must be a 7-40 character hexadecimal commit SHA`);
+    throw new Error(`${label} must be a 7-40 character hexadecimal Git object id`);
   }
 
   return value;
