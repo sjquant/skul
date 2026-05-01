@@ -61,6 +61,35 @@ describe("parseBundleManifest", () => {
     });
   });
 
+  it("accepts root instruction targets for supported tools", () => {
+    // Given
+    const manifest = {
+      tools: {
+        "claude-code": {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        codex: {
+          root_instruction: { path: "AGENTS.md" },
+        },
+      },
+    };
+
+    // When
+    const parsed = parseBundleManifest(manifest);
+
+    // Then
+    expect(parsed).toEqual({
+      tools: {
+        "claude-code": {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        codex: {
+          root_instruction: { path: "AGENTS.md" },
+        },
+      },
+    });
+  });
+
   it.each([
     [
       "unsupported tool",
@@ -79,6 +108,15 @@ describe("parseBundleManifest", () => {
         },
       },
       /tools\.codex\.commands is not supported for tool codex/i,
+    ],
+    [
+      "unsupported root instruction target for the selected tool",
+      {
+        tools: {
+          cursor: { root_instruction: { path: "AGENTS.md" } },
+        },
+      },
+      /tools\.cursor\.root_instruction is not supported for tool cursor/i,
     ],
     [
       "absolute target content path",

@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { listToolDefinitions, type ToolDefinition, type ToolName, type ToolTargetName } from "./tool-mapping";
+import {
+  listToolDefinitions,
+  type ToolDefinition,
+  type ToolName,
+  type ToolTargetName,
+} from "./tool-mapping";
 
 export const MANIFEST_FILE_NAME = "manifest.json";
 
@@ -67,7 +72,9 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   for (const targetName of canonicalTargetNames) {
     if (isExistingDirectory(path.join(bundleDir, targetName))) {
       for (const toolDef of allTools) {
-        if (targetName in toolDef.targets) {
+        const targetDef = toolDef.targets[targetName];
+
+        if (targetDef?.kind === "directory") {
           if (!tools[toolDef.name]) tools[toolDef.name] = {};
           tools[toolDef.name]![targetName] = { path: targetName };
         }
@@ -79,7 +86,7 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   // Native paths override canonical paths for the same tool + target.
   for (const toolDef of allTools) {
     for (const [targetName, targetDef] of Object.entries(toolDef.targets)) {
-      if (isExistingDirectory(path.join(bundleDir, targetDef.path))) {
+      if (isExistingToolTarget(path.join(bundleDir, targetDef.path), targetDef.kind)) {
         if (!tools[toolDef.name]) tools[toolDef.name] = {};
         tools[toolDef.name]![targetName as ToolTargetName] = { path: targetDef.path };
       }
@@ -92,6 +99,15 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
 function isExistingDirectory(dirPath: string): boolean {
   try {
     return fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isExistingToolTarget(targetPath: string, kind: "directory" | "file"): boolean {
+  try {
+    const stat = fs.statSync(targetPath);
+    return kind === "directory" ? stat.isDirectory() : stat.isFile();
   } catch {
     return false;
   }

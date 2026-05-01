@@ -66,6 +66,36 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["codex"]).toEqual({ agents: { path: "agents" } });
   });
 
+  it("infers a Claude root instruction file for claude-code only", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "# team instructions\n");
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["claude-code"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["cursor"]).toBeUndefined();
+    expect(manifest.tools["opencode"]).toBeUndefined();
+    expect(manifest.tools["codex"]).toBeUndefined();
+  });
+
+  it("infers a Codex root instruction file for codex only", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "AGENTS.md"), "# codex instructions\n");
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["claude-code"]).toBeUndefined();
+    expect(manifest.tools["cursor"]).toBeUndefined();
+    expect(manifest.tools["opencode"]).toBeUndefined();
+    expect(manifest.tools["codex"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+  });
+
   it("uses native dotdir path when a native directory exists", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
@@ -110,6 +140,23 @@ describe("inferBundleManifest", () => {
       skills: { path: ".claude/skills" },
       commands: { path: "commands" },
     });
+  });
+
+  it("merges canonical directories with a root instruction file for the same tool", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# canonical\n");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "# root instructions\n");
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["claude-code"]).toEqual({
+      skills: { path: "skills" },
+      root_instruction: { path: "CLAUDE.md" },
+    });
+    expect(manifest.tools["codex"]).toEqual({ skills: { path: "skills" } });
   });
 
   it("returns empty tools for a bundle dir with no recognisable structure", () => {

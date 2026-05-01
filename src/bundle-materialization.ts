@@ -99,6 +99,12 @@ export async function materializeBundle(options: {
     const toolDirectories = new Set<string>();
 
     for (const [targetName, target] of Object.entries(targets)) {
+      const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[targetName as ToolTargetName];
+
+      if (targetDefinition?.kind === "file") {
+        continue;
+      }
+
       if (isNativeSourcePath(toolName as ToolName, targetName as ToolTargetName, target.path)) {
         // Native dotdir path: raw copy verbatim into the tool's target directory.
         const reservedDestinations = new Set<string>();
