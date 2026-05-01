@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   clearGitSkipWorktree,
   inspectGitIndexStages,
+  inspectRootInstructionShadowTarget,
   isTrackedGitPath,
   readGitHeadBlob,
   readGitIndexFlags,
@@ -139,6 +140,54 @@ describe("git index primitives", () => {
     expect(headBlob).toMatchObject({
       content: "# main\n",
     });
+  });
+
+  it("reports dirty shadow safety issues for staged and unstaged tracked targets", () => {
+    // Given
+    const repoRoot = createRepository();
+    writeFile(repoRoot, "AGENTS.md", "# team policy\n");
+    commitTrackedFile(repoRoot, "AGENTS.md");
+
+    writeFile(repoRoot, "AGENTS.md", "# first local change\n");
+    runGit(repoRoot, ["add", "--", "AGENTS.md"]);
+    writeFile(repoRoot, "AGENTS.md", "# second local change\n");
+
+    // When
+    const inspection = inspectRootInstructionShadowTarget({ repoRoot, filePath: "AGENTS.md" });
+
+    // Then
+    expect(inspection.tracked).toBe(true);
+    expect(inspection.issues).toEqual(["staged-changes", "unstaged-changes"]);
+  });
+
+  it("reports missing HEAD content for index-only tracked targets", () => {
+    // Given
+    const repoRoot = createRepository();
+    writeFile(repoRoot, "AGENTS.md", "# staged only\n");
+    runGit(repoRoot, ["add", "--", "AGENTS.md"]);
+
+    // When
+    const inspection = inspectRootInstructionShadowTarget({ repoRoot, filePath: "AGENTS.md" });
+
+    // Then
+    expect(inspection.tracked).toBe(true);
+    expect(inspection.issues).toEqual(["missing-head", "staged-changes"]);
+  });
+
+  it("reports incompatible index flags for assume-unchanged tracked targets", () => {
+    // Given
+    const repoRoot = createRepository();
+    writeFile(repoRoot, "AGENTS.md", "# team policy\n");
+    commitTrackedFile(repoRoot, "AGENTS.md");
+    runGit(repoRoot, ["update-index", "--assume-unchanged", "--", "AGENTS.md"]);
+
+    // When
+    const inspection = inspectRootInstructionShadowTarget({ repoRoot, filePath: "AGENTS.md" });
+
+    // Then
+    expect(inspection.tracked).toBe(true);
+    expect(inspection.indexFlags).toEqual(["h"]);
+    expect(inspection.issues).toEqual(["incompatible-index-flags"]);
   });
 
   it("sets the skip-worktree flag for a tracked root instruction file", () => {

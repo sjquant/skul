@@ -216,6 +216,23 @@ export function listCachedSources(libraryDir: string): string[] {
   return sources.sort((left, right) => left.localeCompare(right));
 }
 
+export function restoreCachedRemoteSourceRevision(
+  options: FetchRemoteSourceOptions & { ref?: string; commit: string; refName?: string },
+): void {
+  const targetDir = getTargetDir(options);
+
+  if (options.refName) {
+    runGit(["-C", targetDir, "checkout", "-B", options.refName, options.commit]);
+    return;
+  }
+
+  runGit(["-C", targetDir, "checkout", "--detach", options.commit]);
+}
+
+export function removeCachedRemoteSource(options: FetchRemoteSourceOptions): void {
+  fs.rmSync(getTargetDir(options), { recursive: true, force: true });
+}
+
 function getTargetDir(options: FetchRemoteSourceOptions): string {
   assertSafeSource(options.source);
   return path.join(options.libraryDir, ...options.source.split("/"));
@@ -415,4 +432,3 @@ function assertSafeSource(source: string): void {
 function isCommitSha(value: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(value);
 }
-
