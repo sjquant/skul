@@ -539,6 +539,7 @@ async function updateBundles(options: {
   let currentBundles: MaterializedState["bundles"] = { ...(existingWorktreeState?.bundles ?? {}) };
   const nextDesiredState = [...(repoState?.desired_state ?? [])];
   const outputLines: string[] = [];
+  let rootInstructionBaseContents = worktreeState?.materialized_state.root_instruction_base_contents;
 
   for (const { entry, currentCommit, remoteStatus } of updatePlans) {
     const existingBundleState = currentBundles[entry.bundle];
@@ -597,6 +598,12 @@ async function updateBundles(options: {
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
       );
+      rootInstructionBaseContents = captureRootInstructionBaseContents({
+        repoRoot: gitContext.worktreeRoot,
+        targetPaths: plannedRootInstructionTargets,
+        existingBaseContents: rootInstructionBaseContents,
+        managedTargetPaths: collectManagedRootInstructionTargets(currentBundles),
+      });
 
       assertManagedRootInstructionSyncSourcesCached({
         libraryDir: options.libraryDir,
@@ -632,6 +639,7 @@ async function updateBundles(options: {
             operation: existingBundleState ? "refresh" : "create",
           }),
           allowFileOverwriteTargets: collectManagedRootInstructionTargets(currentBundles),
+          rootInstructionBaseContents,
           resolveFileConflict: options.prompts.resolveFileConflict,
         });
 
@@ -652,6 +660,7 @@ async function updateBundles(options: {
           libraryDir: options.libraryDir,
           desiredState: nextDesiredState,
           materializedBundles: currentBundles,
+          rootInstructionBaseContents,
           targetPaths: plannedRootInstructionTargets,
         });
         currentBundles = refreshManagedFileFingerprintsForPaths(
@@ -695,6 +704,9 @@ async function updateBundles(options: {
     const newMaterializedState: MaterializedState = {
       bundles: currentBundles,
       exclude_configured: Object.keys(currentBundles).length > 0,
+      ...(rootInstructionBaseContents !== undefined
+        ? { root_instruction_base_contents: rootInstructionBaseContents }
+        : {}),
     };
 
     if (Object.keys(currentBundles).length > 0) {
@@ -771,6 +783,7 @@ async function applyBundle(options: {
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingWorktreeState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
+  let rootInstructionBaseContents = existingWorktreeState?.root_instruction_base_contents;
   const existingBundleState = existingWorktreeState?.bundles[cachedBundle.bundle];
   const plannedWriteTargets = previewMaterializeBundleWriteTargets({
     repoRoot: gitContext.worktreeRoot,
@@ -781,6 +794,12 @@ async function applyBundle(options: {
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
   );
+  rootInstructionBaseContents = captureRootInstructionBaseContents({
+    repoRoot: gitContext.worktreeRoot,
+    targetPaths: plannedRootInstructionTargets,
+    existingBaseContents: rootInstructionBaseContents,
+    managedTargetPaths: collectManagedRootInstructionTargets(existingWorktreeState?.bundles ?? {}),
+  });
   const existingDesiredState = registry.repos[gitContext.repoFingerprint]?.desired_state ?? [];
 
   assertManagedRootInstructionSyncSourcesCached({
@@ -855,6 +874,7 @@ async function applyBundle(options: {
       operation: existingBundleState ? "refresh" : "create",
     }),
     allowFileOverwriteTargets: collectManagedRootInstructionTargets(existingWorktreeState?.bundles ?? {}),
+    rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
 
@@ -925,6 +945,9 @@ async function applyBundle(options: {
       [cachedBundle.bundle]: newBundleState,
     },
     exclude_configured: true,
+    ...(rootInstructionBaseContents !== undefined
+      ? { root_instruction_base_contents: rootInstructionBaseContents }
+      : {}),
   };
 
   const syncedRootInstructionPaths = syncManagedRootInstructionFiles({
@@ -932,6 +955,7 @@ async function applyBundle(options: {
     libraryDir: options.libraryDir,
     desiredState: newDesiredState,
     materializedBundles: newMatState.bundles,
+    rootInstructionBaseContents,
     targetPaths: plannedRootInstructionTargets,
   });
   newMatState.bundles = refreshManagedFileFingerprintsForPaths(
@@ -1004,6 +1028,12 @@ async function resetWorktree(options: {
       removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
     }
 
+    restoreRootInstructionBaseContents({
+      repoRoot: gitContext.worktreeRoot,
+      baseContents: worktreeState.materialized_state.root_instruction_base_contents,
+      targetPaths: collectManagedRootInstructionTargets(worktreeState.materialized_state.bundles),
+    });
+
     registry = removeWorktreeState(registry, gitContext.worktreeId);
     writeRegistryFile(options.registryFile, registry);
   }
@@ -1057,6 +1087,7 @@ async function removeBundle(options: {
 
   if (bundleMaterializedState) {
     const bundlePaths = flattenBundleState(bundleMaterializedState);
+    const rootInstructionBaseContents = worktreeState?.materialized_state.root_instruction_base_contents;
     const removedRootInstructionPaths = new Set(
       bundlePaths.files.filter((filePath) => isRootInstructionPath(filePath)),
     );
@@ -1096,6 +1127,20 @@ async function removeBundle(options: {
     }
 
     removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
+    const remainingRootInstructionTargets = collectManagedRootInstructionTargets(remainingBundles);
+    const restoredRootInstructionPaths = new Set(
+      Array.from(removedRootInstructionPaths).filter((filePath) => !remainingRootInstructionTargets.has(filePath)),
+    );
+    restoreRootInstructionBaseContents({
+      repoRoot: gitContext.worktreeRoot,
+      baseContents: rootInstructionBaseContents,
+      targetPaths: restoredRootInstructionPaths,
+    });
+    const nextRootInstructionBaseContents = rootInstructionBaseContents
+      ? Object.fromEntries(
+          Object.entries(rootInstructionBaseContents).filter(([filePath]) => !restoredRootInstructionPaths.has(filePath)),
+        )
+      : undefined;
 
     if (Object.keys(remainingBundles).length > 0) {
 
@@ -1104,6 +1149,7 @@ async function removeBundle(options: {
         libraryDir: options.libraryDir,
         desiredState: remainingDesiredState,
         materializedBundles: remainingBundles,
+        rootInstructionBaseContents: nextRootInstructionBaseContents,
         targetPaths: rewrittenRootInstructionPaths,
       });
       const refreshedRemainingBundles = refreshManagedFileFingerprintsForPaths(
@@ -1114,6 +1160,9 @@ async function removeBundle(options: {
       const newMatState: MaterializedState = {
         bundles: refreshedRemainingBundles,
         exclude_configured: true,
+        ...(nextRootInstructionBaseContents !== undefined && Object.keys(nextRootInstructionBaseContents).length > 0
+          ? { root_instruction_base_contents: nextRootInstructionBaseContents }
+          : {}),
       };
 
       configureSkulExcludeBlock({
@@ -1232,6 +1281,7 @@ async function applyWorktree(options: {
   }
 
   let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
+  let rootInstructionBaseContents = worktreeState?.materialized_state.root_instruction_base_contents;
 
   for (const plan of applyPlans) {
     if (plan.uncached) continue;
@@ -1254,6 +1304,12 @@ async function applyWorktree(options: {
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
     );
+    rootInstructionBaseContents = captureRootInstructionBaseContents({
+      repoRoot: gitContext.worktreeRoot,
+      targetPaths: plannedRootInstructionTargets,
+      existingBaseContents: rootInstructionBaseContents,
+      managedTargetPaths: collectManagedRootInstructionTargets(currentBundles),
+    });
 
     assertManagedRootInstructionSyncSourcesCached({
       libraryDir: options.libraryDir,
@@ -1318,6 +1374,7 @@ async function applyWorktree(options: {
         operation: existingBundleState ? "refresh" : "create",
       }),
       allowFileOverwriteTargets: collectManagedRootInstructionTargets(currentBundles),
+      rootInstructionBaseContents,
       resolveFileConflict: options.prompts.resolveFileConflict,
     });
 
@@ -1338,6 +1395,7 @@ async function applyWorktree(options: {
       libraryDir: options.libraryDir,
       desiredState: repoState.desired_state,
       materializedBundles: currentBundles,
+      rootInstructionBaseContents,
       targetPaths: plannedRootInstructionTargets,
     });
     currentBundles = refreshManagedFileFingerprintsForPaths(
@@ -1349,6 +1407,9 @@ async function applyWorktree(options: {
     const newMatState: MaterializedState = {
       bundles: currentBundles,
       exclude_configured: true,
+      ...(rootInstructionBaseContents !== undefined
+        ? { root_instruction_base_contents: rootInstructionBaseContents }
+        : {}),
     };
 
     configureSkulExcludeBlock({
@@ -1488,11 +1549,45 @@ function buildMaterializedBundleState(options: {
   };
 }
 
+function captureRootInstructionBaseContents(options: {
+  repoRoot: string;
+  targetPaths: Set<string>;
+  existingBaseContents?: Record<string, string>;
+  managedTargetPaths?: Set<string>;
+}): Record<string, string> | undefined {
+  if (options.targetPaths.size === 0) {
+    return options.existingBaseContents;
+  }
+
+  const nextBaseContents = { ...(options.existingBaseContents ?? {}) };
+
+  for (const repoRelativePath of options.targetPaths) {
+    if (repoRelativePath in nextBaseContents) {
+      continue;
+    }
+
+    if (options.managedTargetPaths?.has(repoRelativePath)) {
+      continue;
+    }
+
+    const targetPath = path.join(options.repoRoot, repoRelativePath);
+
+    if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
+      continue;
+    }
+
+    nextBaseContents[repoRelativePath] = fs.readFileSync(targetPath, "utf8");
+  }
+
+  return Object.keys(nextBaseContents).length > 0 ? nextBaseContents : undefined;
+}
+
 function syncManagedRootInstructionFiles(options: {
   repoRoot: string;
   libraryDir: string;
   desiredState: DesiredBundleEntry[];
   materializedBundles: MaterializedState["bundles"];
+  rootInstructionBaseContents?: Record<string, string>;
   targetPaths?: Set<string>;
 }): Set<string> {
   const contentByPath = new Map<string, string[]>();
@@ -1552,14 +1647,44 @@ function syncManagedRootInstructionFiles(options: {
   const writtenPaths = new Set<string>();
 
   for (const [repoRelativePath, parts] of contentByPath.entries()) {
+    const baseContent = options.rootInstructionBaseContents?.[repoRelativePath];
     fs.writeFileSync(
       path.join(options.repoRoot, repoRelativePath),
-      `${composeRootInstructionContent(parts)}\n`,
+      `${composeRootInstructionContent(
+        [baseContent, ...parts].filter((part): part is string => part !== undefined),
+      )}\n`,
     );
     writtenPaths.add(repoRelativePath);
   }
 
   return writtenPaths;
+}
+
+function restoreRootInstructionBaseContents(options: {
+  repoRoot: string;
+  baseContents?: Record<string, string>;
+  targetPaths: Set<string>;
+}): Set<string> {
+  if (!options.baseContents || options.targetPaths.size === 0) {
+    return new Set<string>();
+  }
+
+  const restoredPaths = new Set<string>();
+
+  for (const repoRelativePath of options.targetPaths) {
+    const baseContent = options.baseContents[repoRelativePath];
+
+    if (baseContent === undefined) {
+      continue;
+    }
+
+    const targetPath = path.join(options.repoRoot, repoRelativePath);
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, baseContent);
+    restoredPaths.add(repoRelativePath);
+  }
+
+  return restoredPaths;
 }
 
 function refreshManagedFileFingerprintsForPaths(

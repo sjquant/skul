@@ -1009,39 +1009,28 @@ describe("run", () => {
     ).rejects.toThrowError(/Modified managed file blocks reset in headless mode/);
   });
 
-  it("errors in headless mode when a root instruction conflict cannot be renamed", async () => {
+  it("treats root instruction conflict prompts as unreachable in headless mode", async () => {
     // Given
     const { createHeadlessPromptClient } = await import("./cli");
 
     // When / Then
     await expect(
       createHeadlessPromptClient().resolveFileConflict("AGENTS.md", "p-AGENTS.md"),
-    ).rejects.toThrowError(/Root instruction conflict requires manual resolution/);
+    ).rejects.toThrowError(/root instructions should be appended, not renamed or skipped/i);
   });
 
-  it("offers only skip for interactive root-instruction conflicts", async () => {
+  it("treats interactive root instruction conflict prompts as unreachable", async () => {
     // Given
-    const select = vi.fn().mockResolvedValue("skip");
-    const isCancel = vi.fn().mockReturnValue(false);
-    const loadPrompts = vi.fn().mockResolvedValue({
-      select,
-      isCancel,
-    });
+    const loadPrompts = vi.fn();
 
     // When
     const { createPromptClientForSelections } = await import("./cli");
-    const resolution = await createPromptClientForSelections([], loadPrompts).resolveFileConflict("CLAUDE.md", "p-CLAUDE.md");
 
     // Then
-    expect(resolution).toEqual({ action: "skip" });
-    expect(loadPrompts).toHaveBeenCalledTimes(1);
-    expect(select).toHaveBeenCalledWith({
-      message: "Conflict: CLAUDE.md already exists",
-      options: [
-        { value: "skip", label: "Skip this file (won't be written)" },
-      ],
-    });
-    expect(isCancel).toHaveBeenCalledWith("skip");
+    await expect(
+      createPromptClientForSelections([], loadPrompts).resolveFileConflict("CLAUDE.md", "p-CLAUDE.md"),
+    ).rejects.toThrowError(/root instructions should be appended, not renamed or skipped/i);
+    expect(loadPrompts).not.toHaveBeenCalled();
   });
 
   it("activates headless mode via SKUL_NO_TUI environment variable", async () => {
@@ -1661,7 +1650,7 @@ describe("run", () => {
     );
   });
 
-  it("does not overwrite a skipped root-instruction conflict during shared sync", async () => {
+  it("appends bundle content onto an existing AGENTS.md during add", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1680,24 +1669,20 @@ describe("run", () => {
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
 
     // When
-    await expect(
-      run(["add", "repo-standards"], {
-        homeDir,
-        cwd: repoRoot,
-        prompts: createPromptClientStub({
-          resolveFileConflict: async () => ({ action: "skip" }),
-        }),
-      }),
-    ).resolves.toBe("Applied repo-standards for codex, claude-code, cursor, opencode");
+    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied repo-standards for codex, claude-code, cursor, opencode",
+    );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user root instruction\n");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "user root instruction\n\n# Repo standards\nUse consistent conventions.\n",
+    );
     expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
       "# Repo standards\nUse consistent conventions.\n",
     );
   });
 
-  it("does not claim ownership for skipped shared CLAUDE.md targets", async () => {
+  it("appends bundle content onto an existing CLAUDE.md and records ownership", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1716,21 +1701,116 @@ describe("run", () => {
     fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "user claude instruction\n");
 
     // When
-    await expect(
-      run(["add", "repo-standards"], {
-        homeDir,
-        cwd: repoRoot,
-        prompts: createPromptClientStub({
-          resolveFileConflict: async () => ({ action: "skip" }),
-        }),
-      }),
-    ).resolves.toBe("Applied repo-standards for codex, claude-code, cursor, opencode");
+    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied repo-standards for codex, claude-code, cursor, opencode",
+    );
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
       "# Repo standards\nUse consistent conventions.\n",
     );
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe("user claude instruction\n");
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      "user claude instruction\n\n# Repo standards\nUse consistent conventions.\n",
+    );
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state.bundles["repo-standards"]!.tools["claude-code"]!.files).toContain(
+      "CLAUDE.md",
+    );
+  });
+
+  it("restores pre-existing AGENTS.md content when the last shared root bundle is removed", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "AGENTS.md",
+      "# Repo standards\nUse consistent conventions.\n",
+    );
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["remove", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed repo-standards",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user root instruction\n");
+  });
+
+  it("restores pre-existing AGENTS.md content when reset removes shared root bundles", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "AGENTS.md",
+      "# Repo standards\nUse consistent conventions.\n",
+    );
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Reset Skul-managed files from the current worktree",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user root instruction\n");
+  });
+
+  it("recaptures restored root base content when a non-root bundle keeps the worktree alive", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "AGENTS.md",
+      "# Repo standards\nUse consistent conventions.\n",
+    );
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction v2\n");
+
+    // When
+    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied repo-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "user root instruction v2\n\n# Repo standards\nUse consistent conventions.\n",
+    );
   });
 
   it("composes multiple tool-specific root instructions that land on the same file", async () => {

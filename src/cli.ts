@@ -91,7 +91,7 @@ export function createHeadlessPromptClient(): PromptClient {
     ): Promise<FileConflictResolution> {
       if (isRootInstructionConflictPath(conflictPath)) {
         throw new Error(
-          `Root instruction conflict requires manual resolution: ${conflictPath}\nHint: remove or rename the existing file yourself, or rerun interactively and choose skip`,
+          `Unexpected root instruction conflict prompt for ${conflictPath}: root instructions should be appended, not renamed or skipped`,
         );
       }
 
@@ -149,22 +149,13 @@ export function createPromptClientForSelections(
       conflictPath: string,
       suggestedDestination: string,
     ): Promise<FileConflictResolution> {
-      const { isCancel, select, text } = await loadPrompts();
-
       if (isRootInstructionConflictPath(conflictPath)) {
-        const action = await select({
-          message: `Conflict: ${conflictPath} already exists`,
-          options: [
-            { value: "skip", label: "Skip this file (won't be written)" },
-          ],
-        });
-
-        if (isCancel(action)) {
-          throw new Error("Conflict resolution was cancelled");
-        }
-
-        return { action: "skip" };
+        throw new Error(
+          `Unexpected root instruction conflict prompt for ${conflictPath}: root instructions should be appended, not renamed or skipped`,
+        );
       }
+
+      const { isCancel, select, text } = await loadPrompts();
 
       const action = await select({
         message: `Conflict: ${conflictPath} already exists`,

@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { type BundleManifest } from "./bundle-manifest";
 import { pathDepth } from "./fs-utils";
-import { collectComposedRootInstructionContents } from "./root-instruction-content";
+import { collectComposedRootInstructionContents, composeRootInstructionContent } from "./root-instruction-content";
 import { translateAgent, translateCommand, translateRootInstruction, translateSkill } from "./bundle-translation";
 import { type FileConflictResolution } from "./cli";
 import {
@@ -104,6 +104,7 @@ export async function materializeBundle(options: {
   tools?: ToolName[];
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   allowFileOverwriteTargets?: Set<string>;
+  rootInstructionBaseContents?: Record<string, string>;
   resolveFileConflict?: (conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
@@ -143,6 +144,7 @@ export async function materializeBundle(options: {
           allowFileOverwriteTargets: options.allowFileOverwriteTargets,
           composedRootInstructionContents,
           writtenSharedFileTargets,
+          rootInstructionBaseContents: options.rootInstructionBaseContents,
           resolveFileConflict: options.resolveFileConflict,
         });
         continue;
@@ -480,6 +482,7 @@ async function materializeFileTarget(options: {
   allowFileOverwriteTargets?: Set<string>;
   composedRootInstructionContents: Record<string, string>;
   writtenSharedFileTargets: Set<string>;
+  rootInstructionBaseContents?: Record<string, string>;
   resolveFileConflict:
     | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
     | undefined;
@@ -504,14 +507,21 @@ async function materializeFileTarget(options: {
 
     const wasWritten = await writeTranslatedFile({
       repoRelPath,
-      content: ensureTrailingNewline(options.composedRootInstructionContents[repoRelPath] ?? content),
+      content: ensureTrailingNewline(
+        composeRootInstructionContent(
+          [
+            options.rootInstructionBaseContents?.[repoRelPath]
+              ?? readExistingRootInstructionBaseContent(options.repoRoot, repoRelPath),
+            options.composedRootInstructionContents[repoRelPath] ?? content,
+          ].filter((part): part is string => part !== undefined),
+        ),
+      ),
       repoRoot: options.repoRoot,
       writtenFiles: options.writtenFiles,
       ownedDirectories: options.ownedDirectories,
       reservedDestinations: new Set<string>(),
       assertSafeWriteTarget: options.assertSafeWriteTarget,
-      allowExistingFileOverwrite:
-        options.allowFileOverwriteTargets?.has(repoRelPath) ?? false,
+      allowExistingFileOverwrite: true,
       resolveFileConflict: options.resolveFileConflict,
       targetRoot: "",
     });
@@ -520,6 +530,19 @@ async function materializeFileTarget(options: {
       options.writtenSharedFileTargets.add(repoRelPath);
     }
   }
+}
+
+function readExistingRootInstructionBaseContent(
+  repoRoot: string,
+  repoRelPath: string,
+): string | undefined {
+  const targetPath = path.join(repoRoot, repoRelPath);
+
+  if (!fs.existsSync(targetPath)) {
+    return undefined;
+  }
+
+  return fs.readFileSync(targetPath, "utf8");
 }
 
 function previewCanonicalTargetWriteTargets(options: {

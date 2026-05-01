@@ -40,6 +40,7 @@ export interface MaterializedBundleState {
 export interface MaterializedState {
   bundles: Record<string, MaterializedBundleState>;
   exclude_configured: boolean;
+  root_instruction_base_contents?: Record<string, string>;
 }
 
 export interface RepoState {
@@ -274,9 +275,20 @@ function parseMaterializedState(input: unknown, label: string): MaterializedStat
     ]),
   );
 
+  const rootInstructionBaseContents =
+    state.root_instruction_base_contents === undefined
+      ? undefined
+      : parseRootInstructionBaseContents(
+          state.root_instruction_base_contents,
+          `${label}.root_instruction_base_contents`,
+        );
+
   return {
     bundles,
     exclude_configured: expectBoolean(state.exclude_configured, `${label}.exclude_configured`),
+    ...(rootInstructionBaseContents !== undefined
+      ? { root_instruction_base_contents: rootInstructionBaseContents }
+      : {}),
   };
 }
 
@@ -401,8 +413,33 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
         ),
       ),
       exclude_configured: worktreeState.materialized_state.exclude_configured,
+      ...(worktreeState.materialized_state.root_instruction_base_contents !== undefined
+        ? {
+            root_instruction_base_contents: {
+              ...worktreeState.materialized_state.root_instruction_base_contents,
+            },
+          }
+        : {}),
     },
   };
+}
+
+function parseRootInstructionBaseContents(input: unknown, label: string): Record<string, string> {
+  const record = expectRecord(input, label);
+
+  return Object.fromEntries(
+    Object.entries(record).map(([filePath, value]) => {
+      if (filePath !== "AGENTS.md" && filePath !== "CLAUDE.md") {
+        throw new Error(`${label}.${filePath} must be AGENTS.md or CLAUDE.md`);
+      }
+
+      if (typeof value !== "string") {
+        throw new Error(`${label}.${filePath} must be a string`);
+      }
+
+      return [filePath, value];
+    }),
+  );
 }
 
 function compareRemovalPath(left: string, right: string): number {

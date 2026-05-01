@@ -218,57 +218,7 @@ describe("materializeBundle", () => {
     );
   });
 
-  it("rejects root-instruction conflict renames", async () => {
-    // Given
-    const repoRoot = createTempDir("skul-repo-");
-    const bundleDir = createTempDir("skul-bundle-");
-
-    writeFile(path.join(repoRoot, "AGENTS.md"), "user file\n");
-    writeFile(path.join(bundleDir, "CLAUDE.md"), "bundle root instruction\n");
-
-    // When
-    const materialize = materializeBundle({
-      repoRoot,
-      bundleDir,
-      manifest: {
-        tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
-      },
-      resolveFileConflict: async () => ({
-        action: "rename",
-        destination: "README.md",
-      }),
-    });
-
-    // Then
-    await expect(materialize).rejects.toThrowError(/Root instruction conflicts cannot be renamed/i);
-  });
-
-  it("rejects claude-code root-instruction conflict renames", async () => {
-    // Given
-    const repoRoot = createTempDir("skul-repo-");
-    const bundleDir = createTempDir("skul-bundle-");
-
-    writeFile(path.join(repoRoot, "CLAUDE.md"), "user file\n");
-    writeFile(path.join(bundleDir, "AGENTS.md"), "bundle root instruction\n");
-
-    // When
-    const materialize = materializeBundle({
-      repoRoot,
-      bundleDir,
-      manifest: {
-        tools: { "claude-code": { root_instruction: { path: "AGENTS.md" } } },
-      },
-      resolveFileConflict: async () => ({
-        action: "rename",
-        destination: "p-CLAUDE.md",
-      }),
-    });
-
-    // Then
-    await expect(materialize).rejects.toThrowError(/Root instruction conflicts cannot be renamed/i);
-  });
-
-  it("skips a root-instruction conflict when the user chooses skip", async () => {
+  it("appends codex root instructions onto an existing AGENTS.md file", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -283,15 +233,16 @@ describe("materializeBundle", () => {
       manifest: {
         tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
       },
-      resolveFileConflict: async () => ({ action: "skip" }),
     });
 
     // Then
-    expect(result.byTool.codex!.files).toEqual([]);
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user file\n");
+    expect(result.byTool.codex!.files).toEqual(["AGENTS.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "user file\n\nbundle root instruction\n",
+    );
   });
 
-  it("skips a claude-code root-instruction conflict when the user chooses skip", async () => {
+  it("appends claude-code root instructions onto an existing CLAUDE.md file", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -306,12 +257,13 @@ describe("materializeBundle", () => {
       manifest: {
         tools: { "claude-code": { root_instruction: { path: "AGENTS.md" } } },
       },
-      resolveFileConflict: async () => ({ action: "skip" }),
     });
 
     // Then
-    expect(result.byTool["claude-code"]!.files).toEqual([]);
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe("user file\n");
+    expect(result.byTool["claude-code"]!.files).toEqual(["CLAUDE.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      "user file\n\nbundle root instruction\n",
+    );
   });
 
   it.each([
