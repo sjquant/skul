@@ -68,6 +68,12 @@ describe("parseBundleManifest", () => {
         "claude-code": {
           root_instruction: { path: "CLAUDE.md" },
         },
+        cursor: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        opencode: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
         codex: {
           root_instruction: { path: "AGENTS.md" },
         },
@@ -81,6 +87,12 @@ describe("parseBundleManifest", () => {
     expect(parsed).toEqual({
       tools: {
         "claude-code": {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        cursor: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        opencode: {
           root_instruction: { path: "CLAUDE.md" },
         },
         codex: {
@@ -108,15 +120,6 @@ describe("parseBundleManifest", () => {
         },
       },
       /tools\.codex\.commands is not supported for tool codex/i,
-    ],
-    [
-      "unsupported root instruction target for the selected tool",
-      {
-        tools: {
-          cursor: { root_instruction: { path: "AGENTS.md" } },
-        },
-      },
-      /tools\.cursor\.root_instruction is not supported for tool cursor/i,
     ],
     [
       "absolute target content path",

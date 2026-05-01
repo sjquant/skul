@@ -66,7 +66,7 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["codex"]).toEqual({ agents: { path: "agents" } });
   });
 
-  it("infers a Claude root instruction file for claude-code only", () => {
+  it("infers a Claude root instruction file for claude-compatible tools", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "CLAUDE.md"), "# team instructions\n");
@@ -76,8 +76,8 @@ describe("inferBundleManifest", () => {
 
     // Then
     expect(manifest.tools["claude-code"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
-    expect(manifest.tools["cursor"]).toBeUndefined();
-    expect(manifest.tools["opencode"]).toBeUndefined();
+    expect(manifest.tools["cursor"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["opencode"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
     expect(manifest.tools["codex"]).toBeUndefined();
   });
 
@@ -153,6 +153,14 @@ describe("inferBundleManifest", () => {
 
     // Then
     expect(manifest.tools["claude-code"]).toEqual({
+      skills: { path: "skills" },
+      root_instruction: { path: "CLAUDE.md" },
+    });
+    expect(manifest.tools["cursor"]).toEqual({
+      skills: { path: "skills" },
+      root_instruction: { path: "CLAUDE.md" },
+    });
+    expect(manifest.tools["opencode"]).toEqual({
       skills: { path: "skills" },
       root_instruction: { path: "CLAUDE.md" },
     });

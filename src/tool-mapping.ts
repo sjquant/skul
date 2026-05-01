@@ -30,6 +30,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".cursor/skills", kind: "directory" },
       commands: { path: ".cursor/commands", kind: "directory" },
       agents: { path: ".cursor/agents", kind: "directory" },
+      root_instruction: { path: "CLAUDE.md", kind: "file" },
     },
   },
   {
@@ -38,6 +39,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".opencode/skills", kind: "directory" },
       commands: { path: ".opencode/commands", kind: "directory" },
       agents: { path: ".opencode/agents", kind: "directory" },
+      root_instruction: { path: "CLAUDE.md", kind: "file" },
     },
   },
   {
