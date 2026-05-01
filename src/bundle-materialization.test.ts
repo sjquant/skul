@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -219,7 +218,7 @@ describe("materializeBundle", () => {
     );
   });
 
-  it("rejects root-instruction conflict renames that leave the root-instruction filename family", async () => {
+  it("rejects root-instruction conflict renames", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -241,41 +240,35 @@ describe("materializeBundle", () => {
     });
 
     // Then
-    await expect(materialize).rejects.toThrowError(/root instruction target/i);
+    await expect(materialize).rejects.toThrowError(/Root instruction conflicts cannot be renamed/i);
   });
 
-  it("rejects root-instruction conflict renames that target a tracked missing root-level file", async () => {
+  it("rejects claude-code root-instruction conflict renames", async () => {
     // Given
-    const repoRoot = createRepository();
+    const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
 
-    writeFile(path.join(repoRoot, "AGENTS.md"), "user file\n");
-    writeFile(path.join(repoRoot, "docs-AGENTS.md"), "tracked shadow\n");
-    runGit(repoRoot, ["add", "--", "AGENTS.md", "docs-AGENTS.md"]);
-    runGit(repoRoot, ["commit", "-m", "track root files"]);
-    fs.rmSync(path.join(repoRoot, "docs-AGENTS.md"));
-    runGit(repoRoot, ["rm", "--cached", "--", "docs-AGENTS.md"]);
-
-    writeFile(path.join(bundleDir, "CLAUDE.md"), "bundle root instruction\n");
+    writeFile(path.join(repoRoot, "CLAUDE.md"), "user file\n");
+    writeFile(path.join(bundleDir, "AGENTS.md"), "bundle root instruction\n");
 
     // When
     const materialize = materializeBundle({
       repoRoot,
       bundleDir,
       manifest: {
-        tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
+        tools: { "claude-code": { root_instruction: { path: "AGENTS.md" } } },
       },
       resolveFileConflict: async () => ({
         action: "rename",
-        destination: "docs-AGENTS.md",
+        destination: "p-CLAUDE.md",
       }),
     });
 
     // Then
-    await expect(materialize).rejects.toThrowError(/must not target a tracked file/i);
+    await expect(materialize).rejects.toThrowError(/Root instruction conflicts cannot be renamed/i);
   });
 
-  it("allows root-instruction conflict renames to a prefixed filename in a non-git directory", async () => {
+  it("skips a root-instruction conflict when the user chooses skip", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -290,18 +283,15 @@ describe("materializeBundle", () => {
       manifest: {
         tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
       },
-      resolveFileConflict: async () => ({
-        action: "rename",
-        destination: "p-AGENTS.md",
-      }),
+      resolveFileConflict: async () => ({ action: "skip" }),
     });
 
     // Then
-    expect(result.byTool.codex!.files).toEqual(["p-AGENTS.md"]);
-    expect(fs.readFileSync(path.join(repoRoot, "p-AGENTS.md"), "utf8")).toBe("bundle root instruction\n");
+    expect(result.byTool.codex!.files).toEqual([]);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user file\n");
   });
 
-  it("allows claude-code root-instruction conflicts to rename within the CLAUDE filename family", async () => {
+  it("skips a claude-code root-instruction conflict when the user chooses skip", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -316,15 +306,12 @@ describe("materializeBundle", () => {
       manifest: {
         tools: { "claude-code": { root_instruction: { path: "AGENTS.md" } } },
       },
-      resolveFileConflict: async () => ({
-        action: "rename",
-        destination: "p-CLAUDE.md",
-      }),
+      resolveFileConflict: async () => ({ action: "skip" }),
     });
 
     // Then
-    expect(result.byTool["claude-code"]!.files).toEqual(["p-CLAUDE.md"]);
-    expect(fs.readFileSync(path.join(repoRoot, "p-CLAUDE.md"), "utf8")).toBe("bundle root instruction\n");
+    expect(result.byTool["claude-code"]!.files).toEqual([]);
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe("user file\n");
   });
 
   it.each([
@@ -562,30 +549,7 @@ function createTempDir(prefix: string): string {
   return dir;
 }
 
-function createRepository(): string {
-  const repoRoot = createTempDir("skul-materialize-repo-");
-
-  runGit(repoRoot, ["init", "--initial-branch=main"]);
-  runGit(repoRoot, ["config", "user.name", "Skul Test"]);
-  runGit(repoRoot, ["config", "user.email", "skul@example.com"]);
-  runGit(repoRoot, ["config", "commit.gpgsign", "false"]);
-
-  writeFile(path.join(repoRoot, "README.md"), "# test\n");
-  runGit(repoRoot, ["add", "--", "README.md"]);
-  runGit(repoRoot, ["commit", "-m", "init"]);
-
-  return repoRoot;
-}
-
 function writeFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
-}
-
-function runGit(repoRoot: string, args: string[]): string {
-  return execFileSync("git", args, {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
 }

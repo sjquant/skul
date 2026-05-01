@@ -10,7 +10,6 @@ import {
   normalizeConflictDestination,
   suggestPrefixedDestination,
 } from "./conflict-resolution";
-import { isTrackedGitPath } from "./git-index";
 import { getToolDefinition, resolveToolTargetPath, type ToolName, type ToolTargetName } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
@@ -583,7 +582,6 @@ async function writeTranslatedFile(options: {
   const targetRoot = options.targetRoot ?? options.repoRelPath.split("/").slice(0, 2).join("/");
   const targetRootAbsPath = path.join(options.repoRoot, ...targetRoot.split("/"));
   const targetRootIsNew = !fs.existsSync(targetRootAbsPath);
-  const originalRepoRelPath = options.repoRelPath;
 
   let currentRepoRelPath = options.repoRelPath;
   let currentAbsPath = path.join(options.repoRoot, ...currentRepoRelPath.split("/"));
@@ -607,6 +605,10 @@ async function writeTranslatedFile(options: {
 
     if (resolution.action === "skip") return;
 
+    if (targetRoot === "") {
+      throw new Error(`Root instruction conflicts cannot be renamed: ${currentRepoRelPath}`);
+    }
+
     const newRelWithinTarget =
       resolution.action === "prefix"
         ? suggestPrefixedDestination(relWithinTarget, resolution.prefix)
@@ -614,21 +616,6 @@ async function writeTranslatedFile(options: {
 
     if (!newRelWithinTarget) {
       throw new Error("Conflict destination must stay inside the tool target");
-    }
-
-    if (
-      targetRoot === ""
-      && !isAllowedRootInstructionConflictDestination(originalRepoRelPath, newRelWithinTarget)
-    ) {
-      throw new Error(`Conflict destination must stay within the root instruction target: ${originalRepoRelPath}`);
-    }
-
-    if (
-      targetRoot === ""
-      && newRelWithinTarget !== originalRepoRelPath
-      && isTrackedGitConflictDestination(options.repoRoot, newRelWithinTarget)
-    ) {
-      throw new Error(`Conflict destination must not target a tracked file: ${newRelWithinTarget}`);
     }
 
     currentRepoRelPath = targetRoot === ""
@@ -660,23 +647,6 @@ async function writeTranslatedFile(options: {
   fs.writeFileSync(currentAbsPath, options.content);
   options.reservedDestinations.add(currentRepoRelPath);
   options.writtenFiles.push(currentRepoRelPath);
-}
-
-function isAllowedRootInstructionConflictDestination(originalRepoRelPath: string, nextRepoRelPath: string): boolean {
-  const originalFileName = path.posix.basename(originalRepoRelPath);
-
-  return !nextRepoRelPath.includes("/") && (
-    nextRepoRelPath === originalFileName
-    || nextRepoRelPath.endsWith(`-${originalFileName}`)
-  );
-}
-
-function isTrackedGitConflictDestination(repoRoot: string, filePath: string): boolean {
-  try {
-    return isTrackedGitPath({ repoRoot, filePath });
-  } catch {
-    return false;
-  }
 }
 
 function assertBundleTargetDirectory(sourceDir: string, targetPath: string): void {

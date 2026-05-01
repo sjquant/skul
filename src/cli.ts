@@ -89,6 +89,12 @@ export function createHeadlessPromptClient(): PromptClient {
       conflictPath: string,
       suggestedDestination: string,
     ): Promise<FileConflictResolution> {
+      if (isRootInstructionConflictPath(conflictPath)) {
+        throw new Error(
+          `Root instruction conflict requires manual resolution: ${conflictPath}\nHint: remove or rename the existing file yourself, or rerun interactively and choose skip`,
+        );
+      }
+
       process.stderr.write(
         `skul: conflict on ${conflictPath} — auto-prefixing with "${DEFAULT_CONFLICT_PREFIX}" (headless mode)\n`,
       );
@@ -110,7 +116,10 @@ export function createPromptClient(availableBundles: string[] = []): PromptClien
   return createPromptClientForSelections(bundleSelections);
 }
 
-export function createPromptClientForSelections(availableBundles: BundleSelection[]): PromptClient {
+export function createPromptClientForSelections(
+  availableBundles: BundleSelection[],
+  loadPrompts: () => Promise<typeof import("@clack/prompts")> = loadClackPromptsModule,
+): PromptClient {
   return {
     async selectBundle(source?: string): Promise<BundleSelection> {
       if (availableBundles.length === 0) {
@@ -121,7 +130,7 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
         );
       }
 
-      const { isCancel, select } = await loadClackPromptsModule();
+      const { isCancel, select } = await loadPrompts();
       const choice = await select({
         message: source ? `Select a bundle from ${source}` : "Select a bundle",
         options: availableBundles.map((bundle) => ({
@@ -140,7 +149,23 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       conflictPath: string,
       suggestedDestination: string,
     ): Promise<FileConflictResolution> {
-      const { isCancel, select, text } = await loadClackPromptsModule();
+      const { isCancel, select, text } = await loadPrompts();
+
+      if (isRootInstructionConflictPath(conflictPath)) {
+        const action = await select({
+          message: `Conflict: ${conflictPath} already exists`,
+          options: [
+            { value: "skip", label: "Skip this file (won't be written)" },
+          ],
+        });
+
+        if (isCancel(action)) {
+          throw new Error("Conflict resolution was cancelled");
+        }
+
+        return { action: "skip" };
+      }
+
       const action = await select({
         message: `Conflict: ${conflictPath} already exists`,
         options: [
@@ -220,7 +245,7 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       conflictPath: string,
       operation: "reset" | "replace" | "remove",
     ): Promise<boolean> {
-      const { confirm, isCancel } = await loadClackPromptsModule();
+      const { confirm, isCancel } = await loadPrompts();
       const message =
         operation === "replace"
           ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
@@ -239,6 +264,10 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       return confirmed;
     },
   };
+}
+
+function isRootInstructionConflictPath(conflictPath: string): boolean {
+  return conflictPath === "AGENTS.md" || conflictPath === "CLAUDE.md";
 }
 
 function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {

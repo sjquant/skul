@@ -1004,6 +1004,41 @@ describe("run", () => {
     ).rejects.toThrowError(/Modified managed file blocks reset in headless mode/);
   });
 
+  it("errors in headless mode when a root instruction conflict cannot be renamed", async () => {
+    // Given
+    const { createHeadlessPromptClient } = await import("./cli");
+
+    // When / Then
+    await expect(
+      createHeadlessPromptClient().resolveFileConflict("AGENTS.md", "p-AGENTS.md"),
+    ).rejects.toThrowError(/Root instruction conflict requires manual resolution/);
+  });
+
+  it("offers only skip for interactive root-instruction conflicts", async () => {
+    // Given
+    const select = vi.fn().mockResolvedValue("skip");
+    const isCancel = vi.fn().mockReturnValue(false);
+    const loadPrompts = vi.fn().mockResolvedValue({
+      select,
+      isCancel,
+    });
+
+    // When
+    const { createPromptClientForSelections } = await import("./cli");
+    const resolution = await createPromptClientForSelections([], loadPrompts).resolveFileConflict("CLAUDE.md", "p-CLAUDE.md");
+
+    // Then
+    expect(resolution).toEqual({ action: "skip" });
+    expect(loadPrompts).toHaveBeenCalledTimes(1);
+    expect(select).toHaveBeenCalledWith({
+      message: "Conflict: CLAUDE.md already exists",
+      options: [
+        { value: "skip", label: "Skip this file (won't be written)" },
+      ],
+    });
+    expect(isCancel).toHaveBeenCalledWith("skip");
+  });
+
   it("activates headless mode via SKUL_NO_TUI environment variable", async () => {
     // Given
     const homeDir = createHomeDir();
