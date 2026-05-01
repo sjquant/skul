@@ -2157,6 +2157,33 @@ describe("run", () => {
     );
   });
 
+  it("materializes CLAUDE.md for claude-code when the bundle only provides AGENTS.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "AGENTS.md",
+      "# Shared instructions\nUse consistent conventions.\n",
+    );
+
+    // When
+    await expect(
+      run(["add", "repo-standards", "--agent", "claude-code"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied repo-standards for claude-code");
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      "# Shared instructions\nUse consistent conventions.\n",
+    );
+  });
+
   it("lists bundles with their supported tools", async () => {
     // Given
     const homeDir = createHomeDir();

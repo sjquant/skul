@@ -190,6 +190,26 @@ describe("inferBundleManifest", () => {
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# shared rules\n");
   });
 
+  it("materializes an AGENTS root instruction into CLAUDE.md for claude-code", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "AGENTS.md"), "# shared rules\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { root_instruction: { path: "AGENTS.md" } } },
+      },
+    });
+
+    // Then
+    expect(result.byTool["claude-code"]!.files).toEqual(["CLAUDE.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe("# shared rules\n");
+  });
+
   it("returns empty tools for a bundle dir with no recognisable structure", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");

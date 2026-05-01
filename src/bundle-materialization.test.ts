@@ -301,6 +301,32 @@ describe("materializeBundle", () => {
     expect(fs.readFileSync(path.join(repoRoot, "p-AGENTS.md"), "utf8")).toBe("bundle root instruction\n");
   });
 
+  it("allows claude-code root-instruction conflicts to rename within the CLAUDE filename family", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+
+    writeFile(path.join(repoRoot, "CLAUDE.md"), "user file\n");
+    writeFile(path.join(bundleDir, "AGENTS.md"), "bundle root instruction\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { root_instruction: { path: "AGENTS.md" } } },
+      },
+      resolveFileConflict: async () => ({
+        action: "rename",
+        destination: "p-CLAUDE.md",
+      }),
+    });
+
+    // Then
+    expect(result.byTool["claude-code"]!.files).toEqual(["p-CLAUDE.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "p-CLAUDE.md"), "utf8")).toBe("bundle root instruction\n");
+  });
+
   it.each([
     [
       "missing source directory for a declared target",
