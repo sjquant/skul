@@ -16,6 +16,15 @@ export interface MaterializeBundleResult {
   byTool: Partial<Record<ToolName, { files: string[]; directories: string[] }>>;
 }
 
+/**
+ * Predicts the initial repo-relative files a bundle targets before any
+ * conflict-resolution redirects or skips are applied.
+ *
+ * This is a side-effect-free preview used by higher-level safety checks such as
+ * root-instruction shadow protection, where Skul needs to know the exact
+ * root-instruction targets before it removes existing managed files or writes
+ * new content.
+ */
 export function previewMaterializeBundleWriteTargets(options: {
   repoRoot: string;
   bundleDir: string;
@@ -64,6 +73,14 @@ export function previewMaterializeBundleWriteTargets(options: {
   return Array.from(writeTargets).sort((left, right) => left.localeCompare(right));
 }
 
+/**
+ * Materializes a bundle into the repository, returning the files and
+ * directories that became owned by each tool.
+ *
+ * Callers may optionally provide `assertSafeWriteTarget` to veto individual
+ * writes before they happen and `resolveFileConflict` to redirect or skip
+ * colliding outputs.
+ */
 export async function materializeBundle(options: {
   repoRoot: string;
   bundleDir: string;

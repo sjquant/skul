@@ -1361,6 +1361,13 @@ function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "c
   return gitContext;
 }
 
+/**
+ * Throws when Skul is about to create or refresh a tracked root-instruction
+ * shadow on top of a Git path that is not in a safe state to overwrite.
+ *
+ * Callers typically run it before removing existing managed files and again as
+ * a write-time backstop during materialization.
+ */
 export function assertTrackedRootInstructionShadowSafety(options: {
   repoRoot: string;
   filePath: string;
