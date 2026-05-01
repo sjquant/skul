@@ -621,7 +621,9 @@ describe("run", () => {
     const parsed = JSON.parse(output);
 
     // Then
-    expect(parsed.repo.desired_state).toEqual([{ bundle: "react-expert", protocol: "https" }]);
+    expect(parsed.repo.desired_state).toEqual([
+      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
+    ]);
     expect(parsed.worktree.materialized).toBe(true);
     expect(parsed.worktree.git_exclude_configured).toBe(true);
     expect(parsed.worktree.bundles["react-expert"].tools["claude-code"].files).toContain(
@@ -678,14 +680,16 @@ describe("run", () => {
   });
 
   it("reports a specific message when all bundles are local-only during update", async () => {
-    // Given — bundle is in the library but added without a source, so no source is tracked in the registry
+    // Given — desired state contains a source-less bundle entry
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "local-bundle", {
-      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: fs.realpathSync.native(repoRoot),
+      desired_state: [{ bundle: "local-bundle", protocol: "https" }],
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "local-bundle", ".claude/skills/local/SKILL.md", "# local\n");
-    await run(["add", "local-bundle"], { homeDir, cwd: repoRoot });
+    writeRegistryFile(registryFile, registry);
 
     // When / Then
     await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -1200,6 +1204,119 @@ describe("run", () => {
     );
   });
 
+  it("persists remote revision metadata when a cached bundle is added by name", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+
+    // When
+    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "https",
+      resolved_ref: "main",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
+  it("preserves cached source protocol when a cached bundle is added by name", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
+    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/ai-vault.git"]);
+
+    // When
+    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "ssh",
+      resolved_ref: "main",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
+  it("upgrades a legacy source-less entry to the cached source protocol on bundle-only add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
+    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/ai-vault.git"]);
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: fs.realpathSync.native(repoRoot),
+      desired_state: [{ bundle: remoteSource.bundle, protocol: "https" }],
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // When
+    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(
+      readRegistryFile(registryFile).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "ssh",
+      resolved_ref: "main",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
   it("coexists with a previously added bundle for the same tool", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -1283,7 +1400,10 @@ describe("run", () => {
     const repo = registry.repos[Object.keys(registry.repos)[0]];
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(repo.desired_state).toEqual(
-      expect.arrayContaining([{ bundle: "react-expert", protocol: "https" }, { bundle: "repo-standards", protocol: "https" }]),
+      expect.arrayContaining([
+        { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
+        { bundle: "repo-standards", source: "github.com/user/ai-vault", protocol: "https" },
+      ]),
     );
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
@@ -1337,6 +1457,66 @@ describe("run", () => {
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     const fingerprint = worktree.materialized_state.bundles["repo-standards"]!.tools["codex"]!.file_fingerprints!["AGENTS.md"];
     expect(fingerprint).toBe(fingerprintFile(path.join(repoRoot, "AGENTS.md")));
+  });
+
+  it("reuses the original source when shared root recomposition follows a bundle-only add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/source-a", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/source-a",
+      "repo-standards",
+      "AGENTS.md",
+      "# Source A rules\nUse source A.\n",
+    );
+
+    writeManifest(homeDir, "github.com/user/source-a", "security-standards", {
+      name: "security-standards",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/source-a",
+      "security-standards",
+      "AGENTS.md",
+      "# Security standards\nNever commit secrets.\n",
+    );
+
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    writeManifest(homeDir, "github.com/user/source-b", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/source-b",
+      "repo-standards",
+      "AGENTS.md",
+      "# Source B rules\nUse source B.\n",
+    );
+
+    // When
+    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied security-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# Source A rules\nUse source A.\n\n# Security standards\nNever commit secrets.\n",
+    );
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
+      { bundle: "repo-standards", source: "github.com/user/source-a", protocol: "https" },
+      { bundle: "security-standards", source: "github.com/user/source-a", protocol: "https" },
+    ]);
   });
 
   it("preserves remaining root-instruction content when one shared bundle is removed", async () => {
@@ -1708,7 +1888,7 @@ describe("run", () => {
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
     expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
-      { bundle: "repo-guide", protocol: "https" },
+      { bundle: "repo-guide", source: repoGuideSource, protocol: "https" },
     ]);
   });
 
@@ -1760,8 +1940,8 @@ describe("run", () => {
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
     expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
-      { bundle: "repo-guide", protocol: "https" },
-      { bundle: "security-standards", protocol: "https" },
+      { bundle: "repo-guide", source: repoGuideSource, protocol: "https" },
+      { bundle: "security-standards", source: securitySource, protocol: "https" },
     ]);
     expect(Object.keys(registry.worktrees)).toHaveLength(1);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
@@ -2061,7 +2241,7 @@ describe("run", () => {
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     expect(registry.worktrees).toEqual({});
     expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert", protocol: "https" },
+      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
     ]);
   });
 
@@ -2304,7 +2484,12 @@ describe("run", () => {
       cursor: { files: [".cursor/skills/react/SKILL.md"] },
     });
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert", tools: ["claude-code", "cursor"], protocol: "https" },
+      {
+        bundle: "react-expert",
+        source: "github.com/user/ai-vault",
+        tools: ["claude-code", "cursor"],
+        protocol: "https",
+      },
     ]);
   });
 
@@ -2336,7 +2521,7 @@ describe("run", () => {
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
 
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert", protocol: "https" },
+      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
     ]);
     expect(
       fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
@@ -2575,7 +2760,9 @@ describe("run", () => {
     // Then: registry reflects only repo-standards
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "repo-standards", protocol: "https" }]);
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      { bundle: "repo-standards", source: "github.com/user/ai-vault", protocol: "https" },
+    ]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
     expect(worktree.materialized_state.bundles).toHaveProperty("repo-standards");
@@ -3037,7 +3224,9 @@ describe("run", () => {
     // Then: registry still records next-expert; react-expert is gone from both desired and materialized state
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "next-expert", protocol: "https" }]);
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      { bundle: "next-expert", source: "github.com/user/ai-vault", protocol: "https" },
+    ]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
     expect(worktree.materialized_state.bundles).toHaveProperty("next-expert");
@@ -3140,15 +3329,16 @@ describe("run", () => {
   });
 
   it("returns JSON output for check", async () => {
-    // Given
+    // Given — desired state contains a source-less bundle entry
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: fs.realpathSync.native(repoRoot),
+      desired_state: [{ bundle: "react-expert", protocol: "https" }],
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    writeRegistryFile(registryFile, registry);
 
     // When
     const output = await run(["check", "--json"], { homeDir, cwd: repoRoot });

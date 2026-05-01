@@ -737,19 +737,18 @@ async function applyBundle(options: {
     const { cloned } = fetchRemoteSource({ source: options.source, libraryDir: options.libraryDir, protocol: options.protocol });
     if (cloned) cloneLines.push(pc.dim(`Cloned ${options.source}`));
   }
-  const sourceRevision = options.source
-    ? readCachedSourceRevision({
-        source: options.source,
-        libraryDir: options.libraryDir,
-        protocol: options.protocol,
-      })
-    : undefined;
-
   const cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
     bundle: options.bundle,
     source: options.source,
   });
+  const effectiveSource = options.source ?? cachedBundle.source;
+  const sourceRevision = effectiveSource
+    ? readCachedSourceRevision({
+        source: effectiveSource,
+        libraryDir: options.libraryDir,
+      })
+    : undefined;
 
   const availableTools = Object.keys(cachedBundle.manifest.tools);
   const hasToolSelection = options.agents.length > 0;
@@ -863,7 +862,7 @@ async function applyBundle(options: {
     existingBundleState,
     materializedResult,
     repoRoot: gitContext.worktreeRoot,
-    source: options.source,
+    source: options.source ?? cachedBundle.source,
     resolvedCommit: sourceRevision?.currentCommit,
     selectedTools: hasToolSelection ? options.agents : undefined,
   });
@@ -877,15 +876,27 @@ async function applyBundle(options: {
   const preservesExistingRef =
     existingDesiredEntry?.ref !== undefined &&
     (options.source === undefined || options.source === existingDesiredEntry.source);
+  const sourceProtocol =
+    sourceRevision?.remoteUrl !== undefined
+      ? detectSourceProtocol(sourceRevision.remoteUrl)
+      : undefined;
+  const desiredProtocol =
+    options.source !== undefined
+      ? options.protocol
+      : existingDesiredEntry?.source !== undefined
+        ? existingDesiredEntry.protocol ?? sourceProtocol ?? "https"
+        : sourceProtocol ?? existingDesiredEntry?.protocol ?? "https";
   const newDesiredEntry: DesiredBundleEntry = {
     bundle: cachedBundle.bundle,
     ...(options.source !== undefined
       ? { source: options.source }
       : existingDesiredEntry?.source !== undefined
         ? { source: existingDesiredEntry.source }
+        : cachedBundle.source !== undefined
+          ? { source: cachedBundle.source }
         : {}),
     ...(mergedDesiredTools !== undefined ? { tools: mergedDesiredTools } : {}),
-    protocol: options.protocol ?? existingDesiredEntry?.protocol ?? "https",
+    protocol: desiredProtocol,
     ...(preservesExistingRef ? { ref: existingDesiredEntry.ref } : {}),
     ...(sourceRevision?.currentRef !== undefined
       ? { resolved_ref: sourceRevision.currentRef }
