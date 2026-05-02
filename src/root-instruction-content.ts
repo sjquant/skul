@@ -7,7 +7,7 @@ import { translateRootInstruction } from "./bundle-translation";
 import { type ToolName } from "./tool-mapping";
 
 /** Reads and translates one tool's root-instruction source files by target path. */
-export function collectRootInstructionContents(options: {
+function collectRootInstructionContents(options: {
   bundleDir: string;
   manifest: BundleManifest;
   toolName: ToolName;
