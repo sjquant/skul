@@ -1,10 +1,8 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
-import {
-  formatTrackedRootInstructionShadowBlock,
-  hasTrackedRootInstructionManualEdit,
-  renderTrackedRootInstructionShadow,
-} from "./root-instruction-render";
+import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
 
 describe("tracked root-instruction shadow rendering", () => {
   it("renders append shadows deterministically for normalized inputs", () => {
@@ -54,16 +52,16 @@ describe("tracked root-instruction shadow rendering", () => {
 
   it("formats tracked shadow markers deterministically", () => {
     // Given
-    const content = "# Personal rules\nUse local overrides.\n";
-
-    // When
-    const block = formatTrackedRootInstructionShadowBlock({
+    const render = renderTrackedRootInstructionShadow({
       bundleName: "personal-rules",
-      content,
+      baseContent: "# Team rules\n",
+      overlayContent: "# Personal rules\nUse local overrides.\n",
+      toolName: "codex",
+      strategy: "append",
     });
 
     // Then
-    expect(block).toBe(
+    expect(render.overlay).toBe(
       "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\nUse local overrides.\n<!-- SKUL SHADOW END -->",
     );
   });
@@ -82,12 +80,6 @@ describe("tracked root-instruction shadow rendering", () => {
     });
 
     // Then
-    expect(
-      formatTrackedRootInstructionShadowBlock({
-        bundleName: "personal-rules",
-        content: " \n\n",
-      }),
-    ).toBe("");
     expect(render.overlay).toBe("");
     expect(render.rendered).toBe(baseContent);
   });
@@ -135,7 +127,7 @@ describe("tracked root-instruction shadow rendering", () => {
     expect(refreshedRender.renderedFingerprint).not.toBe(initialRender.renderedFingerprint);
   });
 
-  it("detects manual edits from the recorded rendered fingerprint", () => {
+  it("produces rendered fingerprints that expose manual edits", () => {
     // Given
     const render = renderTrackedRootInstructionShadow({
       baseContent: "# Team rules\n",
@@ -146,19 +138,15 @@ describe("tracked root-instruction shadow rendering", () => {
     });
 
     // When
-    const renderedContentWasEdited = hasTrackedRootInstructionManualEdit({
-      content: `${render.rendered}\n# Manual change\n`,
-      renderedFingerprint: render.renderedFingerprint,
-    });
+    const manualEditFingerprint = createHash("sha256")
+      .update(`${render.rendered}\n# Manual change\n`)
+      .digest("hex");
 
     // Then
-    expect(
-      hasTrackedRootInstructionManualEdit({
-        content: render.rendered,
-        renderedFingerprint: render.renderedFingerprint,
-      }),
-    ).toBe(false);
-    expect(renderedContentWasEdited).toBe(true);
+    expect(createHash("sha256").update(render.rendered).digest("hex")).toBe(
+      render.renderedFingerprint,
+    );
+    expect(manualEditFingerprint).not.toBe(render.renderedFingerprint);
   });
 
   it("guards replace rendering behind explicit confirmation", () => {

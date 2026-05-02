@@ -84,7 +84,7 @@ export function wrapRootInstructionBundleContent(options: {
 }
 
 /** Wraps tracked shadow overlay content with deterministic marker boundaries. */
-export function formatTrackedRootInstructionShadowBlock(options: {
+function formatTrackedRootInstructionShadowBlock(options: {
   bundleName: string;
   content: string;
 }): string {
@@ -102,7 +102,7 @@ export function formatTrackedRootInstructionShadowBlock(options: {
 }
 
 /** Returns whether content still matches the recorded shadow render fingerprint. */
-export function hasTrackedRootInstructionManualEdit(options: {
+function hasTrackedRootInstructionManualEdit(options: {
   content: string;
   renderedFingerprint: string;
 }): boolean {
