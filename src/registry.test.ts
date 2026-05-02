@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   createEmptyRegistry,
+  type DesiredBundleEntry,
   listManagedPathsForRemoval,
   parseRegistry,
   readRegistryFile,
   removeWorktreeState,
+  type ShadowedFileState,
   upsertRepoState,
   upsertWorktreeState,
   writeRegistryFile,
@@ -22,7 +24,7 @@ const WORKTREE_ID = "worktree_xyz789";
 function makeRepoEntry(overrides: object = {}) {
   return {
     repo_root: "/Users/dev/project",
-    desired_state: [{ bundle: "react-expert", protocol: "https" }],
+    desired_state: [{ bundle: "react-expert", protocol: "https" } satisfies DesiredBundleEntry],
     ...overrides,
   };
 }
@@ -43,6 +45,7 @@ function makeWorktreeEntry(overrides: object = {}) {
       },
       exclude_configured: true,
     },
+    shadowed_files: {},
     ...overrides,
   };
 }
@@ -52,6 +55,19 @@ function makeRegistry(overrides: object = {}) {
     version: 1,
     repos: { [REPO_FINGERPRINT]: makeRepoEntry() },
     worktrees: { [WORKTREE_ID]: makeWorktreeEntry() },
+    ...overrides,
+  };
+}
+
+function makeShadowedFileEntry(overrides: Partial<ShadowedFileState> = {}): ShadowedFileState {
+  return {
+    tool: "codex",
+    bundle: "personal-rules",
+    strategy: "append",
+    base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
+    overlay_fingerprint: "overlay-abc123",
+    rendered_fingerprint: "rendered-def456",
+    skip_worktree: true,
     ...overrides,
   };
 }
@@ -120,6 +136,7 @@ describe("parseRegistry", () => {
             },
             exclude_configured: true,
           },
+          shadowed_files: {},
         },
       },
     });
@@ -283,7 +300,7 @@ describe("parseRegistry", () => {
     };
 
     // When / Then
-    expect(() => parseRegistry(input)).toThrowError(/resolved_commit.*commit SHA/i);
+    expect(() => parseRegistry(input)).toThrowError(/resolved_commit.*Git object id/i);
   });
 
   it("allows repository entries without a remote url", () => {
@@ -341,6 +358,55 @@ describe("parseRegistry", () => {
             },
           },
         },
+      },
+    });
+  });
+
+  it("defaults missing shadowed_files to an empty object for older registries", () => {
+    // Given
+    const input = {
+      version: 1,
+      repos: { [REPO_FINGERPRINT]: makeRepoEntry() },
+      worktrees: {
+        [WORKTREE_ID]: {
+          repo_fingerprint: REPO_FINGERPRINT,
+          path: "/Users/dev/project",
+          materialized_state: {
+            bundles: {},
+            exclude_configured: false,
+          },
+        },
+      },
+    };
+
+    // When
+    const parsed = parseRegistry(input);
+
+    // Then
+    expect(parsed.worktrees[WORKTREE_ID]?.shadowed_files).toEqual({});
+  });
+
+  it("parses shadowed_files separately from materialized file ownership", () => {
+    // Given
+    const input = {
+      version: 1,
+      repos: { [REPO_FINGERPRINT]: makeRepoEntry() },
+      worktrees: {
+        [WORKTREE_ID]: makeWorktreeEntry({
+          shadowed_files: {
+            "AGENTS.md": makeShadowedFileEntry(),
+          },
+        }),
+      },
+    };
+
+    // When
+    const parsed = parseRegistry(input);
+
+    // Then
+    expect(parsed.worktrees[WORKTREE_ID]).toMatchObject({
+      shadowed_files: {
+        "AGENTS.md": makeShadowedFileEntry(),
       },
     });
   });
@@ -534,6 +600,84 @@ describe("parseRegistry", () => {
       }),
       /\.file_fingerprints\..+ must reference a tracked file/i,
     ],
+    [
+      "shadowed file metadata with an absolute path",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "/Users/dev/project/AGENTS.md": makeShadowedFileEntry(),
+            },
+          }),
+        },
+      }),
+      /shadowed_files\..+ must be a relative path/i,
+    ],
+    [
+      "shadowed file metadata with an unsupported strategy",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "AGENTS.md": makeShadowedFileEntry({ strategy: "merge" as never }),
+            },
+          }),
+        },
+      }),
+      /\.strategy must be "append", "prepend", or "replace"/i,
+    ],
+    [
+      "shadowed file metadata with an invalid base blob id",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "AGENTS.md": makeShadowedFileEntry({ base_blob: "not-a-sha" }),
+            },
+          }),
+        },
+      }),
+      /\.base_blob must be a 7-40 character hexadecimal Git object id/i,
+    ],
+    [
+      "shadowed file metadata with an empty overlay fingerprint",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "AGENTS.md": makeShadowedFileEntry({ overlay_fingerprint: "" }),
+            },
+          }),
+        },
+      }),
+      /\.overlay_fingerprint must be a non-empty string/i,
+    ],
+    [
+      "shadowed file metadata with an empty rendered fingerprint",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "AGENTS.md": makeShadowedFileEntry({ rendered_fingerprint: "" }),
+            },
+          }),
+        },
+      }),
+      /\.rendered_fingerprint must be a non-empty string/i,
+    ],
+    [
+      "shadowed file metadata with an unknown tool name",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "AGENTS.md": makeShadowedFileEntry({ tool: "unknown-tool" as never }),
+            },
+          }),
+        },
+      }),
+      /\.tool must be one of:/i,
+    ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     expect(() => parseRegistry(input)).toThrowError(expectedMessage);
   });
@@ -585,6 +729,9 @@ describe("registry persistence", () => {
           },
         },
         exclude_configured: true,
+      },
+      shadowed_files: {
+        "AGENTS.md": makeShadowedFileEntry(),
       },
     });
 
@@ -652,6 +799,9 @@ describe("registry persistence", () => {
         },
         exclude_configured: true,
       },
+      shadowed_files: {
+        "AGENTS.md": makeShadowedFileEntry(),
+      },
     });
 
     // When
@@ -669,6 +819,40 @@ describe("registry persistence", () => {
     ).toMatchObject({
       resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
     });
+    expect(reloaded.worktrees[WORKTREE_ID]?.shadowed_files).toMatchObject({
+      "AGENTS.md": makeShadowedFileEntry(),
+    });
+
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it("writes shadowed_files entries in sorted path order", () => {
+    // Given
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const registry = upsertWorktreeState(
+      upsertRepoState(createEmptyRegistry(), REPO_FINGERPRINT, makeRepoEntry()),
+      WORKTREE_ID,
+      {
+        repo_fingerprint: REPO_FINGERPRINT,
+        path: "/Users/dev/project",
+        materialized_state: {
+          bundles: {},
+          exclude_configured: false,
+        },
+        shadowed_files: {
+          "CLAUDE.md": makeShadowedFileEntry({ tool: "claude-code" }),
+          "AGENTS.md": makeShadowedFileEntry(),
+        },
+      },
+    );
+
+    // When
+    writeRegistryFile(registryFile, registry);
+    const fileContent = fs.readFileSync(registryFile, "utf8");
+
+    // Then
+    expect(fileContent.indexOf('"AGENTS.md"')).toBeLessThan(fileContent.indexOf('"CLAUDE.md"'));
 
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
@@ -688,6 +872,7 @@ describe("ownership helpers", () => {
           },
           exclude_configured: true,
         },
+        shadowed_files: {},
       }),
     ).toThrowError(/repo_fingerprint must reference a repository entry/i);
   });

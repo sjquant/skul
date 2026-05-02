@@ -303,13 +303,16 @@ function renderStatus(options: {
   const registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
   const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const hasMaterializedBundles = worktreeState
+    ? worktreeHasMaterializedBundles(worktreeState.materialized_state)
+    : false;
 
   if (options.json) {
     const desiredState = repoState?.desired_state ?? [];
     const worktreeData = worktreeState
       ? {
           path: gitContext.worktreeRoot,
-          materialized: true,
+          materialized: hasMaterializedBundles,
           bundles: Object.fromEntries(
             Object.entries(worktreeState.materialized_state.bundles).map(([bundleName, bundleState]) => [
               bundleName,
@@ -323,17 +326,19 @@ function renderStatus(options: {
               },
             ]),
           ),
+          shadowed_files: worktreeState.shadowed_files,
           git_exclude_configured: hasSkulExcludeBlock({ gitDir: gitContext.gitDir }),
         }
       : {
           path: gitContext.worktreeRoot,
           materialized: false,
           bundles: {},
+          shadowed_files: {},
           git_exclude_configured: hasSkulExcludeBlock({ gitDir: gitContext.gitDir }),
         };
 
     const suggestedAction =
-      !worktreeState && repoState && repoState.desired_state.length > 0 ? "skul apply" : null;
+      !hasMaterializedBundles && repoState && repoState.desired_state.length > 0 ? "skul apply" : null;
 
     return JSON.stringify(
       {
@@ -360,7 +365,7 @@ function renderStatus(options: {
 
   lines.push("", pc.bold("Current Worktree"), `Path: ${gitContext.worktreeRoot}`);
 
-  if (!worktreeState) {
+  if (!hasMaterializedBundles) {
     lines.push(pc.dim("Materialized: no"));
 
     if (repoState && repoState.desired_state.length > 0) {
@@ -386,6 +391,10 @@ function renderStatus(options: {
   lines.push(`  ${hasSkulExcludeBlock({ gitDir: gitContext.gitDir }) ? pc.green("configured") : pc.yellow("missing")}`);
 
   return lines.join("\n");
+}
+
+function worktreeHasMaterializedBundles(materializedState: MaterializedState): boolean {
+  return Object.keys(materializedState.bundles).length > 0;
 }
 
 function renderUpdateCheck(options: {
@@ -727,10 +736,22 @@ async function updateBundles(options: {
         repo_fingerprint: gitContext.repoFingerprint,
         path: gitContext.worktreeRoot,
         materialized_state: newMaterializedState,
+        shadowed_files: registry.worktrees[gitContext.worktreeId]?.shadowed_files ?? {},
       });
     } else {
       removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
-      registry = removeWorktreeState(registry, gitContext.worktreeId);
+      const existingShadowedFiles = registry.worktrees[gitContext.worktreeId]?.shadowed_files ?? {};
+
+      if (Object.keys(existingShadowedFiles).length > 0) {
+        registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+          repo_fingerprint: gitContext.repoFingerprint,
+          path: gitContext.worktreeRoot,
+          materialized_state: newMaterializedState,
+          shadowed_files: existingShadowedFiles,
+        });
+      } else {
+        registry = removeWorktreeState(registry, gitContext.worktreeId);
+      }
     }
   }
 
@@ -983,6 +1004,7 @@ async function applyBundle(options: {
     repo_fingerprint: gitContext.repoFingerprint,
     path: gitContext.worktreeRoot,
     materialized_state: newMatState,
+    shadowed_files: registry.worktrees[gitContext.worktreeId]?.shadowed_files ?? {},
   });
   writeRegistryFile(options.registryFile, registry);
 
@@ -999,9 +1021,12 @@ async function resetWorktree(options: {
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const hasMaterializedBundles = worktreeState
+    ? worktreeHasMaterializedBundles(worktreeState.materialized_state)
+    : false;
 
   if (options.dryRun) {
-    if (!worktreeState) {
+    if (!hasMaterializedBundles) {
       return `${pc.yellow("DRY RUN:")} No Skul-managed files found in the current worktree`;
     }
 
@@ -1017,7 +1042,7 @@ async function resetWorktree(options: {
     return lines.join("\n");
   }
 
-  if (worktreeState) {
+  if (hasMaterializedBundles && worktreeState) {
     const allBundlePaths = Object.values(worktreeState.materialized_state.bundles).map(flattenBundleState);
 
     // Confirm all removals before touching any files (all-or-nothing)
@@ -1044,13 +1069,31 @@ async function resetWorktree(options: {
       targetPaths: collectManagedRootInstructionTargets(worktreeState.materialized_state.bundles),
     });
 
-    registry = removeWorktreeState(registry, gitContext.worktreeId);
+    if (Object.keys(worktreeState.shadowed_files).length > 0) {
+      registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+        repo_fingerprint: gitContext.repoFingerprint,
+        path: gitContext.worktreeRoot,
+        materialized_state: {
+          bundles: {},
+          exclude_configured: false,
+          ...(worktreeState.materialized_state.root_instruction_base_contents !== undefined
+            ? {
+                root_instruction_base_contents:
+                  worktreeState.materialized_state.root_instruction_base_contents,
+              }
+            : {}),
+        },
+        shadowed_files: worktreeState.shadowed_files,
+      });
+    } else {
+      registry = removeWorktreeState(registry, gitContext.worktreeId);
+    }
     writeRegistryFile(options.registryFile, registry);
   }
 
   const excludeRemoved = removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
 
-  if (!worktreeState && !excludeRemoved) {
+  if (!hasMaterializedBundles && !excludeRemoved) {
     return "No Skul-managed files found in the current worktree";
   }
 
@@ -1184,10 +1227,23 @@ async function removeBundle(options: {
         repo_fingerprint: gitContext.repoFingerprint,
         path: gitContext.worktreeRoot,
         materialized_state: newMatState,
+        shadowed_files: worktreeState!.shadowed_files,
       });
     } else {
       removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
-      registry = removeWorktreeState(registry, gitContext.worktreeId);
+      if (Object.keys(worktreeState!.shadowed_files).length > 0) {
+        registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+          repo_fingerprint: gitContext.repoFingerprint,
+          path: gitContext.worktreeRoot,
+          materialized_state: {
+            bundles: {},
+            exclude_configured: false,
+          },
+          shadowed_files: worktreeState!.shadowed_files,
+        });
+      } else {
+        registry = removeWorktreeState(registry, gitContext.worktreeId);
+      }
     }
   }
 
@@ -1433,6 +1489,7 @@ async function applyWorktree(options: {
       repo_fingerprint: gitContext.repoFingerprint,
       path: gitContext.worktreeRoot,
       materialized_state: newMatState,
+      shadowed_files: worktreeState?.shadowed_files ?? {},
     });
     writeRegistryFile(options.registryFile, registry);
   }

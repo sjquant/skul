@@ -9,7 +9,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseCliArgs, type PromptClient } from "./cli";
 import { detectGitContext } from "./git-context";
 import { assertTrackedRootInstructionShadowSafety, run } from "./index";
-import { createEmptyRegistry, readRegistryFile, upsertRepoState, writeRegistryFile } from "./registry";
+import {
+  createEmptyRegistry,
+  readRegistryFile,
+  upsertRepoState,
+  upsertWorktreeState,
+  writeRegistryFile,
+} from "./registry";
 import {
   expectAgentsDocument as assertAgentsDocument,
   expectClaudeDocument as assertClaudeDocument,
@@ -2056,6 +2062,54 @@ describe("run", () => {
     );
   });
 
+  it("reports repository intent when a worktree only has shadowed file metadata", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const registry = upsertWorktreeState(
+      upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+        repo_root: fs.realpathSync.native(repoRoot),
+        desired_state: [{ bundle: "react-expert", protocol: "https" }],
+      }),
+      gitContext.worktreeId,
+      {
+        repo_fingerprint: gitContext.repoFingerprint,
+        path: fs.realpathSync.native(repoRoot),
+        materialized_state: {
+          bundles: {},
+          exclude_configured: false,
+        },
+        shadowed_files: {
+          "AGENTS.md": {
+            tool: "codex",
+            bundle: "personal-rules",
+            strategy: "append",
+            base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
+            overlay_fingerprint: "overlay-abc123",
+            rendered_fingerprint: "rendered-def456",
+            skip_worktree: true,
+          },
+        },
+      },
+    );
+    writeRegistryFile(registryFile, registry);
+
+    // When / Then
+    await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      [
+        "Repository Desired State",
+        "Bundle: react-expert",
+        "",
+        "Current Worktree",
+        `Path: ${fs.realpathSync.native(repoRoot)}`,
+        "Materialized: no",
+        'Suggested Action: run "skul apply"',
+      ].join("\n"),
+    );
+  });
+
   it("shows repository intent from the main worktree inside a linked worktree", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -2238,6 +2292,51 @@ describe("run", () => {
     // When / Then
     await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "No Skul-managed files found in the current worktree",
+    );
+  });
+
+  it("treats a shadow-only worktree as having nothing to reset", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    writeRegistryFile(
+      registryFile,
+      upsertWorktreeState(
+        upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+          repo_root: fs.realpathSync.native(repoRoot),
+          desired_state: [],
+        }),
+        gitContext.worktreeId,
+        {
+          repo_fingerprint: gitContext.repoFingerprint,
+          path: fs.realpathSync.native(repoRoot),
+          materialized_state: {
+            bundles: {},
+            exclude_configured: false,
+          },
+          shadowed_files: {
+            "AGENTS.md": {
+              tool: "codex",
+              bundle: "personal-rules",
+              strategy: "append",
+              base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
+              overlay_fingerprint: "overlay-abc123",
+              rendered_fingerprint: "rendered-def456",
+              skip_worktree: true,
+            },
+          },
+        },
+      ),
+    );
+
+    // When / Then
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "No Skul-managed files found in the current worktree",
+    );
+    await expect(run(["reset", "--dry-run"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "DRY RUN: No Skul-managed files found in the current worktree",
     );
   });
 
