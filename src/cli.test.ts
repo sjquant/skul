@@ -21,6 +21,7 @@ import {
   expectClaudeDocument as assertClaudeDocument,
   formatExpectedRootInstructionDocument,
   formatRootInstructionBundleBlock,
+  formatTrackedRootInstructionShadowBlock,
   setupSharedRootInstructionBundles as writeSharedRootInstructionBundles,
   writeRootInstructionBundleFixture as writeRootInstructionBundle,
 } from "./utils/testing";
@@ -2295,10 +2296,16 @@ describe("run", () => {
     );
   });
 
-  it("treats a shadow-only worktree as having nothing to reset", async () => {
+  it("restores tracked root-instruction shadows during reset", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Shadowed content\n");
+    runGit(repoRoot, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
+    const renderedFingerprint = fingerprintFile(path.join(repoRoot, "AGENTS.md"));
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const gitContext = detectGitContext({ cwd: repoRoot })!;
     writeRegistryFile(
@@ -2321,9 +2328,9 @@ describe("run", () => {
               tool: "codex",
               bundle: "personal-rules",
               strategy: "append",
-              base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
-              overlay_fingerprint: "overlay-abc123",
-              rendered_fingerprint: "rendered-def456",
+              base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+              overlay_fingerprint: renderedFingerprint,
+              rendered_fingerprint: renderedFingerprint,
               skip_worktree: true,
             },
           },
@@ -2333,8 +2340,10 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "No Skul-managed files found in the current worktree",
+      "Reset Skul-managed files from the current worktree",
     );
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# Team base\n");
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("H");
     await expect(run(["reset", "--dry-run"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "DRY RUN: No Skul-managed files found in the current worktree",
     );
@@ -3436,6 +3445,408 @@ function writeBundleFile(
 }
 
 describe("tracked root-instruction shadow safety", () => {
+  it("creates a tracked AGENTS.md shadow during add and records shadow metadata", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "personal-rules",
+      content: "# Personal rules\nPrefer terse answers.\n",
+    });
+
+    // When
+    await expect(run(["add", "personal-rules", "--agent", "codex"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied personal-rules for codex",
+    );
+
+    // Then
+    assertAgentsDocument(
+      repoRoot,
+      "# Team base\nFollow repository policy.\n",
+      formatTrackedRootInstructionShadowBlock("personal-rules", "# Personal rules\nPrefer terse answers.\n"),
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
+    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
+      "# >>> SKUL START",
+    );
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(worktreeState.materialized_state.bundles["personal-rules"]!.tools["codex"]!.files).toEqual([]);
+    expect(worktreeState.shadowed_files["AGENTS.md"]).toMatchObject({
+      tool: "codex",
+      bundle: "personal-rules",
+      strategy: "append",
+      base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+      skip_worktree: true,
+    });
+    expect(worktreeState.shadowed_files["AGENTS.md"]!.overlay_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(worktreeState.shadowed_files["AGENTS.md"]!.rendered_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("creates a tracked CLAUDE.md shadow during add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# Team base\nUse shared prompts.\n");
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track CLAUDE"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-guide",
+      agent: "claude-code",
+      content: "# Repo guide\nUse @imports sparingly.\n",
+    });
+
+    // When
+    await expect(
+      run(["add", "repo-guide", "--agent", "claude-code"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
+      "Applied repo-guide for claude-code",
+    );
+
+    // Then
+    assertClaudeDocument(
+      repoRoot,
+      "# Team base\nUse shared prompts.\n",
+      formatTrackedRootInstructionShadowBlock("repo-guide", "# Repo guide\nUse @imports sparingly.\n"),
+    );
+    expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
+    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
+      "# >>> SKUL START",
+    );
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(worktreeState.materialized_state.bundles["repo-guide"]!.tools["claude-code"]!.files).toEqual([]);
+    expect(worktreeState.shadowed_files["CLAUDE.md"]).toMatchObject({
+      tool: "claude-code",
+      bundle: "repo-guide",
+      strategy: "append",
+      base_blob: runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]),
+      skip_worktree: true,
+    });
+  });
+
+  it("restores tracked root-instruction shadows when removing the owning bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "personal-rules",
+      content: "# Personal rules\nPrefer terse answers.\n",
+    });
+    await run(["add", "personal-rules"], { homeDir, cwd: repoRoot });
+    const agentsBefore = fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
+
+    // When
+    await expect(run(["remove", "personal-rules"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed personal-rules",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# Team base\nFollow repository policy.\n",
+    );
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).not.toBe(agentsBefore);
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("H");
+  });
+
+  it("removes the Skul exclude block when removing the last non-shadow bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track CLAUDE"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-guide",
+      agent: "claude-code",
+      content: "# Repo guide\nUse @imports sparingly.\n",
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "repo-guide", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed react-expert",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
+      "# >>> SKUL START",
+    );
+    expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
+  });
+
+  it("preserves existing tracked CLAUDE.md shadow content when a second shared tool is added", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# Team base\nUse shared prompts.\n");
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track CLAUDE"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "shared-guide",
+      agent: "claude-code",
+      content: "# Claude guide\nUse @imports sparingly.\n",
+      extraTools: {
+        cursor: { root_instruction: { path: "cursor-CLAUDE.md" } },
+      },
+      extraFiles: {
+        "cursor-CLAUDE.md": "# Cursor guide\nUse inline diffs.\n",
+      },
+    });
+    await run(["add", "shared-guide", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(
+      run(["add", "shared-guide", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
+      "Applied shared-guide for cursor",
+    );
+
+    // Then
+    assertClaudeDocument(
+      repoRoot,
+      "# Team base\nUse shared prompts.\n",
+      formatTrackedRootInstructionShadowBlock(
+        "shared-guide",
+        "# Claude guide\nUse @imports sparingly.\n\n# Cursor guide\nUse inline diffs.\n",
+      ),
+    );
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(Object.keys(worktreeState.materialized_state.bundles["shared-guide"]!.tools).sort()).toEqual([
+      "claude-code",
+      "cursor",
+    ]);
+  });
+
+  it("preserves untouched tracked shadow files during partial --agent refreshes", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team AGENTS\n");
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# Team CLAUDE\n");
+    runGit(repoRoot, ["add", "AGENTS.md", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track root instructions"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "mixed-shadow", {
+      name: "mixed-shadow",
+      tools: {
+        codex: { root_instruction: { path: "AGENTS.md" } },
+        "claude-code": { root_instruction: { path: "CLAUDE.md" } },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "mixed-shadow", "AGENTS.md", "# Personal AGENTS\n");
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "mixed-shadow", "CLAUDE.md", "# Personal CLAUDE\n");
+    await run(["add", "mixed-shadow"], { homeDir, cwd: repoRoot });
+    const claudeBefore = fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
+
+    // When
+    await expect(run(["add", "mixed-shadow", "--agent", "codex"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied mixed-shadow for codex",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(claudeBefore);
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
+    expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(worktreeState.shadowed_files["AGENTS.md"]).toBeDefined();
+    expect(worktreeState.shadowed_files["CLAUDE.md"]).toBeDefined();
+  });
+
+  it("updates a tracked AGENTS.md shadow when a remote-backed bundle refreshes", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "personal-rules",
+      manifest: {
+        name: "personal-rules",
+        tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+      },
+      files: {
+        "AGENTS.md": "# Personal rules\nPrefer terse answers.\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    const initialRegistry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const initialShadow =
+      initialRegistry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!.shadowed_files["AGENTS.md"]!;
+    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      "AGENTS.md": "# Personal rules\nPrefer exact dates.\n",
+    });
+
+    // When
+    await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `Updated personal-rules ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}`,
+    );
+
+    // Then
+    assertAgentsDocument(
+      repoRoot,
+      "# Team base\nFollow repository policy.\n",
+      formatTrackedRootInstructionShadowBlock("personal-rules", "# Personal rules\nPrefer exact dates.\n"),
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const updatedShadow = worktreeState.shadowed_files["AGENTS.md"]!;
+
+    expect(updatedShadow.base_blob).toBe(runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]));
+    expect(updatedShadow.overlay_fingerprint).not.toBe(initialShadow.overlay_fingerprint);
+    expect(updatedShadow.rendered_fingerprint).not.toBe(initialShadow.rendered_fingerprint);
+    expect(worktreeState.materialized_state.bundles["personal-rules"]!.resolved_commit).toBe(updatedCommit);
+  });
+
+  it("rejects tracked shadow refresh when prompt-time edits change the current rendered file", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "personal-rules", {
+      name: "personal-rules",
+      tools: {
+        codex: {
+          root_instruction: { path: "AGENTS.md" },
+          skills: { path: ".agents/skills" },
+        },
+      },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "personal-rules", "AGENTS.md", "# Personal rules\nPrefer terse answers.\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "personal-rules",
+      ".agents/skills/p-rules/SKILL.md",
+      "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
+    );
+    await run(["add", "personal-rules"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"), "# modified\n");
+
+    // When / Then
+    await expect(
+      run(["add", "personal-rules"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => {
+            fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# prompt edit\n");
+            return true;
+          },
+        }),
+      }),
+    ).rejects.toThrowError(/no longer matches Skul's recorded render/);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# prompt edit\n");
+    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"), "utf8")).toBe(
+      "# modified\n",
+    );
+  });
+
+  it("retires a tracked AGENTS.md shadow when bundle refresh stops targeting the root instruction", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "personal-rules",
+      manifest: {
+        name: "personal-rules",
+        tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+      },
+      files: {
+        "AGENTS.md": "# Personal rules\nPrefer terse answers.\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      "manifest.json": `${JSON.stringify({
+        name: "personal-rules",
+        tools: { codex: { skills: { path: ".agents/skills" } } },
+      }, null, 2)}\n`,
+      ".agents/skills/p-rules/SKILL.md": "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
+    });
+
+    // When
+    await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `Updated personal-rules ${remoteSource.initialCommit.slice(0, 7)} -> ${updatedCommit.slice(0, 7)}`,
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# Team base\nFollow repository policy.\n",
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("H");
+    expect(pathExists(path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"))).toBe(true);
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(worktreeState.shadowed_files["AGENTS.md"]).toBeUndefined();
+    expect(worktreeState.materialized_state.bundles["personal-rules"]!.resolved_commit).toBe(updatedCommit);
+  });
+
+  it("rejects tracked shadow retirement when the current rendered file was edited locally", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "personal-rules",
+      manifest: {
+        name: "personal-rules",
+        tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+      },
+      files: {
+        "AGENTS.md": "# Personal rules\nPrefer terse answers.\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# local edit\n");
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      "manifest.json": `${JSON.stringify({
+        name: "personal-rules",
+        tools: { codex: { skills: { path: ".agents/skills" } } },
+      }, null, 2)}\n`,
+      ".agents/skills/p-rules/SKILL.md": "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
+    });
+
+    // When / Then
+    await expect(run(["update"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Cannot retire tracked root-instruction shadow for AGENTS\.md because the current worktree content no longer matches Skul's recorded render/,
+    );
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# local edit\n");
+  });
+
   it("refuses add when materialization targets a tracked root instruction with staged changes", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -3726,6 +4137,10 @@ function runGit(cwd: string, args: string[], options: { allowFailure?: boolean }
 
     throw error;
   }
+}
+
+function readGitIndexFlag(cwd: string, filePath: string): string {
+  return runGit(cwd, ["ls-files", "-v", "--", filePath]).slice(0, 1);
 }
 
 function pathExists(targetPath: string): boolean {
