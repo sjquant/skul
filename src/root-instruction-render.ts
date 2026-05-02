@@ -89,7 +89,7 @@ export function formatTrackedRootInstructionShadowBlock(options: {
   const normalizedContent = normalizeRootInstructionPart(options.content);
 
   return [
-    `<!-- SKUL SHADOW START bundle=${options.bundleName} tool=${options.toolName} -->`,
+    `<!-- SKUL SHADOW START bundle=${options.bundleName} -->`,
     normalizedContent,
     "<!-- SKUL SHADOW END -->",
   ]

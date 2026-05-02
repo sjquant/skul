@@ -29,7 +29,7 @@ describe("tracked root-instruction shadow rendering", () => {
     // Then
     expect(secondRender).toEqual(firstRender);
     expect(firstRender.rendered).toBe(
-      "# Team rules\n\n<!-- SKUL SHADOW START bundle=personal-rules tool=codex -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n",
+      "# Team rules\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n",
     );
   });
 
@@ -48,7 +48,7 @@ describe("tracked root-instruction shadow rendering", () => {
 
     // Then
     expect(render.rendered).toBe(
-      "<!-- SKUL SHADOW START bundle=personal-rules tool=codex -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n# Team rules\n",
+      "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n# Team rules\n",
     );
     expect(render.rendered.endsWith("\n")).toBe(true);
     expect(render.rendered.endsWith("\n\n")).toBe(false);
@@ -67,7 +67,7 @@ describe("tracked root-instruction shadow rendering", () => {
 
     // Then
     expect(block).toBe(
-      "<!-- SKUL SHADOW START bundle=personal-rules tool=codex -->\n# Personal rules\nUse local overrides.\n<!-- SKUL SHADOW END -->",
+      "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\nUse local overrides.\n<!-- SKUL SHADOW END -->",
     );
   });
 
@@ -141,7 +141,7 @@ describe("tracked root-instruction shadow rendering", () => {
         allowReplace: true,
       }).rendered,
     ).toBe(
-      "<!-- SKUL SHADOW START bundle=personal-rules tool=codex -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n",
+      "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n",
     );
   });
 });
