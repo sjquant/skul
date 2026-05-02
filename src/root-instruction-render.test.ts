@@ -36,7 +36,7 @@ describe("tracked root-instruction shadow rendering", () => {
   it("renders prepend shadows with one trailing newline", () => {
     // Given
     const options = {
-      baseContent: "# Team rules",
+      baseContent: "# Team rules\n",
       overlayContent: "# Personal rules\n\n",
       bundleName: "personal-rules",
       toolName: "codex" as const,
@@ -50,8 +50,6 @@ describe("tracked root-instruction shadow rendering", () => {
     expect(render.rendered).toBe(
       "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n# Team rules\n",
     );
-    expect(render.rendered.endsWith("\n")).toBe(true);
-    expect(render.rendered.endsWith("\n\n")).toBe(false);
   });
 
   it("formats tracked shadow markers deterministically", () => {
@@ -61,13 +59,55 @@ describe("tracked root-instruction shadow rendering", () => {
     // When
     const block = formatTrackedRootInstructionShadowBlock({
       bundleName: "personal-rules",
-      toolName: "codex",
       content,
     });
 
     // Then
     expect(block).toBe(
       "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\nUse local overrides.\n<!-- SKUL SHADOW END -->",
+    );
+  });
+
+  it("omits tracked shadow markers when the overlay normalizes to empty", () => {
+    // Given
+    const baseContent = "# Team rules\n";
+
+    // When
+    const render = renderTrackedRootInstructionShadow({
+      baseContent,
+      overlayContent: " \n\n",
+      bundleName: "personal-rules",
+      toolName: "codex",
+      strategy: "append",
+    });
+
+    // Then
+    expect(
+      formatTrackedRootInstructionShadowBlock({
+        bundleName: "personal-rules",
+        content: " \n\n",
+      }),
+    ).toBe("");
+    expect(render.overlay).toBe("");
+    expect(render.rendered).toBe(baseContent);
+  });
+
+  it("preserves tracked base content verbatim when appending shadows", () => {
+    // Given
+    const baseContent = "# Team rules  \n\n\n";
+
+    // When
+    const render = renderTrackedRootInstructionShadow({
+      baseContent,
+      overlayContent: "# Personal rules\n",
+      bundleName: "personal-rules",
+      toolName: "codex",
+      strategy: "append",
+    });
+
+    // Then
+    expect(render.rendered).toBe(
+      `${baseContent}<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n`,
     );
   });
 
@@ -140,8 +180,6 @@ describe("tracked root-instruction shadow rendering", () => {
         ...options,
         allowReplace: true,
       }).rendered,
-    ).toBe(
-      "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n",
-    );
+    ).toBe("# Personal rules\n");
   });
 });

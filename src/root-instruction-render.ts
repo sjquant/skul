@@ -40,11 +40,14 @@ export function renderTrackedRootInstructionShadow(
     );
   }
 
-  const overlay = formatTrackedRootInstructionShadowBlock({
-    bundleName: options.bundleName,
-    toolName: options.toolName,
-    content: options.overlayContent,
-  });
+  const normalizedOverlayContent = normalizeRootInstructionPart(options.overlayContent);
+  const overlay =
+    options.strategy === "replace"
+      ? normalizedOverlayContent
+      : formatTrackedRootInstructionShadowBlock({
+          bundleName: options.bundleName,
+          content: normalizedOverlayContent,
+        });
   const rendered = renderTrackedRootInstructionDocument({
     baseContent: options.baseContent,
     overlay,
@@ -83,18 +86,19 @@ export function wrapRootInstructionBundleContent(options: {
 /** Wraps tracked shadow overlay content with deterministic marker boundaries. */
 export function formatTrackedRootInstructionShadowBlock(options: {
   bundleName: string;
-  toolName: ToolName;
   content: string;
 }): string {
   const normalizedContent = normalizeRootInstructionPart(options.content);
+
+  if (normalizedContent.length === 0) {
+    return "";
+  }
 
   return [
     `<!-- SKUL SHADOW START bundle=${options.bundleName} -->`,
     normalizedContent,
     "<!-- SKUL SHADOW END -->",
-  ]
-    .filter((part, index) => index === 0 || index === 2 || part.length > 0)
-    .join("\n");
+  ].join("\n");
 }
 
 /** Returns whether content still matches the recorded shadow render fingerprint. */
@@ -116,15 +120,22 @@ function renderTrackedRootInstructionDocument(options: {
   strategy: "append" | "prepend" | "replace";
 }): string {
   if (options.strategy === "replace") {
-    return ensureTrailingNewline(composeRootInstructionContent([options.overlay]));
+    return ensureTrailingNewline(options.overlay);
   }
 
-  const parts =
-    options.strategy === "prepend"
-      ? [options.overlay, options.baseContent]
-      : [options.baseContent, options.overlay];
+  if (options.overlay.length === 0) {
+    return options.baseContent ?? "";
+  }
 
-  return ensureTrailingNewline(composeRootInstructionContent(parts));
+  if (!options.baseContent || options.baseContent.length === 0) {
+    return ensureTrailingNewline(options.overlay);
+  }
+
+  if (options.strategy === "prepend") {
+    return `${options.overlay}\n\n${options.baseContent}`;
+  }
+
+  return `${options.baseContent}${selectAppendSeparator(options.baseContent)}${options.overlay}\n`;
 }
 
 function fingerprintRootInstructionContent(content: string): string {
@@ -133,6 +144,18 @@ function fingerprintRootInstructionContent(content: string): string {
 
 function ensureTrailingNewline(content: string): string {
   return content.length === 0 ? "" : `${content}\n`;
+}
+
+function selectAppendSeparator(baseContent: string): string {
+  if (baseContent.endsWith("\n\n")) {
+    return "";
+  }
+
+  if (baseContent.endsWith("\n")) {
+    return "\n";
+  }
+
+  return "\n\n";
 }
 
 function normalizeRootInstructionPart(part: string | undefined): string {
