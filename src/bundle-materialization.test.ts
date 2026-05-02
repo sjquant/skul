@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type BundleManifest } from "./bundle-manifest";
 import { materializeBundle } from "./bundle-materialization";
+import { formatExpectedRootInstructionDocument, formatRootInstructionBundleBlock } from "./test-root-instruction-helpers";
 import { type ToolName } from "./tool-mapping";
 
 const tempDirs: string[] = [];
@@ -510,14 +511,4 @@ function createTempDir(prefix: string): string {
 function writeFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
-}
-
-function formatRootInstructionBundleBlock(bundle: string, content: string, source?: string): string {
-  const label = source ? `${bundle} (${source})` : bundle;
-  const normalizedContent = content.replace(/\s+$/, "");
-  return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
-}
-
-function formatExpectedRootInstructionDocument(...parts: string[]): string {
-  return `${parts.map((part) => part.replace(/\s+$/, "")).filter((part) => part.length > 0).join("\n\n")}\n`;
 }

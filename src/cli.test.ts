@@ -10,6 +10,7 @@ import { parseCliArgs, type PromptClient } from "./cli";
 import { detectGitContext } from "./git-context";
 import { assertTrackedRootInstructionShadowSafety, run } from "./index";
 import { createEmptyRegistry, readRegistryFile, upsertRepoState, writeRegistryFile } from "./registry";
+import { formatExpectedRootInstructionDocument, formatRootInstructionBundleBlock } from "./test-root-instruction-helpers";
 
 const tempDirs: string[] = [];
 
@@ -1407,29 +1408,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
-
-    writeManifest(homeDir, "github.com/user/ai-vault", "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
@@ -1439,11 +1421,10 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
     );
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
@@ -1456,43 +1437,26 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/source-a", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/source-a",
-      "repo-standards",
-      "AGENTS.md",
-      "# Source A rules\nUse source A.\n",
-    );
-
-    writeManifest(homeDir, "github.com/user/source-a", "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/source-a",
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+    setupSharedRootInstructionBundles(homeDir, [
+      {
+        source: "github.com/user/source-a",
+        bundle: "repo-standards",
+        content: "# Source A rules\nUse source A.\n",
+      },
+      {
+        source: "github.com/user/source-a",
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
+    ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
-    writeManifest(homeDir, "github.com/user/source-b", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    writeRootInstructionBundleFixture(homeDir, {
+      source: "github.com/user/source-b",
+      bundle: "repo-standards",
+      content: "# Source B rules\nUse source B.\n",
     });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/source-b",
-      "repo-standards",
-      "AGENTS.md",
-      "# Source B rules\nUse source B.\n",
-    );
 
     // When
     await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -1500,11 +1464,10 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("repo-standards", "# Source A rules\nUse source A.\n", "github.com/user/source-a"),
-        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/source-a"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Source A rules\nUse source A.\n", "github.com/user/source-a"),
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/source-a"),
     );
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
@@ -1519,29 +1482,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
-
-    writeManifest(homeDir, "github.com/user/ai-vault", "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
     await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
@@ -1552,10 +1496,9 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
     );
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
@@ -1568,29 +1511,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
-
-    writeManifest(homeDir, "github.com/user/ai-vault", "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
     await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
@@ -1601,11 +1525,10 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
     );
   });
 
@@ -1614,29 +1537,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
-
-    writeManifest(homeDir, "github.com/user/ai-vault", "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
@@ -1656,11 +1560,10 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
     );
   });
 
@@ -1669,17 +1572,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
     });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
 
     // When
@@ -1688,16 +1584,14 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        "user root instruction\n",
-        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      "user root instruction\n",
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
     );
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      ),
+    expectClaudeDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
     );
   });
 
@@ -1706,17 +1600,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
     });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
     fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "user claude instruction\n");
 
     // When
@@ -1725,16 +1612,14 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
     );
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        "user claude instruction\n",
-        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      ),
+    expectClaudeDocument(
+      repoRoot,
+      "user claude instruction\n",
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
     );
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
@@ -1748,17 +1633,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
     });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
@@ -1776,17 +1654,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
     });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
@@ -1804,17 +1675,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
     });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Repo standards\nUse consistent conventions.\n",
-    );
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
@@ -1832,11 +1696,10 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        "user root instruction v2\n",
-        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      "user root instruction v2\n",
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
     );
   });
 
@@ -1889,39 +1752,15 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-guide", {
-      name: "repo-guide",
-      tools: {
-        codex: { root_instruction: { path: "AGENTS.md" } },
-        "claude-code": { skills: { path: ".claude/skills" } },
+    setupSharedRootInstructionBundles(homeDir, [
+      {
+        bundle: "repo-guide",
+        content: "# Repo guide\nFollow the handbook.\n",
+        extraTools: { "claude-code": { skills: { path: ".claude/skills" } } },
+        extraFiles: { ".claude/skills/react/SKILL.md": "# react\n" },
       },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-guide",
-      "AGENTS.md",
-      "# Repo guide\nFollow the handbook.\n",
-    );
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-guide",
-      ".claude/skills/react/SKILL.md",
-      "# react\n",
-    );
-
-    writeManifest(homeDir, "github.com/user/ai-vault", "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
 
     await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
     const registryPath = path.join(homeDir, ".skul", "registry.json");
@@ -1959,29 +1798,10 @@ describe("run", () => {
     const repoGuideSource = "github.com/user/repo-guide-source";
     const securitySource = "github.com/user/security-source";
 
-    writeManifest(homeDir, repoGuideSource, "repo-guide", {
-      name: "repo-guide",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      repoGuideSource,
-      "repo-guide",
-      "AGENTS.md",
-      "# Repo guide\nFollow the handbook.\n",
-    );
-
-    writeManifest(homeDir, securitySource, "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      securitySource,
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+    setupSharedRootInstructionBundles(homeDir, [
+      { source: repoGuideSource, bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
+      { source: securitySource, bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
 
     await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
     const agentsBefore = fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
@@ -2012,29 +1832,10 @@ describe("run", () => {
     const repoGuideSource = "github.com/user/repo-guide-source";
     const securitySource = "github.com/user/security-source";
 
-    writeManifest(homeDir, repoGuideSource, "repo-guide", {
-      name: "repo-guide",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      repoGuideSource,
-      "repo-guide",
-      "AGENTS.md",
-      "# Repo guide\nFollow the handbook.\n",
-    );
-
-    writeManifest(homeDir, securitySource, "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      securitySource,
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+    setupSharedRootInstructionBundles(homeDir, [
+      { source: repoGuideSource, bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
+      { source: securitySource, bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
 
     await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
     await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
@@ -2069,29 +1870,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-guide", {
-      name: "repo-guide",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-guide",
-      "AGENTS.md",
-      "# Repo guide\nFollow the handbook.\n",
-    );
-
-    writeManifest(homeDir, "github.com/user/ai-vault", "security-standards", {
-      name: "security-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "security-standards",
-      "AGENTS.md",
-      "# Security standards\nNever commit secrets.\n",
-    );
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
 
     await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
     await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
@@ -2104,10 +1886,9 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
     );
   });
 
@@ -2995,17 +2776,11 @@ describe("run", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { "claude-code": { root_instruction: { path: "CLAUDE.md" } } },
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      agent: "claude-code",
+      content: "# Shared instructions\nUse consistent conventions.\n",
     });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "CLAUDE.md",
-      "# Shared instructions\nUse consistent conventions.\n",
-    );
 
     // When
     await expect(
@@ -3013,10 +2788,9 @@ describe("run", () => {
     ).resolves.toBe("Applied repo-standards for codex");
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      ),
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
     );
   });
 
@@ -3024,17 +2798,10 @@ describe("run", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
-      name: "repo-standards",
-      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Shared instructions\nUse consistent conventions.\n",
     });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "repo-standards",
-      "AGENTS.md",
-      "# Shared instructions\nUse consistent conventions.\n",
-    );
 
     // When
     await expect(
@@ -3042,10 +2809,9 @@ describe("run", () => {
     ).resolves.toBe("Applied repo-standards for claude-code");
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
-      formatExpectedRootInstructionDocument(
-        formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      ),
+    expectClaudeDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
     );
   });
 
@@ -3864,14 +3630,63 @@ function fingerprintFile(filePath: string): string {
   return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
-function formatRootInstructionBundleBlock(bundle: string, content: string, source?: string): string {
-  const label = source ? `${bundle} (${source})` : bundle;
-  const normalizedContent = content.replace(/\s+$/, "");
-  return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
+function writeRootInstructionBundleFixture(
+  homeDir: string,
+  options: {
+    bundle: string;
+    content: string;
+    source?: string;
+    agent?: "codex" | "claude-code";
+    filePath?: string;
+    extraTools?: Record<string, object>;
+    extraFiles?: Record<string, string>;
+  },
+): void {
+  const source = options.source ?? "github.com/user/ai-vault";
+  const agent = options.agent ?? "codex";
+  const filePath = options.filePath ?? (agent === "codex" ? "AGENTS.md" : "CLAUDE.md");
+
+  writeManifest(homeDir, source, options.bundle, {
+    name: options.bundle,
+    tools: {
+      ...options.extraTools,
+      [agent]: { root_instruction: { path: filePath } },
+    },
+  });
+  writeBundleFile(homeDir, source, options.bundle, filePath, options.content);
+
+  for (const [relativePath, content] of Object.entries(options.extraFiles ?? {})) {
+    writeBundleFile(homeDir, source, options.bundle, relativePath, content);
+  }
 }
 
-function formatExpectedRootInstructionDocument(...parts: string[]): string {
-  return `${parts.map((part) => part.replace(/\s+$/, "")).filter((part) => part.length > 0).join("\n\n")}\n`;
+function setupSharedRootInstructionBundles(
+  homeDir: string,
+  bundles: Array<{
+    bundle: string;
+    content: string;
+    source?: string;
+    agent?: "codex" | "claude-code";
+    filePath?: string;
+    extraTools?: Record<string, object>;
+    extraFiles?: Record<string, string>;
+  }>,
+): void {
+  for (const bundle of bundles) {
+    writeRootInstructionBundleFixture(homeDir, bundle);
+  }
+}
+
+function expectRootInstructionDocument(repoRoot: string, fileName: "AGENTS.md" | "CLAUDE.md", ...parts: string[]): void {
+  expect(fs.readFileSync(path.join(repoRoot, fileName), "utf8")).toBe(formatExpectedRootInstructionDocument(...parts));
+}
+
+function expectAgentsDocument(repoRoot: string, ...parts: string[]): void {
+  expectRootInstructionDocument(repoRoot, "AGENTS.md", ...parts);
+}
+
+function expectClaudeDocument(repoRoot: string, ...parts: string[]): void {
+  expectRootInstructionDocument(repoRoot, "CLAUDE.md", ...parts);
 }
 
 function createPromptClientStub(overrides: Partial<PromptClient> = {}): PromptClient {
