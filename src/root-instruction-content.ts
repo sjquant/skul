@@ -6,6 +6,7 @@ import { composeRootInstructionContent } from "./root-instruction-render";
 import { translateRootInstruction } from "./bundle-translation";
 import { type ToolName } from "./tool-mapping";
 
+/** Reads and translates one tool's root-instruction source files by target path. */
 export function collectRootInstructionContents(options: {
   bundleDir: string;
   manifest: BundleManifest;
@@ -26,6 +27,7 @@ export function collectRootInstructionContents(options: {
   });
 }
 
+/** Collects all translated root-instruction parts and composes them per output path. */
 export function collectComposedRootInstructionContents(options: {
   bundleDir: string;
   manifest: BundleManifest;

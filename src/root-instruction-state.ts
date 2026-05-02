@@ -16,6 +16,7 @@ import {
 } from "./root-instruction-render";
 import { type ToolName } from "./tool-mapping";
 
+/** Captures pre-existing root-instruction file contents before Skul starts managing them. */
 export function captureRootInstructionBaseContents(options: {
   repoRoot: string;
   targetPaths: Set<string>;
@@ -49,6 +50,7 @@ export function captureRootInstructionBaseContents(options: {
   return Object.keys(nextBaseContents).length > 0 ? nextBaseContents : undefined;
 }
 
+/** Rebuilds shared root-instruction files from desired bundle state and returns the rewritten paths. */
 export function syncManagedRootInstructionFiles(options: {
   repoRoot: string;
   desiredState: DesiredBundleEntry[];
@@ -134,6 +136,7 @@ function collectRootInstructionContentByPath(options: {
   return contentByPath;
 }
 
+/** Restores preserved base content for root-instruction files that Skul no longer manages. */
 export function restoreRootInstructionBaseContents(options: {
   repoRoot: string;
   baseContents?: Record<string, string>;
@@ -161,6 +164,7 @@ export function restoreRootInstructionBaseContents(options: {
   return restoredPaths;
 }
 
+/** Refreshes fingerprints for a subset of managed files after they are rewritten in place. */
 export function refreshManagedFileFingerprintsForPaths(
   repoRoot: string,
   bundles: MaterializedState["bundles"],
@@ -214,6 +218,7 @@ function fingerprintFile(filePath: string): string {
   }
 }
 
+/** Returns every root-instruction path currently owned by managed bundles. */
 export function collectManagedRootInstructionTargets(
   bundles: MaterializedState["bundles"],
 ): Set<string> {
@@ -226,6 +231,7 @@ export function collectManagedRootInstructionTargets(
   );
 }
 
+/** Verifies that every bundle needed for shared root-instruction recomposition is cached. */
 export function assertManagedRootInstructionSyncSourcesCached(options: {
   desiredState: DesiredBundleEntry[];
   materializedBundles: MaterializedState["bundles"];
@@ -255,6 +261,7 @@ export function assertManagedRootInstructionSyncSourcesCached(options: {
   }
 }
 
+/** Collects other bundles that already own root-instruction paths targeted by an upcoming write. */
 export function collectSharedRootInstructionState(
   bundles: MaterializedState["bundles"],
   plannedWriteTargets: string[],

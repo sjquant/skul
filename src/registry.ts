@@ -62,6 +62,7 @@ export interface Registry {
 
 type UnknownRecord = Record<string, unknown>;
 
+/** Creates an empty registry object at the current schema version. */
 export function createEmptyRegistry(): Registry {
   return {
     version: 1,
@@ -70,6 +71,7 @@ export function createEmptyRegistry(): Registry {
   };
 }
 
+/** Reads the registry from disk, defaulting to an empty registry when it does not exist. */
 export function readRegistryFile(registryFile: string): Registry {
   if (!fs.existsSync(registryFile)) {
     return createEmptyRegistry();
@@ -78,11 +80,13 @@ export function readRegistryFile(registryFile: string): Registry {
   return parseRegistry(JSON.parse(fs.readFileSync(registryFile, "utf8")) as unknown);
 }
 
+/** Persists the registry to disk using stable ordering and a trailing newline. */
 export function writeRegistryFile(registryFile: string, registry: Registry): void {
   fs.mkdirSync(path.dirname(registryFile), { recursive: true });
   fs.writeFileSync(registryFile, `${JSON.stringify(sortRegistry(registry), null, 2)}\n`);
 }
 
+/** Replaces one repository entry in the registry while preserving all others. */
 export function upsertRepoState(
   registry: Registry,
   repoFingerprint: string,
@@ -111,6 +115,7 @@ export function upsertRepoState(
   };
 }
 
+/** Replaces one worktree entry in the registry while preserving all others. */
 export function upsertWorktreeState(
   registry: Registry,
   worktreeId: string,
@@ -130,6 +135,7 @@ export function upsertWorktreeState(
   };
 }
 
+/** Removes one worktree entry from the registry. */
 export function removeWorktreeState(registry: Registry, worktreeId: string): Registry {
   if (!(worktreeId in registry.worktrees)) {
     return {
@@ -149,6 +155,7 @@ export function removeWorktreeState(registry: Registry, worktreeId: string): Reg
   };
 }
 
+/** Returns managed files and directories in a safe removal order. */
 export function listManagedPathsForRemoval(state: {
   files: string[];
   directories?: string[];
@@ -158,6 +165,7 @@ export function listManagedPathsForRemoval(state: {
   );
 }
 
+/** Validates and normalizes raw registry JSON into the typed schema. */
 export function parseRegistry(input: unknown): Registry {
   const registry = expectRecord(input, "registry");
 

@@ -31,6 +31,7 @@ export function detectSourceProtocol(input: string): "https" | "ssh" {
   return /^git@/.test(input.trim()) ? "ssh" : "https";
 }
 
+/** Normalizes a user-supplied git source into `host/owner/repo` form. */
 export function normalizeBundleSource(input: string): string {
   const value = input.trim();
 
@@ -93,6 +94,7 @@ function normalizeGitHubShortcut(input: string): string | undefined {
   return `github.com/${owner}/${normalizedRepo}`;
 }
 
+/** Lists every bundle currently discoverable in the local cache. */
 export function listCachedBundles(options: { libraryDir: string }): CachedBundle[] {
   if (!fs.existsSync(options.libraryDir)) {
     return [];
@@ -173,6 +175,7 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
   );
 }
 
+/** Resolves one cached bundle by source and bundle name, inferring repo bundles when needed. */
 export function findCachedBundle(options: {
   libraryDir: string;
   bundle: string;

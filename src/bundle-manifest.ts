@@ -28,6 +28,7 @@ export interface CachedBundleLayout {
 
 type UnknownRecord = Record<string, unknown>;
 
+/** Parses and validates a manifest JSON object into the internal bundle schema. */
 export function parseBundleManifest(input: unknown): BundleManifest {
   const manifest = expectRecord(input, "manifest");
   const toolsInput = expectRecord(manifest.tools, "tools");
@@ -62,6 +63,7 @@ export function parseBundleManifest(input: unknown): BundleManifest {
   return expandRootInstructionTargets({ tools });
 }
 
+/** Infers a bundle manifest from canonical directories and native tool paths on disk. */
 export function inferBundleManifest(bundleDir: string): BundleManifest {
   const tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>> = {};
   const allTools = listToolDefinitions();
@@ -157,6 +159,7 @@ function selectRootInstructionSourcePath(
   return null;
 }
 
+/** Resolves the cache paths Skul uses for one source/bundle pair. */
 export function resolveCachedBundleLayout(options: {
   libraryDir: string;
   source: string;

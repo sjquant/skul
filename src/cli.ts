@@ -111,11 +111,13 @@ export function createHeadlessPromptClient(): PromptClient {
   };
 }
 
+/** Creates the interactive prompt client used by the terminal UI. */
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   const bundleSelections = availableBundles.map((bundle) => ({ bundle }));
   return createPromptClientForSelections(bundleSelections);
 }
 
+/** Creates an interactive prompt client from richer bundle selection metadata. */
 export function createPromptClientForSelections(
   availableBundles: BundleSelection[],
   loadPrompts: () => Promise<typeof import("@clack/prompts")> = loadClackPromptsModule,
@@ -266,6 +268,7 @@ function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
   return clackPromptsModulePromise;
 }
 
+/** Renders CLI help text for either the full program or one subcommand. */
 export function createHelpText(command?: CommandName): string {
   const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
@@ -283,6 +286,7 @@ export function createHelpText(command?: CommandName): string {
   return program.helpInformation();
 }
 
+/** Parses CLI arguments into a normalized command payload. */
 export async function parseCliArgs(
   argv: string[],
   prompts: PromptClient = createPromptClient(),

@@ -17,6 +17,7 @@ export interface DetectGitContextOptions {
   cwd: string;
 }
 
+/** Detects repository and worktree identity for a working directory, or returns `null` outside Git. */
 export function detectGitContext(options: DetectGitContextOptions): GitContext | null {
   const worktreeRoot = gitRevParse(options.cwd, ["--show-toplevel"]);
 

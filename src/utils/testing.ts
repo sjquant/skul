@@ -3,16 +3,19 @@ import path from "node:path";
 
 import { expect } from "vitest";
 
+/** Formats one expected root-instruction bundle block with Skul boundary markers. */
 export function formatRootInstructionBundleBlock(bundle: string, content: string, source?: string): string {
   const label = source ? `${bundle} (${source})` : bundle;
   const normalizedContent = content.replace(/\s+$/, "");
   return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
 }
 
+/** Joins expected root-instruction document parts using the production document layout. */
 export function formatExpectedRootInstructionDocument(...parts: string[]): string {
   return `${parts.map((part) => part.replace(/\s+$/, "")).filter((part) => part.length > 0).join("\n\n")}\n`;
 }
 
+/** Writes one root-instruction test bundle fixture into the local cache layout. */
 export function writeRootInstructionBundleFixture(
   homeDir: string,
   options: {
@@ -53,6 +56,7 @@ export function writeRootInstructionBundleFixture(
   }
 }
 
+/** Writes multiple shared root-instruction test bundle fixtures into the local cache layout. */
 export function setupSharedRootInstructionBundles(
   homeDir: string,
   bundles: Array<{
@@ -80,6 +84,7 @@ export function setupSharedRootInstructionBundles(
   }
 }
 
+/** Asserts the exact rendered contents of one managed root-instruction file. */
 export function expectRootInstructionDocument(
   repoRoot: string,
   fileName: "AGENTS.md" | "CLAUDE.md",
@@ -88,10 +93,12 @@ export function expectRootInstructionDocument(
   expect(fs.readFileSync(path.join(repoRoot, fileName), "utf8")).toBe(formatExpectedRootInstructionDocument(...parts));
 }
 
+/** Asserts the exact rendered contents of `AGENTS.md`. */
 export function expectAgentsDocument(repoRoot: string, ...parts: string[]): void {
   expectRootInstructionDocument(repoRoot, "AGENTS.md", ...parts);
 }
 
+/** Asserts the exact rendered contents of `CLAUDE.md`. */
 export function expectClaudeDocument(repoRoot: string, ...parts: string[]): void {
   expectRootInstructionDocument(repoRoot, "CLAUDE.md", ...parts);
 }

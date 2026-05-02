@@ -52,16 +52,19 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
+/** Returns a defensive copy of all supported tool definitions. */
 export function listToolDefinitions(): ToolDefinition[] {
   return TOOL_DEFINITIONS.map(cloneToolDefinition);
 }
 
+/** Looks up one tool definition by name and returns a defensive copy when found. */
 export function getToolDefinition(name: string): ToolDefinition | null {
   const tool = TOOL_DEFINITIONS.find((definition) => definition.name === name);
 
   return tool ? cloneToolDefinition(tool) : null;
 }
 
+/** Resolves the absolute target root path for one tool target inside a repository. */
 export function resolveToolTargetPath(
   toolName: string,
   targetName: ToolTargetName,

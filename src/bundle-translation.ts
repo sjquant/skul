@@ -55,6 +55,7 @@ export interface BundleTranslationOptions {
   description?: string;
 }
 
+/** Translates a canonical skill bundle into one target tool's skill file layout. */
 export function translateSkill(options: {
   sourceTool: SkillTool;
   targetTool: SkillTool;
@@ -65,6 +66,7 @@ export function translateSkill(options: {
   return renderSkill(options.targetTool, model, options.options);
 }
 
+/** Translates a canonical command document into one target tool's command layout. */
 export function translateCommand(options: {
   sourceTool: CommandTool;
   targetTool: CommandTool | "codex";
@@ -75,6 +77,7 @@ export function translateCommand(options: {
   return renderCommand(options.targetTool, model, options.options);
 }
 
+/** Translates a canonical agent document into one target tool's agent layout. */
 export function translateAgent(options: {
   sourceTool: AgentTool;
   targetTool: AgentTool;
@@ -84,6 +87,7 @@ export function translateAgent(options: {
   return renderAgent(options.targetTool, model);
 }
 
+/** Translates one root-instruction source into target-tool root files such as `AGENTS.md`. */
 export function translateRootInstruction(options: {
   targetTool: RootInstructionTool;
   source: string;
@@ -613,4 +617,3 @@ function requireOption(value: string | undefined, label: string): string {
 function isMetadataMap(value: MetadataValue): value is MetadataMap {
   return typeof value === "object" && value !== null;
 }
-

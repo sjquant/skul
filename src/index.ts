@@ -76,6 +76,7 @@ export interface RunOptions {
   prompts?: PromptClient;
 }
 
+/** Parses CLI arguments and executes the selected Skul command. */
 export async function run(argv: string[], options: RunOptions = {}): Promise<string> {
   const stateLayout = resolveGlobalStateLayout({ homeDir: options.homeDir ?? os.homedir() });
   const prompts = options.prompts ?? createDefaultPromptClient(stateLayout.libraryDir);

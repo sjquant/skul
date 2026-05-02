@@ -1,3 +1,4 @@
+/** Joins root-instruction parts into one normalized document body. */
 export function composeRootInstructionContent(parts: Array<string | undefined>): string {
   return parts
     .map((part) => normalizeRootInstructionPart(part))
@@ -5,6 +6,7 @@ export function composeRootInstructionContent(parts: Array<string | undefined>):
     .join("\n\n");
 }
 
+/** Wraps one bundle's root-instruction content with explicit boundary markers. */
 export function wrapRootInstructionBundleContent(options: {
   bundleName: string;
   source?: string;
@@ -25,6 +27,7 @@ export function wrapRootInstructionBundleContent(options: {
   ].join("\n");
 }
 
+/** Returns whether a repo-relative path is a managed root-instruction file. */
 export function isRootInstructionPath(repoRelativePath: string): boolean {
   return repoRelativePath === "AGENTS.md" || repoRelativePath === "CLAUDE.md";
 }

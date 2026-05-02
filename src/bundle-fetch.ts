@@ -80,6 +80,7 @@ export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemot
   return { cloned: true, targetDir };
 }
 
+/** Reads the currently cached commit, ref, and remote URL for one source. */
 export function readCachedSourceRevision(options: FetchRemoteSourceOptions): CachedSourceRevision {
   const targetDir = getTargetDir(options);
 
@@ -96,6 +97,7 @@ export function readCachedSourceRevision(options: FetchRemoteSourceOptions): Cac
   };
 }
 
+/** Resolves the remote state for one source and optional ref selector without mutating the cache. */
 export function inspectRemoteSource(
   options: FetchRemoteSourceOptions & { ref?: string },
 ): RemoteSourceStatus {
@@ -113,6 +115,7 @@ export function inspectRemoteSource(
   };
 }
 
+/** Updates a cached remote source to the latest commit for its selected ref. */
 export function updateCachedRemoteSource(
   options: FetchRemoteSourceOptions & { ref?: string },
 ): UpdateCachedRemoteSourceResult {
@@ -164,6 +167,7 @@ export function updateCachedRemoteSource(
   };
 }
 
+/** Removes one cached source from disk and prunes empty cache directories above it. */
 export function clearCachedSource(options: FetchRemoteSourceOptions): ClearCachedSourceResult {
   const targetDir = getTargetDir(options);
 
@@ -177,6 +181,7 @@ export function clearCachedSource(options: FetchRemoteSourceOptions): ClearCache
   return { cleared: true, targetDir };
 }
 
+/** Removes every cached source beneath the library directory. */
 export function clearAllCachedSources(options: { libraryDir: string }): ClearAllCachedSourcesResult {
   const clearedSources: string[] = [];
 
@@ -191,6 +196,7 @@ export function clearAllCachedSources(options: { libraryDir: string }): ClearAll
   return { clearedSources };
 }
 
+/** Lists normalized source identifiers currently present in the local cache. */
 export function listCachedSources(libraryDir: string): string[] {
   if (!fs.existsSync(libraryDir)) {
     return [];
@@ -216,6 +222,7 @@ export function listCachedSources(libraryDir: string): string[] {
   return sources.sort((left, right) => left.localeCompare(right));
 }
 
+/** Moves a cached source checkout back to a previously recorded revision. */
 export function restoreCachedRemoteSourceRevision(
   options: FetchRemoteSourceOptions & { ref?: string; commit: string; refName?: string },
 ): void {
@@ -229,6 +236,7 @@ export function restoreCachedRemoteSourceRevision(
   runGit(["-C", targetDir, "checkout", "--detach", options.commit]);
 }
 
+/** Deletes one cached source checkout without reporting whether it existed. */
 export function removeCachedRemoteSource(options: FetchRemoteSourceOptions): void {
   fs.rmSync(getTargetDir(options), { recursive: true, force: true });
 }
