@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { inferBundleManifest } from "./bundle-manifest";
 import { materializeBundle } from "./bundle-materialization";
-import { formatExpectedRootInstructionDocument, formatRootInstructionBundleBlock } from "./test-root-instruction-helpers";
+import { formatExpectedRootInstructionDocument, formatRootInstructionBundleBlock } from "./utils/testing";
 import { type ToolName } from "./tool-mapping";
 
 const tempDirs: string[] = [];

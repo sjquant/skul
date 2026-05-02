@@ -10,7 +10,14 @@ import { parseCliArgs, type PromptClient } from "./cli";
 import { detectGitContext } from "./git-context";
 import { assertTrackedRootInstructionShadowSafety, run } from "./index";
 import { createEmptyRegistry, readRegistryFile, upsertRepoState, writeRegistryFile } from "./registry";
-import { formatExpectedRootInstructionDocument, formatRootInstructionBundleBlock } from "./test-root-instruction-helpers";
+import {
+  expectAgentsDocument as assertAgentsDocument,
+  expectClaudeDocument as assertClaudeDocument,
+  formatExpectedRootInstructionDocument,
+  formatRootInstructionBundleBlock,
+  setupSharedRootInstructionBundles as writeSharedRootInstructionBundles,
+  writeRootInstructionBundleFixture as writeRootInstructionBundle,
+} from "./utils/testing";
 
 const tempDirs: string[] = [];
 
@@ -3642,22 +3649,7 @@ function writeRootInstructionBundleFixture(
     extraFiles?: Record<string, string>;
   },
 ): void {
-  const source = options.source ?? "github.com/user/ai-vault";
-  const agent = options.agent ?? "codex";
-  const filePath = options.filePath ?? (agent === "codex" ? "AGENTS.md" : "CLAUDE.md");
-
-  writeManifest(homeDir, source, options.bundle, {
-    name: options.bundle,
-    tools: {
-      ...options.extraTools,
-      [agent]: { root_instruction: { path: filePath } },
-    },
-  });
-  writeBundleFile(homeDir, source, options.bundle, filePath, options.content);
-
-  for (const [relativePath, content] of Object.entries(options.extraFiles ?? {})) {
-    writeBundleFile(homeDir, source, options.bundle, relativePath, content);
-  }
+  writeRootInstructionBundle(homeDir, options, { writeManifest, writeBundleFile });
 }
 
 function setupSharedRootInstructionBundles(
@@ -3672,21 +3664,15 @@ function setupSharedRootInstructionBundles(
     extraFiles?: Record<string, string>;
   }>,
 ): void {
-  for (const bundle of bundles) {
-    writeRootInstructionBundleFixture(homeDir, bundle);
-  }
-}
-
-function expectRootInstructionDocument(repoRoot: string, fileName: "AGENTS.md" | "CLAUDE.md", ...parts: string[]): void {
-  expect(fs.readFileSync(path.join(repoRoot, fileName), "utf8")).toBe(formatExpectedRootInstructionDocument(...parts));
+  writeSharedRootInstructionBundles(homeDir, bundles, { writeManifest, writeBundleFile });
 }
 
 function expectAgentsDocument(repoRoot: string, ...parts: string[]): void {
-  expectRootInstructionDocument(repoRoot, "AGENTS.md", ...parts);
+  assertAgentsDocument(repoRoot, ...parts);
 }
 
 function expectClaudeDocument(repoRoot: string, ...parts: string[]): void {
-  expectRootInstructionDocument(repoRoot, "CLAUDE.md", ...parts);
+  assertClaudeDocument(repoRoot, ...parts);
 }
 
 function createPromptClientStub(overrides: Partial<PromptClient> = {}): PromptClient {
