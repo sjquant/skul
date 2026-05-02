@@ -3,11 +3,8 @@ import path from "node:path";
 
 import { type BundleManifest } from "./bundle-manifest";
 import { pathDepth } from "./fs-utils";
-import {
-  collectComposedRootInstructionContents,
-  composeRootInstructionContent,
-  wrapRootInstructionBundleContent,
-} from "./root-instruction-content";
+import { collectComposedRootInstructionContents } from "./root-instruction-content";
+import { composeRootInstructionContent, wrapRootInstructionBundleContent } from "./root-instruction-render";
 import { translateAgent, translateCommand, translateRootInstruction, translateSkill } from "./bundle-translation";
 import { type FileConflictResolution } from "./cli";
 import {
@@ -46,7 +43,7 @@ export function previewMaterializeBundleWriteTargets(options: {
       const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[targetName as ToolTargetName];
 
       if (targetDefinition?.kind === "file") {
-        for (const repoRelativePath of previewFileTargetWriteTargets({
+        for (const repoRelativePath of previewRootInstructionWriteTargets({
           bundleDir: options.bundleDir,
           sourcePath: target.path,
           toolName: toolName as ToolName,
@@ -138,7 +135,7 @@ export async function materializeBundle(options: {
       const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[targetName as ToolTargetName];
 
       if (targetDefinition?.kind === "file") {
-        await materializeFileTarget({
+        await materializeRootInstructionTarget({
           bundleDir: options.bundleDir,
           sourcePath: target.path,
           toolName: toolName as ToolName,
@@ -219,6 +216,102 @@ export async function materializeBundle(options: {
   }
 
   return { byTool };
+}
+
+async function materializeRootInstructionTarget(options: {
+  bundleDir: string;
+  sourcePath: string;
+  toolName: ToolName;
+  targetName: ToolTargetName;
+  repoRoot: string;
+  writtenFiles: string[];
+  ownedDirectories: Set<string>;
+  assertSafeWriteTarget?: (repoRelativePath: string) => void;
+  allowFileOverwriteTargets?: Set<string>;
+  composedRootInstructionContents: Record<string, string>;
+  writtenSharedFileTargets: Set<string>;
+  rootInstructionBaseContents?: Record<string, string>;
+  bundleName: string;
+  bundleSource?: string;
+  resolveFileConflict:
+    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
+    | undefined;
+}): Promise<void> {
+  if (options.targetName !== "root_instruction") {
+    throw new Error(`Unsupported file target: ${options.targetName}`);
+  }
+
+  const translatedContentByPath = readTranslatedRootInstructionTargets({
+    bundleDir: options.bundleDir,
+    sourcePath: options.sourcePath,
+    toolName: options.toolName,
+  });
+
+  for (const [repoRelPath, content] of Object.entries(translatedContentByPath)) {
+    if (options.writtenSharedFileTargets.has(repoRelPath)) {
+      options.writtenFiles.push(repoRelPath);
+      continue;
+    }
+
+    const wasWritten = await writeTranslatedFile({
+      repoRelPath,
+      content: renderRootInstructionDocument({
+        repoRoot: options.repoRoot,
+        repoRelPath,
+        rootInstructionBaseContents: options.rootInstructionBaseContents,
+        bundleName: options.bundleName,
+        bundleSource: options.bundleSource,
+        composedContent: options.composedRootInstructionContents[repoRelPath] ?? content,
+      }),
+      repoRoot: options.repoRoot,
+      writtenFiles: options.writtenFiles,
+      ownedDirectories: options.ownedDirectories,
+      reservedDestinations: new Set<string>(),
+      assertSafeWriteTarget: options.assertSafeWriteTarget,
+      allowExistingFileOverwrite: true,
+      resolveFileConflict: options.resolveFileConflict,
+      targetRoot: "",
+    });
+
+    if (wasWritten) {
+      options.writtenSharedFileTargets.add(repoRelPath);
+    }
+  }
+}
+
+function readTranslatedRootInstructionTargets(options: {
+  bundleDir: string;
+  sourcePath: string;
+  toolName: ToolName;
+}): Record<string, string> {
+  const sourceFile = path.join(options.bundleDir, options.sourcePath);
+  assertBundleTargetFile(sourceFile, options.sourcePath);
+
+  return translateRootInstruction({
+    targetTool: toTranslationToolName(options.toolName),
+    source: fs.readFileSync(sourceFile, "utf8"),
+  });
+}
+
+function renderRootInstructionDocument(options: {
+  repoRoot: string;
+  repoRelPath: string;
+  rootInstructionBaseContents?: Record<string, string>;
+  bundleName: string;
+  bundleSource?: string;
+  composedContent: string;
+}): string {
+  return ensureTrailingNewline(
+    composeRootInstructionContent([
+      options.rootInstructionBaseContents?.[options.repoRelPath]
+        ?? readExistingRootInstructionBaseContent(options.repoRoot, options.repoRelPath),
+      wrapRootInstructionBundleContent({
+        bundleName: options.bundleName,
+        source: options.bundleSource,
+        content: options.composedContent,
+      }),
+    ]),
+  );
 }
 
 async function copyDirectory(
@@ -478,74 +571,6 @@ async function materializeCanonicalTarget(options: {
   }
 }
 
-async function materializeFileTarget(options: {
-  bundleDir: string;
-  sourcePath: string;
-  toolName: ToolName;
-  targetName: ToolTargetName;
-  repoRoot: string;
-  writtenFiles: string[];
-  ownedDirectories: Set<string>;
-  assertSafeWriteTarget?: (repoRelativePath: string) => void;
-  allowFileOverwriteTargets?: Set<string>;
-  composedRootInstructionContents: Record<string, string>;
-  writtenSharedFileTargets: Set<string>;
-  rootInstructionBaseContents?: Record<string, string>;
-  bundleName: string;
-  bundleSource?: string;
-  resolveFileConflict:
-    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
-    | undefined;
-}): Promise<void> {
-  if (options.targetName !== "root_instruction") {
-    throw new Error(`Unsupported file target: ${options.targetName}`);
-  }
-
-  const sourceFile = path.join(options.bundleDir, options.sourcePath);
-  assertBundleTargetFile(sourceFile, options.sourcePath);
-
-  const translated = translateRootInstruction({
-    targetTool: toTranslationToolName(options.toolName),
-    source: fs.readFileSync(sourceFile, "utf8"),
-  });
-
-  for (const [repoRelPath, content] of Object.entries(translated)) {
-    if (options.writtenSharedFileTargets.has(repoRelPath)) {
-      options.writtenFiles.push(repoRelPath);
-      continue;
-    }
-
-    const wasWritten = await writeTranslatedFile({
-      repoRelPath,
-      content: ensureTrailingNewline(
-        composeRootInstructionContent(
-          [
-            options.rootInstructionBaseContents?.[repoRelPath]
-              ?? readExistingRootInstructionBaseContent(options.repoRoot, repoRelPath),
-            wrapRootInstructionBundleContent({
-              bundleName: options.bundleName,
-              source: options.bundleSource,
-              content: options.composedRootInstructionContents[repoRelPath] ?? content,
-            }),
-          ].filter((part): part is string => part !== undefined),
-        ),
-      ),
-      repoRoot: options.repoRoot,
-      writtenFiles: options.writtenFiles,
-      ownedDirectories: options.ownedDirectories,
-      reservedDestinations: new Set<string>(),
-      assertSafeWriteTarget: options.assertSafeWriteTarget,
-      allowExistingFileOverwrite: true,
-      resolveFileConflict: options.resolveFileConflict,
-      targetRoot: "",
-    });
-
-    if (wasWritten) {
-      options.writtenSharedFileTargets.add(repoRelPath);
-    }
-  }
-}
-
 function readExistingRootInstructionBaseContent(
   repoRoot: string,
   repoRelPath: string,
@@ -613,7 +638,7 @@ function previewCanonicalTargetWriteTargets(options: {
   return writeTargets;
 }
 
-function previewFileTargetWriteTargets(options: {
+function previewRootInstructionWriteTargets(options: {
   bundleDir: string;
   sourcePath: string;
   toolName: ToolName;
@@ -623,13 +648,7 @@ function previewFileTargetWriteTargets(options: {
     throw new Error(`Unsupported file target: ${options.targetName}`);
   }
 
-  const sourceFile = path.join(options.bundleDir, options.sourcePath);
-  assertBundleTargetFile(sourceFile, options.sourcePath);
-
-  return Object.keys(translateRootInstruction({
-    targetTool: toTranslationToolName(options.toolName),
-    source: fs.readFileSync(sourceFile, "utf8"),
-  }));
+  return Object.keys(readTranslatedRootInstructionTargets(options));
 }
 
 async function writeTranslatedFile(options: {
