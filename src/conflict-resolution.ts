@@ -2,6 +2,7 @@ import path from "node:path";
 
 export const DEFAULT_CONFLICT_PREFIX = "p";
 
+/** Normalizes a user-supplied conflict destination within one managed target root. */
 export function normalizeConflictDestination(input: string): string | null {
   const normalizedValue = input.trim().split(path.sep).join("/");
 
@@ -19,6 +20,7 @@ export function normalizeConflictDestination(input: string): string | null {
   return normalizedValue;
 }
 
+/** Normalizes a user-supplied conflict prefix into one safe path segment. */
 export function normalizeConflictPrefix(input: string): string | null {
   const normalizedValue = input.trim();
 
@@ -35,6 +37,7 @@ export function normalizeConflictPrefix(input: string): string | null {
   return normalizedValue;
 }
 
+/** Prefixes the leading filename or directory segment of a relative path. */
 export function suggestPrefixedDestination(relativePath: string, prefix: string): string {
   const segments = relativePath.split("/");
   const [firstSegment, ...rest] = segments;

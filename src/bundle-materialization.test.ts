@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type BundleManifest } from "./bundle-manifest";
 import { materializeBundle } from "./bundle-materialization";
+import { formatExpectedRootInstructionDocument, formatRootInstructionBundleBlock } from "./utils/testing";
 import { type ToolName } from "./tool-mapping";
 
 const tempDirs: string[] = [];
@@ -215,6 +216,60 @@ describe("materializeBundle", () => {
     expect(result.byTool["claude-code"]!.files).toEqual([]);
     expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
       "user file\n",
+    );
+  });
+
+  it("appends codex root instructions onto an existing AGENTS.md file", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+
+    writeFile(path.join(repoRoot, "AGENTS.md"), "user file\n");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "bundle root instruction\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { codex: { root_instruction: { path: "CLAUDE.md" } } },
+      },
+    });
+
+    // Then
+    expect(result.byTool.codex!.files).toEqual(["AGENTS.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        "user file\n",
+        formatRootInstructionBundleBlock("bundle", "bundle root instruction\n"),
+      ),
+    );
+  });
+
+  it("appends claude-code root instructions onto an existing CLAUDE.md file", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+
+    writeFile(path.join(repoRoot, "CLAUDE.md"), "user file\n");
+    writeFile(path.join(bundleDir, "AGENTS.md"), "bundle root instruction\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { root_instruction: { path: "AGENTS.md" } } },
+      },
+    });
+
+    // Then
+    expect(result.byTool["claude-code"]!.files).toEqual(["CLAUDE.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        "user file\n",
+        formatRootInstructionBundleBlock("bundle", "bundle root instruction\n"),
+      ),
     );
   });
 

@@ -89,6 +89,12 @@ export function createHeadlessPromptClient(): PromptClient {
       conflictPath: string,
       suggestedDestination: string,
     ): Promise<FileConflictResolution> {
+      if (isRootInstructionConflictPath(conflictPath)) {
+        throw new Error(
+          `Unexpected root instruction conflict prompt for ${conflictPath}: root instructions should be appended, not renamed or skipped`,
+        );
+      }
+
       process.stderr.write(
         `skul: conflict on ${conflictPath} — auto-prefixing with "${DEFAULT_CONFLICT_PREFIX}" (headless mode)\n`,
       );
@@ -105,12 +111,17 @@ export function createHeadlessPromptClient(): PromptClient {
   };
 }
 
+/** Creates the interactive prompt client used by the terminal UI. */
 export function createPromptClient(availableBundles: string[] = []): PromptClient {
   const bundleSelections = availableBundles.map((bundle) => ({ bundle }));
   return createPromptClientForSelections(bundleSelections);
 }
 
-export function createPromptClientForSelections(availableBundles: BundleSelection[]): PromptClient {
+/** Creates an interactive prompt client from richer bundle selection metadata. */
+export function createPromptClientForSelections(
+  availableBundles: BundleSelection[],
+  loadPrompts: () => Promise<typeof import("@clack/prompts")> = loadClackPromptsModule,
+): PromptClient {
   return {
     async selectBundle(source?: string): Promise<BundleSelection> {
       if (availableBundles.length === 0) {
@@ -121,7 +132,7 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
         );
       }
 
-      const { isCancel, select } = await loadClackPromptsModule();
+      const { isCancel, select } = await loadPrompts();
       const choice = await select({
         message: source ? `Select a bundle from ${source}` : "Select a bundle",
         options: availableBundles.map((bundle) => ({
@@ -140,7 +151,14 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       conflictPath: string,
       suggestedDestination: string,
     ): Promise<FileConflictResolution> {
-      const { isCancel, select, text } = await loadClackPromptsModule();
+      if (isRootInstructionConflictPath(conflictPath)) {
+        throw new Error(
+          `Unexpected root instruction conflict prompt for ${conflictPath}: root instructions should be appended, not renamed or skipped`,
+        );
+      }
+
+      const { isCancel, select, text } = await loadPrompts();
+
       const action = await select({
         message: `Conflict: ${conflictPath} already exists`,
         options: [
@@ -220,7 +238,7 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
       conflictPath: string,
       operation: "reset" | "replace" | "remove",
     ): Promise<boolean> {
-      const { confirm, isCancel } = await loadClackPromptsModule();
+      const { confirm, isCancel } = await loadPrompts();
       const message =
         operation === "replace"
           ? `Managed file was modified and must be removed before replacement: ${conflictPath}`
@@ -241,11 +259,16 @@ export function createPromptClientForSelections(availableBundles: BundleSelectio
   };
 }
 
+function isRootInstructionConflictPath(conflictPath: string): boolean {
+  return conflictPath === "AGENTS.md" || conflictPath === "CLAUDE.md";
+}
+
 function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
   clackPromptsModulePromise ??= loadEsmModule("@clack/prompts") as Promise<typeof import("@clack/prompts")>;
   return clackPromptsModulePromise;
 }
 
+/** Renders CLI help text for either the full program or one subcommand. */
 export function createHelpText(command?: CommandName): string {
   const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
@@ -263,6 +286,7 @@ export function createHelpText(command?: CommandName): string {
   return program.helpInformation();
 }
 
+/** Parses CLI arguments into a normalized command payload. */
 export async function parseCliArgs(
   argv: string[],
   prompts: PromptClient = createPromptClient(),

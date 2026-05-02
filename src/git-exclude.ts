@@ -5,6 +5,7 @@ const START_MARKER = "# >>> SKUL START";
 const END_MARKER = "# <<< SKUL END";
 const SKUL_BLOCK_PATTERN = /(?:^|\n)# >>> SKUL START\n[\s\S]*?\n# <<< SKUL END(?:\n)?/g;
 
+/** Writes or refreshes Skul's managed block inside `.git/info/exclude`. */
 export function configureSkulExcludeBlock(options: { gitDir: string; files: string[] }): boolean {
   const excludeFile = resolveExcludeFile(options.gitDir);
   const normalizedFiles = normalizeExcludeFiles(options.files);
@@ -13,6 +14,7 @@ export function configureSkulExcludeBlock(options: { gitDir: string; files: stri
   return writeExcludeFile(excludeFile, nextContent);
 }
 
+/** Removes Skul's managed block from `.git/info/exclude` when present. */
 export function removeSkulExcludeBlock(options: { gitDir: string }): boolean {
   const excludeFile = resolveExcludeFile(options.gitDir);
 
@@ -30,6 +32,7 @@ export function removeSkulExcludeBlock(options: { gitDir: string }): boolean {
   return writeExcludeFile(excludeFile, nextContent);
 }
 
+/** Returns whether `.git/info/exclude` currently contains Skul's managed block. */
 export function hasSkulExcludeBlock(options: { gitDir: string }): boolean {
   const excludeFile = resolveExcludeFile(options.gitDir);
 

@@ -11,6 +11,7 @@ interface MetadataMap {
 type SkillTool = "claude" | "cursor" | "codex" | "opencode";
 type CommandTool = "claude" | "cursor" | "opencode";
 type AgentTool = "claude" | "cursor" | "codex" | "opencode";
+type RootInstructionTool = "claude" | "cursor" | "codex" | "opencode";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
@@ -54,6 +55,7 @@ export interface BundleTranslationOptions {
   description?: string;
 }
 
+/** Translates a canonical skill bundle into one target tool's skill file layout. */
 export function translateSkill(options: {
   sourceTool: SkillTool;
   targetTool: SkillTool;
@@ -64,6 +66,7 @@ export function translateSkill(options: {
   return renderSkill(options.targetTool, model, options.options);
 }
 
+/** Translates a canonical command document into one target tool's command layout. */
 export function translateCommand(options: {
   sourceTool: CommandTool;
   targetTool: CommandTool | "codex";
@@ -74,6 +77,7 @@ export function translateCommand(options: {
   return renderCommand(options.targetTool, model, options.options);
 }
 
+/** Translates a canonical agent document into one target tool's agent layout. */
 export function translateAgent(options: {
   sourceTool: AgentTool;
   targetTool: AgentTool;
@@ -81,6 +85,16 @@ export function translateAgent(options: {
 }): Record<string, string> {
   const model = parseAgent(options.sourceTool, options.source);
   return renderAgent(options.targetTool, model);
+}
+
+/** Translates one root-instruction source into target-tool root files such as `AGENTS.md`. */
+export function translateRootInstruction(options: {
+  targetTool: RootInstructionTool;
+  source: string;
+}): Record<string, string> {
+  return {
+    [rootInstructionFilePath(options.targetTool)]: options.source,
+  };
 }
 
 function parseSkill(sourceTool: SkillTool, files: Record<string, string>): SkillModel {
@@ -491,7 +505,11 @@ function agentFilePath(tool: AgentTool, name: string): string {
   return `${targetBasePath(tool, "agents")}/${name}.${tool === "codex" ? "toml" : "md"}`;
 }
 
-function targetBasePath(tool: SkillTool | CommandTool | AgentTool, target: ToolTargetName): string {
+function rootInstructionFilePath(tool: RootInstructionTool): string {
+  return targetBasePath(tool, "root_instruction");
+}
+
+function targetBasePath(tool: SkillTool | CommandTool | AgentTool | RootInstructionTool, target: ToolTargetName): string {
   const path = getToolDefinition(toToolMappingName(tool))?.targets[target]?.path;
 
   if (!path) {
@@ -505,7 +523,7 @@ function unsupportedTargetPath(tool: string, target: string): never {
   throw new Error(`Unsupported ${target} target for ${tool}`);
 }
 
-function toToolMappingName(tool: SkillTool | CommandTool | AgentTool): ToolName {
+function toToolMappingName(tool: SkillTool | CommandTool | AgentTool | RootInstructionTool): ToolName {
   if (tool === "claude") {
     return "claude-code";
   }
@@ -599,4 +617,3 @@ function requireOption(value: string | undefined, label: string): string {
 function isMetadataMap(value: MetadataValue): value is MetadataMap {
   return typeof value === "object" && value !== null;
 }
-

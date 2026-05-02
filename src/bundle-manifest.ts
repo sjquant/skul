@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { listToolDefinitions, type ToolDefinition, type ToolName, type ToolTargetName } from "./tool-mapping";
+import {
+  listToolDefinitions,
+  type ToolDefinition,
+  type ToolName,
+  type ToolTargetName,
+} from "./tool-mapping";
 
 export const MANIFEST_FILE_NAME = "manifest.json";
 
@@ -23,6 +28,7 @@ export interface CachedBundleLayout {
 
 type UnknownRecord = Record<string, unknown>;
 
+/** Parses and validates a manifest JSON object into the internal bundle schema. */
 export function parseBundleManifest(input: unknown): BundleManifest {
   const manifest = expectRecord(input, "manifest");
   const toolsInput = expectRecord(manifest.tools, "tools");
@@ -54,9 +60,10 @@ export function parseBundleManifest(input: unknown): BundleManifest {
     throw new Error("tools must declare at least one tool");
   }
 
-  return { tools };
+  return expandRootInstructionTargets({ tools });
 }
 
+/** Infers a bundle manifest from canonical directories and native tool paths on disk. */
 export function inferBundleManifest(bundleDir: string): BundleManifest {
   const tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>> = {};
   const allTools = listToolDefinitions();
@@ -67,7 +74,9 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   for (const targetName of canonicalTargetNames) {
     if (isExistingDirectory(path.join(bundleDir, targetName))) {
       for (const toolDef of allTools) {
-        if (targetName in toolDef.targets) {
+        const targetDef = toolDef.targets[targetName];
+
+        if (targetDef?.kind === "directory") {
           if (!tools[toolDef.name]) tools[toolDef.name] = {};
           tools[toolDef.name]![targetName] = { path: targetName };
         }
@@ -79,14 +88,14 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   // Native paths override canonical paths for the same tool + target.
   for (const toolDef of allTools) {
     for (const [targetName, targetDef] of Object.entries(toolDef.targets)) {
-      if (isExistingDirectory(path.join(bundleDir, targetDef.path))) {
+      if (isExistingToolTarget(path.join(bundleDir, targetDef.path), targetDef.kind)) {
         if (!tools[toolDef.name]) tools[toolDef.name] = {};
         tools[toolDef.name]![targetName as ToolTargetName] = { path: targetDef.path };
       }
     }
   }
 
-  return { tools };
+  return expandRootInstructionTargets({ tools });
 }
 
 function isExistingDirectory(dirPath: string): boolean {
@@ -97,6 +106,60 @@ function isExistingDirectory(dirPath: string): boolean {
   }
 }
 
+function isExistingToolTarget(targetPath: string, kind: "directory" | "file"): boolean {
+  try {
+    const stat = fs.statSync(targetPath);
+    return kind === "directory" ? stat.isDirectory() : stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function expandRootInstructionTargets(manifest: BundleManifest): BundleManifest {
+  const sourcePath = selectRootInstructionSourcePath(manifest.tools);
+
+  if (!sourcePath) {
+    return manifest;
+  }
+
+  const expandedTools = Object.fromEntries(
+    Object.entries(manifest.tools).map(([toolName, targets]) => [toolName, { ...targets }]),
+  ) as BundleManifest["tools"];
+
+  for (const toolDef of listToolDefinitions()) {
+    if (!toolDef.targets.root_instruction) {
+      continue;
+    }
+
+    if (!expandedTools[toolDef.name]) {
+      expandedTools[toolDef.name] = {};
+    }
+
+    if (!expandedTools[toolDef.name]!.root_instruction) {
+      expandedTools[toolDef.name]!.root_instruction = { path: sourcePath };
+    }
+  }
+
+  return { tools: expandedTools };
+}
+
+function selectRootInstructionSourcePath(
+  tools: BundleManifest["tools"],
+): string | null {
+  const preferredToolOrder: ToolName[] = ["claude-code", "cursor", "opencode", "codex"];
+
+  for (const toolName of preferredToolOrder) {
+    const sourcePath = tools[toolName]?.root_instruction?.path;
+
+    if (sourcePath) {
+      return sourcePath;
+    }
+  }
+
+  return null;
+}
+
+/** Resolves the cache paths Skul uses for one source/bundle pair. */
 export function resolveCachedBundleLayout(options: {
   libraryDir: string;
   source: string;

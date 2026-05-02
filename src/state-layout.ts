@@ -15,6 +15,7 @@ export interface ResolveGlobalStateLayoutOptions {
   homeDir: string;
 }
 
+/** Resolves the on-disk layout Skul uses for global state under one home directory. */
 export function resolveGlobalStateLayout(
   options: ResolveGlobalStateLayoutOptions,
 ): GlobalStateLayout {

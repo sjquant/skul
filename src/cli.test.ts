@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,14 @@ import { parseCliArgs, type PromptClient } from "./cli";
 import { detectGitContext } from "./git-context";
 import { assertTrackedRootInstructionShadowSafety, run } from "./index";
 import { createEmptyRegistry, readRegistryFile, upsertRepoState, writeRegistryFile } from "./registry";
+import {
+  expectAgentsDocument as assertAgentsDocument,
+  expectClaudeDocument as assertClaudeDocument,
+  formatExpectedRootInstructionDocument,
+  formatRootInstructionBundleBlock,
+  setupSharedRootInstructionBundles as writeSharedRootInstructionBundles,
+  writeRootInstructionBundleFixture as writeRootInstructionBundle,
+} from "./utils/testing";
 
 const tempDirs: string[] = [];
 
@@ -620,7 +629,9 @@ describe("run", () => {
     const parsed = JSON.parse(output);
 
     // Then
-    expect(parsed.repo.desired_state).toEqual([{ bundle: "react-expert", protocol: "https" }]);
+    expect(parsed.repo.desired_state).toEqual([
+      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
+    ]);
     expect(parsed.worktree.materialized).toBe(true);
     expect(parsed.worktree.git_exclude_configured).toBe(true);
     expect(parsed.worktree.bundles["react-expert"].tools["claude-code"].files).toContain(
@@ -677,14 +688,16 @@ describe("run", () => {
   });
 
   it("reports a specific message when all bundles are local-only during update", async () => {
-    // Given — bundle is in the library but added without a source, so no source is tracked in the registry
+    // Given — desired state contains a source-less bundle entry
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "local-bundle", {
-      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: fs.realpathSync.native(repoRoot),
+      desired_state: [{ bundle: "local-bundle", protocol: "https" }],
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "local-bundle", ".claude/skills/local/SKILL.md", "# local\n");
-    await run(["add", "local-bundle"], { homeDir, cwd: repoRoot });
+    writeRegistryFile(registryFile, registry);
 
     // When / Then
     await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -1004,6 +1017,30 @@ describe("run", () => {
     ).rejects.toThrowError(/Modified managed file blocks reset in headless mode/);
   });
 
+  it("treats root instruction conflict prompts as unreachable in headless mode", async () => {
+    // Given
+    const { createHeadlessPromptClient } = await import("./cli");
+
+    // When / Then
+    await expect(
+      createHeadlessPromptClient().resolveFileConflict("AGENTS.md", "p-AGENTS.md"),
+    ).rejects.toThrowError(/root instructions should be appended, not renamed or skipped/i);
+  });
+
+  it("treats interactive root instruction conflict prompts as unreachable", async () => {
+    // Given
+    const loadPrompts = vi.fn();
+
+    // When
+    const { createPromptClientForSelections } = await import("./cli");
+
+    // Then
+    await expect(
+      createPromptClientForSelections([], loadPrompts).resolveFileConflict("CLAUDE.md", "p-CLAUDE.md"),
+    ).rejects.toThrowError(/root instructions should be appended, not renamed or skipped/i);
+    expect(loadPrompts).not.toHaveBeenCalled();
+  });
+
   it("activates headless mode via SKUL_NO_TUI environment variable", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -1164,6 +1201,119 @@ describe("run", () => {
     );
   });
 
+  it("persists remote revision metadata when a cached bundle is added by name", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+
+    // When
+    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "https",
+      resolved_ref: "main",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
+  it("preserves cached source protocol when a cached bundle is added by name", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
+    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/ai-vault.git"]);
+
+    // When
+    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "ssh",
+      resolved_ref: "main",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
+  it("upgrades a legacy source-less entry to the cached source protocol on bundle-only add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
+    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/ai-vault.git"]);
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: fs.realpathSync.native(repoRoot),
+      desired_state: [{ bundle: remoteSource.bundle, protocol: "https" }],
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // When
+    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(
+      readRegistryFile(registryFile).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "ssh",
+      resolved_ref: "main",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
   it("coexists with a previously added bundle for the same tool", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -1247,7 +1397,10 @@ describe("run", () => {
     const repo = registry.repos[Object.keys(registry.repos)[0]];
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(repo.desired_state).toEqual(
-      expect.arrayContaining([{ bundle: "react-expert", protocol: "https" }, { bundle: "repo-standards", protocol: "https" }]),
+      expect.arrayContaining([
+        { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
+        { bundle: "repo-standards", source: "github.com/user/ai-vault", protocol: "https" },
+      ]),
     );
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
@@ -1255,6 +1408,495 @@ describe("run", () => {
         "repo-standards": { tools: { codex: { files: [".agents/skills/next-task/SKILL.md"] } } },
       },
     });
+  });
+
+  it("appends root instructions when multiple bundles target the same root-instruction file", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
+
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied security-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+    );
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    const fingerprint = worktree.materialized_state.bundles["repo-standards"]!.tools["codex"]!.file_fingerprints!["AGENTS.md"];
+    expect(fingerprint).toBe(fingerprintFile(path.join(repoRoot, "AGENTS.md")));
+  });
+
+  it("reuses the original source when shared root recomposition follows a bundle-only add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    setupSharedRootInstructionBundles(homeDir, [
+      {
+        source: "github.com/user/source-a",
+        bundle: "repo-standards",
+        content: "# Source A rules\nUse source A.\n",
+      },
+      {
+        source: "github.com/user/source-a",
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
+    ]);
+
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    writeRootInstructionBundleFixture(homeDir, {
+      source: "github.com/user/source-b",
+      bundle: "repo-standards",
+      content: "# Source B rules\nUse source B.\n",
+    });
+
+    // When
+    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied security-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Source A rules\nUse source A.\n", "github.com/user/source-a"),
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/source-a"),
+    );
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
+      { bundle: "repo-standards", source: "github.com/user/source-a", protocol: "https" },
+      { bundle: "security-standards", source: "github.com/user/source-a", protocol: "https" },
+    ]);
+  });
+
+  it("preserves remaining root-instruction content when one shared bundle is removed", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
+
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+    await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["remove", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed repo-standards",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+    );
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    const fingerprint = worktree.materialized_state.bundles["security-standards"]!.tools["codex"]!.file_fingerprints!["AGENTS.md"];
+    expect(fingerprint).toBe(fingerprintFile(path.join(repoRoot, "AGENTS.md")));
+  });
+
+  it("preserves shared root-instruction order when an existing bundle is re-added", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
+
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+    await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied repo-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+    );
+  });
+
+  it("appends shared root instructions during apply", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
+
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    const registryPath = path.join(homeDir, ".skul", "registry.json");
+    const registry = readRegistryFile(registryPath);
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    registry.repos[repoFingerprint]!.desired_state.push({
+      bundle: "security-standards",
+      source: "github.com/user/ai-vault",
+      protocol: "https",
+    });
+    writeRegistryFile(registryPath, registry);
+
+    // When
+    await expect(run(["apply"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied security-standards",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+    );
+  });
+
+  it("appends bundle content onto an existing AGENTS.md during add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+
+    // When
+    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied repo-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      "user root instruction\n",
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+    );
+    expectClaudeDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+    );
+  });
+
+  it("appends bundle content onto an existing CLAUDE.md and records ownership", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "user claude instruction\n");
+
+    // When
+    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied repo-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+    );
+    expectClaudeDocument(
+      repoRoot,
+      "user claude instruction\n",
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+    );
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(worktree.materialized_state.bundles["repo-standards"]!.tools["claude-code"]!.files).toContain(
+      "CLAUDE.md",
+    );
+  });
+
+  it("restores pre-existing AGENTS.md content when the last shared root bundle is removed", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["remove", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed repo-standards",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user root instruction\n");
+  });
+
+  it("restores pre-existing AGENTS.md content when reset removes shared root bundles", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Reset Skul-managed files from the current worktree",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user root instruction\n");
+  });
+
+  it("recaptures restored root base content when a non-root bundle keeps the worktree alive", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction v2\n");
+
+    // When
+    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied repo-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      "user root instruction v2\n",
+      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+    );
+  });
+
+  it("composes multiple tool-specific root instructions that land on the same file", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "shared-claude-guide", {
+      name: "shared-claude-guide",
+      tools: {
+        "claude-code": { root_instruction: { path: "claude-guide.md" } },
+        cursor: { root_instruction: { path: "cursor-guide.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "shared-claude-guide",
+      "claude-guide.md",
+      "# Claude guide\nUse Claude defaults.\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "shared-claude-guide",
+      "cursor-guide.md",
+      "# Cursor guide\nUse Cursor defaults.\n",
+    );
+
+    // When
+    await expect(run(["add", "shared-claude-guide"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied shared-claude-guide for claude-code, cursor, opencode, codex",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "shared-claude-guide",
+          "# Claude guide\nUse Claude defaults.\n\n# Cursor guide\nUse Cursor defaults.\n",
+          "github.com/user/ai-vault",
+        ),
+      ),
+    );
+  });
+
+  it("preserves unrelated managed fingerprints when shared root instructions sync", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    setupSharedRootInstructionBundles(homeDir, [
+      {
+        bundle: "repo-guide",
+        content: "# Repo guide\nFollow the handbook.\n",
+        extraTools: { "claude-code": { skills: { path: ".claude/skills" } } },
+        extraFiles: { ".claude/skills/react/SKILL.md": "# react\n" },
+      },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
+
+    await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
+    const registryPath = path.join(homeDir, ".skul", "registry.json");
+    const initialRegistry = readRegistryFile(registryPath);
+    const initialWorktree = initialRegistry.worktrees[Object.keys(initialRegistry.worktrees)[0]];
+    const initialSkillFingerprint =
+      initialWorktree.materialized_state.bundles["repo-guide"]!.tools["claude-code"]!.file_fingerprints![
+        ".claude/skills/react/SKILL.md"
+      ]!;
+
+    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+
+    // When
+    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied security-standards for codex, claude-code, cursor, opencode",
+    );
+
+    // Then
+    const registry = readRegistryFile(registryPath);
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    const refreshedSkillFingerprint =
+      worktree.materialized_state.bundles["repo-guide"]!.tools["claude-code"]!.file_fingerprints![
+        ".claude/skills/react/SKILL.md"
+      ]!;
+    expect(refreshedSkillFingerprint).toBe(initialSkillFingerprint);
+    expect(refreshedSkillFingerprint).not.toBe(
+      fingerprintFile(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    );
+  });
+
+  it("aborts shared root-instruction add before rewriting files when an existing shared bundle cache is missing", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const repoGuideSource = "github.com/user/repo-guide-source";
+    const securitySource = "github.com/user/security-source";
+
+    setupSharedRootInstructionBundles(homeDir, [
+      { source: repoGuideSource, bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
+      { source: securitySource, bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
+
+    await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
+    const agentsBefore = fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
+    const claudeBefore = fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
+    fs.rmSync(path.join(homeDir, ".skul", "library", ...repoGuideSource.split("/"), "repo-guide"), {
+      recursive: true,
+      force: true,
+    });
+
+    // When / Then
+    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Bundle not found: repo-guide/,
+    );
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(agentsBefore);
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(claudeBefore);
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
+      { bundle: "repo-guide", source: repoGuideSource, protocol: "https" },
+    ]);
+  });
+
+  it("aborts shared root-instruction removal before deleting files when a remaining shared bundle cache is missing", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const repoGuideSource = "github.com/user/repo-guide-source";
+    const securitySource = "github.com/user/security-source";
+
+    setupSharedRootInstructionBundles(homeDir, [
+      { source: repoGuideSource, bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
+      { source: securitySource, bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
+
+    await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
+    await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
+    const agentsBefore = fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
+    fs.rmSync(path.join(homeDir, ".skul", "library", ...securitySource.split("/"), "security-standards"), {
+      recursive: true,
+      force: true,
+    });
+
+    // When / Then
+    await expect(run(["remove", "repo-guide"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Bundle not found: security-standards/,
+    );
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(agentsBefore);
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
+      { bundle: "repo-guide", source: repoGuideSource, protocol: "https" },
+      { bundle: "security-standards", source: securitySource, protocol: "https" },
+    ]);
+    expect(Object.keys(registry.worktrees)).toHaveLength(1);
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
+    expect(Object.keys(worktree.materialized_state.bundles).sort()).toEqual([
+      "repo-guide",
+      "security-standards",
+    ]);
+  });
+
+  it("removes one shared tracked root instruction after safety checks pass", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    setupSharedRootInstructionBundles(homeDir, [
+      { bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
+      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+    ]);
+
+    await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
+    await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
+    runGit(repoRoot, ["add", "-f", "AGENTS.md", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "materialize shared roots"]);
+
+    // When
+    await expect(run(["remove", "repo-guide"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Removed repo-guide",
+    );
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+    );
   });
 
   it("applies the chosen conflict strategy when a destination file already exists", async () => {
@@ -1502,7 +2144,7 @@ describe("run", () => {
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     expect(registry.worktrees).toEqual({});
     expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert", protocol: "https" },
+      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
     ]);
   });
 
@@ -1745,7 +2387,12 @@ describe("run", () => {
       cursor: { files: [".cursor/skills/react/SKILL.md"] },
     });
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert", tools: ["claude-code", "cursor"], protocol: "https" },
+      {
+        bundle: "react-expert",
+        source: "github.com/user/ai-vault",
+        tools: ["claude-code", "cursor"],
+        protocol: "https",
+      },
     ]);
   });
 
@@ -1777,7 +2424,7 @@ describe("run", () => {
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
 
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert", protocol: "https" },
+      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
     ]);
     expect(
       fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
@@ -2016,7 +2663,9 @@ describe("run", () => {
     // Then: registry reflects only repo-standards
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "repo-standards", protocol: "https" }]);
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      { bundle: "repo-standards", source: "github.com/user/ai-vault", protocol: "https" },
+    ]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
     expect(worktree.materialized_state.bundles).toHaveProperty("repo-standards");
@@ -2128,6 +2777,49 @@ describe("run", () => {
     await expect(
       run(["add", "react-expert", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
     ).rejects.toThrowError(/Bundle does not support agent\(s\): cursor[\s\S]*Supported agents: claude-code/i);
+  });
+
+  it("materializes AGENTS.md for codex when the bundle only provides CLAUDE.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      agent: "claude-code",
+      content: "# Shared instructions\nUse consistent conventions.\n",
+    });
+
+    // When
+    await expect(
+      run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied repo-standards for codex");
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+    );
+  });
+
+  it("materializes CLAUDE.md for claude-code when the bundle only provides AGENTS.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Shared instructions\nUse consistent conventions.\n",
+    });
+
+    // When
+    await expect(
+      run(["add", "repo-standards", "--agent", "claude-code"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied repo-standards for claude-code");
+
+    // Then
+    expectClaudeDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+    );
   });
 
   it("lists bundles with their supported tools", async () => {
@@ -2424,7 +3116,9 @@ describe("run", () => {
     // Then: registry still records next-expert; react-expert is gone from both desired and materialized state
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([{ bundle: "next-expert", protocol: "https" }]);
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      { bundle: "next-expert", source: "github.com/user/ai-vault", protocol: "https" },
+    ]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
     expect(worktree.materialized_state.bundles).toHaveProperty("next-expert");
@@ -2527,15 +3221,16 @@ describe("run", () => {
   });
 
   it("returns JSON output for check", async () => {
-    // Given
+    // Given — desired state contains a source-less bundle entry
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: fs.realpathSync.native(repoRoot),
+      desired_state: [{ bundle: "react-expert", protocol: "https" }],
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+    writeRegistryFile(registryFile, registry);
 
     // When
     const output = await run(["check", "--json"], { homeDir, cwd: repoRoot });
@@ -2936,6 +3631,48 @@ function runGit(cwd: string, args: string[], options: { allowFailure?: boolean }
 
 function pathExists(targetPath: string): boolean {
   return fs.existsSync(targetPath);
+}
+
+function fingerprintFile(filePath: string): string {
+  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function writeRootInstructionBundleFixture(
+  homeDir: string,
+  options: {
+    bundle: string;
+    content: string;
+    source?: string;
+    agent?: "codex" | "claude-code";
+    filePath?: string;
+    extraTools?: Record<string, object>;
+    extraFiles?: Record<string, string>;
+  },
+): void {
+  writeRootInstructionBundle(homeDir, options, { writeManifest, writeBundleFile });
+}
+
+function setupSharedRootInstructionBundles(
+  homeDir: string,
+  bundles: Array<{
+    bundle: string;
+    content: string;
+    source?: string;
+    agent?: "codex" | "claude-code";
+    filePath?: string;
+    extraTools?: Record<string, object>;
+    extraFiles?: Record<string, string>;
+  }>,
+): void {
+  writeSharedRootInstructionBundles(homeDir, bundles, { writeManifest, writeBundleFile });
+}
+
+function expectAgentsDocument(repoRoot: string, ...parts: string[]): void {
+  assertAgentsDocument(repoRoot, ...parts);
+}
+
+function expectClaudeDocument(repoRoot: string, ...parts: string[]): void {
+  assertClaudeDocument(repoRoot, ...parts);
 }
 
 function createPromptClientStub(overrides: Partial<PromptClient> = {}): PromptClient {
