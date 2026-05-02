@@ -3,7 +3,11 @@ import path from "node:path";
 
 import { type BundleManifest } from "./bundle-manifest";
 import { pathDepth } from "./fs-utils";
-import { collectComposedRootInstructionContents, composeRootInstructionContent } from "./root-instruction-content";
+import {
+  collectComposedRootInstructionContents,
+  composeRootInstructionContent,
+  wrapRootInstructionBundleContent,
+} from "./root-instruction-content";
 import { translateAgent, translateCommand, translateRootInstruction, translateSkill } from "./bundle-translation";
 import { type FileConflictResolution } from "./cli";
 import {
@@ -102,6 +106,8 @@ export async function materializeBundle(options: {
   bundleDir: string;
   manifest: BundleManifest;
   tools?: ToolName[];
+  bundleName?: string;
+  bundleSource?: string;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   allowFileOverwriteTargets?: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
@@ -145,6 +151,8 @@ export async function materializeBundle(options: {
           composedRootInstructionContents,
           writtenSharedFileTargets,
           rootInstructionBaseContents: options.rootInstructionBaseContents,
+          bundleName: options.bundleName ?? options.manifest.name ?? "bundle",
+          bundleSource: options.bundleSource,
           resolveFileConflict: options.resolveFileConflict,
         });
         continue;
@@ -483,6 +491,8 @@ async function materializeFileTarget(options: {
   composedRootInstructionContents: Record<string, string>;
   writtenSharedFileTargets: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
+  bundleName: string;
+  bundleSource?: string;
   resolveFileConflict:
     | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
     | undefined;
@@ -512,7 +522,11 @@ async function materializeFileTarget(options: {
           [
             options.rootInstructionBaseContents?.[repoRelPath]
               ?? readExistingRootInstructionBaseContent(options.repoRoot, repoRelPath),
-            options.composedRootInstructionContents[repoRelPath] ?? content,
+            wrapRootInstructionBundleContent({
+              bundleName: options.bundleName,
+              source: options.bundleSource,
+              content: options.composedRootInstructionContents[repoRelPath] ?? content,
+            }),
           ].filter((part): part is string => part !== undefined),
         ),
       ),

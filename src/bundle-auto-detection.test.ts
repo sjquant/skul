@@ -187,7 +187,11 @@ describe("inferBundleManifest", () => {
 
     // Then
     expect(result.byTool["codex"]!.files).toEqual(["AGENTS.md"]);
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# shared rules\n");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("bundle", "# shared rules\n"),
+      ),
+    );
   });
 
   it("materializes an AGENTS root instruction into CLAUDE.md for claude-code", async () => {
@@ -207,7 +211,11 @@ describe("inferBundleManifest", () => {
 
     // Then
     expect(result.byTool["claude-code"]!.files).toEqual(["CLAUDE.md"]);
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe("# shared rules\n");
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("bundle", "# shared rules\n"),
+      ),
+    );
   });
 
   it("returns empty tools for a bundle dir with no recognisable structure", () => {
@@ -543,4 +551,14 @@ function createTempDir(prefix: string): string {
 function writeFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
+}
+
+function formatRootInstructionBundleBlock(bundle: string, content: string, source?: string): string {
+  const label = source ? `${bundle} (${source})` : bundle;
+  const normalizedContent = content.replace(/\s+$/, "");
+  return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
+}
+
+function formatExpectedRootInstructionDocument(...parts: string[]): string {
+  return `${parts.map((part) => part.replace(/\s+$/, "")).filter((part) => part.length > 0).join("\n\n")}\n`;
 }

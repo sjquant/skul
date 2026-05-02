@@ -1440,7 +1440,10 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# Repo standards\nUse consistent conventions.\n\n# Security standards\nNever commit secrets.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      ),
     );
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
@@ -1498,7 +1501,10 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# Source A rules\nUse source A.\n\n# Security standards\nNever commit secrets.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("repo-standards", "# Source A rules\nUse source A.\n", "github.com/user/source-a"),
+        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/source-a"),
+      ),
     );
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
@@ -1547,7 +1553,9 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# Security standards\nNever commit secrets.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      ),
     );
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
@@ -1594,7 +1602,10 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# Repo standards\nUse consistent conventions.\n\n# Security standards\nNever commit secrets.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      ),
     );
   });
 
@@ -1646,7 +1657,10 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# Repo standards\nUse consistent conventions.\n\n# Security standards\nNever commit secrets.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      ),
     );
   });
 
@@ -1675,10 +1689,15 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "user root instruction\n\n# Repo standards\nUse consistent conventions.\n",
+      formatExpectedRootInstructionDocument(
+        "user root instruction\n",
+        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      ),
     );
     expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
-      "# Repo standards\nUse consistent conventions.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      ),
     );
   });
 
@@ -1707,10 +1726,15 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# Repo standards\nUse consistent conventions.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      ),
     );
     expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
-      "user claude instruction\n\n# Repo standards\nUse consistent conventions.\n",
+      formatExpectedRootInstructionDocument(
+        "user claude instruction\n",
+        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      ),
     );
     const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
@@ -1809,7 +1833,10 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "user root instruction v2\n\n# Repo standards\nUse consistent conventions.\n",
+      formatExpectedRootInstructionDocument(
+        "user root instruction v2\n",
+        formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      ),
     );
   });
 
@@ -1847,7 +1874,13 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
-      "# Claude guide\nUse Claude defaults.\n\n# Cursor guide\nUse Cursor defaults.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "shared-claude-guide",
+          "# Claude guide\nUse Claude defaults.\n\n# Cursor guide\nUse Cursor defaults.\n",
+          "github.com/user/ai-vault",
+        ),
+      ),
     );
   });
 
@@ -2072,7 +2105,9 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# Security standards\nNever commit secrets.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      ),
     );
   });
 
@@ -2979,7 +3014,9 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# Shared instructions\nUse consistent conventions.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      ),
     );
   });
 
@@ -3006,7 +3043,9 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
-      "# Shared instructions\nUse consistent conventions.\n",
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      ),
     );
   });
 
@@ -3823,6 +3862,16 @@ function pathExists(targetPath: string): boolean {
 
 function fingerprintFile(filePath: string): string {
   return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function formatRootInstructionBundleBlock(bundle: string, content: string, source?: string): string {
+  const label = source ? `${bundle} (${source})` : bundle;
+  const normalizedContent = content.replace(/\s+$/, "");
+  return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
+}
+
+function formatExpectedRootInstructionDocument(...parts: string[]): string {
+  return `${parts.map((part) => part.replace(/\s+$/, "")).filter((part) => part.length > 0).join("\n\n")}\n`;
 }
 
 function createPromptClientStub(overrides: Partial<PromptClient> = {}): PromptClient {

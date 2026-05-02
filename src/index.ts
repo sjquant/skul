@@ -54,6 +54,7 @@ import {
   collectComposedRootInstructionContents,
   composeRootInstructionContent,
   isRootInstructionPath,
+  wrapRootInstructionBundleContent,
 } from "./root-instruction-content";
 import { resolveGlobalStateLayout } from "./state-layout";
 import { type ToolName } from "./tool-mapping";
@@ -634,6 +635,8 @@ async function updateBundles(options: {
           bundleDir: path.dirname(cachedBundle.manifestFile),
           manifest: cachedBundle.manifest,
           tools: toolsToRefresh,
+          bundleName: entry.bundle,
+          bundleSource: entry.source,
           assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
             repoRoot: gitContext.worktreeRoot,
             operation: existingBundleState ? "refresh" : "create",
@@ -869,6 +872,8 @@ async function applyBundle(options: {
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
     tools: hasToolSelection ? options.agents : undefined,
+    bundleName: cachedBundle.bundle,
+    bundleSource: options.source ?? cachedBundle.source,
     assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
       repoRoot: gitContext.worktreeRoot,
       operation: existingBundleState ? "refresh" : "create",
@@ -1369,6 +1374,8 @@ async function applyWorktree(options: {
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
+      bundleName: entry.bundle,
+      bundleSource: entry.source,
       assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
         repoRoot: gitContext.worktreeRoot,
         operation: existingBundleState ? "refresh" : "create",
@@ -1638,7 +1645,11 @@ function syncManagedRootInstructionFiles(options: {
 
         seenBundleTargets.add(bundleTargetKey);
         const existingParts = contentByPath.get(repoRelativePath) ?? [];
-        existingParts.push(content);
+        existingParts.push(wrapRootInstructionBundleContent({
+          bundleName: desiredEntry.bundle,
+          source: desiredEntry.source,
+          content,
+        }));
         contentByPath.set(repoRelativePath, existingParts);
       }
     }

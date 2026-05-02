@@ -238,7 +238,10 @@ describe("materializeBundle", () => {
     // Then
     expect(result.byTool.codex!.files).toEqual(["AGENTS.md"]);
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "user file\n\nbundle root instruction\n",
+      formatExpectedRootInstructionDocument(
+        "user file\n",
+        formatRootInstructionBundleBlock("bundle", "bundle root instruction\n"),
+      ),
     );
   });
 
@@ -262,7 +265,10 @@ describe("materializeBundle", () => {
     // Then
     expect(result.byTool["claude-code"]!.files).toEqual(["CLAUDE.md"]);
     expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
-      "user file\n\nbundle root instruction\n",
+      formatExpectedRootInstructionDocument(
+        "user file\n",
+        formatRootInstructionBundleBlock("bundle", "bundle root instruction\n"),
+      ),
     );
   });
 
@@ -504,4 +510,14 @@ function createTempDir(prefix: string): string {
 function writeFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
+}
+
+function formatRootInstructionBundleBlock(bundle: string, content: string, source?: string): string {
+  const label = source ? `${bundle} (${source})` : bundle;
+  const normalizedContent = content.replace(/\s+$/, "");
+  return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
+}
+
+function formatExpectedRootInstructionDocument(...parts: string[]): string {
+  return `${parts.map((part) => part.replace(/\s+$/, "")).filter((part) => part.length > 0).join("\n\n")}\n`;
 }
