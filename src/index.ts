@@ -94,109 +94,94 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     return createHelpText(parsed.command);
   }
 
-  if (parsed.command === "add") {
-    return applyBundle({
-      cwd,
-      prompts,
-      registryFile: stateLayout.registryFile,
-      libraryDir: stateLayout.libraryDir,
-      bundle: parsed.options.bundle,
-      source: parsed.options.source,
-      protocol: parsed.options.protocol,
-      agents: parsed.options.agents,
-      dryRun: parsed.options.dryRun,
-    });
+  switch (parsed.command) {
+    case "add":
+      return applyBundle({
+        cwd,
+        prompts,
+        registryFile: stateLayout.registryFile,
+        libraryDir: stateLayout.libraryDir,
+        bundle: parsed.options.bundle,
+        source: parsed.options.source,
+        protocol: parsed.options.protocol,
+        agents: parsed.options.agents,
+        dryRun: parsed.options.dryRun,
+        ref: parsed.options.ref,
+      });
+    case "list":
+      return renderBundleList({
+        libraryDir: stateLayout.libraryDir,
+        json: parsed.options.json,
+        source: parsed.options.source,
+      });
+    case "status":
+      return renderStatus({
+        cwd,
+        registryFile: stateLayout.registryFile,
+        json: parsed.options.json,
+      });
+    case "check":
+      return renderUpdateCheck({
+        cwd,
+        registryFile: stateLayout.registryFile,
+        libraryDir: stateLayout.libraryDir,
+        bundle: parsed.options.bundle,
+        json: parsed.options.json,
+      });
+    case "update":
+      return updateBundles({
+        cwd,
+        prompts,
+        registryFile: stateLayout.registryFile,
+        libraryDir: stateLayout.libraryDir,
+        bundle: parsed.options.bundle,
+        dryRun: parsed.options.dryRun,
+      });
+    case "shadow":
+      return shadowWorktree({
+        cwd,
+        registryFile: stateLayout.registryFile,
+        action: parsed.options.action,
+      });
+    case "sync":
+      return syncWorktree({
+        cwd,
+        registryFile: stateLayout.registryFile,
+      });
+    case "reset":
+      return resetWorktree({
+        cwd,
+        prompts,
+        registryFile: stateLayout.registryFile,
+        dryRun: parsed.options.dryRun,
+      });
+    case "remove":
+      return removeBundle({
+        cwd,
+        prompts,
+        registryFile: stateLayout.registryFile,
+        libraryDir: stateLayout.libraryDir,
+        bundle: parsed.options.bundle,
+        dryRun: parsed.options.dryRun,
+      });
+    case "clear-cache":
+      return clearBundleCache({
+        source: parsed.options.source,
+        all: parsed.options.all,
+        libraryDir: stateLayout.libraryDir,
+        dryRun: parsed.options.dryRun,
+      });
+    case "apply":
+      return applyWorktree({
+        cwd,
+        prompts,
+        registryFile: stateLayout.registryFile,
+        libraryDir: stateLayout.libraryDir,
+        dryRun: parsed.options.dryRun,
+      });
+    default:
+      return assertUnreachable(parsed);
   }
-
-  if (parsed.command === "list") {
-    return renderBundleList({ libraryDir: stateLayout.libraryDir, json: parsed.options.json });
-  }
-
-  if (parsed.command === "status") {
-    return renderStatus({
-      cwd,
-      registryFile: stateLayout.registryFile,
-      json: parsed.options.json,
-    });
-  }
-
-  if (parsed.command === "check") {
-    return renderUpdateCheck({
-      cwd,
-      registryFile: stateLayout.registryFile,
-      libraryDir: stateLayout.libraryDir,
-      bundle: parsed.options.bundle,
-      json: parsed.options.json,
-    });
-  }
-
-  if (parsed.command === "update") {
-    return updateBundles({
-      cwd,
-      prompts,
-      registryFile: stateLayout.registryFile,
-      libraryDir: stateLayout.libraryDir,
-      bundle: parsed.options.bundle,
-      dryRun: parsed.options.dryRun,
-    });
-  }
-
-  if (parsed.command === "shadow") {
-    return shadowWorktree({
-      cwd,
-      registryFile: stateLayout.registryFile,
-      action: parsed.options.action,
-    });
-  }
-
-  if (parsed.command === "sync") {
-    return syncWorktree({
-      cwd,
-      registryFile: stateLayout.registryFile,
-    });
-  }
-
-  if (parsed.command === "reset") {
-    return resetWorktree({
-      cwd,
-      prompts,
-      registryFile: stateLayout.registryFile,
-      dryRun: parsed.options.dryRun,
-    });
-  }
-
-  if (parsed.command === "remove") {
-    return removeBundle({
-      cwd,
-      prompts,
-      registryFile: stateLayout.registryFile,
-      libraryDir: stateLayout.libraryDir,
-      bundle: parsed.options.bundle,
-      dryRun: parsed.options.dryRun,
-    });
-  }
-
-  if (parsed.command === "clear-cache") {
-    return clearBundleCache({
-      source: parsed.options.source,
-      all: parsed.options.all,
-      libraryDir: stateLayout.libraryDir,
-      dryRun: parsed.options.dryRun,
-    });
-  }
-
-  if (parsed.command === "apply") {
-    return applyWorktree({
-      cwd,
-      prompts,
-      registryFile: stateLayout.registryFile,
-      libraryDir: stateLayout.libraryDir,
-      dryRun: parsed.options.dryRun,
-    });
-  }
-
-  // All known commands are handled above — this branch is unreachable at runtime.
-  return "Command not implemented";
 }
 
 function shadowWorktree(options: {
@@ -628,14 +613,17 @@ function compareBundleSelections(left: BundleSelection, right: BundleSelection):
   return (left.source ?? "").localeCompare(right.source ?? "");
 }
 
-function renderBundleList(options: { libraryDir: string; json: boolean }): string {
-  const bundles = listCachedBundles(options);
+function renderBundleList(options: { libraryDir: string; json: boolean; source?: string }): string {
+  const bundles = listCachedBundles({ libraryDir: options.libraryDir }).filter((bundle) =>
+    options.source === undefined || bundle.source === options.source,
+  );
 
   if (options.json) {
     return JSON.stringify(
       {
         bundles: bundles.map((bundle) => ({
           name: bundle.bundle,
+          source: bundle.source,
           tools: Object.keys(bundle.manifest.tools),
         })),
       },
@@ -648,9 +636,13 @@ function renderBundleList(options: { libraryDir: string; json: boolean }): strin
     return [
       pc.bold("Available Bundles"),
       "",
-      "No cached bundles found.",
+      options.source !== undefined
+        ? `No cached bundles found for ${options.source}.`
+        : "No cached bundles found.",
       "",
-      pc.dim("Add one with: skul add github.com/<owner>/<repo> <bundle-name>"),
+      options.source === undefined
+        ? pc.dim("Add one with: skul add github.com/<owner>/<repo> <bundle-name>")
+        : pc.dim(`Cache one with: skul add ${options.source} <bundle-name>`),
     ].join("\n");
   }
 
@@ -1149,7 +1141,6 @@ async function updateBundles(options: {
       source: entry.source!,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
-      ref: entry.ref,
     });
 
     try {
@@ -1390,6 +1381,7 @@ async function applyBundle(options: {
   protocol: "https" | "ssh";
   agents: ToolName[];
   dryRun: boolean;
+  ref?: string;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -1398,12 +1390,25 @@ async function applyBundle(options: {
     const { cloned } = fetchRemoteSource({ source: options.source, libraryDir: options.libraryDir, protocol: options.protocol });
     if (cloned) cloneLines.push(pc.dim(`Cloned ${options.source}`));
   }
-  const cachedBundle = findCachedBundleWithGuidance({
+  let cachedBundle = findCachedBundleWithGuidance({
     libraryDir: options.libraryDir,
     bundle: options.bundle,
     source: options.source,
   });
   const effectiveSource = options.source ?? cachedBundle.source;
+  if (effectiveSource && options.ref) {
+    updateCachedRemoteSource({
+      source: effectiveSource,
+      libraryDir: options.libraryDir,
+      ...(options.source !== undefined ? { protocol: options.protocol } : {}),
+      ref: options.ref,
+    });
+    cachedBundle = findCachedBundleWithGuidance({
+      libraryDir: options.libraryDir,
+      bundle: options.bundle,
+      source: effectiveSource,
+    });
+  }
   const sourceRevision = effectiveSource
     ? readCachedSourceRevision({
         source: effectiveSource,
@@ -1419,7 +1424,7 @@ async function applyBundle(options: {
 
     if (unknownTools.length > 0) {
       throw new Error(
-        `Bundle does not support agent(s): ${unknownTools.join(", ")}\nSupported agents: ${availableTools.join(", ")}`,
+        `Bundle does not support tool(s): ${unknownTools.join(", ")}\nSupported tools: ${availableTools.join(", ")}`,
       );
     }
   }
@@ -1482,7 +1487,7 @@ async function applyBundle(options: {
       filePaths: plannedWriteTargets,
     });
 
-    // When --agent is specified, only replace the selected agents; otherwise replace all agents for this bundle
+    // When a tool flag is specified, only replace the selected tool targets.
     const toolsToReplace = hasToolSelection
       ? options.agents.filter((t) => t in existingBundleState.tools)
       : (Object.keys(existingBundleState.tools) as ToolName[]);
@@ -1600,7 +1605,11 @@ async function applyBundle(options: {
         : {}),
     ...(mergedDesiredTools !== undefined ? { tools: mergedDesiredTools } : {}),
     protocol: desiredProtocol,
-    ...(preservesExistingRef ? { ref: existingDesiredEntry.ref } : {}),
+    ...(options.ref !== undefined
+      ? { ref: options.ref }
+      : preservesExistingRef
+        ? { ref: existingDesiredEntry.ref }
+        : {}),
     ...(sourceRevision?.currentRef !== undefined
       ? { resolved_ref: sourceRevision.currentRef }
       : existingDesiredEntry?.resolved_ref !== undefined
@@ -2802,7 +2811,7 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
 
 function requireGitContext(
   cwd: string,
-  command: "add" | "apply" | "status" | "check" | "update" | "shadow" | "reset" | "remove",
+  command: "add" | "apply" | "status" | "check" | "update" | "shadow" | "sync" | "reset" | "remove",
 ) {
   const gitContext = detectGitContext({ cwd });
 
@@ -3094,6 +3103,10 @@ function fingerprintFile(filePath: string): string {
     // rather than silently skipping a managed file that may still exist.
     return "";
   }
+}
+
+function assertUnreachable(_value: never): never {
+  throw new Error("Unhandled command");
 }
 
 if (require.main === module) {

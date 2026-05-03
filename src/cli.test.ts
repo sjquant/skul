@@ -263,6 +263,26 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("accepts --tool as the preferred alias for selecting tools", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+    });
+  });
+
+  it("merges repeated --tool and --agent selections without duplicates", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs(["add", "react-expert", "--tool", "claude-code", "--agent", "cursor", "--tool", "claude-code"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
+    });
+  });
+
   it("accepts -n as shorthand for --dry-run", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "-n"])).resolves.toEqual({
@@ -347,6 +367,29 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses add ref selectors and commit pins", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "--ref", "stable"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false, ref: "stable" },
+    });
+
+    await expect(
+      parseCliArgs(["add", "react-expert", "--pin", "2813b888fb134532be3749c71a38ee111b788e5b"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+        ref: "2813b888fb134532be3749c71a38ee111b788e5b",
+      },
+    });
+  });
+
   it("parses clear-cache with a normalized GitHub source", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["clear-cache", "sjquant/ghosts"])).resolves.toEqual({
@@ -380,6 +423,15 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "clear-cache",
       options: { all: true, dryRun: false },
+    });
+  });
+
+  it("parses list source filters", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["list", "--source", "sjquant/ghosts"])).resolves.toEqual({
+      kind: "command",
+      command: "list",
+      options: { json: false, source: "github.com/sjquant/ghosts" },
     });
   });
 
@@ -492,6 +544,12 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["clear-cache", "sjquant/ghosts", "--all"])).rejects.toThrowError(
       /Command clear-cache accepts either a source or --all/,
+    );
+    await expect(parseCliArgs(["add", "react-expert", "--ref", "stable", "--pin", "2813b88"])).rejects.toThrowError(
+      /accepts either --ref or --pin/i,
+    );
+    await expect(parseCliArgs(["add", "react-expert", "--pin", "stable"])).rejects.toThrowError(
+      /--pin requires a 7-40 character hexadecimal commit SHA/i,
     );
   });
 
@@ -654,8 +712,41 @@ describe("run", () => {
 
     // Then
     expect(JSON.parse(output)).toEqual({
-      bundles: [{ name: "react-expert", tools: ["claude-code"] }],
+      bundles: [{ name: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code"] }],
     });
+  });
+
+  it("filters bundle list output by source", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeManifest(homeDir, "github.com/other/ai-vault", "next-expert", {
+      name: "next-expert",
+      tools: { cursor: { skills: { path: ".cursor/skills" } } },
+    });
+
+    // When / Then
+    await expect(run(["list", "--source", "github.com/user/ai-vault"], { homeDir })).resolves.toBe(
+      renderBundleListOutput("react-expert [github.com/user/ai-vault] (claude-code)"),
+    );
+  });
+
+  it("reports when list source filtering finds no cached bundles", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    // When / Then
+    await expect(run(["list", "--source", "github.com/user/ai-vault"], { homeDir })).resolves.toBe(
+      renderBundleListOutput(
+        "No cached bundles found for github.com/user/ai-vault.",
+        "",
+        "Cache one with: skul add github.com/user/ai-vault <bundle-name>",
+      ),
+    );
   });
 
   it("clears a cached source without requiring a Git repository", async () => {
@@ -3304,7 +3395,7 @@ describe("run", () => {
     // When / Then
     await expect(
       run(["add", "react-expert", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
-    ).rejects.toThrowError(/Bundle does not support agent\(s\): cursor[\s\S]*Supported agents: claude-code/i);
+    ).rejects.toThrowError(/Bundle does not support tool\(s\): cursor[\s\S]*Supported tools: claude-code/i);
   });
 
   it("materializes AGENTS.md for codex when the bundle only provides CLAUDE.md", async () => {
@@ -3949,8 +4040,78 @@ describe("run", () => {
   it("rejects unknown --agent names with a helpful error", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "--agent", "copilot"])).rejects.toThrowError(
-      /Unknown agent: copilot[\s\S]*Valid agents:/,
+      /Unknown tool: copilot[\s\S]*Valid tools:/,
     );
+  });
+
+  it("persists an explicit ref selector when adding a remote-backed bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    runGit(remoteSource.remoteRepoPath, ["branch", "stable"]);
+
+    // When
+    await expect(run(["add", remoteSource.source, remoteSource.bundle, "--ref", "stable"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "https",
+      ref: "stable",
+      resolved_ref: "stable",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
+  it("pins a remote-backed bundle to an explicit commit", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+
+    // When
+    await expect(
+      run(["add", remoteSource.source, remoteSource.bundle, "--pin", remoteSource.initialCommit], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "https",
+      ref: remoteSource.initialCommit,
+      resolved_commit: remoteSource.initialCommit,
+    });
   });
 });
 

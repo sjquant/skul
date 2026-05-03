@@ -127,8 +127,12 @@ export function updateCachedRemoteSource(
 
   const targetDir = getTargetDir(options);
   const status = inspectRemoteSource(options);
+  const requiresCheckoutRealignment =
+    status.refKind === "branch"
+      ? status.currentRef !== status.resolvedRef
+      : status.currentRef !== undefined;
 
-  if (status.currentCommit === status.remoteCommit) {
+  if (status.currentCommit === status.remoteCommit && !requiresCheckoutRealignment) {
     return {
       ...status,
       previousCommit: status.currentCommit,
@@ -163,7 +167,7 @@ export function updateCachedRemoteSource(
     currentRef: refreshed.currentRef,
     remoteUrl: refreshed.remoteUrl ?? status.remoteUrl,
     previousCommit: initialRevision.currentCommit,
-    updated: true,
+    updated: status.currentCommit !== status.remoteCommit || requiresCheckoutRealignment,
   };
 }
 

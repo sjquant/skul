@@ -24,7 +24,7 @@ export type CommandName =
 
 export type CliParseResult =
   | { kind: "help"; command?: CommandName }
-  | { kind: "command"; command: "list"; options: { json: boolean } }
+  | { kind: "command"; command: "list"; options: { json: boolean; source?: string } }
   | { kind: "command"; command: "status"; options: { json: boolean } }
   | { kind: "command"; command: "check"; options: { bundle?: string; json: boolean } }
   | { kind: "command"; command: "update"; options: { bundle?: string; dryRun: boolean } }
@@ -36,7 +36,14 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "add";
-      options: { bundle: string; source?: string; protocol: "https" | "ssh"; agents: ToolName[]; dryRun: boolean };
+      options: {
+        bundle: string;
+        source?: string;
+        protocol: "https" | "ssh";
+        agents: ToolName[];
+        dryRun: boolean;
+        ref?: string;
+      };
     }
   | {
       kind: "command";
@@ -101,6 +108,8 @@ const SYNC_HELP_DETAILS = [
   "  If upstream stops tracking a shadowed root instruction, sync retires the shadow and removes its local state.",
 ].join("\n");
 let clackPromptsModulePromise: Promise<typeof import("@clack/prompts")> | undefined;
+// Commander is loaded in CommonJS mode for the CLI entrypoint, so use a tiny
+// dynamic-import bridge for the ESM-only @clack/prompts package.
 const loadEsmModule = new Function("specifier", "return import(specifier);") as (
   specifier: string,
 ) => Promise<unknown>;
@@ -376,13 +385,53 @@ export async function parseCliArgs(
   return context.result ?? { kind: "help" };
 }
 
-function collectOption(value: string, previous: ToolName[]): ToolName[] {
+function collectToolOption(value: string, previous: ToolName[]): ToolName[] {
   if (!VALID_TOOL_NAMES.has(value)) {
     throw new Error(
-      `Unknown agent: ${value}\nValid agents: ${Array.from(VALID_TOOL_NAMES).sort().join(", ")}`,
+      `Unknown tool: ${value}\nValid tools: ${Array.from(VALID_TOOL_NAMES).sort().join(", ")}`,
     );
   }
   return [...previous, value as ToolName];
+}
+
+function normalizeRefSelector(value: string): string {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    throw new Error("Ref selector must be a non-empty string");
+  }
+
+  return normalizedValue;
+}
+
+function normalizePinnedCommit(value: string): string {
+  const normalizedValue = normalizeRefSelector(value);
+
+  if (!/^[0-9a-f]{7,40}$/i.test(normalizedValue)) {
+    throw new Error("--pin requires a 7-40 character hexadecimal commit SHA");
+  }
+
+  return normalizedValue;
+}
+
+function collectSelectedTools(toolSelections: ToolName[] = [], agentSelections: ToolName[] = []): ToolName[] {
+  return Array.from(new Set([...toolSelections, ...agentSelections]));
+}
+
+function resolveRequestedRefSelector(options: { ref?: string; pin?: string }): string | undefined {
+  if (options.ref !== undefined && options.pin !== undefined) {
+    throw new Error("Command add accepts either --ref or --pin, not both");
+  }
+
+  if (options.pin !== undefined) {
+    return normalizePinnedCommit(options.pin);
+  }
+
+  if (options.ref !== undefined) {
+    return normalizeRefSelector(options.ref);
+  }
+
+  return undefined;
 }
 
 function createProgram(
@@ -409,13 +458,28 @@ function createProgram(
     .description("Add a bundle to the active set and materialize its files or root instructions")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
     .argument("[bundle]", "Bundle name")
-    .option("-a, --agent <name>", "Select a specific agent to materialize (repeatable)", collectOption, [] as ToolName[])
+    .option("-t, --tool <name>", "Select a specific tool to materialize (repeatable)", collectToolOption, [] as ToolName[])
+    .option("-a, --agent <name>", "Deprecated alias for --tool (repeatable)", collectToolOption, [] as ToolName[])
+    .option("--ref <selector>", "Track a specific branch, tag, or commit instead of remote HEAD")
+    .option("--pin <commit>", "Pin the bundle to an exact commit SHA")
     .option("-n, --dry-run", "Preview what would be written without making any changes")
     .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
     .addHelpText("after", ADD_HELP_DETAILS)
-    .action(async (source: string | undefined, bundle: string | undefined, opts: { agent: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
-      const agents = opts.agent;
+    .action(async (
+      source: string | undefined,
+      bundle: string | undefined,
+      opts: {
+        tool: ToolName[];
+        agent: ToolName[];
+        ref?: string;
+        pin?: string;
+        dryRun?: boolean;
+        ssh?: boolean;
+      },
+    ) => {
+      const agents = collectSelectedTools(opts.tool, opts.agent);
       const dryRun = opts.dryRun ?? false;
+      const ref = resolveRequestedRefSelector(opts);
 
       if (!source && !bundle) {
         const selection = await prompts.selectBundle();
@@ -428,6 +492,7 @@ function createProgram(
             protocol: selection.protocol ?? "https",
             agents,
             dryRun,
+            ...(ref !== undefined ? { ref } : {}),
           },
         };
         return;
@@ -443,14 +508,27 @@ function createProgram(
           context.result = {
             kind: "command",
             command: "add",
-            options: { source: normalizedSource, bundle: repoSlug, protocol: detectedProtocol, agents, dryRun },
+            options: {
+              source: normalizedSource,
+              bundle: repoSlug,
+              protocol: detectedProtocol,
+              agents,
+              dryRun,
+              ...(ref !== undefined ? { ref } : {}),
+            },
           };
         } catch {
           // Not a valid source — treat as a plain bundle name.
           context.result = {
             kind: "command",
             command: "add",
-            options: { bundle: source, protocol: "https", agents, dryRun },
+            options: {
+              bundle: source,
+              protocol: "https",
+              agents,
+              dryRun,
+              ...(ref !== undefined ? { ref } : {}),
+            },
           };
         }
         return;
@@ -463,7 +541,14 @@ function createProgram(
       context.result = {
         kind: "command",
         command: "add",
-        options: { source: normalizedSource, bundle: bundle!, protocol: detectedProtocol, agents, dryRun },
+        options: {
+          source: normalizedSource,
+          bundle: bundle!,
+          protocol: detectedProtocol,
+          agents,
+          dryRun,
+          ...(ref !== undefined ? { ref } : {}),
+        },
       };
     });
 
@@ -471,8 +556,16 @@ function createProgram(
     .command("list")
     .description("List available bundles in the local library")
     .option("-j, --json", "Output as JSON (for scripting and agent use)")
-    .action((opts: { json?: boolean }) => {
-      context.result = { kind: "command", command: "list", options: { json: opts.json ?? false } };
+    .option("-s, --source <source>", "Filter results to a single cached source")
+    .action((opts: { json?: boolean; source?: string }) => {
+      context.result = {
+        kind: "command",
+        command: "list",
+        options: {
+          json: opts.json ?? false,
+          ...(opts.source !== undefined ? { source: normalizeBundleSource(opts.source) } : {}),
+        },
+      };
     });
 
   program
