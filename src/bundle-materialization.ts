@@ -107,6 +107,7 @@ export async function materializeBundle(options: {
   bundleSource?: string;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   allowFileOverwriteTargets?: Set<string>;
+  deferredWriteTargets?: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
   resolveFileConflict?: (conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>;
 }): Promise<MaterializeBundleResult> {
@@ -145,6 +146,7 @@ export async function materializeBundle(options: {
           ownedDirectories: toolDirectories,
           assertSafeWriteTarget: options.assertSafeWriteTarget,
           allowFileOverwriteTargets: options.allowFileOverwriteTargets,
+          deferredWriteTargets: options.deferredWriteTargets,
           composedRootInstructionContents,
           writtenSharedFileTargets,
           rootInstructionBaseContents: options.rootInstructionBaseContents,
@@ -228,6 +230,7 @@ async function materializeRootInstructionTarget(options: {
   ownedDirectories: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   allowFileOverwriteTargets?: Set<string>;
+  deferredWriteTargets?: Set<string>;
   composedRootInstructionContents: Record<string, string>;
   writtenSharedFileTargets: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
@@ -250,6 +253,10 @@ async function materializeRootInstructionTarget(options: {
   for (const [repoRelPath, content] of Object.entries(translatedContentByPath)) {
     if (options.writtenSharedFileTargets.has(repoRelPath)) {
       options.writtenFiles.push(repoRelPath);
+      continue;
+    }
+
+    if (options.deferredWriteTargets?.has(repoRelPath)) {
       continue;
     }
 

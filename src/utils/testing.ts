@@ -10,6 +10,12 @@ export function formatRootInstructionBundleBlock(bundle: string, content: string
   return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
 }
 
+/** Formats one expected tracked root-instruction shadow block. */
+export function formatTrackedRootInstructionShadowBlock(bundle: string, content: string): string {
+  const normalizedContent = content.replace(/\s+$/, "");
+  return `<!-- SKUL SHADOW START bundle=${bundle} -->\n${normalizedContent}\n<!-- SKUL SHADOW END -->`;
+}
+
 /** Joins expected root-instruction document parts using the production document layout. */
 export function formatExpectedRootInstructionDocument(...parts: string[]): string {
   return `${parts.map((part) => part.replace(/\s+$/, "")).filter((part) => part.length > 0).join("\n\n")}\n`;
