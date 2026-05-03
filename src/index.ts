@@ -627,7 +627,7 @@ async function updateBundles(options: {
           gitContext.worktreeRoot,
           excludeShadowedTrackedRootInstructionTargets(
             flattenBundleState(bundleStateToReplace),
-            trackedRootInstructionShadowPlan.skippedWriteTargets,
+            trackedRootInstructionShadowPlan.deferredMaterializationTargets,
           ),
           options.prompts,
           "replace",
@@ -678,7 +678,7 @@ async function updateBundles(options: {
           gitContext.worktreeRoot,
           excludeShadowedTrackedRootInstructionTargets(
             flattenBundleState(bundleStateToReplace),
-            trackedRootInstructionShadowPlan.skippedWriteTargets,
+            trackedRootInstructionShadowPlan.deferredMaterializationTargets,
           ),
         );
         const materializedResult = await materializeBundle({
@@ -693,7 +693,7 @@ async function updateBundles(options: {
             operation: existingBundleState ? "refresh" : "create",
           }),
           allowFileOverwriteTargets: collectManagedRootInstructionTargets(currentBundles),
-          skipWriteTargets: trackedRootInstructionShadowPlan.skippedWriteTargets,
+          deferredWriteTargets: trackedRootInstructionShadowPlan.deferredMaterializationTargets,
           rootInstructionBaseContents,
           resolveFileConflict: options.prompts.resolveFileConflict,
         });
@@ -922,7 +922,7 @@ async function applyBundle(options: {
 
     pathsToReplace = excludeShadowedTrackedRootInstructionTargets(flattenBundleState({
       tools: Object.fromEntries(toolsToReplace.map((t) => [t, existingBundleState.tools[t]!])),
-    }), trackedRootInstructionShadowPlan.skippedWriteTargets);
+    }), trackedRootInstructionShadowPlan.deferredMaterializationTargets);
 
     const replacementAllowed = await confirmManagedFileRemovals(
       gitContext.worktreeRoot,
@@ -983,7 +983,7 @@ async function applyBundle(options: {
       operation: existingBundleState ? "refresh" : "create",
     }),
     allowFileOverwriteTargets: collectManagedRootInstructionTargets(existingWorktreeState?.bundles ?? {}),
-    skipWriteTargets: trackedRootInstructionShadowPlan.skippedWriteTargets,
+    deferredWriteTargets: trackedRootInstructionShadowPlan.deferredMaterializationTargets,
     rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
   });
@@ -1540,7 +1540,7 @@ async function applyWorktree(options: {
         gitContext.worktreeRoot,
         excludeShadowedTrackedRootInstructionTargets(
           flattenBundleState(existingBundleState),
-          trackedRootInstructionShadowPlan.skippedWriteTargets,
+          trackedRootInstructionShadowPlan.deferredMaterializationTargets,
         ),
         options.prompts,
         "replace",
@@ -1587,7 +1587,7 @@ async function applyWorktree(options: {
         gitContext.worktreeRoot,
         excludeShadowedTrackedRootInstructionTargets(
           flattenBundleState(existingBundleState),
-          trackedRootInstructionShadowPlan.skippedWriteTargets,
+          trackedRootInstructionShadowPlan.deferredMaterializationTargets,
         ),
       );
     }
@@ -1604,7 +1604,7 @@ async function applyWorktree(options: {
         operation: existingBundleState ? "refresh" : "create",
       }),
       allowFileOverwriteTargets: collectManagedRootInstructionTargets(currentBundles),
-      skipWriteTargets: trackedRootInstructionShadowPlan.skippedWriteTargets,
+      deferredWriteTargets: trackedRootInstructionShadowPlan.deferredMaterializationTargets,
       rootInstructionBaseContents,
       resolveFileConflict: options.prompts.resolveFileConflict,
     });
@@ -1682,7 +1682,7 @@ interface PlannedTrackedRootInstructionShadow {
 
 interface TrackedRootInstructionShadowPlan {
   writes: PlannedTrackedRootInstructionShadow[];
-  skippedWriteTargets: Set<string>;
+  deferredMaterializationTargets: Set<string>;
   untrackedTargetPaths: Set<string>;
   activeShadowPaths: Set<string>;
 }
@@ -1743,7 +1743,7 @@ function planTrackedRootInstructionShadows(options: {
   if (trackedTargetPaths.size === 0) {
     return {
       writes: [],
-      skippedWriteTargets: trackedTargetPaths,
+      deferredMaterializationTargets: trackedTargetPaths,
       untrackedTargetPaths: new Set(activeRootInstructionPaths),
       activeShadowPaths: trackedTargetPaths,
     };
@@ -1766,7 +1766,7 @@ function planTrackedRootInstructionShadows(options: {
 
   return {
     writes,
-    skippedWriteTargets: trackedTargetPaths,
+    deferredMaterializationTargets: trackedTargetPaths,
     untrackedTargetPaths,
     activeShadowPaths: trackedTargetPaths,
   };
@@ -2047,19 +2047,19 @@ function excludeShadowedTrackedRootInstructionTargets(
     file_fingerprints: Record<string, string>;
     directories?: string[];
   },
-  skippedWriteTargets: Set<string>,
+  deferredMaterializationTargets: Set<string>,
 ): {
   files: string[];
   file_fingerprints: Record<string, string>;
   directories?: string[];
 } {
-  if (skippedWriteTargets.size === 0) {
+  if (deferredMaterializationTargets.size === 0) {
     return state;
   }
 
-  const files = state.files.filter((filePath) => !skippedWriteTargets.has(filePath));
+  const files = state.files.filter((filePath) => !deferredMaterializationTargets.has(filePath));
   const fileFingerprints = Object.fromEntries(
-    Object.entries(state.file_fingerprints).filter(([filePath]) => !skippedWriteTargets.has(filePath)),
+    Object.entries(state.file_fingerprints).filter(([filePath]) => !deferredMaterializationTargets.has(filePath)),
   );
 
   return {
