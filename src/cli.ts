@@ -62,6 +62,44 @@ export interface PromptClient {
 }
 
 const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "shadow", "sync", "reset", "remove", "apply", "clear-cache"];
+const PROGRAM_HELP_DETAILS = [
+  "",
+  "Root instructions:",
+  "  codex bundles target AGENTS.md; claude-code, cursor, and opencode target CLAUDE.md.",
+  "  Untracked root instructions are composed locally and hidden through .git/info/exclude.",
+  "  Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
+  "",
+  "Safety and recovery:",
+  "  Use 'skul sync' for the safe suspend/pull/refresh lifecycle, or run 'skul shadow --suspend' before git updates and 'skul shadow --refresh' after.",
+  "  Shadow refresh refuses staged changes, unstaged edits, unmerged files, incompatible index flags, and manual edits to the current shadow render.",
+  "  'skul status' reports tracked shadow health; 'skul reset' restores tracked root instructions back to HEAD.",
+].join("\n");
+const ADD_HELP_DETAILS = [
+  "",
+  "Root instruction targets:",
+  "  Bundles may contribute AGENTS.md and CLAUDE.md alongside skills/ and commands/ content.",
+  "  If the target root instruction file is already tracked, Skul creates a tracked shadow instead of leaving a visible git diff.",
+].join("\n");
+const SHADOW_HELP_DETAILS = [
+  "",
+  "Lifecycle:",
+  "  --suspend restores tracked AGENTS.md / CLAUDE.md files from HEAD and clears skip-worktree.",
+  "  --refresh rebuilds the effective shadow from the latest HEAD plus Skul overlay content and re-enables skip-worktree.",
+  "  Refresh refuses staged changes, unstaged edits, unmerged files, incompatible index flags, and manual edits to the current shadow render.",
+  "",
+  "Examples:",
+  "  skul shadow --suspend",
+  "  git pull --ff-only",
+  "  skul shadow --refresh",
+].join("\n");
+const SYNC_HELP_DETAILS = [
+  "",
+  "Lifecycle:",
+  "  Equivalent to: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
+  "  Prefer this in headless automation so tracked AGENTS.md / CLAUDE.md shadows are suspended and restored in one step.",
+  "  If git pull fails, Skul attempts to restore the prior shadow state before returning the error.",
+  "  If upstream stops tracking a shadowed root instruction, sync retires the shadow and removes its local state.",
+].join("\n");
 let clackPromptsModulePromise: Promise<typeof import("@clack/prompts")> | undefined;
 const loadEsmModule = new Function("specifier", "return import(specifier);") as (
   specifier: string,
@@ -274,20 +312,34 @@ function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
 
 /** Renders CLI help text for either the full program or one subcommand. */
 export function createHelpText(command?: CommandName): string {
+  const output: string[] = [];
   const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
     resolveFileConflict: async () => ({ action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX }),
     confirmManagedFileRemoval: async () => true,
   });
+  const writeOutput = (chunk: string) => {
+    output.push(chunk);
+  };
+  program.configureOutput({
+    writeOut: writeOutput,
+    writeErr: writeOutput,
+  });
 
   if (command) {
     const subcommand = program.commands.find((c) => c.name() === command);
     if (subcommand) {
-      return subcommand.helpInformation();
+      subcommand.configureOutput({
+        writeOut: writeOutput,
+        writeErr: writeOutput,
+      });
+      subcommand.outputHelp();
+      return output.join("");
     }
   }
 
-  return program.helpInformation();
+  program.outputHelp();
+  return output.join("");
 }
 
 /** Parses CLI arguments into a normalized command payload. */
@@ -344,6 +396,7 @@ function createProgram(
     .description(
       "Manage project-scoped AI configuration bundles\n\nEnv vars:\n  SKUL_NO_TUI=1   Run in headless/non-interactive mode (auto-resolves prompts)",
     )
+    .addHelpText("after", PROGRAM_HELP_DETAILS)
     .helpCommand(false)
     .configureOutput({
       writeOut: () => undefined,
@@ -353,12 +406,13 @@ function createProgram(
 
   program
     .command("add")
-    .description("Add a bundle to the active set and materialize its files")
+    .description("Add a bundle to the active set and materialize its files or root instructions")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
     .argument("[bundle]", "Bundle name")
     .option("-a, --agent <name>", "Select a specific agent to materialize (repeatable)", collectOption, [] as ToolName[])
     .option("-n, --dry-run", "Preview what would be written without making any changes")
     .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
+    .addHelpText("after", ADD_HELP_DETAILS)
     .action(async (source: string | undefined, bundle: string | undefined, opts: { agent: ToolName[]; dryRun?: boolean; ssh?: boolean }) => {
       const agents = opts.agent;
       const dryRun = opts.dryRun ?? false;
@@ -423,7 +477,7 @@ function createProgram(
 
   program
     .command("status")
-    .description("Show desired state and current worktree materialization")
+    .description("Show desired state, current worktree materialization, and tracked root-instruction shadow health")
     .option("-j, --json", "Output as JSON (for scripting and agent use)")
     .action((opts: { json?: boolean }) => {
       context.result = { kind: "command", command: "status", options: { json: opts.json ?? false } };
@@ -457,9 +511,10 @@ function createProgram(
 
   program
     .command("shadow")
-    .description("Suspend or refresh tracked root-instruction shadows")
+    .description("Suspend or refresh tracked AGENTS.md / CLAUDE.md shadows")
     .option("--suspend", "Restore tracked root instructions from HEAD and clear skip-worktree")
     .option("--refresh", "Rebuild tracked root-instruction shadows from HEAD and re-enable skip-worktree")
+    .addHelpText("after", SHADOW_HELP_DETAILS)
     .action((opts: { suspend?: boolean; refresh?: boolean }) => {
       if (opts.suspend === opts.refresh) {
         throw new Error("Command shadow requires exactly one of --suspend or --refresh");
@@ -474,7 +529,8 @@ function createProgram(
 
   program
     .command("sync")
-    .description("Suspend tracked root-instruction shadows, run git pull --ff-only, then refresh shadows")
+    .description("Safely pull git updates around tracked AGENTS.md / CLAUDE.md shadows")
+    .addHelpText("after", SYNC_HELP_DETAILS)
     .action(() => {
       context.result = { kind: "command", command: "sync", options: {} };
     });
@@ -489,7 +545,7 @@ function createProgram(
 
   program
     .command("reset")
-    .description("Remove all Skul-managed files from the current worktree")
+    .description("Remove all Skul-managed files and restore tracked root instructions in the current worktree")
     .option("-n, --dry-run", "Preview what would be deleted without removing any files")
     .action((opts: { dryRun?: boolean }) => {
       context.result = { kind: "command", command: "reset", options: { dryRun: opts.dryRun ?? false } };
@@ -497,7 +553,7 @@ function createProgram(
 
   program
     .command("remove")
-    .description("Remove a bundle from the active set and delete its managed files")
+    .description("Remove a bundle from the active set and recompose or restore any root instructions it owns")
     .argument("<bundle>", "Bundle name to remove")
     .option("-n, --dry-run", "Preview what would be deleted without removing any files")
     .action((bundle: string, opts: { dryRun?: boolean }) => {
