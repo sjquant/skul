@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { parseCliArgs, type PromptClient } from "./cli";
+import { createHelpText, parseCliArgs, type PromptClient } from "./cli";
 import { detectGitContext } from "./git-context";
 import { assertTrackedRootInstructionShadowSafety, run } from "./index";
 import {
@@ -514,13 +514,98 @@ describe("parseCliArgs", () => {
   });
 });
 
+describe("createHelpText", () => {
+  it("documents root instruction support and recovery in the top-level help", () => {
+    // Given
+    const command: undefined = undefined;
+
+    // When
+    const helpText = createHelpText(command);
+
+    // Then
+    expect(helpText).toContain(
+      "codex bundles target AGENTS.md; claude-code, cursor, and opencode target CLAUDE.md.",
+    );
+    expect(helpText).toContain(
+      "Untracked root instructions are composed locally and hidden through .git/info/exclude.",
+    );
+    expect(helpText).toContain(
+      "Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
+    );
+    expect(helpText).toContain(
+      "Use 'skul sync' for the safe suspend/pull/refresh lifecycle, or run 'skul shadow --suspend' before git updates and 'skul shadow --refresh' after.",
+    );
+    expect(helpText).toContain(
+      "'skul status' reports tracked shadow health; 'skul reset' restores tracked root instructions back to HEAD.",
+    );
+  });
+
+  it("documents root-instruction lifecycle details in add, shadow, and sync help", () => {
+    // Given
+    const addCommand = "add";
+    const shadowCommand = "shadow";
+    const syncCommand = "sync";
+
+    // When
+    const addHelpText = createHelpText(addCommand);
+    const shadowHelpText = createHelpText(shadowCommand);
+    const syncHelpText = createHelpText(syncCommand);
+
+    // Then
+    expect(addHelpText).toContain(
+      "Bundles may contribute AGENTS.md and CLAUDE.md alongside skills/ and commands/ content.",
+    );
+    expect(addHelpText).toContain(
+      "If the target root instruction file is already tracked, Skul creates a tracked shadow instead of leaving a visible git diff.",
+    );
+    expect(shadowHelpText).toContain("Suspend or refresh tracked AGENTS.md / CLAUDE.md shadows");
+    expect(shadowHelpText).toContain(
+      "--suspend restores tracked AGENTS.md / CLAUDE.md files from HEAD and clears skip-worktree.",
+    );
+    expect(shadowHelpText).toContain(
+      "--refresh rebuilds the effective shadow from the latest HEAD plus Skul overlay content and re-enables skip-worktree.",
+    );
+    expect(shadowHelpText).toContain("skul shadow --suspend");
+    expect(syncHelpText).toContain("Safely pull git updates around tracked AGENTS.md / CLAUDE.md shadows");
+    expect(syncHelpText).toContain(
+      "Equivalent to: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
+    );
+    expect(syncHelpText).toContain(
+      "Prefer this in headless automation so tracked AGENTS.md / CLAUDE.md shadows are suspended and restored in one step.",
+    );
+    expect(syncHelpText).toContain(
+      "If git pull fails, Skul attempts to restore the prior shadow state before returning the error.",
+    );
+  });
+});
+
 describe("run", () => {
   it("renders usage for bare invocations", async () => {
     // Given
     const argv: string[] = [];
 
-    // When / Then
-    await expect(run(argv)).resolves.toMatch(/^Usage: skul /);
+    // When
+    const output = await run(argv);
+
+    // Then
+    expect(output).toContain("Usage: skul [options] [command]");
+    expect(output).toContain("Commands:");
+    expect(output).toContain("Root instructions:");
+    expect(output).toContain("Safety and recovery:");
+  });
+
+  it("routes command help through run", async () => {
+    // Given
+    const argv = ["shadow", "--help"];
+
+    // When
+    const output = await run(argv);
+
+    // Then
+    expect(output).toBe(createHelpText("shadow"));
+    expect(output).toContain("Usage: skul shadow [options]");
+    expect(output).toContain("Lifecycle:");
+    expect(output).toContain("skul shadow --refresh");
   });
 
   it("lists cached bundles from the global library", async () => {
