@@ -50,6 +50,7 @@ describe("parseCliArgs", () => {
     const statusArgs = ["status"];
     const checkArgs = ["check"];
     const updateArgs = ["update"];
+    const syncArgs = ["sync"];
     const resetArgs = ["reset"];
     const applyArgs = ["apply"];
 
@@ -58,6 +59,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status", options: { json: false } });
     await expect(parseCliArgs(checkArgs)).resolves.toEqual({ kind: "command", command: "check", options: { json: false } });
     await expect(parseCliArgs(updateArgs)).resolves.toEqual({ kind: "command", command: "update", options: { dryRun: false } });
+    await expect(parseCliArgs(syncArgs)).resolves.toEqual({ kind: "command", command: "sync", options: {} });
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset", options: { dryRun: false } });
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply", options: { dryRun: false } });
   });
@@ -460,6 +462,9 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["reset", "extra"])).rejects.toThrowError(
       /Command reset does not accept positional arguments/,
+    );
+    await expect(parseCliArgs(["sync", "extra"])).rejects.toThrowError(
+      /Command sync does not accept positional arguments/,
     );
     await expect(parseCliArgs(["apply", "extra"])).rejects.toThrowError(
       /Command apply does not accept positional arguments/,
@@ -4091,6 +4096,142 @@ describe("tracked root-instruction shadow safety", () => {
     );
   });
 
+  it("wraps git pull --ff-only with tracked AGENTS.md and CLAUDE.md shadow suspend and refresh", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const { repoRoot, upstreamRepoPath } = createSyncRepository({
+      "AGENTS.md": "# tracked agents\n",
+      "CLAUDE.md": "# tracked claude\n",
+    });
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "claude-standards",
+      agent: "claude-code",
+      content: "# Claude standards\nUse Claude defaults.\n",
+    });
+    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+    await run(["add", "claude-standards", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    const initialHead = runGit(repoRoot, ["rev-parse", "HEAD"]);
+    const updatedHead = pushSyncRepositoryUpdate(
+      upstreamRepoPath,
+      {
+        "AGENTS.md": "# tracked agents v2\n",
+        "CLAUDE.md": "# tracked claude v2\n",
+      },
+      "refresh tracked roots",
+    );
+
+    // When
+    await expect(run(["sync"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `Synced git worktree ${initialHead.slice(0, 7)} -> ${updatedHead.slice(0, 7)}; refreshed tracked root-instruction shadows for AGENTS.md, CLAUDE.md`,
+    );
+
+    // Then
+    assertAgentsDocument(
+      repoRoot,
+      "# tracked agents v2\n",
+      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+    );
+    assertClaudeDocument(
+      repoRoot,
+      "# tracked claude v2\n",
+      formatTrackedRootInstructionShadowBlock("claude-standards", "# Claude standards\nUse Claude defaults.\n"),
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
+    expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+
+    expect(worktreeState.shadowed_files["AGENTS.md"]).toMatchObject({
+      base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+      overlay: "# Repo standards\nUse consistent conventions.",
+      skip_worktree: true,
+    });
+    expect(worktreeState.shadowed_files["CLAUDE.md"]).toMatchObject({
+      base_blob: runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]),
+      overlay: "# Claude standards\nUse Claude defaults.",
+      skip_worktree: true,
+    });
+  });
+
+  it("restores tracked shadows after a git sync failure", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const { repoRoot, upstreamRepoPath } = createSyncRepository({
+      "AGENTS.md": "# tracked agents\n",
+    });
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+    pushSyncRepositoryUpdate(
+      upstreamRepoPath,
+      {
+        "AGENTS.md": "# tracked agents v2\n",
+      },
+      "remote tracked root update",
+    );
+    fs.writeFileSync(path.join(repoRoot, "README.md"), "# local divergence\n");
+    runGit(repoRoot, ["add", "README.md"]);
+    runGit(repoRoot, ["commit", "-m", "local divergence"]);
+    const localHead = runGit(repoRoot, ["rev-parse", "HEAD"]);
+
+    // When / Then
+    await expect(run(["sync"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+      /Failed to sync the current branch with git pull --ff-only: .*fatal: Not possible to fast-forward, aborting\./is,
+    );
+    expect(runGit(repoRoot, ["rev-parse", "HEAD"])).toBe(localHead);
+    assertAgentsDocument(
+      repoRoot,
+      "# tracked agents\n",
+      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const shadowedFile = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!.shadowed_files["AGENTS.md"]!;
+    expect(shadowedFile.skip_worktree).toBe(true);
+    expect(shadowedFile.base_blob).toBe(runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]));
+    expect(shadowedFile.overlay).toBe("# Repo standards\nUse consistent conventions.");
+  });
+
+  it("retires a tracked shadow when upstream stops tracking the root instruction during sync", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const { repoRoot, upstreamRepoPath } = createSyncRepository({
+      "AGENTS.md": "# tracked agents\n",
+    });
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+    const initialHead = runGit(repoRoot, ["rev-parse", "HEAD"]);
+    fs.rmSync(path.join(upstreamRepoPath, "AGENTS.md"));
+    runGit(upstreamRepoPath, ["add", "AGENTS.md"]);
+    runGit(upstreamRepoPath, ["commit", "-m", "remove tracked AGENTS"]);
+    runGit(upstreamRepoPath, ["push", "origin", "main"]);
+    const updatedHead = runGit(upstreamRepoPath, ["rev-parse", "HEAD"]);
+
+    // When
+    await expect(run(["sync"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `Synced git worktree ${initialHead.slice(0, 7)} -> ${updatedHead.slice(0, 7)}; retired tracked root-instruction shadows for AGENTS.md because upstream no longer tracks them`,
+    );
+
+    // Then
+    expect(pathExists(path.join(repoRoot, "AGENTS.md"))).toBe(false);
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    expect(worktreeState.shadowed_files["AGENTS.md"]).toBeUndefined();
+  });
+
   it("restores tracked root-instruction shadows when removing the owning bundle", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -4672,6 +4813,60 @@ function createRepository(): string {
   runGit(repoRoot, ["add", "README.md"]);
   runGit(repoRoot, ["commit", "-m", "init"]);
   return repoRoot;
+}
+
+function createSyncRepository(initialFiles: Record<string, string>): {
+  repoRoot: string;
+  upstreamRepoPath: string;
+} {
+  const remoteRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "skul-sync-remote-"));
+  const upstreamRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "skul-sync-upstream-"));
+  const cloneParentDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-sync-clone-"));
+  const repoRoot = path.join(cloneParentDir, "repo");
+  tempDirs.push(remoteRepoPath, upstreamRepoPath, cloneParentDir);
+
+  runGit(remoteRepoPath, ["init", "--bare", "--initial-branch=main"]);
+  runGit(upstreamRepoPath, ["init", "--initial-branch=main"]);
+  runGit(upstreamRepoPath, ["config", "user.name", "Skul Test"]);
+  runGit(upstreamRepoPath, ["config", "user.email", "skul@example.com"]);
+  runGit(upstreamRepoPath, ["config", "commit.gpgsign", "false"]);
+  fs.writeFileSync(path.join(upstreamRepoPath, "README.md"), "# test\n");
+
+  for (const [relativePath, content] of Object.entries(initialFiles)) {
+    const targetPath = path.join(upstreamRepoPath, ...relativePath.split("/"));
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, content);
+  }
+
+  runGit(upstreamRepoPath, ["add", "."]);
+  runGit(upstreamRepoPath, ["commit", "-m", "init"]);
+  runGit(upstreamRepoPath, ["remote", "add", "origin", remoteRepoPath]);
+  runGit(upstreamRepoPath, ["push", "-u", "origin", "main"]);
+
+  runGit(cloneParentDir, ["clone", remoteRepoPath, repoRoot]);
+  runGit(repoRoot, ["config", "user.name", "Skul Test"]);
+  runGit(repoRoot, ["config", "user.email", "skul@example.com"]);
+  runGit(repoRoot, ["config", "commit.gpgsign", "false"]);
+
+  return { repoRoot, upstreamRepoPath };
+}
+
+function pushSyncRepositoryUpdate(
+  upstreamRepoPath: string,
+  files: Record<string, string>,
+  message: string,
+): string {
+  for (const [relativePath, content] of Object.entries(files)) {
+    const targetPath = path.join(upstreamRepoPath, ...relativePath.split("/"));
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, content);
+  }
+
+  runGit(upstreamRepoPath, ["add", "."]);
+  runGit(upstreamRepoPath, ["commit", "-m", message]);
+  runGit(upstreamRepoPath, ["push", "origin", "main"]);
+
+  return runGit(upstreamRepoPath, ["rev-parse", "HEAD"]);
 }
 
 function createLinkedWorktree(repoRoot: string): string {
