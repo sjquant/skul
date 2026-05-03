@@ -48,7 +48,6 @@ import {
   type MaterializedState,
   type ShadowedFileState,
   type MaterializedToolState,
-  type ShadowedFileState,
   listManagedPathsForRemoval,
   readRegistryFile,
   removeWorktreeState,
@@ -141,6 +140,14 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
+  if (parsed.command === "shadow") {
+    return shadowWorktree({
+      cwd,
+      registryFile: stateLayout.registryFile,
+      action: parsed.options.action,
+    });
+  }
+
   if (parsed.command === "reset") {
     return resetWorktree({
       cwd,
@@ -182,6 +189,188 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
 
   // All known commands are handled above — this branch is unreachable at runtime.
   return "Command not implemented";
+}
+
+function shadowWorktree(options: {
+  cwd: string;
+  registryFile: string;
+  action: "suspend" | "refresh";
+}): string {
+  const gitContext = requireGitContext(options.cwd, "shadow");
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const shadowedFiles = worktreeState?.shadowed_files ?? {};
+  const shadowedFilePaths = Object.keys(shadowedFiles);
+
+  if (shadowedFilePaths.length === 0) {
+    return "No tracked root-instruction shadows found in the current worktree";
+  }
+
+  const nextShadowedFiles =
+    options.action === "suspend"
+      ? suspendTrackedRootInstructionShadows({
+          repoRoot: gitContext.worktreeRoot,
+          shadowedFiles,
+        })
+      : refreshTrackedRootInstructionShadows({
+          repoRoot: gitContext.worktreeRoot,
+          shadowedFiles,
+        });
+
+  registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+    repo_fingerprint: worktreeState!.repo_fingerprint,
+    path: gitContext.worktreeRoot,
+    materialized_state: worktreeState!.materialized_state,
+    shadowed_files: nextShadowedFiles,
+  });
+  writeRegistryFile(options.registryFile, registry);
+
+  const actionLabel = options.action === "suspend" ? "Suspended" : "Refreshed";
+  return `${actionLabel} tracked root-instruction shadows for ${shadowedFilePaths.sort().join(", ")}`;
+}
+
+function suspendTrackedRootInstructionShadows(options: {
+  repoRoot: string;
+  shadowedFiles: Record<string, ShadowedFileState>;
+}): Record<string, ShadowedFileState> {
+  const plans = Object.entries(options.shadowedFiles)
+    .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
+    .map(([filePath, shadowedFile]) => {
+      assertTrackedRootInstructionShadowSafetyForAction({
+        repoRoot: options.repoRoot,
+        filePath,
+        action: "suspend",
+      });
+
+      if (shadowedFile.skip_worktree) {
+        assertTrackedRootInstructionShadowPristine({
+          repoRoot: options.repoRoot,
+          filePath,
+          shadowedFile,
+          action: "suspend",
+        });
+      }
+
+      return { filePath, shadowedFile };
+    });
+
+  for (const plan of plans) {
+    restoreTrackedRootInstructionShadowTarget({
+      repoRoot: options.repoRoot,
+      filePath: plan.filePath,
+    });
+  }
+
+  return Object.fromEntries(
+    plans.map(({ filePath, shadowedFile }) => [
+      filePath,
+      {
+        ...shadowedFile,
+        skip_worktree: false,
+      },
+    ]),
+  );
+}
+
+function refreshTrackedRootInstructionShadows(options: {
+  repoRoot: string;
+  shadowedFiles: Record<string, ShadowedFileState>;
+}): Record<string, ShadowedFileState> {
+  const plans = Object.entries(options.shadowedFiles)
+    .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
+    .map(([filePath, shadowedFile]) => {
+      assertTrackedRootInstructionShadowSafetyForAction({
+        repoRoot: options.repoRoot,
+        filePath,
+        action: "refresh",
+      });
+
+      if (shadowedFile.skip_worktree) {
+        assertTrackedRootInstructionShadowPristine({
+          repoRoot: options.repoRoot,
+          filePath,
+          shadowedFile,
+          action: "refresh",
+        });
+      }
+
+      const headBlob = requireTrackedRootInstructionHeadBlob({
+        repoRoot: options.repoRoot,
+        filePath,
+        action: "refresh",
+      });
+      const render = renderTrackedRootInstructionShadow({
+        baseContent: headBlob.content,
+        overlayContent: shadowedFile.overlay,
+        bundleName: shadowedFile.bundle,
+        toolName: shadowedFile.tool,
+        strategy: shadowedFile.strategy,
+        allowReplace: true,
+      });
+
+      return { filePath, shadowedFile, headBlob, render };
+    });
+
+  for (const plan of plans) {
+    const targetPath = path.join(options.repoRoot, plan.filePath);
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, plan.render.rendered);
+    setGitSkipWorktree({ repoRoot: options.repoRoot, filePath: plan.filePath });
+  }
+
+  return Object.fromEntries(
+    plans.map(({ filePath, shadowedFile, headBlob, render }) => [
+      filePath,
+      {
+        ...shadowedFile,
+        base_blob: headBlob.objectId,
+        overlay: shadowedFile.overlay,
+        overlay_fingerprint: render.overlayFingerprint,
+        rendered_fingerprint: render.renderedFingerprint,
+        skip_worktree: true,
+      },
+    ]),
+  );
+}
+
+function requireTrackedRootInstructionHeadBlob(options: {
+  repoRoot: string;
+  filePath: string;
+  action: "create" | "refresh" | "suspend";
+}) {
+  const inspection = inspectRootInstructionShadowTarget({
+    repoRoot: options.repoRoot,
+    filePath: options.filePath,
+  });
+
+  if (inspection.headBlob) {
+    return inspection.headBlob;
+  }
+
+  throw new Error(
+    `Cannot ${options.action} tracked root-instruction shadow for ${options.filePath} because the target does not have HEAD content`,
+  );
+}
+
+function assertTrackedRootInstructionShadowPristine(options: {
+  repoRoot: string;
+  filePath: string;
+  shadowedFile: ShadowedFileState;
+  action: "refresh" | "suspend";
+}): void {
+  const targetPath = path.join(options.repoRoot, options.filePath);
+
+  if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
+    return;
+  }
+
+  if (fingerprintFile(targetPath) === options.shadowedFile.rendered_fingerprint) {
+    return;
+  }
+
+  throw new Error(
+    `Cannot ${options.action} tracked root-instruction shadow for ${options.filePath} because the shadow file has local manual edits`,
+  );
 }
 
 function createDefaultPromptClient(libraryDir: string): PromptClient {
@@ -1999,6 +2188,7 @@ function renderTrackedRootInstructionShadowWrite(options: {
       bundle: options.bundleName,
       strategy: "append",
       base_blob: inspection.headBlob.objectId,
+      overlay: options.overlayContent,
       overlay_fingerprint: render.overlayFingerprint,
       rendered_fingerprint: render.renderedFingerprint,
       skip_worktree: true,
@@ -2392,7 +2582,10 @@ function isDirectoryNotEmptyError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOTEMPTY";
 }
 
-function requireGitContext(cwd: string, command: "add" | "apply" | "status" | "check" | "update" | "reset" | "remove") {
+function requireGitContext(
+  cwd: string,
+  command: "add" | "apply" | "status" | "check" | "update" | "shadow" | "reset" | "remove",
+) {
   const gitContext = detectGitContext({ cwd });
 
   if (!gitContext) {
@@ -2414,6 +2607,18 @@ export function assertTrackedRootInstructionShadowSafety(options: {
   filePath: string;
   operation: "create" | "refresh";
 }): void {
+  assertTrackedRootInstructionShadowSafetyForAction({
+    repoRoot: options.repoRoot,
+    filePath: options.filePath,
+    action: options.operation,
+  });
+}
+
+function assertTrackedRootInstructionShadowSafetyForAction(options: {
+  repoRoot: string;
+  filePath: string;
+  action: "create" | "refresh" | "suspend";
+}): void {
   const inspection = inspectRootInstructionShadowTarget({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
@@ -2423,7 +2628,7 @@ export function assertTrackedRootInstructionShadowSafety(options: {
     return;
   }
 
-  const actionLabel = options.operation === "create" ? "create" : "refresh";
+  const actionLabel = options.action;
 
   if (inspection.issues.includes("unmerged")) {
     throw new Error(

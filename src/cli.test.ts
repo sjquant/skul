@@ -62,6 +62,34 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply", options: { dryRun: false } });
   });
 
+  it("parses tracked shadow lifecycle commands", async () => {
+    // Given
+    const suspendArgs = ["shadow", "--suspend"];
+    const refreshArgs = ["shadow", "--refresh"];
+
+    // When / Then
+    await expect(parseCliArgs(suspendArgs)).resolves.toEqual({
+      kind: "command",
+      command: "shadow",
+      options: { action: "suspend" },
+    });
+    await expect(parseCliArgs(refreshArgs)).resolves.toEqual({
+      kind: "command",
+      command: "shadow",
+      options: { action: "refresh" },
+    });
+  });
+
+  it("requires exactly one tracked shadow action flag", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["shadow"])).rejects.toThrowError(
+      /requires exactly one of --suspend or --refresh/i,
+    );
+    await expect(parseCliArgs(["shadow", "--suspend", "--refresh"])).rejects.toThrowError(
+      /requires exactly one of --suspend or --refresh/i,
+    );
+  });
+
   it("parses add in interactive, cached, and explicit source modes", async () => {
     // Given
     const selectBundle = vi.fn().mockResolvedValue({ bundle: "react-expert" });
@@ -707,6 +735,7 @@ describe("run", () => {
               bundle: "agents-rules",
               strategy: "append",
               base_blob: agentsBaseBlob,
+              overlay: "Follow the agents guidance.",
               overlay_fingerprint: agentsShadow.overlayFingerprint,
               rendered_fingerprint: agentsShadow.renderedFingerprint,
               skip_worktree: true,
@@ -716,6 +745,7 @@ describe("run", () => {
               bundle: "claude-rules",
               strategy: "prepend",
               base_blob: agentsBaseBlob,
+              overlay: "Follow the claude guidance.",
               overlay_fingerprint: claudeShadow.overlayFingerprint,
               rendered_fingerprint: claudeShadow.renderedFingerprint,
               skip_worktree: true,
@@ -2203,6 +2233,7 @@ describe("run", () => {
             bundle: "personal-rules",
             strategy: "append",
             base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
+            overlay: "# Personal rules\n",
             overlay_fingerprint: "overlay-abc123",
             rendered_fingerprint: "rendered-def456",
             skip_worktree: true,
@@ -2295,6 +2326,7 @@ describe("run", () => {
               bundle: "agents-rules",
               strategy: "append",
               base_blob: agentsBaseBlob,
+              overlay: "Follow the agents guidance.",
               overlay_fingerprint: agentsShadow.overlayFingerprint,
               rendered_fingerprint: agentsShadow.renderedFingerprint,
               skip_worktree: true,
@@ -2304,6 +2336,7 @@ describe("run", () => {
               bundle: "claude-rules",
               strategy: "prepend",
               base_blob: agentsBaseBlob,
+              overlay: "Follow the claude guidance.",
               overlay_fingerprint: claudeShadow.overlayFingerprint,
               rendered_fingerprint: claudeShadow.renderedFingerprint,
               skip_worktree: true,
@@ -2565,6 +2598,7 @@ describe("run", () => {
               bundle: "personal-rules",
               strategy: "append",
               base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+              overlay: "# Shadowed content\n",
               overlay_fingerprint: renderedFingerprint,
               rendered_fingerprint: renderedFingerprint,
               skip_worktree: true,
@@ -2616,6 +2650,7 @@ describe("run", () => {
         bundle: "personal-rules",
         strategy: "append" as const,
         base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+        overlay: "# Shadowed content\n",
         overlay_fingerprint: "overlay-abc123",
         rendered_fingerprint: renderedFingerprint,
         skip_worktree: true,
@@ -3637,6 +3672,7 @@ describe("run", () => {
         bundle: "personal-rules",
         strategy: "append" as const,
         base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+        overlay: "# Shadowed content\n",
         overlay_fingerprint: renderedFingerprint,
         rendered_fingerprint: renderedFingerprint,
         skip_worktree: true,
@@ -3940,6 +3976,119 @@ describe("tracked root-instruction shadow safety", () => {
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]),
       skip_worktree: true,
     });
+  });
+
+  it("suspends and refreshes a tracked AGENTS.md shadow around a HEAD change", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked agents\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["shadow", "--suspend"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Suspended tracked root-instruction shadows for AGENTS.md",
+    );
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked agents v2\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "refresh agents base"]);
+    await expect(run(["shadow", "--refresh"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Refreshed tracked root-instruction shadows for AGENTS.md",
+    );
+
+    // Then
+    assertAgentsDocument(
+      repoRoot,
+      "# tracked agents v2\n",
+      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const shadowedFile = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!.shadowed_files["AGENTS.md"]!;
+    expect(shadowedFile.skip_worktree).toBe(true);
+    expect(shadowedFile.base_blob).toBe(runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]));
+    expect(shadowedFile.overlay.trimEnd()).toBe("# Repo standards\nUse consistent conventions.");
+  });
+
+  it("suspends and refreshes a tracked CLAUDE.md shadow around a HEAD change", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# tracked claude\n");
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track CLAUDE"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "claude-standards",
+      agent: "claude-code",
+      content: "# Claude standards\nUse Claude defaults.\n",
+    });
+    await run(["add", "claude-standards", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["shadow", "--suspend"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Suspended tracked root-instruction shadows for CLAUDE.md",
+    );
+    expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("H");
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# tracked claude v2\n");
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "refresh claude base"]);
+    await expect(run(["shadow", "--refresh"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Refreshed tracked root-instruction shadows for CLAUDE.md",
+    );
+
+    // Then
+    assertClaudeDocument(
+      repoRoot,
+      "# tracked claude v2\n",
+      formatTrackedRootInstructionShadowBlock("claude-standards", "# Claude standards\nUse Claude defaults.\n"),
+    );
+    expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const shadowedFile = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!.shadowed_files["CLAUDE.md"]!;
+    expect(shadowedFile.skip_worktree).toBe(true);
+    expect(shadowedFile.base_blob).toBe(runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]));
+    expect(shadowedFile.overlay.trimEnd()).toBe("# Claude standards\nUse Claude defaults.");
+  });
+
+  it("refreshes a tracked shadow from stored overlay state after the cache is removed", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked agents\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+
+    // When
+    await expect(run(["shadow", "--suspend"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Suspended tracked root-instruction shadows for AGENTS.md",
+    );
+    fs.rmSync(path.join(homeDir, ".skul", "library"), { recursive: true, force: true });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked agents v2\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "refresh agents base without cache"]);
+    await expect(run(["shadow", "--refresh"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Refreshed tracked root-instruction shadows for AGENTS.md",
+    );
+
+    // Then
+    assertAgentsDocument(
+      repoRoot,
+      "# tracked agents v2\n",
+      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+    );
   });
 
   it("restores tracked root-instruction shadows when removing the owning bundle", async () => {
