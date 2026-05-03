@@ -62,6 +62,12 @@
   --skul-command-chip-border: rgba(14, 165, 233, 0.18);
   --skul-card-shadow-strong: 0 1.6rem 3.2rem rgba(9, 20, 35, 0.14);
   --skul-card-shadow-soft: 0 1rem 2rem rgba(9, 20, 35, 0.06);
+  --skul-code-start: #16304c;
+  --skul-code-end: #091423;
+  --skul-code-text: #e8f1fb;
+  --skul-code-button-bg: rgba(7, 12, 20, 0.72);
+  --skul-code-button-border: rgba(255, 255, 255, 0.08);
+  --skul-code-button-hover: rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] {
@@ -121,6 +127,12 @@ html[data-theme='dark'] {
   --skul-command-chip-border: rgba(126, 217, 245, 0.24);
   --skul-card-shadow-strong: 0 1.8rem 3.6rem rgba(0, 0, 0, 0.34);
   --skul-card-shadow-soft: 0 1.1rem 2.4rem rgba(0, 0, 0, 0.22);
+  --skul-code-start: #12253c;
+  --skul-code-end: #050c16;
+  --skul-code-text: #edf6ff;
+  --skul-code-button-bg: rgba(5, 12, 22, 0.76);
+  --skul-code-button-border: rgba(255, 255, 255, 0.08);
+  --skul-code-button-hover: rgba(255, 255, 255, 0.12);
 }
 
 body {
@@ -156,6 +168,84 @@ body {
   border: 1px solid var(--skul-line-soft);
   border-radius: 0.32rem;
   padding: 0.08rem 0.32rem;
+}
+
+.theme-code-block {
+  border: 1px solid var(--skul-line-soft);
+  border-radius: 0.85rem;
+}
+
+.theme-code-block {
+  background:
+    radial-gradient(circle at top right, var(--skul-glow-cyan), transparent 34%),
+    radial-gradient(circle at left center, var(--skul-glow-amber), transparent 30%),
+    linear-gradient(180deg, var(--skul-code-start) 0%, var(--skul-code-end) 100%);
+  box-shadow: var(--skul-card-shadow-strong);
+  overflow: hidden;
+  position: relative;
+}
+
+.theme-code-block pre {
+  background: transparent !important;
+  border: 0;
+  border-radius: 0;
+  color: var(--skul-code-text) !important;
+  margin: 0;
+  padding: 1rem 4.75rem 1rem 1rem;
+}
+
+.theme-code-block code {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  padding: 0;
+}
+
+.theme-code-block [class*='buttonGroup'] {
+  background: var(--skul-code-button-bg);
+  border: 1px solid var(--skul-code-button-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.18);
+  display: flex;
+  gap: 0.35rem;
+  opacity: 1;
+  padding: 0.2rem;
+  pointer-events: auto;
+  position: absolute;
+  right: 0.55rem;
+  top: 0.55rem;
+  z-index: 3;
+}
+
+.theme-code-block [class*='buttonGroup'] > button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.36rem;
+  color: var(--skul-code-text);
+  display: inline-flex;
+  height: 1.95rem;
+  justify-content: center;
+  min-width: 1.95rem;
+  opacity: 0.96;
+  padding: 0.35rem;
+}
+
+.theme-code-block [class*='buttonGroup'] > button:hover,
+.theme-code-block [class*='buttonGroup'] > button:focus-visible {
+  background: var(--skul-code-button-hover);
+  border-color: var(--skul-code-button-border);
+  opacity: 1;
+}
+
+.theme-code-block [class*='buttonGroup'] svg {
+  height: 1rem;
+  width: 1rem;
+}
+
+.theme-code-block [class*='buttonGroup'] [class*='copyButtonSuccessIcon'] {
+  color: var(--skul-accent-cyan-strong);
 }
 
 .table-of-contents {
