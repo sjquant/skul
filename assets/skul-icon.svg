@@ -1,0 +1,28 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>Skul icon</title>
+  <desc>A bundle routed into multiple AI tool targets inside a local, excluded workspace boundary.</desc>
+  <rect x="24" y="24" width="208" height="208" rx="52" fill="#F7F4EC"/>
+  <path d="M72 78C72 64.7452 82.7452 54 96 54H146" stroke="#0F2D3A" stroke-width="14" stroke-linecap="round"/>
+  <path d="M184 54H178" stroke="#0F2D3A" stroke-width="14" stroke-linecap="round"/>
+  <path d="M202 72V96" stroke="#0F2D3A" stroke-width="14" stroke-linecap="round"/>
+  <path d="M202 160V184C202 197.255 191.255 208 178 208H154" stroke="#0F2D3A" stroke-width="14" stroke-linecap="round"/>
+  <path d="M102 208H78C64.7452 208 54 197.255 54 184V160" stroke="#0F2D3A" stroke-width="14" stroke-linecap="round"/>
+  <path d="M86 96L128 74L170 96L128 118L86 96Z" fill="#22B8A5"/>
+  <path d="M86 96V142L128 164V118" fill="#12A092"/>
+  <path d="M170 96V142L128 164V118" fill="#169F93"/>
+  <path d="M86 96L128 118L170 96" stroke="#0F2D3A" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M86 96V142L128 164L170 142V96" stroke="#0F2D3A" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M128 118V164" stroke="#0F2D3A" stroke-width="10" stroke-linecap="round"/>
+  <path d="M128 84V97" stroke="#F7F4EC" stroke-width="8" stroke-linecap="round"/>
+  <path d="M128 84V97" stroke="#0F2D3A" stroke-width="10" stroke-linecap="round"/>
+  <path d="M128 164V184" stroke="#0F2D3A" stroke-width="10" stroke-linecap="round"/>
+  <path d="M128 184H96" stroke="#0F2D3A" stroke-width="10" stroke-linecap="round"/>
+  <path d="M86 126H60" stroke="#0F2D3A" stroke-width="10" stroke-linecap="round"/>
+  <path d="M170 126H196" stroke="#0F2D3A" stroke-width="10" stroke-linecap="round"/>
+  <path d="M128 74V56" stroke="#0F2D3A" stroke-width="10" stroke-linecap="round"/>
+  <rect x="44" y="116" width="20" height="20" rx="6" fill="#F4B942" stroke="#0F2D3A" stroke-width="8"/>
+  <rect x="118" y="38" width="20" height="20" rx="6" fill="#F4B942" stroke="#0F2D3A" stroke-width="8"/>
+  <rect x="192" y="116" width="20" height="20" rx="6" fill="#F4B942" stroke="#0F2D3A" stroke-width="8"/>
+  <rect x="86" y="180" width="20" height="20" rx="6" fill="#F4B942" stroke="#0F2D3A" stroke-width="8"/>
+  <circle cx="196" cy="54" r="12" fill="#EF6A5B" stroke="#0F2D3A" stroke-width="8"/>
+</svg>
