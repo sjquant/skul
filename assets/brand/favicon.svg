@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="title desc">
+  <title id="title">Skul favicon</title>
+  <desc id="desc">Simplified Skul favicon optimized for small sizes.</desc>
+  <defs>
+    <linearGradient id="bgGrad" x1="16%" y1="10%" x2="84%" y2="90%">
+      <stop offset="0%" stop-color="#162033"/>
+      <stop offset="60%" stop-color="#0b0f19"/>
+      <stop offset="100%" stop-color="#06080d"/>
+    </linearGradient>
+    <linearGradient id="ghostGrad" x1="50%" y1="16%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="62%" stop-color="#cbd7e6"/>
+      <stop offset="100%" stop-color="#90a5bd" stop-opacity="0.26"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="15" fill="url(#bgGrad)"/>
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="14.25" fill="none" stroke="#d9e4f1" stroke-opacity="0.12"/>
+
+  <path
+    d="M18 11
+       H36
+       L49 24
+       V37
+       C49 47.5 41.8 54.2 32 58
+       C22.2 54.2 15 47.5 15 37
+       V14
+       C15 12.343 16.343 11 18 11Z"
+    fill="url(#ghostGrad)"
+  />
+  <path d="M36 11V24H49Z" fill="#dfe8f3"/>
+
+  <path d="M25.5 32L31.5 26L37.5 32L31.5 38Z" fill="#38bdf8"/>
+  <rect x="38.5" y="35" width="6.5" height="2.5" rx="1.25" fill="#38bdf8"/>
+</svg>
