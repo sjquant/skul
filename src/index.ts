@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -148,6 +149,13 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
     });
   }
 
+  if (parsed.command === "sync") {
+    return syncWorktree({
+      cwd,
+      registryFile: stateLayout.registryFile,
+    });
+  }
+
   if (parsed.command === "reset") {
     return resetWorktree({
       cwd,
@@ -227,6 +235,216 @@ function shadowWorktree(options: {
 
   const actionLabel = options.action === "suspend" ? "Suspended" : "Refreshed";
   return `${actionLabel} tracked root-instruction shadows for ${shadowedFilePaths.sort().join(", ")}`;
+}
+
+function syncWorktree(options: {
+  cwd: string;
+  registryFile: string;
+}): string {
+  const gitContext = requireGitContext(options.cwd, "sync");
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const shadowedFilePaths = Object.keys(worktreeState?.shadowed_files ?? {}).sort();
+  let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
+
+  if (worktreeState && shadowedFilePaths.length > 0) {
+    currentShadowedFiles = suspendTrackedRootInstructionShadows({
+      repoRoot: gitContext.worktreeRoot,
+      shadowedFiles: currentShadowedFiles,
+    });
+    registry = writeShadowedFilesForWorktree({
+      registry,
+      registryFile: options.registryFile,
+      worktreeId: gitContext.worktreeId,
+      worktreeState,
+      shadowedFiles: currentShadowedFiles,
+    });
+  }
+
+  let syncResult: GitSyncResult | null = null;
+  let syncError: Error | null = null;
+
+  try {
+    syncResult = runGitPullWithFastForward(gitContext.worktreeRoot);
+  } catch (error) {
+    syncError = normalizeGitCommandError("sync the current branch with git pull --ff-only", error);
+  }
+
+  if (worktreeState && shadowedFilePaths.length > 0) {
+    try {
+      currentShadowedFiles = refreshTrackedRootInstructionShadowsAfterSync({
+        repoRoot: gitContext.worktreeRoot,
+        shadowedFiles: currentShadowedFiles,
+      });
+      writeShadowedFilesForWorktree({
+        registry,
+        registryFile: options.registryFile,
+        worktreeId: gitContext.worktreeId,
+        worktreeState,
+        shadowedFiles: currentShadowedFiles,
+      });
+    } catch (error) {
+      if (syncError) {
+        throw new Error(
+          `${syncError.message}\nSkul also failed to restore tracked root-instruction shadows: ${describeError(error)}`,
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  if (syncError) {
+    throw syncError;
+  }
+
+  return renderSyncWorktreeResult({
+    syncResult: syncResult!,
+    shadowRefreshResult: buildShadowRefreshResult({
+      initialShadowedFilePaths: shadowedFilePaths,
+      currentShadowedFiles,
+    }),
+  });
+}
+
+function refreshTrackedRootInstructionShadowsAfterSync(options: {
+  repoRoot: string;
+  shadowedFiles: Record<string, ShadowedFileState>;
+}): Record<string, ShadowedFileState> {
+  const refreshableShadowedFiles: Record<string, ShadowedFileState> = {};
+
+  for (const [filePath, shadowedFile] of Object.entries(options.shadowedFiles)) {
+    const inspection = inspectRootInstructionShadowTarget({
+      repoRoot: options.repoRoot,
+      filePath,
+    });
+
+    if (!inspection.headBlob) {
+      fs.rmSync(path.join(options.repoRoot, filePath), { force: true });
+      continue;
+    }
+
+    refreshableShadowedFiles[filePath] = shadowedFile;
+  }
+
+  if (Object.keys(refreshableShadowedFiles).length === 0) {
+    return {};
+  }
+
+  return refreshTrackedRootInstructionShadows({
+    repoRoot: options.repoRoot,
+    shadowedFiles: refreshableShadowedFiles,
+  });
+}
+
+function writeShadowedFilesForWorktree(options: {
+  registry: ReturnType<typeof readRegistryWithGuidance>;
+  registryFile: string;
+  worktreeId: string;
+  worktreeState: NonNullable<ReturnType<typeof readRegistryWithGuidance>["worktrees"][string]>;
+  shadowedFiles: Record<string, ShadowedFileState>;
+}) {
+  const nextRegistry = upsertWorktreeState(options.registry, options.worktreeId, {
+    repo_fingerprint: options.worktreeState.repo_fingerprint,
+    path: options.worktreeState.path,
+    materialized_state: options.worktreeState.materialized_state,
+    shadowed_files: options.shadowedFiles,
+  });
+  writeRegistryFile(options.registryFile, nextRegistry);
+  return nextRegistry;
+}
+
+interface GitSyncResult {
+  previousHead: string;
+  currentHead: string;
+}
+
+interface ShadowRefreshResult {
+  refreshedFilePaths: string[];
+  retiredFilePaths: string[];
+}
+
+function buildShadowRefreshResult(options: {
+  initialShadowedFilePaths: string[];
+  currentShadowedFiles: Record<string, ShadowedFileState>;
+}): ShadowRefreshResult {
+  const refreshedFilePaths = Object.keys(options.currentShadowedFiles).sort();
+
+  return {
+    refreshedFilePaths,
+    retiredFilePaths: options.initialShadowedFilePaths
+      .filter((filePath) => !refreshedFilePaths.includes(filePath))
+      .sort(),
+  };
+}
+
+function runGitPullWithFastForward(repoRoot: string): GitSyncResult {
+  const previousHead = runGitForOutput(repoRoot, ["rev-parse", "HEAD"]).trim();
+  runGitForOutput(repoRoot, ["pull", "--ff-only"]);
+  const currentHead = runGitForOutput(repoRoot, ["rev-parse", "HEAD"]).trim();
+
+  return {
+    previousHead,
+    currentHead,
+  };
+}
+
+function runGitForOutput(repoRoot: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function normalizeGitCommandError(action: string, error: unknown): Error {
+  return new Error(`Failed to ${action}: ${describeGitCommandFailure(error)}`);
+}
+
+function describeGitCommandFailure(error: unknown): string {
+  if (error instanceof Error && "stderr" in error && typeof error.stderr === "string") {
+    const stderr = error.stderr.trim();
+
+    if (stderr.length > 0) {
+      return stderr;
+    }
+  }
+
+  return describeError(error);
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function renderSyncWorktreeResult(options: {
+  syncResult: GitSyncResult;
+  shadowRefreshResult: ShadowRefreshResult;
+}): string {
+  const syncMessage =
+    options.syncResult.previousHead === options.syncResult.currentHead
+      ? "Git already up to date"
+      : `Synced git worktree ${options.syncResult.previousHead.slice(0, 7)} -> ${options.syncResult.currentHead.slice(0, 7)}`;
+
+  const detailMessages: string[] = [];
+
+  if (options.shadowRefreshResult.refreshedFilePaths.length > 0) {
+    detailMessages.push(
+      `refreshed tracked root-instruction shadows for ${options.shadowRefreshResult.refreshedFilePaths.join(", ")}`,
+    );
+  }
+
+  if (options.shadowRefreshResult.retiredFilePaths.length > 0) {
+    detailMessages.push(
+      `retired tracked root-instruction shadows for ${options.shadowRefreshResult.retiredFilePaths.join(", ")} because upstream no longer tracks them`,
+    );
+  }
+
+  if (detailMessages.length === 0) {
+    return syncMessage;
+  }
+
+  return `${syncMessage}; ${detailMessages.join("; ")}`;
 }
 
 function suspendTrackedRootInstructionShadows(options: {

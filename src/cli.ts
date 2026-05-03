@@ -16,6 +16,7 @@ export type CommandName =
   | "check"
   | "update"
   | "shadow"
+  | "sync"
   | "reset"
   | "remove"
   | "apply"
@@ -28,6 +29,7 @@ export type CliParseResult =
   | { kind: "command"; command: "check"; options: { bundle?: string; json: boolean } }
   | { kind: "command"; command: "update"; options: { bundle?: string; dryRun: boolean } }
   | { kind: "command"; command: "shadow"; options: { action: "suspend" | "refresh" } }
+  | { kind: "command"; command: "sync"; options: Record<string, never> }
   | { kind: "command"; command: "apply"; options: { dryRun: boolean } }
   | { kind: "command"; command: "reset"; options: { dryRun: boolean } }
   | { kind: "command"; command: "clear-cache"; options: { source?: string; all: boolean; dryRun: boolean } }
@@ -59,7 +61,7 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "shadow", "reset", "remove", "apply", "clear-cache"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "shadow", "sync", "reset", "remove", "apply", "clear-cache"];
 let clackPromptsModulePromise: Promise<typeof import("@clack/prompts")> | undefined;
 const loadEsmModule = new Function("specifier", "return import(specifier);") as (
   specifier: string,
@@ -468,6 +470,13 @@ function createProgram(
         command: "shadow",
         options: { action: opts.suspend ? "suspend" : "refresh" },
       };
+    });
+
+  program
+    .command("sync")
+    .description("Suspend tracked root-instruction shadows, run git pull --ff-only, then refresh shadows")
+    .action(() => {
+      context.result = { kind: "command", command: "sync", options: {} };
     });
 
   program
