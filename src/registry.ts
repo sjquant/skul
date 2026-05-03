@@ -50,6 +50,7 @@ export interface ShadowedFileState {
   bundle: string;
   strategy: ShadowStrategy;
   base_blob: string;
+  overlay: string;
   overlay_fingerprint: string;
   rendered_fingerprint: string;
   skip_worktree: boolean;
@@ -404,6 +405,7 @@ function parseShadowedFileState(input: unknown, label: string): ShadowedFileStat
     bundle: expectNonEmptyString(shadowedFile.bundle, `${label}.bundle`),
     strategy: expectShadowStrategy(shadowedFile.strategy, `${label}.strategy`),
     base_blob: expectGitObjectId(shadowedFile.base_blob, `${label}.base_blob`),
+    overlay: expectNonEmptyString(shadowedFile.overlay, `${label}.overlay`),
     overlay_fingerprint: expectNonEmptyString(
       shadowedFile.overlay_fingerprint,
       `${label}.overlay_fingerprint`,

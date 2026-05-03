@@ -65,6 +65,7 @@ function makeShadowedFileEntry(overrides: Partial<ShadowedFileState> = {}): Shad
     bundle: "personal-rules",
     strategy: "append",
     base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
+    overlay: "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->",
     overlay_fingerprint: "overlay-abc123",
     rendered_fingerprint: "rendered-def456",
     skip_worktree: true,
@@ -638,6 +639,19 @@ describe("parseRegistry", () => {
         },
       }),
       /\.base_blob must be a 7-40 character hexadecimal Git object id/i,
+    ],
+    [
+      "shadowed file metadata with an empty overlay body",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "AGENTS.md": makeShadowedFileEntry({ overlay: "" }),
+            },
+          }),
+        },
+      }),
+      /\.overlay must be a non-empty string/i,
     ],
     [
       "shadowed file metadata with an empty overlay fingerprint",

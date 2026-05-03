@@ -15,6 +15,7 @@ export type CommandName =
   | "status"
   | "check"
   | "update"
+  | "shadow"
   | "reset"
   | "remove"
   | "apply"
@@ -26,6 +27,7 @@ export type CliParseResult =
   | { kind: "command"; command: "status"; options: { json: boolean } }
   | { kind: "command"; command: "check"; options: { bundle?: string; json: boolean } }
   | { kind: "command"; command: "update"; options: { bundle?: string; dryRun: boolean } }
+  | { kind: "command"; command: "shadow"; options: { action: "suspend" | "refresh" } }
   | { kind: "command"; command: "apply"; options: { dryRun: boolean } }
   | { kind: "command"; command: "reset"; options: { dryRun: boolean } }
   | { kind: "command"; command: "clear-cache"; options: { source?: string; all: boolean; dryRun: boolean } }
@@ -57,7 +59,7 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "reset", "remove", "apply", "clear-cache"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "shadow", "reset", "remove", "apply", "clear-cache"];
 let clackPromptsModulePromise: Promise<typeof import("@clack/prompts")> | undefined;
 const loadEsmModule = new Function("specifier", "return import(specifier);") as (
   specifier: string,
@@ -448,6 +450,23 @@ function createProgram(
         kind: "command",
         command: "update",
         options: { ...(bundle !== undefined ? { bundle } : {}), dryRun: opts.dryRun ?? false },
+      };
+    });
+
+  program
+    .command("shadow")
+    .description("Suspend or refresh tracked root-instruction shadows")
+    .option("--suspend", "Restore tracked root instructions from HEAD and clear skip-worktree")
+    .option("--refresh", "Rebuild tracked root-instruction shadows from HEAD and re-enable skip-worktree")
+    .action((opts: { suspend?: boolean; refresh?: boolean }) => {
+      if (opts.suspend === opts.refresh) {
+        throw new Error("Command shadow requires exactly one of --suspend or --refresh");
+      }
+
+      context.result = {
+        kind: "command",
+        command: "shadow",
+        options: { action: opts.suspend ? "suspend" : "refresh" },
       };
     });
 
