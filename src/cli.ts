@@ -15,6 +15,7 @@ export type CommandName =
   | "status"
   | "check"
   | "update"
+  | "prune"
   | "shadow"
   | "sync"
   | "reset"
@@ -28,6 +29,7 @@ export type CliParseResult =
   | { kind: "command"; command: "status"; options: { json: boolean } }
   | { kind: "command"; command: "check"; options: { bundle?: string; json: boolean } }
   | { kind: "command"; command: "update"; options: { bundle?: string; dryRun: boolean } }
+  | { kind: "command"; command: "prune"; options: Record<string, never> }
   | { kind: "command"; command: "shadow"; options: { action: "suspend" | "refresh" } }
   | { kind: "command"; command: "sync"; options: Record<string, never> }
   | { kind: "command"; command: "apply"; options: { dryRun: boolean } }
@@ -68,7 +70,10 @@ export interface PromptClient {
   confirmManagedFileRemoval(conflictPath: string, operation: "reset" | "replace" | "remove"): Promise<boolean>;
 }
 
-const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "shadow", "sync", "reset", "remove", "apply", "clear-cache"];
+const COMMANDS: CommandName[] = ["add", "list", "status", "check", "update", "prune", "shadow", "sync", "reset", "remove", "apply", "clear-cache"];
+const COMMAND_ALIASES: Record<string, CommandName> = {
+  gc: "prune",
+};
 const PROGRAM_HELP_DETAILS = [
   "",
   "Root instructions:",
@@ -356,7 +361,8 @@ export async function parseCliArgs(
   argv: string[],
   prompts: PromptClient = createPromptClient(),
 ): Promise<CliParseResult> {
-  const [command] = argv;
+  const [rawCommand] = argv;
+  const command = rawCommand ? (COMMAND_ALIASES[rawCommand] ?? rawCommand) : rawCommand;
 
   if (!command || command === "help" || command === "-h" || command === "--help") {
     return { kind: "help" };
@@ -368,7 +374,10 @@ export async function parseCliArgs(
     throw new Error(`Unknown command: "${command}"${hint}`);
   }
 
-  const restArgs = argv.slice(1);
+  const normalizedArgv = rawCommand && rawCommand !== command
+    ? [command, ...argv.slice(1)]
+    : argv;
+  const restArgs = normalizedArgv.slice(1);
   if (restArgs.includes("--help") || restArgs.includes("-h")) {
     return { kind: "help", command: command as CommandName };
   }
@@ -377,7 +386,7 @@ export async function parseCliArgs(
   const program = createProgram(prompts, context);
 
   try {
-    await program.parseAsync(argv, { from: "user" });
+    await program.parseAsync(normalizedArgv, { from: "user" });
   } catch (error) {
     throw normalizeParseError(error, command);
   }
@@ -600,6 +609,14 @@ function createProgram(
         command: "update",
         options: { ...(bundle !== undefined ? { bundle } : {}), dryRun: opts.dryRun ?? false },
       };
+    });
+
+  program
+    .command("prune")
+    .alias("gc")
+    .description("Remove stale registry entries for deleted worktrees and orphaned repositories")
+    .action(() => {
+      context.result = { kind: "command", command: "prune", options: {} };
     });
 
   program

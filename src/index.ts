@@ -137,6 +137,10 @@ export async function run(argv: string[], options: RunOptions = {}): Promise<str
         bundle: parsed.options.bundle,
         dryRun: parsed.options.dryRun,
       });
+    case "prune":
+      return pruneRegistryState({
+        registryFile: stateLayout.registryFile,
+      });
     case "shadow":
       return shadowWorktree({
         cwd,
@@ -697,6 +701,101 @@ function clearBundleCache(options: {
   return result.cleared
     ? `Cleared cache for ${options.source!}`
     : `No cached source found for ${options.source!}`;
+}
+
+function pruneRegistryState(options: {
+  registryFile: string;
+}): string {
+  const registry = readRegistryWithGuidance(options.registryFile);
+  const staleWorktreeIds = Object.entries(registry.worktrees)
+    .filter(([worktreeId, worktreeState]) => isStaleWorktreeState(worktreeId, worktreeState))
+    .map(([worktreeId]) => worktreeId)
+    .sort((left, right) => left.localeCompare(right));
+
+  const nextWorktrees = Object.fromEntries(
+    Object.entries(registry.worktrees).filter(([worktreeId]) => !staleWorktreeIds.includes(worktreeId)),
+  );
+  const liveRepoFingerprints = new Set(
+    Object.values(nextWorktrees).map((worktreeState) => worktreeState.repo_fingerprint),
+  );
+  const staleRepoFingerprints = Object.entries(registry.repos)
+    .filter(([repoFingerprint, repoState]) =>
+      isStaleRepoState(repoFingerprint, repoState, liveRepoFingerprints),
+    )
+    .map(([repoFingerprint]) => repoFingerprint)
+    .sort((left, right) => left.localeCompare(right));
+
+  if (staleWorktreeIds.length === 0 && staleRepoFingerprints.length === 0) {
+    return "No stale registry entries found";
+  }
+
+  const nextRegistry = {
+    version: 1 as const,
+    repos: Object.fromEntries(
+      Object.entries(registry.repos).filter(
+        ([repoFingerprint]) => !staleRepoFingerprints.includes(repoFingerprint),
+      ),
+    ),
+    worktrees: nextWorktrees,
+  };
+  writeRegistryFile(options.registryFile, nextRegistry);
+
+  const summary: string[] = [];
+
+  if (staleWorktreeIds.length > 0) {
+    summary.push(
+      `Pruned ${staleWorktreeIds.length} stale worktree ${staleWorktreeIds.length === 1 ? "entry" : "entries"}`,
+    );
+  }
+
+  if (staleRepoFingerprints.length > 0) {
+    summary.push(
+      `Pruned ${staleRepoFingerprints.length} stale repo ${staleRepoFingerprints.length === 1 ? "entry" : "entries"}`,
+    );
+  }
+
+  return summary.join("; ");
+}
+
+function isStaleWorktreeState(worktreeId: string, worktreeState: { repo_fingerprint: string; path: string }): boolean {
+  if (!fs.existsSync(worktreeState.path)) {
+    return true;
+  }
+
+  const context = detectGitContext({ cwd: worktreeState.path });
+
+  return (
+    !context ||
+    context.worktreeId !== worktreeId ||
+    context.repoFingerprint !== worktreeState.repo_fingerprint ||
+    context.worktreeRoot !== worktreeState.path
+  );
+}
+
+function isStaleRepoState(
+  repoFingerprint: string,
+  repoState: { repo_root: string; desired_state: DesiredBundleEntry[] },
+  liveRepoFingerprints: Set<string>,
+): boolean {
+  if (liveRepoFingerprints.has(repoFingerprint)) {
+    return false;
+  }
+
+  if (!fs.existsSync(repoState.repo_root)) {
+    return true;
+  }
+
+  const context = detectGitContext({ cwd: repoState.repo_root });
+
+  if (!context) {
+    return true;
+  }
+
+  if (context.repoFingerprint !== repoFingerprint) {
+    return true;
+  }
+
+  return repoState.desired_state.length === 0;
 }
 
 function renderStatus(options: {

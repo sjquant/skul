@@ -126,7 +126,16 @@ export function updateCachedRemoteSource(
   }
 
   const targetDir = getTargetDir(options);
-  const status = inspectRemoteSource(options);
+  let status: RemoteSourceStatus;
+
+  try {
+    status = inspectRemoteSource(options);
+  } catch (error) {
+    throw normalizeGitError(error, `Failed to update ${options.source}`, {
+      source: options.source,
+      protocol: options.protocol,
+    });
+  }
   const requiresCheckoutRealignment =
     status.refKind === "branch"
       ? status.currentRef !== status.resolvedRef

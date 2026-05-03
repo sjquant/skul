@@ -50,6 +50,8 @@ describe("parseCliArgs", () => {
     const statusArgs = ["status"];
     const checkArgs = ["check"];
     const updateArgs = ["update"];
+    const pruneArgs = ["prune"];
+    const gcArgs = ["gc"];
     const syncArgs = ["sync"];
     const resetArgs = ["reset"];
     const applyArgs = ["apply"];
@@ -59,6 +61,8 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status", options: { json: false } });
     await expect(parseCliArgs(checkArgs)).resolves.toEqual({ kind: "command", command: "check", options: { json: false } });
     await expect(parseCliArgs(updateArgs)).resolves.toEqual({ kind: "command", command: "update", options: { dryRun: false } });
+    await expect(parseCliArgs(pruneArgs)).resolves.toEqual({ kind: "command", command: "prune", options: {} });
+    await expect(parseCliArgs(gcArgs)).resolves.toEqual({ kind: "command", command: "prune", options: {} });
     await expect(parseCliArgs(syncArgs)).resolves.toEqual({ kind: "command", command: "sync", options: {} });
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset", options: { dryRun: false } });
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply", options: { dryRun: false } });
@@ -515,6 +519,12 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["reset", "extra"])).rejects.toThrowError(
       /Command reset does not accept positional arguments/,
     );
+    await expect(parseCliArgs(["prune", "extra"])).rejects.toThrowError(
+      /Command prune does not accept positional arguments/,
+    );
+    await expect(parseCliArgs(["gc", "extra"])).rejects.toThrowError(
+      /Command prune does not accept positional arguments/,
+    );
     await expect(parseCliArgs(["sync", "extra"])).rejects.toThrowError(
       /Command sync does not accept positional arguments/,
     );
@@ -761,6 +771,53 @@ describe("run", () => {
       "Cleared cache for github.com/sjquant/ghosts",
     );
     expect(pathExists(cachedSourceDir)).toBe(false);
+  });
+
+  it("prunes stale worktree and repo registry entries without requiring a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const deletedWorktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skul-prune-worktree-"));
+    const deletedRepoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skul-prune-repo-"));
+    tempDirs.push(deletedWorktreeRoot, deletedRepoRoot);
+    fs.rmSync(deletedWorktreeRoot, { recursive: true, force: true });
+    fs.rmSync(deletedRepoRoot, { recursive: true, force: true });
+
+    let registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: repoRoot,
+      desired_state: [{ bundle: "react-expert", protocol: "https" }],
+    });
+    registry = upsertRepoState(registry, "repo_orphan", {
+      repo_root: deletedRepoRoot,
+      desired_state: [],
+    });
+    registry = upsertWorktreeState(registry, "worktree_stale", {
+      repo_fingerprint: gitContext.repoFingerprint,
+      path: deletedWorktreeRoot,
+      materialized_state: { bundles: {}, exclude_configured: false },
+      shadowed_files: {},
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // When
+    const output = await run(["prune"], { homeDir });
+
+    // Then
+    expect(output).toBe("Pruned 1 stale worktree entry; Pruned 1 stale repo entry");
+    const prunedRegistry = readRegistryFile(registryFile);
+    expect(prunedRegistry.worktrees).toEqual({});
+    expect(prunedRegistry.repos).toHaveProperty(gitContext.repoFingerprint);
+    expect(prunedRegistry.repos).not.toHaveProperty("repo_orphan");
+  });
+
+  it("accepts gc as an alias for prune", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    // When / Then
+    await expect(run(["gc"], { homeDir })).resolves.toBe("No stale registry entries found");
   });
 
   it("dry-runs clear-cache without deleting the cached source", async () => {

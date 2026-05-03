@@ -55,6 +55,9 @@ skul clear-cache acme/shared-bundles
 
 # Clear all cached remote sources
 skul clear-cache --all
+
+# Remove stale registry entries for deleted worktrees or repos
+skul prune
 ```
 
 ---
@@ -70,6 +73,7 @@ skul clear-cache --all
 | `skul status` | Show desired state and materialization status |
 | `skul check [bundle]` | Check remote-backed bundles for upstream updates |
 | `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
+| `skul prune` | Remove stale registry entries for deleted worktrees and orphaned repos |
 | `skul reset` | Remove all Skul-managed files from the current worktree |
 | `skul clear-cache [source] --all` | Remove one cached source or all cached remote sources from the global library |
 

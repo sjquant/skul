@@ -5,7 +5,13 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { clearAllCachedSources, clearCachedSource, fetchRemoteSource, listCachedSources } from "./bundle-fetch";
+import {
+  clearAllCachedSources,
+  clearCachedSource,
+  fetchRemoteSource,
+  listCachedSources,
+  updateCachedRemoteSource,
+} from "./bundle-fetch";
 
 vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 
@@ -250,6 +256,48 @@ describe("fetchRemoteSource", () => {
     expect(() => fetchRemoteSource({ source: "github.com/user", libraryDir }))
       .toThrowError(/Invalid bundle source/);
     expect(execFileSync).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateCachedRemoteSource", () => {
+  it("normalizes SSH authentication failures raised while resolving the requested remote ref", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    fs.mkdirSync(targetDir, { recursive: true });
+    vi.mocked(execFileSync).mockImplementation((command, args) => {
+      const gitArgs = args as string[];
+
+      if (gitArgs.join(" ") === `-C ${targetDir} rev-parse HEAD`) {
+        return "2813b888fb134532be3749c71a38ee111b788e5b";
+      }
+
+      if (gitArgs.join(" ") === `-C ${targetDir} symbolic-ref --quiet --short HEAD`) {
+        return "main";
+      }
+
+      if (gitArgs.join(" ") === `-C ${targetDir} remote get-url origin`) {
+        return "git@github.com:user/react-bundle.git";
+      }
+
+      if (gitArgs[0] === "ls-remote") {
+        throw Object.assign(new Error("Command failed"), {
+          stderr: Buffer.from("git@github.com: Permission denied (publickey)."),
+        });
+      }
+
+      return "";
+    });
+
+    // When / Then
+    expect(() =>
+      updateCachedRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+        protocol: "ssh",
+        ref: "stable",
+      }),
+    ).toThrowError(/Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/react-bundle/);
   });
 });
 
