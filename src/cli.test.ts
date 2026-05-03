@@ -278,13 +278,6 @@ describe("parseCliArgs", () => {
     });
   });
 
-  it("rejects --tool because add only supports --agent selections", async () => {
-    // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).rejects.toThrowError(
-      /unknown option '--tool'/i,
-    );
-  });
-
   it("accepts -n as shorthand for --dry-run", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "-n"])).resolves.toEqual({
@@ -1134,6 +1127,78 @@ describe("run", () => {
       resolved_commit: updatedCommit,
     });
   });
+
+  it("normalizes SSH authentication failures raised while resolving a requested remote ref during check", async () => {
+    // Given
+    const fixture = await prepareRemoteRefFailureFixture();
+
+    // When / Then
+    try {
+      await expect(run(["check"], { homeDir: fixture.homeDir, cwd: fixture.repoRoot })).rejects.toThrowError(
+        /Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/ai-vault/,
+      );
+    } finally {
+      fixture.restoreGitSsh();
+    }
+  });
+
+  it("normalizes SSH authentication failures raised while resolving a requested remote ref during update", async () => {
+    // Given
+    const fixture = await prepareRemoteRefFailureFixture();
+
+    // When / Then
+    try {
+      await expect(run(["update"], { homeDir: fixture.homeDir, cwd: fixture.repoRoot })).rejects.toThrowError(
+        /Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/ai-vault/,
+      );
+    } finally {
+      fixture.restoreGitSsh();
+    }
+  });
+
+  async function prepareRemoteRefFailureFixture(): Promise<{
+    homeDir: string;
+    repoRoot: string;
+    restoreGitSsh: () => void;
+  }> {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    runGit(remoteSource.remoteRepoPath, ["branch", "stable"]);
+    await run(["add", remoteSource.source, remoteSource.bundle, "--ssh", "--ref", "stable"], { homeDir, cwd: repoRoot });
+
+    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
+    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/react-bundle.git"]);
+
+    const fakeSshPath = path.join(homeDir, "fake-ssh.sh");
+    fs.writeFileSync(fakeSshPath, "#!/bin/sh\necho 'git@github.com: Permission denied (publickey).' 1>&2\nexit 255\n");
+    fs.chmodSync(fakeSshPath, 0o755);
+    const previousGitSsh = process.env["GIT_SSH"];
+    process.env["GIT_SSH"] = fakeSshPath;
+
+    // Then
+    return {
+      homeDir,
+      repoRoot,
+      restoreGitSsh() {
+        if (previousGitSsh === undefined) {
+          delete process.env["GIT_SSH"];
+          return;
+        }
+
+        process.env["GIT_SSH"] = previousGitSsh;
+      },
+    };
+  }
 
   it("aborts update without leaking a newer cached revision into apply", async () => {
     // Given

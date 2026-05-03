@@ -103,7 +103,16 @@ export function inspectRemoteSource(
 ): RemoteSourceStatus {
   const cached = readCachedSourceRevision(options);
   const remoteUrl = cached.remoteUrl ?? getCloneUrl(options.source, options.protocol);
-  const resolvedRemote = resolveRemoteRef(remoteUrl, options.ref);
+  let resolvedRemote: { kind: "branch" | "tag" | "commit"; resolvedRef?: string; commit: string };
+
+  try {
+    resolvedRemote = resolveRemoteRef(remoteUrl, options.ref);
+  } catch (error) {
+    throw normalizeGitError(error, `Failed to inspect ${options.source}`, {
+      source: options.source,
+      protocol: options.protocol,
+    });
+  }
 
   return {
     ...cached,
@@ -131,10 +140,7 @@ export function updateCachedRemoteSource(
   try {
     status = inspectRemoteSource(options);
   } catch (error) {
-    throw normalizeGitError(error, `Failed to update ${options.source}`, {
-      source: options.source,
-      protocol: options.protocol,
-    });
+    throw rewriteInspectFailureForUpdate(error, options.source);
   }
   const requiresCheckoutRealignment =
     status.refKind === "branch"
@@ -178,6 +184,19 @@ export function updateCachedRemoteSource(
     previousCommit: initialRevision.currentCommit,
     updated: status.currentCommit !== status.remoteCommit || requiresCheckoutRealignment,
   };
+}
+
+function rewriteInspectFailureForUpdate(error: unknown, source: string): Error {
+  if (
+    error instanceof Error &&
+    error.message.startsWith(`Failed to inspect ${source}`)
+  ) {
+    return new Error(
+      error.message.replace(`Failed to inspect ${source}`, `Failed to update ${source}`),
+    );
+  }
+
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 /** Removes one cached source from disk and prunes empty cache directories above it. */
