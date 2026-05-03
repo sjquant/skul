@@ -16,6 +16,7 @@ import {
   upsertWorktreeState,
   writeRegistryFile,
 } from "./registry";
+import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
 import {
   expectAgentsDocument as assertAgentsDocument,
   expectClaudeDocument as assertClaudeDocument,
@@ -644,6 +645,120 @@ describe("run", () => {
     expect(parsed.worktree.bundles["react-expert"].tools["claude-code"].files).toContain(
       ".claude/skills/react/SKILL.md",
     );
+  });
+
+  it("returns computed shadow status fields in JSON for tracked AGENTS.md and CLAUDE.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+
+    const agentsBaseContent = "# agents base\n";
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), agentsBaseContent);
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track agents"]);
+
+    const claudeBaseContent = "# claude base\n";
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), claudeBaseContent);
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track claude"]);
+
+    const agentsBaseBlob = runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]);
+    const claudeBaseBlob = runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]);
+    const agentsShadow = renderTrackedRootInstructionShadow({
+      baseContent: agentsBaseContent,
+      overlayContent: "Follow the agents guidance.",
+      bundleName: "agents-rules",
+      toolName: "codex",
+      strategy: "append",
+    });
+    const claudeShadow = renderTrackedRootInstructionShadow({
+      baseContent: claudeBaseContent,
+      overlayContent: "Follow the claude guidance.",
+      bundleName: "claude-rules",
+      toolName: "claude-code",
+      strategy: "prepend",
+    });
+
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), agentsShadow.rendered);
+    runGit(repoRoot, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
+
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# manually edited claude\n");
+
+    writeRegistryFile(
+      registryFile,
+      upsertWorktreeState(
+        upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+          repo_root: fs.realpathSync.native(repoRoot),
+          desired_state: [],
+        }),
+        gitContext.worktreeId,
+        {
+          repo_fingerprint: gitContext.repoFingerprint,
+          path: fs.realpathSync.native(repoRoot),
+          materialized_state: {
+            bundles: {},
+            exclude_configured: false,
+          },
+          shadowed_files: {
+            "AGENTS.md": {
+              tool: "codex",
+              bundle: "agents-rules",
+              strategy: "append",
+              base_blob: agentsBaseBlob,
+              overlay_fingerprint: agentsShadow.overlayFingerprint,
+              rendered_fingerprint: agentsShadow.renderedFingerprint,
+              skip_worktree: true,
+            },
+            "CLAUDE.md": {
+              tool: "claude-code",
+              bundle: "claude-rules",
+              strategy: "prepend",
+              base_blob: agentsBaseBlob,
+              overlay_fingerprint: claudeShadow.overlayFingerprint,
+              rendered_fingerprint: claudeShadow.renderedFingerprint,
+              skip_worktree: true,
+            },
+          },
+        },
+      ),
+    );
+
+    // When
+    const output = await run(["status", "--json"], { homeDir, cwd: repoRoot });
+    const parsed = JSON.parse(output);
+
+    // Then
+    expect(parsed.worktree.shadowed_files["AGENTS.md"]).toEqual({
+      tool: "codex",
+      bundle: "agents-rules",
+      strategy: "append",
+      base_blob: agentsBaseBlob,
+      overlay_fingerprint: agentsShadow.overlayFingerprint,
+      rendered_fingerprint: agentsShadow.renderedFingerprint,
+      skip_worktree: true,
+      active: true,
+      base_fresh: true,
+      overlay_fresh: true,
+      skip_worktree_active: true,
+      manual_edit_suspected: false,
+    });
+    expect(parsed.worktree.shadowed_files["CLAUDE.md"]).toEqual({
+      tool: "claude-code",
+      bundle: "claude-rules",
+      strategy: "prepend",
+      base_blob: agentsBaseBlob,
+      overlay_fingerprint: claudeShadow.overlayFingerprint,
+      rendered_fingerprint: claudeShadow.renderedFingerprint,
+      skip_worktree: true,
+      active: false,
+      base_fresh: false,
+      overlay_fresh: false,
+      skip_worktree_active: false,
+      manual_edit_suspected: true,
+    });
+    expect(claudeBaseBlob).not.toBe(agentsBaseBlob);
   });
 
   it("returns JSON status with suggested_action when bundles are not yet materialized", async () => {
@@ -2106,6 +2221,127 @@ describe("run", () => {
         "Current Worktree",
         `Path: ${fs.realpathSync.native(repoRoot)}`,
         "Materialized: no",
+        "",
+        "Shadowed Instructions",
+        "  AGENTS.md",
+        "    Bundle: personal-rules",
+        "    Tool: codex",
+        "    Strategy: append",
+        "    Active: no",
+        "    Base: stale",
+        "    Overlay: stale",
+        "    Skip-worktree: missing",
+        "    Manual edits: suspected",
+        'Suggested Action: run "skul apply"',
+      ].join("\n"),
+    );
+  });
+
+  it("renders a shadowed instructions section for tracked AGENTS.md and CLAUDE.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+
+    const agentsBaseContent = "# agents base\n";
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), agentsBaseContent);
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track agents"]);
+
+    const claudeBaseContent = "# claude base\n";
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), claudeBaseContent);
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track claude"]);
+
+    const agentsBaseBlob = runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]);
+    const agentsShadow = renderTrackedRootInstructionShadow({
+      baseContent: agentsBaseContent,
+      overlayContent: "Follow the agents guidance.",
+      bundleName: "agents-rules",
+      toolName: "codex",
+      strategy: "append",
+    });
+    const claudeShadow = renderTrackedRootInstructionShadow({
+      baseContent: claudeBaseContent,
+      overlayContent: "Follow the claude guidance.",
+      bundleName: "claude-rules",
+      toolName: "claude-code",
+      strategy: "prepend",
+    });
+
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), agentsShadow.rendered);
+    runGit(repoRoot, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# manually edited claude\n");
+
+    writeRegistryFile(
+      registryFile,
+      upsertWorktreeState(
+        upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+          repo_root: fs.realpathSync.native(repoRoot),
+          desired_state: [{ bundle: "react-expert", protocol: "https" }],
+        }),
+        gitContext.worktreeId,
+        {
+          repo_fingerprint: gitContext.repoFingerprint,
+          path: fs.realpathSync.native(repoRoot),
+          materialized_state: {
+            bundles: {},
+            exclude_configured: false,
+          },
+          shadowed_files: {
+            "AGENTS.md": {
+              tool: "codex",
+              bundle: "agents-rules",
+              strategy: "append",
+              base_blob: agentsBaseBlob,
+              overlay_fingerprint: agentsShadow.overlayFingerprint,
+              rendered_fingerprint: agentsShadow.renderedFingerprint,
+              skip_worktree: true,
+            },
+            "CLAUDE.md": {
+              tool: "claude-code",
+              bundle: "claude-rules",
+              strategy: "prepend",
+              base_blob: agentsBaseBlob,
+              overlay_fingerprint: claudeShadow.overlayFingerprint,
+              rendered_fingerprint: claudeShadow.renderedFingerprint,
+              skip_worktree: true,
+            },
+          },
+        },
+      ),
+    );
+
+    // When / Then
+    await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      [
+        "Repository Desired State",
+        "Bundle: react-expert",
+        "",
+        "Current Worktree",
+        `Path: ${fs.realpathSync.native(repoRoot)}`,
+        "Materialized: no",
+        "",
+        "Shadowed Instructions",
+        "  AGENTS.md",
+        "    Bundle: agents-rules",
+        "    Tool: codex",
+        "    Strategy: append",
+        "    Active: yes",
+        "    Base: current",
+        "    Overlay: current",
+        "    Skip-worktree: set",
+        "    Manual edits: no",
+        "  CLAUDE.md",
+        "    Bundle: claude-rules",
+        "    Tool: claude-code",
+        "    Strategy: prepend",
+        "    Active: no",
+        "    Base: stale",
+        "    Overlay: stale",
+        "    Skip-worktree: missing",
+        "    Manual edits: suspected",
         'Suggested Action: run "skul apply"',
       ].join("\n"),
     );

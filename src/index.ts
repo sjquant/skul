@@ -46,6 +46,7 @@ import {
   type DesiredBundleEntry,
   type MaterializedBundleState,
   type MaterializedState,
+  type ShadowedFileState,
   type MaterializedToolState,
   type ShadowedFileState,
   listManagedPathsForRemoval,
@@ -312,6 +313,10 @@ function renderStatus(options: {
   const hasMaterializedBundles = worktreeState
     ? worktreeHasMaterializedBundles(worktreeState.materialized_state)
     : false;
+  const shadowedInstructionStatuses = collectShadowedInstructionStatuses({
+    repoRoot: gitContext.worktreeRoot,
+    shadowedFiles: worktreeState?.shadowed_files ?? {},
+  });
 
   if (options.json) {
     const desiredState = repoState?.desired_state ?? [];
@@ -332,14 +337,14 @@ function renderStatus(options: {
               },
             ]),
           ),
-          shadowed_files: worktreeState.shadowed_files,
+          shadowed_files: buildShadowedFilesJson(shadowedInstructionStatuses),
           git_exclude_configured: hasSkulExcludeBlock({ gitDir: gitContext.gitDir }),
         }
       : {
           path: gitContext.worktreeRoot,
           materialized: false,
           bundles: {},
-          shadowed_files: {},
+          shadowed_files: buildShadowedFilesJson(shadowedInstructionStatuses),
           git_exclude_configured: hasSkulExcludeBlock({ gitDir: gitContext.gitDir }),
         };
 
@@ -374,6 +379,8 @@ function renderStatus(options: {
   if (!hasMaterializedBundles) {
     lines.push(pc.dim("Materialized: no"));
 
+    appendShadowedInstructionLines(lines, shadowedInstructionStatuses);
+
     if (repoState && repoState.desired_state.length > 0) {
       lines.push(pc.yellow('Suggested Action: run "skul apply"'));
     }
@@ -393,10 +400,163 @@ function renderStatus(options: {
     }
   }
 
+  appendShadowedInstructionLines(lines, shadowedInstructionStatuses);
+
   lines.push("", pc.bold("Git Exclude:"));
   lines.push(`  ${hasSkulExcludeBlock({ gitDir: gitContext.gitDir }) ? pc.green("configured") : pc.yellow("missing")}`);
 
   return lines.join("\n");
+}
+
+interface ShadowedInstructionStatus extends ShadowedFileState {
+  path: string;
+  active: boolean;
+  base_fresh: boolean;
+  overlay_fresh: boolean;
+  skip_worktree_active: boolean;
+  manual_edit_suspected: boolean;
+}
+
+function collectShadowedInstructionStatuses(options: {
+  repoRoot: string;
+  shadowedFiles: Record<string, ShadowedFileState>;
+}): ShadowedInstructionStatus[] {
+  return Object.entries(options.shadowedFiles)
+    .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
+    .map(([filePath, shadowedFile]) =>
+      collectShadowedInstructionStatus({
+        repoRoot: options.repoRoot,
+        filePath,
+        shadowedFile,
+      }),
+    );
+}
+
+function collectShadowedInstructionStatus(options: {
+  repoRoot: string;
+  filePath: string;
+  shadowedFile: ShadowedFileState;
+}): ShadowedInstructionStatus {
+  const inspection = inspectRootInstructionShadowTarget({
+    repoRoot: options.repoRoot,
+    filePath: options.filePath,
+  });
+  const targetPath = path.join(options.repoRoot, options.filePath);
+  const currentContent = readStatusTargetFile(targetPath);
+  const overlay = extractTrackedRootInstructionOverlay({
+    content: currentContent,
+    bundleName: options.shadowedFile.bundle,
+    strategy: options.shadowedFile.strategy,
+  });
+
+  return {
+    path: options.filePath,
+    ...options.shadowedFile,
+    active: overlay !== null,
+    base_fresh: inspection.headBlob?.objectId === options.shadowedFile.base_blob,
+    overlay_fresh:
+      overlay !== null &&
+      fingerprintTextContent(overlay) === options.shadowedFile.overlay_fingerprint,
+    skip_worktree_active: inspection.indexFlags.includes("S"),
+    manual_edit_suspected:
+      currentContent === null ||
+      fingerprintTextContent(currentContent) !== options.shadowedFile.rendered_fingerprint,
+  };
+}
+
+function buildShadowedFilesJson(shadowedInstructionStatuses: ShadowedInstructionStatus[]) {
+  return Object.fromEntries(
+    shadowedInstructionStatuses.map((status) => [
+      status.path,
+      {
+        tool: status.tool,
+        bundle: status.bundle,
+        strategy: status.strategy,
+        base_blob: status.base_blob,
+        overlay_fingerprint: status.overlay_fingerprint,
+        rendered_fingerprint: status.rendered_fingerprint,
+        skip_worktree: status.skip_worktree,
+        active: status.active,
+        base_fresh: status.base_fresh,
+        overlay_fresh: status.overlay_fresh,
+        skip_worktree_active: status.skip_worktree_active,
+        manual_edit_suspected: status.manual_edit_suspected,
+      },
+    ]),
+  );
+}
+
+function appendShadowedInstructionLines(
+  lines: string[],
+  shadowedInstructionStatuses: ShadowedInstructionStatus[],
+): void {
+  if (shadowedInstructionStatuses.length === 0) {
+    return;
+  }
+
+  lines.push("", pc.bold("Shadowed Instructions"));
+
+  for (const status of shadowedInstructionStatuses) {
+    lines.push(`  ${status.path}`);
+    lines.push(`    Bundle: ${pc.cyan(status.bundle)}`);
+    lines.push(`    Tool: ${status.tool}`);
+    lines.push(`    Strategy: ${status.strategy}`);
+    lines.push(`    Active: ${status.active ? pc.green("yes") : pc.yellow("no")}`);
+    lines.push(`    Base: ${status.base_fresh ? pc.green("current") : pc.yellow("stale")}`);
+    lines.push(`    Overlay: ${status.overlay_fresh ? pc.green("current") : pc.yellow("stale")}`);
+    lines.push(`    Skip-worktree: ${status.skip_worktree_active ? pc.green("set") : pc.yellow("missing")}`);
+    lines.push(
+      `    Manual edits: ${status.manual_edit_suspected ? pc.yellow("suspected") : pc.green("no")}`,
+    );
+  }
+}
+
+function readStatusTargetFile(filePath: string): string | null {
+  if (!fs.existsSync(filePath) || !fs.lstatSync(filePath).isFile()) {
+    return null;
+  }
+
+  return fs.readFileSync(filePath, "utf8");
+}
+
+function extractTrackedRootInstructionOverlay(options: {
+  content: string | null;
+  bundleName: string;
+  strategy: ShadowedFileState["strategy"];
+}): string | null {
+  if (options.content === null) {
+    return null;
+  }
+
+  if (options.strategy === "replace") {
+    return normalizeTrackedRootInstructionStatusContent(options.content);
+  }
+
+  const startMarker = `<!-- SKUL SHADOW START bundle=${options.bundleName} -->`;
+  const endMarker = "<!-- SKUL SHADOW END -->";
+  const startIndex = options.content.indexOf(startMarker);
+
+  if (startIndex < 0) {
+    return null;
+  }
+
+  const endIndex = options.content.indexOf(endMarker, startIndex);
+
+  if (endIndex < 0) {
+    return null;
+  }
+
+  return normalizeTrackedRootInstructionStatusContent(
+    options.content.slice(startIndex, endIndex + endMarker.length),
+  );
+}
+
+function normalizeTrackedRootInstructionStatusContent(content: string): string {
+  return content.replace(/\s+$/, "");
+}
+
+function fingerprintTextContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 function worktreeHasMaterializedBundles(materializedState: MaterializedState): boolean {
