@@ -2349,6 +2349,65 @@ describe("run", () => {
     );
   });
 
+  it("resets a linked worktree and clears tracked shadow state during cleanup", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "repo base instruction\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track agents"]);
+
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    fs.writeFileSync(path.join(linkedWorktree, "AGENTS.md"), "# Shadowed content\n");
+    runGit(linkedWorktree, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
+    const renderedFingerprint = fingerprintFile(path.join(linkedWorktree, "AGENTS.md"));
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
+    const registry = readRegistryFile(registryFile);
+    const linkedEntry = registry.worktrees[linkedCtx.worktreeId]!;
+    const linkedShadowState = {
+      "AGENTS.md": {
+        tool: "codex" as const,
+        bundle: "personal-rules",
+        strategy: "append" as const,
+        base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+        overlay_fingerprint: "overlay-abc123",
+        rendered_fingerprint: renderedFingerprint,
+        skip_worktree: true,
+      },
+    };
+    linkedShadowState["AGENTS.md"].overlay_fingerprint = renderedFingerprint;
+
+    writeRegistryFile(
+      registryFile,
+      upsertWorktreeState(registry, linkedCtx.worktreeId, {
+        ...linkedEntry,
+        shadowed_files: linkedShadowState,
+      }),
+    );
+
+    // When
+    await expect(run(["reset"], { homeDir, cwd: linkedWorktree })).resolves.toBe(
+      "Reset Skul-managed files from the current worktree",
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8")).toBe("repo base instruction\n");
+    expect(readGitIndexFlag(linkedWorktree, "AGENTS.md")).toBe("H");
+    expect(pathExists(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    const updatedRegistry = readRegistryFile(registryFile);
+    expect(updatedRegistry.worktrees[linkedCtx.worktreeId]).toBeUndefined();
+  });
+
   it("surfaces a clear error when reset runs outside a Git repository", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -3264,6 +3323,121 @@ describe("run", () => {
       "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) },
     });
     expect(worktreeState.materialized_state.bundles["react-expert"].tools).not.toHaveProperty("cursor");
+  });
+
+  it("apply materializes a tracked AGENTS.md in a linked worktree from repository desired state", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "repo base instruction\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track agents"]);
+
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\nUse consistent conventions.\n",
+    });
+    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    expect(fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8")).toBe("repo base instruction\n");
+
+    // When
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied repo-standards");
+
+    // Then
+    expectAgentsDocument(
+      linkedWorktree,
+      "repo base instruction\n",
+      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+    );
+    expect(readGitIndexFlag(linkedWorktree, "AGENTS.md")).toBe("S");
+
+    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
+    const linkedEntry = registry.worktrees[linkedCtx.worktreeId]!;
+
+    expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
+      { bundle: "repo-standards", source: "github.com/user/ai-vault", protocol: "https" },
+    ]);
+    expect(linkedEntry.materialized_state.bundles["repo-standards"]!.tools["codex"]!.files).toEqual([]);
+    expect(linkedEntry.shadowed_files["AGENTS.md"]).toMatchObject({
+      tool: "codex",
+      bundle: "repo-standards",
+      strategy: "append",
+      base_blob: runGit(linkedWorktree, ["rev-parse", "HEAD:AGENTS.md"]),
+      skip_worktree: true,
+    });
+  });
+
+  it("apply preserves linked worktree shadow metadata while materializing inherited non-root bundles", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "repo base instruction\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track agents"]);
+
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
+
+    fs.writeFileSync(path.join(linkedWorktree, "AGENTS.md"), "# Shadowed content\n");
+    runGit(linkedWorktree, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
+    const renderedFingerprint = fingerprintFile(path.join(linkedWorktree, "AGENTS.md"));
+
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const registry = readRegistryFile(registryFile);
+    const repoCtx = detectGitContext({ cwd: repoRoot })!;
+    const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
+    const linkedShadowState = {
+      "AGENTS.md": {
+        tool: "codex" as const,
+        bundle: "personal-rules",
+        strategy: "append" as const,
+        base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+        overlay_fingerprint: renderedFingerprint,
+        rendered_fingerprint: renderedFingerprint,
+        skip_worktree: true,
+      },
+    };
+
+    writeRegistryFile(
+      registryFile,
+      upsertWorktreeState(registry, linkedCtx.worktreeId, {
+        repo_fingerprint: repoCtx.repoFingerprint,
+        path: fs.realpathSync.native(linkedWorktree),
+        materialized_state: {
+          bundles: {},
+          exclude_configured: false,
+        },
+        shadowed_files: linkedShadowState,
+      }),
+    );
+
+    // When
+    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+
+    // Then
+    const updatedRegistry = readRegistryFile(registryFile);
+    const linkedEntry = updatedRegistry.worktrees[linkedCtx.worktreeId]!;
+    const mainEntry = updatedRegistry.worktrees[repoCtx.worktreeId]!;
+
+    expect(fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8")).toBe("# Shadowed content\n");
+    expect(readGitIndexFlag(linkedWorktree, "AGENTS.md")).toBe("S");
+    expect(fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+      "# react\n",
+    );
+    expect(linkedEntry.shadowed_files).toEqual(linkedShadowState);
+    expect(linkedEntry.materialized_state.bundles["react-expert"]!.tools["claude-code"]!.files).toContain(
+      ".claude/skills/react/SKILL.md",
+    );
+    expect(mainEntry.shadowed_files).toEqual({});
   });
 
   it("surfaces a clear error when status runs outside a Git repository", async () => {
