@@ -5,7 +5,12 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { clearAllCachedSources, clearCachedSource, fetchRemoteSource, listCachedSources } from "./bundle-fetch";
+import {
+  clearAllCachedSources,
+  clearCachedSource,
+  fetchRemoteSource,
+  listCachedSources,
+} from "./bundle-fetch";
 
 vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 

@@ -17,6 +17,12 @@ skul add github.com/sjquant/ai-bundles react-expert
 # GitHub is also the default registry for owner/repo shorthand
 skul add acme/shared-bundles core --agent codex
 
+# Track a specific branch or tag
+skul add github.com/sjquant/ai-bundles react-expert --ref stable
+
+# Pin a bundle to an exact commit
+skul add github.com/sjquant/ai-bundles react-expert --pin 2813b88
+
 # Clone via SSH instead of HTTPS
 skul add --ssh github.com/sjquant/ai-bundles react-expert
 
@@ -28,6 +34,9 @@ skul add react-expert
 
 # See what's cached
 skul list
+
+# Limit the cache view to one source
+skul list --source github.com/sjquant/ai-bundles
 
 # Check materialization state
 skul status
@@ -46,6 +55,9 @@ skul clear-cache acme/shared-bundles
 
 # Clear all cached remote sources
 skul clear-cache --all
+
+# Remove stale registry entries for deleted worktrees or repos
+skul prune
 ```
 
 ---
@@ -61,12 +73,13 @@ skul clear-cache --all
 | `skul status` | Show desired state and materialization status |
 | `skul check [bundle]` | Check remote-backed bundles for upstream updates |
 | `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
+| `skul prune` | Remove stale registry entries for deleted worktrees and orphaned repos |
 | `skul reset` | Remove all Skul-managed files from the current worktree |
 | `skul clear-cache [source] --all` | Remove one cached source or all cached remote sources from the global library |
 
 All mutating commands accept `--dry-run`. `skul list`, `skul status`, and `skul check` accept `--json`.
 
-`skul add` accepts `--ssh` to clone via SSH. `git@host:owner/repo` URLs are auto-detected as SSH. Bare `owner/repo` sources default to `github.com/owner/repo`. The chosen protocol is persisted in the registry and reused by `skul apply`.
+`skul add` accepts `--ssh` to clone via SSH. `git@host:owner/repo` URLs are auto-detected as SSH. Bare `owner/repo` sources default to `github.com/owner/repo`. Use `--ref` to follow a non-default branch or tag, or `--pin` to lock a bundle to one commit. The chosen protocol is persisted in the registry and reused by `skul apply`.
 
 For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
 

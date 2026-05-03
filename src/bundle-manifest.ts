@@ -15,6 +15,7 @@ export interface BundleManifestTarget {
 }
 
 export interface BundleManifest {
+  name?: string;
   tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
 }
 
@@ -60,7 +61,12 @@ export function parseBundleManifest(input: unknown): BundleManifest {
     throw new Error("tools must declare at least one tool");
   }
 
-  return expandRootInstructionTargets({ tools });
+  return expandRootInstructionTargets({
+    ...(typeof manifest.name === "string" && manifest.name.trim() !== ""
+      ? { name: manifest.name }
+      : {}),
+    tools,
+  });
 }
 
 /** Infers a bundle manifest from canonical directories and native tool paths on disk. */
@@ -140,7 +146,10 @@ function expandRootInstructionTargets(manifest: BundleManifest): BundleManifest 
     }
   }
 
-  return { tools: expandedTools };
+  return {
+    ...(manifest.name !== undefined ? { name: manifest.name } : {}),
+    tools: expandedTools,
+  };
 }
 
 function selectRootInstructionSourcePath(

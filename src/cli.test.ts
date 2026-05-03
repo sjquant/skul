@@ -50,6 +50,8 @@ describe("parseCliArgs", () => {
     const statusArgs = ["status"];
     const checkArgs = ["check"];
     const updateArgs = ["update"];
+    const pruneArgs = ["prune"];
+    const gcArgs = ["gc"];
     const syncArgs = ["sync"];
     const resetArgs = ["reset"];
     const applyArgs = ["apply"];
@@ -59,6 +61,8 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status", options: { json: false } });
     await expect(parseCliArgs(checkArgs)).resolves.toEqual({ kind: "command", command: "check", options: { json: false } });
     await expect(parseCliArgs(updateArgs)).resolves.toEqual({ kind: "command", command: "update", options: { dryRun: false } });
+    await expect(parseCliArgs(pruneArgs)).resolves.toEqual({ kind: "command", command: "prune", options: {} });
+    await expect(parseCliArgs(gcArgs)).resolves.toEqual({ kind: "command", command: "prune", options: {} });
     await expect(parseCliArgs(syncArgs)).resolves.toEqual({ kind: "command", command: "sync", options: {} });
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset", options: { dryRun: false } });
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply", options: { dryRun: false } });
@@ -245,6 +249,17 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("deduplicates repeated --agent flags for the same tool", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs(["add", "react-expert", "--agent", "claude-code", "--agent", "claude-code"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+    });
+  });
+
   it("accepts -a as shorthand for --agent", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "-a", "claude-code"])).resolves.toEqual({
@@ -347,6 +362,29 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses add ref selectors and commit pins", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["add", "react-expert", "--ref", "stable"])).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false, ref: "stable" },
+    });
+
+    await expect(
+      parseCliArgs(["add", "react-expert", "--pin", "2813b888fb134532be3749c71a38ee111b788e5b"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+        ref: "2813b888fb134532be3749c71a38ee111b788e5b",
+      },
+    });
+  });
+
   it("parses clear-cache with a normalized GitHub source", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["clear-cache", "sjquant/ghosts"])).resolves.toEqual({
@@ -380,6 +418,15 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "clear-cache",
       options: { all: true, dryRun: false },
+    });
+  });
+
+  it("parses list source filters", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["list", "--source", "sjquant/ghosts"])).resolves.toEqual({
+      kind: "command",
+      command: "list",
+      options: { json: false, source: "github.com/sjquant/ghosts" },
     });
   });
 
@@ -463,6 +510,12 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["reset", "extra"])).rejects.toThrowError(
       /Command reset does not accept positional arguments/,
     );
+    await expect(parseCliArgs(["prune", "extra"])).rejects.toThrowError(
+      /Command prune does not accept positional arguments/,
+    );
+    await expect(parseCliArgs(["gc", "extra"])).rejects.toThrowError(
+      /Command prune does not accept positional arguments/,
+    );
     await expect(parseCliArgs(["sync", "extra"])).rejects.toThrowError(
       /Command sync does not accept positional arguments/,
     );
@@ -492,6 +545,12 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["clear-cache", "sjquant/ghosts", "--all"])).rejects.toThrowError(
       /Command clear-cache accepts either a source or --all/,
+    );
+    await expect(parseCliArgs(["add", "react-expert", "--ref", "stable", "--pin", "2813b88"])).rejects.toThrowError(
+      /accepts either --ref or --pin/i,
+    );
+    await expect(parseCliArgs(["add", "react-expert", "--pin", "stable"])).rejects.toThrowError(
+      /--pin requires a 7-40 character hexadecimal commit SHA/i,
     );
   });
 
@@ -654,8 +713,41 @@ describe("run", () => {
 
     // Then
     expect(JSON.parse(output)).toEqual({
-      bundles: [{ name: "react-expert", tools: ["claude-code"] }],
+      bundles: [{ name: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code"] }],
     });
+  });
+
+  it("filters bundle list output by source", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeManifest(homeDir, "github.com/other/ai-vault", "next-expert", {
+      name: "next-expert",
+      tools: { cursor: { skills: { path: ".cursor/skills" } } },
+    });
+
+    // When / Then
+    await expect(run(["list", "--source", "github.com/user/ai-vault"], { homeDir })).resolves.toBe(
+      renderBundleListOutput("react-expert [github.com/user/ai-vault] (claude-code)"),
+    );
+  });
+
+  it("reports when list source filtering finds no cached bundles", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    // When / Then
+    await expect(run(["list", "--source", "github.com/user/ai-vault"], { homeDir })).resolves.toBe(
+      renderBundleListOutput(
+        "No cached bundles found for github.com/user/ai-vault.",
+        "",
+        "Cache one with: skul add github.com/user/ai-vault <bundle-name>",
+      ),
+    );
   });
 
   it("clears a cached source without requiring a Git repository", async () => {
@@ -670,6 +762,53 @@ describe("run", () => {
       "Cleared cache for github.com/sjquant/ghosts",
     );
     expect(pathExists(cachedSourceDir)).toBe(false);
+  });
+
+  it("prunes stale worktree and repo registry entries without requiring a Git repository", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const deletedWorktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skul-prune-worktree-"));
+    const deletedRepoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skul-prune-repo-"));
+    tempDirs.push(deletedWorktreeRoot, deletedRepoRoot);
+    fs.rmSync(deletedWorktreeRoot, { recursive: true, force: true });
+    fs.rmSync(deletedRepoRoot, { recursive: true, force: true });
+
+    let registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
+      repo_root: repoRoot,
+      desired_state: [{ bundle: "react-expert", protocol: "https" }],
+    });
+    registry = upsertRepoState(registry, "repo_orphan", {
+      repo_root: deletedRepoRoot,
+      desired_state: [],
+    });
+    registry = upsertWorktreeState(registry, "worktree_stale", {
+      repo_fingerprint: gitContext.repoFingerprint,
+      path: deletedWorktreeRoot,
+      materialized_state: { bundles: {}, exclude_configured: false },
+      shadowed_files: {},
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // When
+    const output = await run(["prune"], { homeDir });
+
+    // Then
+    expect(output).toBe("Pruned 1 stale worktree entry; Pruned 1 stale repo entry");
+    const prunedRegistry = readRegistryFile(registryFile);
+    expect(prunedRegistry.worktrees).toEqual({});
+    expect(prunedRegistry.repos).toHaveProperty(gitContext.repoFingerprint);
+    expect(prunedRegistry.repos).not.toHaveProperty("repo_orphan");
+  });
+
+  it("accepts gc as an alias for prune", async () => {
+    // Given
+    const homeDir = createHomeDir();
+
+    // When / Then
+    await expect(run(["gc"], { homeDir })).resolves.toBe("No stale registry entries found");
   });
 
   it("dry-runs clear-cache without deleting the cached source", async () => {
@@ -988,6 +1127,78 @@ describe("run", () => {
       resolved_commit: updatedCommit,
     });
   });
+
+  it("normalizes SSH authentication failures raised while resolving a requested remote ref during check", async () => {
+    // Given
+    const fixture = await prepareRemoteRefFailureFixture();
+
+    // When / Then
+    try {
+      await expect(run(["check"], { homeDir: fixture.homeDir, cwd: fixture.repoRoot })).rejects.toThrowError(
+        /Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/ai-vault/,
+      );
+    } finally {
+      fixture.restoreGitSsh();
+    }
+  });
+
+  it("normalizes SSH authentication failures raised while resolving a requested remote ref during update", async () => {
+    // Given
+    const fixture = await prepareRemoteRefFailureFixture();
+
+    // When / Then
+    try {
+      await expect(run(["update"], { homeDir: fixture.homeDir, cwd: fixture.repoRoot })).rejects.toThrowError(
+        /Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/ai-vault/,
+      );
+    } finally {
+      fixture.restoreGitSsh();
+    }
+  });
+
+  async function prepareRemoteRefFailureFixture(): Promise<{
+    homeDir: string;
+    repoRoot: string;
+    restoreGitSsh: () => void;
+  }> {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    runGit(remoteSource.remoteRepoPath, ["branch", "stable"]);
+    await run(["add", remoteSource.source, remoteSource.bundle, "--ssh", "--ref", "stable"], { homeDir, cwd: repoRoot });
+
+    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
+    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/react-bundle.git"]);
+
+    const fakeSshPath = path.join(homeDir, "fake-ssh.sh");
+    fs.writeFileSync(fakeSshPath, "#!/bin/sh\necho 'git@github.com: Permission denied (publickey).' 1>&2\nexit 255\n");
+    fs.chmodSync(fakeSshPath, 0o755);
+    const previousGitSsh = process.env["GIT_SSH"];
+    process.env["GIT_SSH"] = fakeSshPath;
+
+    // Then
+    return {
+      homeDir,
+      repoRoot,
+      restoreGitSsh() {
+        if (previousGitSsh === undefined) {
+          delete process.env["GIT_SSH"];
+          return;
+        }
+
+        process.env["GIT_SSH"] = previousGitSsh;
+      },
+    };
+  }
 
   it("aborts update without leaking a newer cached revision into apply", async () => {
     // Given
@@ -3304,7 +3515,7 @@ describe("run", () => {
     // When / Then
     await expect(
       run(["add", "react-expert", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
-    ).rejects.toThrowError(/Bundle does not support agent\(s\): cursor[\s\S]*Supported agents: claude-code/i);
+    ).rejects.toThrowError(/Bundle does not support tool\(s\): cursor[\s\S]*Supported tools: claude-code/i);
   });
 
   it("materializes AGENTS.md for codex when the bundle only provides CLAUDE.md", async () => {
@@ -3949,8 +4160,78 @@ describe("run", () => {
   it("rejects unknown --agent names with a helpful error", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "--agent", "copilot"])).rejects.toThrowError(
-      /Unknown agent: copilot[\s\S]*Valid agents:/,
+      /Unknown tool: copilot[\s\S]*Valid tools:/,
     );
+  });
+
+  it("persists an explicit ref selector when adding a remote-backed bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    runGit(remoteSource.remoteRepoPath, ["branch", "stable"]);
+
+    // When
+    await expect(run(["add", remoteSource.source, remoteSource.bundle, "--ref", "stable"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "Applied react-expert for claude-code",
+    );
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "https",
+      ref: "stable",
+      resolved_ref: "stable",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
+  it("pins a remote-backed bundle to an explicit commit", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+
+    // When
+    await expect(
+      run(["add", remoteSource.source, remoteSource.bundle, "--pin", remoteSource.initialCommit], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "https",
+      ref: remoteSource.initialCommit,
+      resolved_commit: remoteSource.initialCommit,
+    });
   });
 });
 

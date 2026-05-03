@@ -103,7 +103,16 @@ export function inspectRemoteSource(
 ): RemoteSourceStatus {
   const cached = readCachedSourceRevision(options);
   const remoteUrl = cached.remoteUrl ?? getCloneUrl(options.source, options.protocol);
-  const resolvedRemote = resolveRemoteRef(remoteUrl, options.ref);
+  let resolvedRemote: { kind: "branch" | "tag" | "commit"; resolvedRef?: string; commit: string };
+
+  try {
+    resolvedRemote = resolveRemoteRef(remoteUrl, options.ref);
+  } catch (error) {
+    throw normalizeGitError(error, `Failed to inspect ${options.source}`, {
+      source: options.source,
+      protocol: options.protocol,
+    });
+  }
 
   return {
     ...cached,
@@ -126,9 +135,19 @@ export function updateCachedRemoteSource(
   }
 
   const targetDir = getTargetDir(options);
-  const status = inspectRemoteSource(options);
+  let status: RemoteSourceStatus;
 
-  if (status.currentCommit === status.remoteCommit) {
+  try {
+    status = inspectRemoteSource(options);
+  } catch (error) {
+    throw rewriteInspectFailureForUpdate(error, options.source);
+  }
+  const requiresCheckoutRealignment =
+    status.refKind === "branch"
+      ? status.currentRef !== status.resolvedRef
+      : status.currentRef !== undefined;
+
+  if (status.currentCommit === status.remoteCommit && !requiresCheckoutRealignment) {
     return {
       ...status,
       previousCommit: status.currentCommit,
@@ -163,8 +182,21 @@ export function updateCachedRemoteSource(
     currentRef: refreshed.currentRef,
     remoteUrl: refreshed.remoteUrl ?? status.remoteUrl,
     previousCommit: initialRevision.currentCommit,
-    updated: true,
+    updated: status.currentCommit !== status.remoteCommit || requiresCheckoutRealignment,
   };
+}
+
+function rewriteInspectFailureForUpdate(error: unknown, source: string): Error {
+  if (
+    error instanceof Error &&
+    error.message.startsWith(`Failed to inspect ${source}`)
+  ) {
+    return new Error(
+      error.message.replace(`Failed to inspect ${source}`, `Failed to update ${source}`),
+    );
+  }
+
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 /** Removes one cached source from disk and prunes empty cache directories above it. */
