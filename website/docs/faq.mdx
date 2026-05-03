@@ -1,0 +1,36 @@
+---
+title: FAQ
+slug: /faq
+description: Common questions about file ownership, Git behavior, and bundle publishing.
+---
+
+# FAQ
+
+## Does skul modify `.gitignore`?
+
+No. `skul` writes ignore rules to `.git/info/exclude`, which stays local to the current clone.
+
+## How do I publish a bundle?
+
+You can either:
+
+- create a repository with one directory per bundle
+- use the repository root as a single bundle
+
+In both cases, use either canonical directories like `skills/`, `commands/`, and `agents/`, or native tool-specific directories such as `.claude/skills/`.
+
+## What happens if I edit a skul-managed file?
+
+`skul` fingerprints the files it writes. Modified files require explicit confirmation before removal, or fail fast when `SKUL_NO_TUI=1` is set.
+
+## What about tracked `AGENTS.md` or `CLAUDE.md` files?
+
+Those use tracked-shadow behavior instead of plain local file creation. Use `skul sync` for the safe suspend / pull / refresh lifecycle, or run `skul shadow --suspend` and `skul shadow --refresh` manually around Git updates.
+
+## Can I use SSH to clone bundle sources?
+
+Yes. Pass `--ssh` to `skul add` or use a `git@...` source URL.
+
+## What happens after `git worktree remove`?
+
+Run `skul reset` before removing a worktree. If the worktree is removed externally, the registry entry can outlive the clone until you clear it manually.

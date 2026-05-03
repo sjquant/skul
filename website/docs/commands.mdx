@@ -1,0 +1,63 @@
+---
+title: Commands
+slug: /commands
+description: Command reference for the current skul CLI surface.
+---
+
+# Commands
+
+## Add and remove
+
+| Command | Description |
+| --- | --- |
+| `skul add [source] <bundle>` | Fetch a source when needed and materialize a bundle |
+| `skul remove <bundle>` | Remove one bundle and delete its managed files |
+| `skul reset` | Remove all `skul`-managed files from the current worktree |
+
+## Re-apply and inspect
+
+| Command | Description |
+| --- | --- |
+| `skul apply` | Re-materialize all desired bundles in the current worktree |
+| `skul list` | List cached bundles |
+| `skul status` | Show desired state and materialization status |
+
+## Tracked root lifecycle
+
+| Command | Description |
+| --- | --- |
+| `skul shadow --suspend` | Restore tracked `AGENTS.md` or `CLAUDE.md` files back to `HEAD` and clear shadow state from the working tree |
+| `skul shadow --refresh` | Rebuild tracked root-instruction shadows from the latest `HEAD` content plus bundle overlays |
+| `skul sync` | Run the safe suspend / `git pull --ff-only` / refresh sequence in one command |
+
+## Remote update flow
+
+| Command | Description |
+| --- | --- |
+| `skul check [bundle]` | Check remote-backed bundles for upstream updates |
+| `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
+| `skul clear-cache [source]` | Remove one cached remote source |
+| `skul clear-cache --all` | Remove all cached remote sources |
+
+## Flags
+
+- Mutating commands accept `--dry-run`.
+- `skul list`, `skul status`, and `skul check` accept `--json`.
+- `skul add` accepts `--ssh`.
+- Repeat `--agent` to target multiple tools.
+
+## Protocol behavior
+
+Bare `owner/repo` references default to `github.com/owner/repo`. If you pass `--ssh` or use a `git@host:owner/repo` URL, `skul` persists that protocol choice and reuses it later during `apply`.
+
+## Root-instruction safety
+
+Tracked root-instruction refresh refuses:
+
+- staged changes
+- unstaged edits
+- unmerged files
+- incompatible Git index flags
+- manual edits to the current shadow render
+
+Use `skul status` to inspect shadow health before running `skul sync` or `skul shadow --refresh`.

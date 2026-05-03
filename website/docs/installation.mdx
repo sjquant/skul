@@ -1,0 +1,35 @@
+---
+title: Installation
+slug: /installation
+description: Install skul for local development and usage.
+---
+
+# Installation
+
+At the moment, `skul` is installed from source.
+
+## Requirements
+
+- Node.js 20 or newer
+- `pnpm`
+- `git`
+
+## Install locally
+
+```bash
+git clone https://github.com/sjquant/skul
+cd skul
+pnpm install
+pnpm run build
+pnpm link --global
+```
+
+## Verify
+
+```bash
+skul --help
+```
+
+## Tooling note
+
+`skul` is intended to run inside a Git repository because it writes project-scoped files and updates `.git/info/exclude` in the current clone.

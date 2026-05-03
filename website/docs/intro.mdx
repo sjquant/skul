@@ -1,0 +1,60 @@
+---
+title: Overview
+slug: /intro
+description: What skul is and why it exists.
+---
+
+# skul
+
+`skul` is a CLI for applying reusable AI bundles into the directories each coding tool already expects.
+
+It is designed for teams or individuals who want to share:
+
+- skills
+- slash commands
+- agents
+- root instructions
+
+without checking those generated or tool-local files into Git.
+
+## The problem
+
+Most AI coding tools look for project-local files in their own dot directories:
+
+- Claude Code uses `.claude/...`
+- Cursor uses `.cursor/...`
+- Codex uses `.agents/...` and `.codex/...`
+- OpenCode uses `.opencode/...`
+
+That makes reuse awkward. You can copy files manually, commit them into every repo, or maintain custom setup scripts. All three options drift over time.
+
+## What skul does
+
+`skul` fetches a bundle source, materializes the right files into the current worktree, and records what it wrote so it can update or remove those files safely later.
+
+Key behaviors:
+
+- Fetch reusable bundle content from a Git repository.
+- Write files into tool-native locations.
+- Hide those files with `.git/info/exclude` instead of modifying `.gitignore`.
+- Track desired state per repository and materialized state per worktree.
+- Re-apply the same setup in fresh worktrees with `skul apply`.
+
+For root instructions, `skul` supports two paths:
+
+- untracked local composition for tool-specific dotdirs and untracked root files
+- tracked shadow rendering for repository-owned `AGENTS.md` or `CLAUDE.md`
+
+When a root instruction target is already tracked in Git, `skul` builds a managed overlay on top of the file's `HEAD` content instead of leaving a visible diff behind.
+
+## Typical use
+
+```bash
+skul add github.com/sjquant/ai-bundles react-expert
+skul status
+skul sync
+skul check
+skul update
+```
+
+If you work across multiple AI coding tools, `skul` gives you one bundle format and one command surface instead of separate setup flows per editor or agent.

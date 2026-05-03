@@ -1,0 +1,66 @@
+---
+title: Quick Start
+slug: /quick-start
+description: The shortest path to adding and managing a bundle.
+---
+
+# Quick Start
+
+Apply a bundle from GitHub:
+
+```bash
+skul add github.com/sjquant/ai-bundles react-expert
+```
+
+Use `owner/repo` shorthand:
+
+```bash
+skul add acme/shared-bundles core --agent codex
+```
+
+Clone via SSH:
+
+```bash
+skul add --ssh github.com/sjquant/ai-bundles react-expert
+skul add git@github.com:sjquant/ai-bundles react-expert
+```
+
+Re-apply from cache without network access:
+
+```bash
+skul add react-expert
+```
+
+Inspect state:
+
+```bash
+skul list
+skul status
+skul check
+```
+
+Update or clean up:
+
+```bash
+skul update
+skul remove react-expert
+skul reset
+```
+
+For scripting or agent usage, set `SKUL_NO_TUI=1` to disable interactive prompts.
+
+## Tracked root instructions
+
+If a bundle writes to `AGENTS.md` or `CLAUDE.md` and that file is already tracked by Git, use the tracked-shadow lifecycle during upstream updates:
+
+```bash
+skul sync
+```
+
+Manual equivalent:
+
+```bash
+skul shadow --suspend
+git pull --ff-only
+skul shadow --refresh
+```

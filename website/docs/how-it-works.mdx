@@ -1,0 +1,90 @@
+---
+title: How It Works
+slug: /how-it-works
+description: Cache, registry, and materialization behavior in skul.
+---
+
+# How It Works
+
+`skul` separates desired state from materialized state.
+
+## Cache
+
+Remote bundle sources are cloned once into:
+
+```text
+~/.skul/library/
+```
+
+Later `add` operations reuse that cache unless you clear it.
+
+## Registry
+
+`skul` stores repository-wide and worktree-specific state in:
+
+```text
+~/.skul/registry.json
+```
+
+The registry records:
+
+- which bundles a repository wants
+- which source revision was used
+- which files were written into each worktree
+
+## Materialization
+
+When you apply a bundle, `skul` writes the corresponding files into the current repository clone and updates `.git/info/exclude` so those files stay untracked locally.
+
+That means:
+
+- no `.gitignore` edits
+- no committed generated tool files
+- safe re-application in new worktrees
+
+## Tracked root-instruction shadows
+
+Root instruction targets such as `AGENTS.md` and `CLAUDE.md` are special when the repository already tracks them.
+
+In that case, `skul`:
+
+- reads the file's `HEAD` content
+- renders bundle overlay content on top of that base
+- marks the file with `skip-worktree`
+- tracks enough state to suspend, refresh, retire, or restore the shadow later
+
+This is why tracked-root workflows use:
+
+```bash
+skul sync
+```
+
+or, when run manually:
+
+```bash
+skul shadow --suspend
+git pull --ff-only
+skul shadow --refresh
+```
+
+## Re-applying in a new worktree
+
+Because desired state is tracked separately, a fresh linked worktree can inherit the same bundle setup:
+
+```bash
+skul apply
+```
+
+## Clearing cache
+
+Remove one cached source:
+
+```bash
+skul clear-cache acme/shared-bundles
+```
+
+Remove the entire cache:
+
+```bash
+skul clear-cache --all
+```

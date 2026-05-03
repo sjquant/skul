@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">skul social card</title>
+  <desc id="desc">Social card for skul showing AI bundles flowing into supported tool directories.</desc>
+  <defs>
+    <linearGradient id="bg" x1="8%" y1="6%" x2="92%" y2="94%">
+      <stop offset="0%" stop-color="#173351"/>
+      <stop offset="58%" stop-color="#091423"/>
+      <stop offset="100%" stop-color="#05070d"/>
+    </linearGradient>
+    <radialGradient id="cyanGlow" cx="18%" cy="14%" r="72%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="amberGlow" cx="86%" cy="86%" r="50%">
+      <stop offset="0%" stop-color="#fb923c" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#fb923c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ghostGrad" x1="50%" y1="16%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="58%" stop-color="#d7e8f8"/>
+      <stop offset="100%" stop-color="#90a5bd" stop-opacity="0.3"/>
+    </linearGradient>
+    <linearGradient id="foldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff9ec"/>
+      <stop offset="54%" stop-color="#ffd89a"/>
+      <stop offset="100%" stop-color="#f4b36a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
+  <rect width="1200" height="630" rx="36" fill="url(#cyanGlow)"/>
+  <rect width="1200" height="630" rx="36" fill="url(#amberGlow)"/>
+
+  <g transform="translate(92 124)">
+    <text x="0" y="0" fill="#88e7f4" font-family="Space Grotesk, Arial, sans-serif" font-size="28" font-weight="700" letter-spacing="5">
+      AI TOOLING CLI
+    </text>
+    <text x="0" y="96" fill="#ffffff" font-family="Space Grotesk, Arial, sans-serif" font-size="74" font-weight="700">
+      skul
+    </text>
+    <text x="0" y="170" fill="#d7e8f8" font-family="IBM Plex Sans, Arial, sans-serif" font-size="34">
+      Project-scoped AI bundle delivery for Claude Code,
+    </text>
+    <text x="0" y="214" fill="#d7e8f8" font-family="IBM Plex Sans, Arial, sans-serif" font-size="34">
+      Cursor, Codex, and OpenCode.
+    </text>
+
+    <g transform="translate(0 294)">
+      <rect width="274" height="64" rx="22" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.18)"/>
+      <text x="28" y="41" fill="#ffffff" font-family="IBM Plex Mono, monospace" font-size="24">
+        skills
+      </text>
+      <rect x="304" width="274" height="64" rx="22" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.18)"/>
+      <text x="332" y="41" fill="#ffffff" font-family="IBM Plex Mono, monospace" font-size="24">
+        commands
+      </text>
+      <rect x="608" width="274" height="64" rx="22" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.18)"/>
+      <text x="636" y="41" fill="#ffffff" font-family="IBM Plex Mono, monospace" font-size="24">
+        agents
+      </text>
+    </g>
+
+    <text x="0" y="436" fill="#88e7f4" font-family="IBM Plex Mono, monospace" font-size="24">
+      .claude   .cursor   .agents   .codex   .opencode
+    </text>
+  </g>
+
+  <g transform="translate(930 136)">
+    <rect width="186" height="186" rx="44" fill="rgba(255,255,255,0.06)" stroke="rgba(217,228,241,0.14)"/>
+    <g transform="translate(43 43)">
+      <path
+        d="M18 11 H36 L49 24 V37 C49 47.5 41.8 54.2 32 58 C22.2 54.2 15 47.5 15 37 V14 C15 12.343 16.343 11 18 11Z"
+        fill="url(#ghostGrad)"
+      />
+      <path d="M36 11V24H49Z" fill="url(#foldGrad)"/>
+      <path d="M25.5 32L31.5 26L37.5 32L31.5 38Z" fill="#22d3ee"/>
+      <rect x="38.5" y="35" width="6.5" height="2.5" rx="1.25" fill="#fb923c"/>
+    </g>
+  </g>
+</svg>
