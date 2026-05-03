@@ -249,6 +249,17 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("deduplicates repeated --agent flags for the same tool", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs(["add", "react-expert", "--agent", "claude-code", "--agent", "claude-code"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+    });
+  });
+
   it("accepts -a as shorthand for --agent", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["add", "react-expert", "-a", "claude-code"])).resolves.toEqual({
@@ -267,24 +278,11 @@ describe("parseCliArgs", () => {
     });
   });
 
-  it("accepts --tool as the preferred alias for selecting tools", async () => {
+  it("rejects --tool because add only supports --agent selections", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).resolves.toEqual({
-      kind: "command",
-      command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
-    });
-  });
-
-  it("merges repeated --tool and --agent selections without duplicates", async () => {
-    // Given / When / Then
-    await expect(
-      parseCliArgs(["add", "react-expert", "--tool", "claude-code", "--agent", "cursor", "--tool", "claude-code"]),
-    ).resolves.toEqual({
-      kind: "command",
-      command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
-    });
+    await expect(parseCliArgs(["add", "react-expert", "--tool", "claude-code"])).rejects.toThrowError(
+      /unknown option '--tool'/i,
+    );
   });
 
   it("accepts -n as shorthand for --dry-run", async () => {

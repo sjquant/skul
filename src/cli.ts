@@ -400,6 +400,11 @@ function collectToolOption(value: string, previous: ToolName[]): ToolName[] {
       `Unknown tool: ${value}\nValid tools: ${Array.from(VALID_TOOL_NAMES).sort().join(", ")}`,
     );
   }
+
+  if (previous.includes(value as ToolName)) {
+    return previous;
+  }
+
   return [...previous, value as ToolName];
 }
 
@@ -421,10 +426,6 @@ function normalizePinnedCommit(value: string): string {
   }
 
   return normalizedValue;
-}
-
-function collectSelectedTools(toolSelections: ToolName[] = [], agentSelections: ToolName[] = []): ToolName[] {
-  return Array.from(new Set([...toolSelections, ...agentSelections]));
 }
 
 function resolveRequestedRefSelector(options: { ref?: string; pin?: string }): string | undefined {
@@ -467,8 +468,7 @@ function createProgram(
     .description("Add a bundle to the active set and materialize its files or root instructions")
     .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
     .argument("[bundle]", "Bundle name")
-    .option("-t, --tool <name>", "Select a specific tool to materialize (repeatable)", collectToolOption, [] as ToolName[])
-    .option("-a, --agent <name>", "Deprecated alias for --tool (repeatable)", collectToolOption, [] as ToolName[])
+    .option("-a, --agent <name>", "Select a specific tool to materialize (repeatable)", collectToolOption, [] as ToolName[])
     .option("--ref <selector>", "Track a specific branch, tag, or commit instead of remote HEAD")
     .option("--pin <commit>", "Pin the bundle to an exact commit SHA")
     .option("-n, --dry-run", "Preview what would be written without making any changes")
@@ -478,7 +478,6 @@ function createProgram(
       source: string | undefined,
       bundle: string | undefined,
       opts: {
-        tool: ToolName[];
         agent: ToolName[];
         ref?: string;
         pin?: string;
@@ -486,7 +485,7 @@ function createProgram(
         ssh?: boolean;
       },
     ) => {
-      const agents = collectSelectedTools(opts.tool, opts.agent);
+      const agents = opts.agent;
       const dryRun = opts.dryRun ?? false;
       const ref = resolveRequestedRefSelector(opts);
 

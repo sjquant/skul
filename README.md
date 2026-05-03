@@ -15,7 +15,7 @@ Apply reusable AI bundles — skills, slash commands, and agents — into tool-n
 skul add github.com/sjquant/ai-bundles react-expert
 
 # GitHub is also the default registry for owner/repo shorthand
-skul add acme/shared-bundles core --tool codex
+skul add acme/shared-bundles core --agent codex
 
 # Track a specific branch or tag
 skul add github.com/sjquant/ai-bundles react-expert --ref stable
@@ -94,7 +94,7 @@ For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive pro
 | **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` |
 | **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` |
 
-Use `--tool <name>` to target a single tool. Repeat the flag to target multiple tools. `--agent` remains as a compatibility alias.
+Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 
 ---
 
@@ -158,7 +158,7 @@ If a cached remote source becomes stale or corrupted, remove it from `~/.skul/li
 
 ```bash
 skul clear-cache acme/shared-bundles
-skul add acme/shared-bundles core --tool codex
+skul add acme/shared-bundles core --agent codex
 ```
 
 To wipe the entire cache:
