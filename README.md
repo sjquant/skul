@@ -6,8 +6,6 @@ Apply reusable AI bundles — skills, slash commands, and agents — into tool-n
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
 [![License: ISC](https://img.shields.io/badge/License-ISC-lightgrey)](LICENSE)
 
-Brand assets for the project icon and future website favicon set live in [assets/brand](assets/brand/README.md).
-
 ---
 
 ## Quick Start
