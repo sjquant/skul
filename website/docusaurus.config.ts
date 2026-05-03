@@ -159,7 +159,7 @@ const config: Config = {
       copyright: `Copyright ${new Date().getFullYear()} sjquant. Built with Docusaurus.`,
     },
     prism: {
-      theme: prismThemes.github,
+      theme: prismThemes.dracula,
       darkTheme: prismThemes.dracula,
     },
   } satisfies Preset.ThemeConfig,
