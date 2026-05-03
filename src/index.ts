@@ -1483,82 +1483,47 @@ async function applyBundle(options: {
   ref?: string;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
-
-  const cloneLines: string[] = [];
-  if (options.source) {
-    const { cloned } = fetchRemoteSource({ source: options.source, libraryDir: options.libraryDir, protocol: options.protocol });
-    if (cloned) cloneLines.push(pc.dim(`Cloned ${options.source}`));
-  }
-  let cachedBundle = findCachedBundleWithGuidance({
-    libraryDir: options.libraryDir,
+  const preparedBundle = prepareApplyBundle({
     bundle: options.bundle,
     source: options.source,
+    protocol: options.protocol,
+    requestedTools: options.agents,
+    libraryDir: options.libraryDir,
+    ref: options.ref,
   });
-  const effectiveSource = options.source ?? cachedBundle.source;
-  if (effectiveSource && options.ref) {
-    updateCachedRemoteSource({
-      source: effectiveSource,
-      libraryDir: options.libraryDir,
-      ...(options.source !== undefined ? { protocol: options.protocol } : {}),
-      ref: options.ref,
-    });
-    cachedBundle = findCachedBundleWithGuidance({
-      libraryDir: options.libraryDir,
-      bundle: options.bundle,
-      source: effectiveSource,
-    });
-  }
-  const sourceRevision = effectiveSource
-    ? readCachedSourceRevision({
-        source: effectiveSource,
-        libraryDir: options.libraryDir,
-      })
-    : undefined;
-
-  const availableTools = Object.keys(cachedBundle.manifest.tools);
-  const hasToolSelection = options.agents.length > 0;
-
-  if (hasToolSelection) {
-    const unknownTools = options.agents.filter((t) => !availableTools.includes(t));
-
-    if (unknownTools.length > 0) {
-      throw new Error(
-        `Bundle does not support tool(s): ${unknownTools.join(", ")}\nSupported tools: ${availableTools.join(", ")}`,
-      );
-    }
-  }
-
-  const toolLabel = (hasToolSelection ? options.agents : availableTools).join(", ");
 
   if (options.dryRun) {
-    return [...cloneLines, `${pc.yellow("DRY RUN:")} Would apply ${cachedBundle.bundle} for ${toolLabel}`].join("\n");
+    return [
+      ...preparedBundle.cloneLines,
+      `${pc.yellow("DRY RUN:")} Would apply ${preparedBundle.cachedBundle.bundle} for ${preparedBundle.toolLabel}`,
+    ].join("\n");
   }
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingWorktreeState = registry.worktrees[gitContext.worktreeId]?.materialized_state;
   let currentShadowedFiles = { ...(registry.worktrees[gitContext.worktreeId]?.shadowed_files ?? {}) };
   let rootInstructionBaseContents = existingWorktreeState?.root_instruction_base_contents;
-  const existingBundleState = existingWorktreeState?.bundles[cachedBundle.bundle];
+  const existingBundleState = existingWorktreeState?.bundles[preparedBundle.cachedBundle.bundle];
   const plannedWriteTargets = previewMaterializeBundleWriteTargets({
     repoRoot: gitContext.worktreeRoot,
-    bundleDir: path.dirname(cachedBundle.manifestFile),
-    manifest: cachedBundle.manifest,
-    tools: hasToolSelection ? options.agents : undefined,
+    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    manifest: preparedBundle.cachedBundle.manifest,
+    tools: preparedBundle.selectedTools,
   });
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
   );
   const trackedRootInstructionShadowPlan = planTrackedRootInstructionShadows({
     repoRoot: gitContext.worktreeRoot,
-    bundleDir: path.dirname(cachedBundle.manifestFile),
-    manifest: cachedBundle.manifest,
+    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    manifest: preparedBundle.cachedBundle.manifest,
     toolNames: selectTrackedRootInstructionShadowToolNames({
       existingBundleState,
-      nextToolNames: (hasToolSelection ? options.agents : availableTools) as ToolName[],
+      nextToolNames: preparedBundle.nextToolNames,
     }),
     targetPaths: plannedRootInstructionTargets,
-    bundleName: cachedBundle.bundle,
-    bundleSource: options.source ?? cachedBundle.source,
+    bundleName: preparedBundle.cachedBundle.bundle,
+    bundleSource: preparedBundle.bundleSource,
     existingShadowedFiles: currentShadowedFiles,
     materializedBundles: existingWorktreeState?.bundles ?? {},
   });
@@ -1587,7 +1552,7 @@ async function applyBundle(options: {
     });
 
     // When a tool flag is specified, only replace the selected tool targets.
-    const toolsToReplace = hasToolSelection
+    const toolsToReplace = preparedBundle.hasToolSelection
       ? options.agents.filter((t) => t in existingBundleState.tools)
       : (Object.keys(existingBundleState.tools) as ToolName[]);
 
@@ -1610,7 +1575,7 @@ async function applyBundle(options: {
   const sharedRootInstructionState = collectSharedRootInstructionState(
     existingWorktreeState?.bundles ?? {},
     plannedWriteTargets,
-    cachedBundle.bundle,
+    preparedBundle.cachedBundle.bundle,
   );
 
   if (sharedRootInstructionState.files.length > 0) {
@@ -1627,7 +1592,7 @@ async function applyBundle(options: {
   }
   assertTrackedRootInstructionShadowPlanCanApply({
     repoRoot: gitContext.worktreeRoot,
-    bundleName: cachedBundle.bundle,
+    bundleName: preparedBundle.cachedBundle.bundle,
     existingShadowedFiles: currentShadowedFiles,
     plan: trackedRootInstructionShadowPlan,
   });
@@ -1644,11 +1609,11 @@ async function applyBundle(options: {
 
   const materializedResult = await materializeBundle({
     repoRoot: gitContext.worktreeRoot,
-    bundleDir: path.dirname(cachedBundle.manifestFile),
-    manifest: cachedBundle.manifest,
-    tools: hasToolSelection ? options.agents : undefined,
-    bundleName: cachedBundle.bundle,
-    bundleSource: options.source ?? cachedBundle.source,
+    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    manifest: preparedBundle.cachedBundle.manifest,
+    tools: preparedBundle.selectedTools,
+    bundleName: preparedBundle.cachedBundle.bundle,
+    bundleSource: preparedBundle.bundleSource,
     assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
       repoRoot: gitContext.worktreeRoot,
       operation: existingBundleState ? "refresh" : "create",
@@ -1660,7 +1625,7 @@ async function applyBundle(options: {
   });
   currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
     repoRoot: gitContext.worktreeRoot,
-    bundleName: cachedBundle.bundle,
+    bundleName: preparedBundle.cachedBundle.bundle,
     existingShadowedFiles: currentShadowedFiles,
     plan: trackedRootInstructionShadowPlan,
   });
@@ -1669,57 +1634,20 @@ async function applyBundle(options: {
     existingBundleState,
     materializedResult,
     repoRoot: gitContext.worktreeRoot,
-    source: options.source ?? cachedBundle.source,
-    resolvedCommit: sourceRevision?.currentCommit,
-    selectedTools: hasToolSelection ? options.agents : undefined,
+    source: preparedBundle.bundleSource,
+    resolvedCommit: preparedBundle.sourceRevision?.currentCommit,
+    selectedTools: preparedBundle.selectedTools,
   });
 
-  // Append to desired_state if this bundle isn't already listed (idempotent add)
-  const existingDesiredEntry = existingDesiredState.find((entry) => entry.bundle === cachedBundle.bundle);
-  const mergedDesiredTools = mergeDesiredTools({
-    existingEntry: existingDesiredEntry,
-    requestedTools: hasToolSelection ? options.agents : undefined,
+  const newDesiredEntry = buildDesiredEntryForAppliedBundle({
+    existingDesiredState,
+    cachedBundle: preparedBundle.cachedBundle,
+    requestedSource: options.source,
+    requestedProtocol: options.protocol,
+    requestedRef: options.ref,
+    requestedTools: preparedBundle.selectedTools,
+    sourceRevision: preparedBundle.sourceRevision,
   });
-  const preservesExistingRef =
-    existingDesiredEntry?.ref !== undefined &&
-    (options.source === undefined || options.source === existingDesiredEntry.source);
-  const sourceProtocol =
-    sourceRevision?.remoteUrl !== undefined
-      ? detectSourceProtocol(sourceRevision.remoteUrl)
-      : undefined;
-  const desiredProtocol =
-    options.source !== undefined
-      ? options.protocol
-      : existingDesiredEntry?.source !== undefined
-        ? existingDesiredEntry.protocol ?? sourceProtocol ?? "https"
-        : sourceProtocol ?? existingDesiredEntry?.protocol ?? "https";
-  const newDesiredEntry: DesiredBundleEntry = {
-    bundle: cachedBundle.bundle,
-    ...(options.source !== undefined
-      ? { source: options.source }
-      : existingDesiredEntry?.source !== undefined
-        ? { source: existingDesiredEntry.source }
-        : cachedBundle.source !== undefined
-          ? { source: cachedBundle.source }
-        : {}),
-    ...(mergedDesiredTools !== undefined ? { tools: mergedDesiredTools } : {}),
-    protocol: desiredProtocol,
-    ...(options.ref !== undefined
-      ? { ref: options.ref }
-      : preservesExistingRef
-        ? { ref: existingDesiredEntry.ref }
-        : {}),
-    ...(sourceRevision?.currentRef !== undefined
-      ? { resolved_ref: sourceRevision.currentRef }
-      : existingDesiredEntry?.resolved_ref !== undefined
-        ? { resolved_ref: existingDesiredEntry.resolved_ref }
-        : {}),
-    ...(sourceRevision?.currentCommit !== undefined
-      ? { resolved_commit: sourceRevision.currentCommit }
-      : existingDesiredEntry?.resolved_commit !== undefined
-        ? { resolved_commit: existingDesiredEntry.resolved_commit }
-        : {}),
-  };
   const newDesiredState = [
     ...upsertDesiredEntryPreservingOrder(existingDesiredState, newDesiredEntry),
   ];
@@ -1733,7 +1661,7 @@ async function applyBundle(options: {
   const newMatState: MaterializedState = {
     bundles: {
       ...(existingWorktreeState?.bundles ?? {}),
-      [cachedBundle.bundle]: newBundleState,
+      [preparedBundle.cachedBundle.bundle]: newBundleState,
     },
     exclude_configured: false,
     ...(rootInstructionBaseContents !== undefined
@@ -1775,7 +1703,168 @@ async function applyBundle(options: {
   });
   writeRegistryFile(options.registryFile, registry);
 
-  return [...cloneLines, pc.green(`Applied ${cachedBundle.bundle} for ${toolLabel}`)].join("\n");
+  return [
+    ...preparedBundle.cloneLines,
+    pc.green(`Applied ${preparedBundle.cachedBundle.bundle} for ${preparedBundle.toolLabel}`),
+  ].join("\n");
+}
+
+function prepareApplyBundle(options: {
+  bundle: string;
+  source?: string;
+  protocol: "https" | "ssh";
+  requestedTools: ToolName[];
+  libraryDir: string;
+  ref?: string;
+}): {
+  cloneLines: string[];
+  cachedBundle: CachedBundle;
+  bundleSource?: string;
+  sourceRevision?: CachedSourceRevision;
+  selectedTools?: ToolName[];
+  nextToolNames: ToolName[];
+  toolLabel: string;
+  hasToolSelection: boolean;
+} {
+  const cloneLines = fetchBundleSourceForApply(options);
+  let cachedBundle = findCachedBundleWithGuidance({
+    libraryDir: options.libraryDir,
+    bundle: options.bundle,
+    source: options.source,
+  });
+  const bundleSource = options.source ?? cachedBundle.source;
+
+  if (bundleSource && options.ref) {
+    updateCachedRemoteSource({
+      source: bundleSource,
+      libraryDir: options.libraryDir,
+      ...(options.source !== undefined ? { protocol: options.protocol } : {}),
+      ref: options.ref,
+    });
+    cachedBundle = findCachedBundleWithGuidance({
+      libraryDir: options.libraryDir,
+      bundle: options.bundle,
+      source: bundleSource,
+    });
+  }
+
+  const sourceRevision = bundleSource
+    ? readCachedSourceRevision({
+        source: bundleSource,
+        libraryDir: options.libraryDir,
+      })
+    : undefined;
+  const availableTools = Object.keys(cachedBundle.manifest.tools) as ToolName[];
+  const hasToolSelection = options.requestedTools.length > 0;
+
+  if (hasToolSelection) {
+    assertBundleSupportsRequestedTools(options.requestedTools, availableTools);
+  }
+
+  const nextToolNames = hasToolSelection ? options.requestedTools : availableTools;
+
+  return {
+    cloneLines,
+    cachedBundle,
+    bundleSource,
+    sourceRevision,
+    ...(hasToolSelection ? { selectedTools: options.requestedTools } : {}),
+    nextToolNames,
+    toolLabel: nextToolNames.join(", "),
+    hasToolSelection,
+  };
+}
+
+function fetchBundleSourceForApply(options: {
+  source?: string;
+  protocol: "https" | "ssh";
+  libraryDir: string;
+}): string[] {
+  if (!options.source) {
+    return [];
+  }
+
+  const { cloned } = fetchRemoteSource({
+    source: options.source,
+    libraryDir: options.libraryDir,
+    protocol: options.protocol,
+  });
+
+  return cloned ? [pc.dim(`Cloned ${options.source}`)] : [];
+}
+
+function assertBundleSupportsRequestedTools(
+  requestedTools: ToolName[],
+  availableTools: ToolName[],
+): void {
+  const unsupportedTools = requestedTools.filter((toolName) => !availableTools.includes(toolName));
+
+  if (unsupportedTools.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `Bundle does not support tool(s): ${unsupportedTools.join(", ")}\nSupported tools: ${availableTools.join(", ")}`,
+  );
+}
+
+function buildDesiredEntryForAppliedBundle(options: {
+  existingDesiredState: DesiredBundleEntry[];
+  cachedBundle: CachedBundle;
+  requestedSource?: string;
+  requestedProtocol: "https" | "ssh";
+  requestedRef?: string;
+  requestedTools?: ToolName[];
+  sourceRevision?: CachedSourceRevision;
+}): DesiredBundleEntry {
+  const existingDesiredEntry = options.existingDesiredState.find(
+    (entry) => entry.bundle === options.cachedBundle.bundle,
+  );
+  const mergedDesiredTools = mergeDesiredTools({
+    existingEntry: existingDesiredEntry,
+    requestedTools: options.requestedTools,
+  });
+  const preservesExistingRef =
+    existingDesiredEntry?.ref !== undefined &&
+    (options.requestedSource === undefined || options.requestedSource === existingDesiredEntry.source);
+  const sourceProtocol =
+    options.sourceRevision?.remoteUrl !== undefined
+      ? detectSourceProtocol(options.sourceRevision.remoteUrl)
+      : undefined;
+  const desiredProtocol =
+    options.requestedSource !== undefined
+      ? options.requestedProtocol
+      : existingDesiredEntry?.source !== undefined
+        ? existingDesiredEntry.protocol ?? sourceProtocol ?? "https"
+        : sourceProtocol ?? existingDesiredEntry?.protocol ?? "https";
+
+  return {
+    bundle: options.cachedBundle.bundle,
+    ...(options.requestedSource !== undefined
+      ? { source: options.requestedSource }
+      : existingDesiredEntry?.source !== undefined
+        ? { source: existingDesiredEntry.source }
+        : options.cachedBundle.source !== undefined
+          ? { source: options.cachedBundle.source }
+          : {}),
+    ...(mergedDesiredTools !== undefined ? { tools: mergedDesiredTools } : {}),
+    protocol: desiredProtocol,
+    ...(options.requestedRef !== undefined
+      ? { ref: options.requestedRef }
+      : preservesExistingRef
+        ? { ref: existingDesiredEntry.ref }
+        : {}),
+    ...(options.sourceRevision?.currentRef !== undefined
+      ? { resolved_ref: options.sourceRevision.currentRef }
+      : existingDesiredEntry?.resolved_ref !== undefined
+        ? { resolved_ref: existingDesiredEntry.resolved_ref }
+        : {}),
+    ...(options.sourceRevision?.currentCommit !== undefined
+      ? { resolved_commit: options.sourceRevision.currentCommit }
+      : existingDesiredEntry?.resolved_commit !== undefined
+        ? { resolved_commit: existingDesiredEntry.resolved_commit }
+        : {}),
+  };
 }
 
 async function resetWorktree(options: {
