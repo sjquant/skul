@@ -1,8 +1,8 @@
 .page {
   background:
-    radial-gradient(circle at top left, rgba(34, 211, 238, 0.14), transparent 28rem),
-    radial-gradient(circle at top right, rgba(251, 146, 60, 0.12), transparent 26rem),
-    linear-gradient(180deg, rgba(250, 252, 255, 0.85) 0%, var(--ifm-background-color) 22rem);
+    radial-gradient(circle at top left, var(--skul-glow-cyan), transparent 28rem),
+    radial-gradient(circle at top right, var(--skul-glow-amber), transparent 26rem),
+    linear-gradient(180deg, var(--skul-page-top) 0%, var(--ifm-background-color) 22rem);
 }
 
 .hero {
@@ -23,8 +23,8 @@
 .eyebrow,
 .sectionLabel {
   align-items: center;
-  background: rgba(255, 248, 237, 0.88);
-  border: 1px solid rgba(189, 101, 44, 0.14);
+  background: var(--skul-chip-bg);
+  border: 1px solid var(--skul-chip-border);
   border-radius: 999px;
   color: var(--skul-accent-amber-strong);
   display: inline-flex;
@@ -91,33 +91,46 @@
 .secondaryButton {
   border: 1px solid transparent;
   border-radius: 0.75rem;
-  box-shadow: 0 1rem 2.6rem rgba(9, 20, 35, 0.12);
+  box-shadow: var(--skul-card-shadow-soft);
   font-weight: 700;
   min-width: 10.5rem;
 }
 
 .primaryButton {
-  background: linear-gradient(135deg, #173351 0%, #091423 100%);
-  border-color: rgba(34, 211, 238, 0.16);
+  background: linear-gradient(
+    135deg,
+    var(--skul-button-primary-start) 0%,
+    var(--skul-button-primary-end) 100%
+  );
+  border-color: var(--skul-button-secondary-border);
   color: #ffffff;
 }
 
 .primaryButton:hover {
   background:
-    linear-gradient(135deg, rgba(34, 211, 238, 0.14) 0%, rgba(251, 146, 60, 0.18) 38%, #091423 100%),
-    linear-gradient(135deg, #173351 0%, #091423 100%);
+    linear-gradient(
+      135deg,
+      var(--skul-button-primary-hover-cyan) 0%,
+      var(--skul-button-primary-hover-amber) 38%,
+      var(--skul-button-primary-end) 100%
+    ),
+    linear-gradient(
+      135deg,
+      var(--skul-button-primary-start) 0%,
+      var(--skul-button-primary-end) 100%
+    );
   color: #ffffff;
 }
 
 .secondaryButton {
-  background: rgba(255, 255, 255, 0.88);
-  border-color: rgba(23, 51, 81, 0.12);
+  background: var(--skul-button-secondary-bg);
+  border-color: var(--skul-button-secondary-border);
   color: var(--skul-ink-strong);
 }
 
 .secondaryButton:hover {
-  background: rgba(255, 255, 255, 0.97);
-  border-color: rgba(14, 165, 233, 0.24);
+  background: var(--skul-button-secondary-hover-bg);
+  border-color: var(--skul-button-secondary-hover-border);
   color: var(--skul-ink-strong);
 }
 
@@ -132,7 +145,7 @@
 
 .heroChecklist li {
   align-items: center;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--skul-surface-raised);
   border: 1px solid var(--skul-line-soft);
   border-radius: 0.9rem;
   color: var(--skul-ink);
@@ -152,12 +165,12 @@
 
 .commandPanel {
   background:
-    radial-gradient(circle at top right, rgba(34, 211, 238, 0.08), transparent 38%),
-    radial-gradient(circle at left bottom, rgba(251, 146, 60, 0.09), transparent 28%),
+    radial-gradient(circle at top right, var(--skul-command-chip-bg), transparent 38%),
+    radial-gradient(circle at left bottom, var(--skul-glow-amber), transparent 28%),
     var(--skul-panel);
   border: 1px solid var(--skul-line-soft);
   border-radius: 1.2rem;
-  box-shadow: 0 1.6rem 3.2rem rgba(9, 20, 35, 0.14);
+  box-shadow: var(--skul-card-shadow-strong);
   color: var(--skul-ink-strong);
   flex: 0.95;
   padding: 1.45rem;
@@ -212,8 +225,8 @@
 }
 
 .workflowCommand {
-  background: rgba(34, 211, 238, 0.1);
-  border: 1px solid rgba(14, 165, 233, 0.18);
+  background: var(--skul-command-chip-bg);
+  border: 1px solid var(--skul-command-chip-border);
   border-radius: 0.45rem;
   color: var(--skul-accent-cyan-strong);
   display: inline-flex;
@@ -258,10 +271,10 @@
 .toolCard,
 .stepCard,
 .docsCard {
-  background: rgba(255, 255, 255, 0.84);
+  background: var(--skul-surface-raised);
   border: 1px solid var(--skul-line-soft);
   border-radius: 1rem;
-  box-shadow: 0 1rem 2rem rgba(9, 20, 35, 0.06);
+  box-shadow: var(--skul-card-shadow-soft);
 }
 
 .proofPill {
