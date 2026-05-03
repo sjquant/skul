@@ -592,10 +592,10 @@ describe("createHelpText", () => {
       "Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
     );
     expect(helpText).toContain(
-      "Use 'skul sync' for the safe suspend/pull/refresh lifecycle, or run 'skul shadow --suspend' before git updates and 'skul shadow --refresh' after.",
+      "Use 'skul sync' for fast-forward pulls. For manual git updates, run 'skul shadow --suspend' before and 'skul shadow --refresh' after, as long as the root instruction file is still tracked.",
     );
     expect(helpText).toContain(
-      "'skul status' reports tracked shadow health; 'skul reset' restores tracked root instructions back to HEAD.",
+      "'skul status' reports tracked shadow health; manual edits to shadowed root instruction files are a current limitation.",
     );
   });
 
@@ -624,10 +624,13 @@ describe("createHelpText", () => {
     expect(shadowHelpText).toContain(
       "--refresh rebuilds the effective shadow from the latest HEAD plus Skul overlay content and re-enables skip-worktree.",
     );
+    expect(shadowHelpText).toContain(
+      "The manual suspend/refresh flow only works when the root instruction file is still tracked after the Git update.",
+    );
     expect(shadowHelpText).toContain("skul shadow --suspend");
     expect(syncHelpText).toContain("Safely pull git updates around tracked AGENTS.md / CLAUDE.md shadows");
     expect(syncHelpText).toContain(
-      "Equivalent to: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
+      "Typical workflow: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
     );
     expect(syncHelpText).toContain(
       "Prefer this in headless automation so tracked AGENTS.md / CLAUDE.md shadows are suspended and restored in one step.",

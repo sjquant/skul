@@ -82,9 +82,9 @@ const PROGRAM_HELP_DETAILS = [
   "  Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
   "",
   "Safety and recovery:",
-  "  Use 'skul sync' for the safe suspend/pull/refresh lifecycle, or run 'skul shadow --suspend' before git updates and 'skul shadow --refresh' after.",
+  "  Use 'skul sync' for fast-forward pulls. For manual git updates, run 'skul shadow --suspend' before and 'skul shadow --refresh' after, as long as the root instruction file is still tracked.",
   "  Shadow refresh refuses staged changes, unstaged edits, unmerged files, incompatible index flags, and manual edits to the current shadow render.",
-  "  'skul status' reports tracked shadow health; 'skul reset' restores tracked root instructions back to HEAD.",
+  "  'skul status' reports tracked shadow health; manual edits to shadowed root instruction files are a current limitation.",
 ].join("\n");
 const ADD_HELP_DETAILS = [
   "",
@@ -97,6 +97,7 @@ const SHADOW_HELP_DETAILS = [
   "Lifecycle:",
   "  --suspend restores tracked AGENTS.md / CLAUDE.md files from HEAD and clears skip-worktree.",
   "  --refresh rebuilds the effective shadow from the latest HEAD plus Skul overlay content and re-enables skip-worktree.",
+  "  The manual suspend/refresh flow only works when the root instruction file is still tracked after the Git update.",
   "  Refresh refuses staged changes, unstaged edits, unmerged files, incompatible index flags, and manual edits to the current shadow render.",
   "",
   "Examples:",
@@ -107,7 +108,7 @@ const SHADOW_HELP_DETAILS = [
 const SYNC_HELP_DETAILS = [
   "",
   "Lifecycle:",
-  "  Equivalent to: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
+  "  Typical workflow: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
   "  Prefer this in headless automation so tracked AGENTS.md / CLAUDE.md shadows are suspended and restored in one step.",
   "  If git pull fails, Skul attempts to restore the prior shadow state before returning the error.",
   "  If upstream stops tracking a shadowed root instruction, sync retires the shadow and removes its local state.",
@@ -617,8 +618,7 @@ function createProgram(
     .action(() => {
       context.result = { kind: "command", command: "prune", options: {} };
     });
-
-  program
+  const shadowCommand = program
     .command("shadow")
     .description("Suspend or refresh tracked AGENTS.md / CLAUDE.md shadows")
     .option("--suspend", "Restore tracked root instructions from HEAD and clear skip-worktree")
@@ -636,7 +636,7 @@ function createProgram(
       };
     });
 
-  program
+  const syncCommand = program
     .command("sync")
     .description("Safely pull git updates around tracked AGENTS.md / CLAUDE.md shadows")
     .addHelpText("after", SYNC_HELP_DETAILS)
