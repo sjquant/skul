@@ -15,105 +15,107 @@ type Card = {
 };
 
 const siteDescription =
-  'skul is a CLI for delivering reusable AI bundles into Claude Code, Cursor, Codex, and OpenCode projects without committing tool-local files.';
+  'skul is an AI bundle CLI for sharing Claude Code, Cursor, Codex, and OpenCode skills, commands, and agents across projects without committing local AI setup files.';
 
 const siteKeywords = [
+  'shared ai bundles',
   'ai bundle cli',
   'claude code skills',
-  'cursor commands',
+  'cursor skills',
   'codex agents',
-  'opencode bundles',
-  'developer tooling',
+  'opencode agents',
+  'ai workflow cli',
+  'developer ai tooling',
 ];
 
 const heroStats = [
   {
-    value: 'Tool-native output',
-    label: 'Write skills, commands, and agents into the directories each AI tool already understands.',
+    value: 'One bundle, four tools',
+    label: 'Ship the same AI setup to Claude Code, Cursor, Codex, and OpenCode from one source repo.',
   },
   {
-    value: 'Git-safe local materialization',
-    label: 'Hide generated files with .git/info/exclude instead of teaching every repo a new ignore convention.',
+    value: 'No repo noise',
+    label: 'Keep local AI files out of Git while still giving every project the setup it needs.',
   },
   {
-    value: 'Per-worktree state',
-    label: 'Keep desired bundle state at the repo level while tracking actual writes per worktree.',
+    value: 'Roll out updates fast',
+    label: 'Refresh shared prompts, skills, and agents without copy-pasting folders across repos.',
   },
 ];
 
 const heroChecklist = [
-  'Fetch bundles from GitHub or reuse a cached local source',
-  'Target Claude Code, Cursor, Codex, and OpenCode with one bundle model',
-  'Update, remove, and re-apply managed files without hand editing tool dotdirs',
+  'Share one bundle repo across Claude Code, Cursor, Codex, and OpenCode',
+  'Keep AI setup local instead of committing tool-specific dotdirs',
+  'Roll out prompt, skill, and agent updates with add, apply, and update',
 ];
 
 const heroWorkflow = [
   {
     command: 'skul add github.com/sjquant/ai-bundles react-expert',
-    detail: 'Fetch a source once, cache it globally, and materialize the bundle into the current project.',
+    detail: 'Pull a shared bundle into a project in one command.',
   },
   {
-    command: 'skul status',
-    detail: 'Inspect desired state and the files that are materialized in this worktree.',
+    command: 'skul apply',
+    detail: 'Re-apply the same bundle setup in linked worktrees without manual copying.',
   },
   {
     command: 'skul update',
-    detail: 'Pull the latest upstream revision for remote-backed bundles and re-apply the managed files.',
+    detail: 'Refresh bundles when your team ships new prompts, skills, or agents.',
   },
 ];
 
 const workflowSteps = [
   {
-    title: 'Fetch or reuse a source',
-    body: 'Clone a bundle repository once into a shared cache, then reuse it across projects and worktrees.',
+    title: 'Publish once',
+    body: 'Keep reusable prompts, skills, and agents in one repo instead of scattering copies across projects.',
   },
   {
-    title: 'Materialize into real tool directories',
-    body: 'Translate canonical bundle content into each tool-native path instead of forcing tools to learn a shared format.',
+    title: 'Apply per project',
+    body: 'Materialize only the files each tool expects, in the repo you are working in right now.',
   },
   {
-    title: 'Track and clean up safely',
-    body: 'Fingerprint written files, detect divergence, and remove only what skul owns.',
+    title: 'Update without cleanup drama',
+    body: 'Re-apply or remove managed files predictably when shared AI setup changes.',
   },
 ];
 
 const toolCards = [
   {
     title: 'Claude Code',
-    body: 'Copy skills, commands, and agents into .claude paths without committing them.',
+    body: 'Share Claude Code skills, commands, and agents across repos without committing them.',
   },
   {
     title: 'Cursor',
-    body: 'Deliver the same bundle into .cursor targets when the repo uses Cursor-native workflows.',
+    body: 'Keep Cursor project setup consistent without maintaining a second copy of the same prompts.',
   },
   {
     title: 'Codex',
-    body: 'Materialize skills into .agents and agents into .codex with the same source bundle.',
+    body: 'Ship Codex skills and agents from the same source bundle you already use elsewhere.',
   },
   {
     title: 'OpenCode',
-    body: 'Support OpenCode projects through its own .opencode directory layout.',
+    body: 'Support OpenCode projects without inventing a separate packaging workflow.',
   },
 ];
 
 const docsCards: Card[] = [
   {
     title: 'Installation',
-    body: 'Set up skul locally and verify the CLI is available.',
+    body: 'Install the CLI and get your machine ready in a few minutes.',
     href: '/docs/installation',
     label: 'Install skul',
   },
   {
     title: 'Quick Start',
-    body: 'Follow the shortest path from first bundle add to update and cleanup.',
+    body: 'Apply your first shared AI bundle and target the tools you actually use.',
     href: '/docs/quick-start',
     label: 'Read quick start',
   },
   {
-    title: 'Bundle Structure',
-    body: 'See how canonical and native bundle layouts map into supported tools.',
-    href: '/docs/bundle-structure',
-    label: 'Browse bundle format',
+    title: 'Commands',
+    body: 'Keep the full command surface nearby once skul becomes part of your daily workflow.',
+    href: '/docs/commands',
+    label: 'Browse commands',
   },
 ];
 
@@ -135,7 +137,7 @@ export default function Home(): ReactNode {
 
   return (
     <Layout
-      title="Project-scoped AI bundle delivery"
+      title="Share AI bundles without Git noise"
       description={siteDescription}>
       <SiteHead
         jsonLd={jsonLd}
@@ -165,7 +167,7 @@ function SiteHead({
     <Head>
       <meta name="keywords" content={siteKeywords.join(', ')} />
       <meta property="og:type" content="website" />
-      <meta property="og:title" content="skul | Project-scoped AI bundle delivery" />
+      <meta property="og:title" content="skul | AI bundles for Claude Code, Cursor, Codex, and OpenCode" />
       <meta property="og:description" content={siteDescription} />
       <meta property="og:url" content={siteUrl} />
       <meta property="og:image" content={socialImageUrl} />
@@ -174,7 +176,7 @@ function SiteHead({
         content="skul social card showing reusable AI bundles flowing into supported tool directories"
       />
       <meta name="twitter:card" content="summary_large_image" />
-      <meta name="twitter:title" content="skul | Project-scoped AI bundle delivery" />
+      <meta name="twitter:title" content="skul | AI bundles for Claude Code, Cursor, Codex, and OpenCode" />
       <meta name="twitter:description" content={siteDescription} />
       <meta name="twitter:image" content={socialImageUrl} />
       <meta
@@ -192,14 +194,15 @@ function HeroSection(): ReactNode {
       <div className={clsx('container', styles.heroInner)}>
         <div className={styles.heroCopy}>
           <p className={styles.eyebrow}>AI tooling CLI</p>
-          <h1 className={styles.heroTitle}>Project-scoped AI bundles without Git noise</h1>
+          <h1 className={styles.heroTitle}>Share AI bundles without Git noise</h1>
           <p className={styles.heroLead}>
-            <code>skul</code> applies reusable skills, commands, and agents into
-            Claude Code, Cursor, Codex, and OpenCode projects.
+            <code>skul</code> lets teams reuse AI bundles across Claude Code,
+            Cursor, Codex, and OpenCode.
           </p>
           <p className={styles.heroSupport}>
-            It keeps source bundles reusable, tool directories local, and worktree
-            state explicit so AI setup stays portable without leaking into Git history.
+            Keep shared prompts, skills, and agents in one bundle repo, apply them
+            per project, and leave
+            tool-local files out of Git.
           </p>
           <div className={styles.ctaRow}>
             <Link
@@ -238,10 +241,10 @@ function HeroWorkflowPanel(): ReactNode {
     <section className={styles.commandPanel} aria-label="Workflow preview">
       <div className={styles.commandIntro}>
         <p className={styles.commandEyebrow}>Typical session</p>
-        <h2 className={styles.commandTitle}>Bundle once, materialize per project</h2>
+        <h2 className={styles.commandTitle}>Go from shared bundle to working project fast</h2>
         <p className={styles.commandSummary}>
-          The same command surface handles first-time fetch, repeat application,
-          status inspection, and upstream refresh.
+          Start with one bundle repo, apply it where needed, and keep project-level
+          AI setup consistent without copy-pasting folders.
         </p>
       </div>
       <div className={styles.workflowList}>
@@ -252,11 +255,6 @@ function HeroWorkflowPanel(): ReactNode {
           </article>
         ))}
       </div>
-      <div className={styles.commandFootnote}>
-        <span className={styles.commandFootnoteLabel}>Registry locations</span>
-        <code>~/.skul/library</code>
-        <code>~/.skul/registry.json</code>
-      </div>
     </section>
   );
 }
@@ -265,12 +263,12 @@ function ToolSection(): ReactNode {
   return (
     <section className={styles.section}>
       <div className="container">
-        <p className={styles.sectionLabel}>Supported targets</p>
+        <p className={styles.sectionLabel}>Supported AI tools</p>
         <div className={styles.sectionHeading}>
-          <h2 className={styles.sectionTitle}>One bundle model, four tool layouts</h2>
+          <h2 className={styles.sectionTitle}>One bundle model across four coding tools</h2>
           <p className={styles.sectionBody}>
-            `skul` does not invent a runtime around your editor. It maps reusable
-            bundle content into the directories those tools already load.
+            Reuse the same bundle source across the tools your team already works in
+            instead of rebuilding prompt folders for each one.
           </p>
         </div>
         <div className={styles.toolGrid}>
@@ -290,12 +288,12 @@ function WorkflowSection(): ReactNode {
   return (
     <section className={styles.section}>
       <div className="container">
-        <p className={styles.sectionLabel}>Flow</p>
+        <p className={styles.sectionLabel}>How it helps</p>
         <div className={styles.sectionHeading}>
-          <h2 className={styles.sectionTitle}>Built for repeatable local setup</h2>
+          <h2 className={styles.sectionTitle}>Made for shared AI workflows that stay maintainable</h2>
           <p className={styles.sectionBody}>
-            The core loop is simple: fetch content, materialize it locally, and keep
-            enough state to update or remove it safely later.
+            `skul` is useful when AI setup needs to be shared across repos, tools,
+            and teammates without turning every project into a prompt graveyard.
           </p>
         </div>
         <div className={styles.stepGrid}>
@@ -318,10 +316,10 @@ function DocsSection(): ReactNode {
       <div className="container">
         <p className={styles.sectionLabel}>Docs</p>
         <div className={styles.sectionHeading}>
-          <h2 className={styles.sectionTitle}>Start with the parts that matter</h2>
+          <h2 className={styles.sectionTitle}>Start with what gets you to value fastest</h2>
           <p className={styles.sectionBody}>
-            The docs are organized around initial setup, daily commands, and the
-            bundle format expected by the CLI.
+            Install first, try one bundle, then keep the command reference nearby
+            when you are ready to wire skul into daily work.
           </p>
         </div>
         <div className={styles.docsGrid}>

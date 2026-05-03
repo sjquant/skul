@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'skul',
-  tagline: 'Project-scoped AI bundle delivery for Claude Code, Cursor, Codex, and OpenCode',
+  tagline: 'AI bundles for Claude Code, Cursor, Codex, and OpenCode',
   favicon: 'img/favicon.ico',
   future: {
     v4: true,
@@ -45,7 +45,7 @@ const config: Config = {
       {
         name: 'keywords',
         content:
-          'ai bundle cli, claude code bundles, cursor skills manager, codex skills sync, opencode agents, git-safe ai tooling',
+          'shared ai bundles, ai bundle cli, claude code skills, cursor skills, codex agents, opencode agents, ai workflow cli',
       },
       {
         name: 'twitter:card',
