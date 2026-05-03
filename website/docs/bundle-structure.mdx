@@ -1,0 +1,73 @@
+---
+title: Bundle Structure
+slug: /bundle-structure
+description: Repository layouts and bundle content formats supported by skul.
+---
+
+# Bundle Structure
+
+A bundle source is a Git repository. `skul` caches the source in `~/.skul/library/` and reuses that cache on future runs.
+
+## Repository layouts
+
+Two source layouts are supported.
+
+### Multi-bundle repository
+
+Each top-level subdirectory is a bundle:
+
+```text
+github.com/sjquant/ai-bundles
+|- react-expert/
+|  |- skills/
+|  |- commands/
+|  `- agents/
+`- python-data/
+   `- skills/
+```
+
+Users reference the directory name as the bundle name.
+
+### Repo-as-bundle
+
+The repository root itself is one bundle:
+
+```text
+github.com/sjquant/react-bundle
+|- skills/
+`- commands/
+```
+
+In that mode, `skul` uses the repository slug as the bundle name.
+
+## Content layouts
+
+Inside a bundle, `skul` supports two ways to describe content.
+
+### Canonical layout
+
+Top-level directories describe the content type:
+
+```text
+bundle/
+|- skills/
+|- commands/
+|- agents/
+`- AGENTS.md or CLAUDE.md
+```
+
+`skul` copies each directory into every compatible tool target.
+
+### Native layout
+
+Tool-specific dot directories target a single tool explicitly:
+
+```text
+bundle/
+|- .claude/skills/
+|- .cursor/commands/
+|- .codex/agents/
+`- AGENTS.md or CLAUDE.md
+```
+
+Use native layout when tool-specific behavior matters and cross-tool copying would be wrong.

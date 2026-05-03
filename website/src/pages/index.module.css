@@ -1,0 +1,367 @@
+.page {
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.14), transparent 28rem),
+    radial-gradient(circle at top right, rgba(251, 146, 60, 0.12), transparent 26rem),
+    linear-gradient(180deg, rgba(250, 252, 255, 0.85) 0%, var(--ifm-background-color) 22rem);
+}
+
+.hero {
+  padding: 5.5rem 0 2.75rem;
+}
+
+.heroInner {
+  align-items: stretch;
+  display: flex;
+  gap: 2rem;
+}
+
+.heroCopy {
+  flex: 1.05;
+  max-width: 39rem;
+}
+
+.eyebrow,
+.sectionLabel {
+  align-items: center;
+  background: rgba(255, 248, 237, 0.88);
+  border: 1px solid rgba(189, 101, 44, 0.14);
+  border-radius: 999px;
+  color: var(--skul-accent-amber-strong);
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin-bottom: 0.85rem;
+  padding: 0.38rem 0.75rem;
+  text-transform: uppercase;
+}
+
+.heroTitle,
+.sectionTitle {
+  color: var(--skul-ink-strong);
+  font-family: var(--skul-heading-font);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.96;
+  margin: 0;
+}
+
+.heroTitle {
+  font-size: clamp(3.1rem, 6vw, 5rem);
+  max-width: 11ch;
+}
+
+.heroLead {
+  color: var(--skul-ink);
+  font-size: 1.16rem;
+  line-height: 1.75;
+  margin: 1.4rem 0 0;
+  max-width: 34rem;
+}
+
+.heroLead code {
+  background: var(--skul-surface-muted);
+  border: 1px solid var(--skul-line-soft);
+  border-radius: 0.35rem;
+  color: var(--skul-ink-strong);
+  font-size: 0.95em;
+  padding: 0.15rem 0.42rem;
+}
+
+.heroSupport,
+.sectionBody {
+  color: var(--skul-muted);
+  line-height: 1.78;
+}
+
+.heroSupport {
+  font-size: 1rem;
+  margin: 0.9rem 0 0;
+  max-width: 35rem;
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.95rem;
+  margin-top: 2.15rem;
+}
+
+.primaryButton,
+.secondaryButton {
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  box-shadow: 0 1rem 2.6rem rgba(9, 20, 35, 0.12);
+  font-weight: 700;
+  min-width: 10.5rem;
+}
+
+.primaryButton {
+  background: linear-gradient(135deg, #173351 0%, #091423 100%);
+  border-color: rgba(34, 211, 238, 0.16);
+  color: #ffffff;
+}
+
+.primaryButton:hover {
+  background:
+    linear-gradient(135deg, rgba(34, 211, 238, 0.14) 0%, rgba(251, 146, 60, 0.18) 38%, #091423 100%),
+    linear-gradient(135deg, #173351 0%, #091423 100%);
+  color: #ffffff;
+}
+
+.secondaryButton {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(23, 51, 81, 0.12);
+  color: var(--skul-ink-strong);
+}
+
+.secondaryButton:hover {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(14, 165, 233, 0.24);
+  color: var(--skul-ink-strong);
+}
+
+.heroChecklist {
+  display: grid;
+  gap: 0.8rem;
+  list-style: none;
+  margin: 1.6rem 0 0;
+  max-width: 35rem;
+  padding: 0;
+}
+
+.heroChecklist li {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--skul-line-soft);
+  border-radius: 0.9rem;
+  color: var(--skul-ink);
+  display: flex;
+  font-size: 0.98rem;
+  font-weight: 600;
+  gap: 0.7rem;
+  padding: 0.88rem 1rem;
+}
+
+.heroChecklist li::before {
+  color: var(--skul-accent-cyan-strong);
+  content: '•';
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.commandPanel {
+  background:
+    radial-gradient(circle at top right, rgba(34, 211, 238, 0.08), transparent 38%),
+    radial-gradient(circle at left bottom, rgba(251, 146, 60, 0.09), transparent 28%),
+    var(--skul-panel);
+  border: 1px solid var(--skul-line-soft);
+  border-radius: 1.2rem;
+  box-shadow: 0 1.6rem 3.2rem rgba(9, 20, 35, 0.14);
+  color: var(--skul-ink-strong);
+  flex: 0.95;
+  padding: 1.45rem;
+}
+
+.commandIntro {
+  border-bottom: 1px solid var(--skul-line-soft);
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+}
+
+.commandEyebrow {
+  color: var(--skul-accent-cyan-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
+}
+
+.commandTitle {
+  color: var(--skul-ink-strong);
+  font-family: var(--skul-heading-font);
+  font-size: 1.7rem;
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  margin: 0;
+}
+
+.commandSummary {
+  color: var(--skul-muted);
+  line-height: 1.7;
+  margin: 0.75rem 0 0;
+}
+
+.workflowList {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.workflowItem {
+  background: var(--skul-surface-muted);
+  border: 1px solid var(--skul-line-soft);
+  border-radius: 0.9rem;
+  padding: 1rem;
+}
+
+.workflowItem p {
+  color: var(--skul-ink);
+  line-height: 1.68;
+  margin: 0.48rem 0 0;
+}
+
+.workflowCommand {
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.18);
+  border-radius: 0.45rem;
+  color: var(--skul-accent-cyan-strong);
+  display: inline-flex;
+  font-size: 0.94rem;
+  padding: 0.24rem 0.55rem;
+}
+
+.commandFootnote {
+  align-items: center;
+  border-top: 1px solid var(--skul-line-soft);
+  color: var(--skul-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.commandFootnoteLabel {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.commandFootnote code {
+  background: var(--skul-surface-muted);
+  border: 1px solid var(--skul-line-soft);
+  border-radius: 0.45rem;
+  color: var(--skul-ink-strong);
+  padding: 0.2rem 0.55rem;
+}
+
+.proofStrip {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 2rem;
+}
+
+.proofPill,
+.toolCard,
+.stepCard,
+.docsCard {
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid var(--skul-line-soft);
+  border-radius: 1rem;
+  box-shadow: 0 1rem 2rem rgba(9, 20, 35, 0.06);
+}
+
+.proofPill {
+  padding: 1.2rem;
+}
+
+.proofPill h2,
+.toolCard h3,
+.stepCard h3,
+.docsCard h3 {
+  color: var(--skul-ink-strong);
+  font-family: var(--skul-heading-font);
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.proofPill h2 {
+  font-size: 1.1rem;
+}
+
+.proofPill p,
+.toolCard p,
+.stepCard p,
+.docsCard p {
+  color: var(--skul-muted);
+  line-height: 1.72;
+  margin: 0.7rem 0 0;
+}
+
+.section {
+  padding: 2.75rem 0;
+}
+
+.sectionHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 45rem;
+}
+
+.sectionTitle {
+  font-size: clamp(2rem, 4vw, 3.15rem);
+  max-width: 12ch;
+}
+
+.toolGrid,
+.stepGrid,
+.docsGrid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.toolGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stepGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.docsGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.toolCard,
+.stepCard,
+.docsCard {
+  padding: 1.25rem;
+}
+
+.stepIndex {
+  color: var(--skul-accent-amber-strong);
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin-bottom: 0.8rem;
+}
+
+.docsLink {
+  color: var(--skul-accent-cyan-strong);
+  display: inline-flex;
+  font-weight: 700;
+  margin-top: 1rem;
+}
+
+@media (max-width: 996px) {
+  .heroInner {
+    flex-direction: column;
+  }
+
+  .proofStrip,
+  .toolGrid,
+  .stepGrid,
+  .docsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    padding-top: 4.6rem;
+  }
+}

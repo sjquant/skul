@@ -1,0 +1,40 @@
+---
+title: Supported Tools
+slug: /supported-tools
+description: Tool targets and directory mappings supported by skul.
+---
+
+# Supported Tools
+
+`skul` understands the directory layouts for four AI coding tools.
+
+| Tool | Skills | Commands | Agents |
+| --- | --- | --- | --- |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `.claude/skills` | `.claude/commands` | `.claude/agents` |
+| [Cursor](https://cursor.sh) | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` |
+| [OpenCode](https://opencode.ai) | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` |
+| [Codex](https://openai.com/index/openai-codex) | `.agents/skills` | - | `.codex/agents` |
+
+Root instruction targets:
+
+- Claude Code, Cursor, and OpenCode target `CLAUDE.md`
+- Codex targets `AGENTS.md`
+
+## Target one tool or many
+
+By default, canonical bundle content is copied into every compatible tool target.
+
+Use `--agent` to constrain materialization:
+
+```bash
+skul add acme/shared-bundles core --agent codex
+skul add acme/shared-bundles core --agent codex --agent cursor
+```
+
+This is useful when a bundle should only appear in a subset of tools for a repository.
+
+## Tracked vs untracked root targets
+
+If the destination root instruction file is untracked, `skul` composes it locally and hides it through `.git/info/exclude`.
+
+If the destination root instruction file is already tracked, `skul` switches to tracked-shadow behavior so the effective file content can be refreshed from `HEAD` plus bundle overlays without creating a normal working-tree diff.
