@@ -273,6 +273,7 @@ body {
   background: var(--skul-sidebar-surface);
   border-right: 1px solid var(--skul-line-soft);
   box-shadow: 0 1.2rem 2.8rem rgba(9, 20, 35, 0.16);
+  height: 100vh;
   inset: 0 auto 0 0;
   overflow-y: auto;
   z-index: 402;
@@ -303,7 +304,7 @@ body {
   font-weight: 700;
 }
 
-.navbar-sidebar__item.menu > .menu__list {
+.navbar-sidebar .menu__list {
   padding: 0.7rem 0.75rem 1.25rem;
 }
 
