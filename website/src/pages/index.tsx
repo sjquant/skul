@@ -122,7 +122,7 @@ const docsCards: Card[] = [
 export default function Home(): ReactNode {
   const {siteConfig} = useDocusaurusContext();
   const siteUrl = `${siteConfig.url}${siteConfig.baseUrl}`;
-  const socialImageUrl = `${siteUrl}img/social-card.svg`;
+  const socialImageUrl = `${siteUrl}img/social-preview.png`;
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
@@ -173,7 +173,7 @@ function SiteHead({
       <meta property="og:image" content={socialImageUrl} />
       <meta
         property="og:image:alt"
-        content="skul social card showing reusable AI bundles flowing into supported tool directories"
+        content="skul social card showing the app icon and the text Reusable AI bundles without Git noise"
       />
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content="skul | AI bundles for Claude Code, Cursor, Codex, and OpenCode" />
@@ -181,7 +181,7 @@ function SiteHead({
       <meta name="twitter:image" content={socialImageUrl} />
       <meta
         name="twitter:image:alt"
-        content="skul social card showing reusable AI bundles flowing into supported tool directories"
+        content="skul social card showing the app icon and the text Reusable AI bundles without Git noise"
       />
       <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
     </Head>
