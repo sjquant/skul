@@ -40,7 +40,7 @@ const config: Config = {
     ],
   ],
   themeConfig: {
-    image: 'img/social-card.svg',
+    image: 'img/social-preview.png',
     metadata: [
       {
         name: 'keywords',
