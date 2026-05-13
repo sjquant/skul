@@ -123,8 +123,12 @@ describe("tracked root-instruction shadow rendering", () => {
     });
 
     // Then
-    expect(refreshedRender.overlayFingerprint).toBe(initialRender.overlayFingerprint);
-    expect(refreshedRender.renderedFingerprint).not.toBe(initialRender.renderedFingerprint);
+    expect(refreshedRender.overlayFingerprint).toBe(
+      initialRender.overlayFingerprint,
+    );
+    expect(refreshedRender.renderedFingerprint).not.toBe(
+      initialRender.renderedFingerprint,
+    );
   });
 
   it("produces rendered fingerprints that expose manual edits", () => {

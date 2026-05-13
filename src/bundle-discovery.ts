@@ -2,11 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  type BundleManifest,
   inferBundleManifest,
   MANIFEST_FILE_NAME,
   parseBundleManifest,
   resolveCachedBundleLayout,
-  type BundleManifest,
 } from "./bundle-manifest";
 import { safeReaddirSync } from "./fs-utils";
 
@@ -46,7 +46,10 @@ export function normalizeBundleSource(input: string): string {
       throw new Error(`Unsupported git source: ${input}`);
     }
 
-    return normalizeSourceParts(url.hostname, url.pathname.replace(/^\//, "").replace(/\.git$/, ""));
+    return normalizeSourceParts(
+      url.hostname,
+      url.pathname.replace(/^\//, "").replace(/\.git$/, ""),
+    );
   }
 
   const sshMatch = value.match(/^git@([^:]+):(.+)$/);
@@ -95,7 +98,9 @@ function normalizeGitHubShortcut(input: string): string | undefined {
 }
 
 /** Lists every bundle currently discoverable in the local cache. */
-export function listCachedBundles(options: { libraryDir: string }): CachedBundle[] {
+export function listCachedBundles(options: {
+  libraryDir: string;
+}): CachedBundle[] {
   if (!fs.existsSync(options.libraryDir)) {
     return [];
   }
@@ -104,8 +109,13 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
 
   const explicit = manifestFiles.flatMap((manifestFile) => {
     try {
-      const manifest = parseBundleManifest(JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown);
-      const relativeManifestFile = path.relative(options.libraryDir, manifestFile);
+      const manifest = parseBundleManifest(
+        JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
+      );
+      const relativeManifestFile = path.relative(
+        options.libraryDir,
+        manifestFile,
+      );
       const segments = relativeManifestFile.split(path.sep);
 
       if (segments.at(-1) !== MANIFEST_FILE_NAME) {
@@ -125,10 +135,12 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
     }
   });
 
-  const explicitBundleKeys = new Set(explicit.map((bundle) => `${bundle.source}::${bundle.bundle}`));
+  const explicitBundleKeys = new Set(
+    explicit.map((bundle) => `${bundle.source}::${bundle.bundle}`),
+  );
 
-  const inferredSubdirectory = findSourceDirs(options.libraryDir).flatMap((sourceDir) =>
-    inferSubdirectoryBundles(sourceDir, explicitBundleKeys),
+  const inferredSubdirectory = findSourceDirs(options.libraryDir).flatMap(
+    (sourceDir) => inferSubdirectoryBundles(sourceDir, explicitBundleKeys),
   );
 
   // Repos with any valid or inferred bundle subdirectory are treated as multi-bundle
@@ -171,7 +183,9 @@ export function listCachedBundles(options: { libraryDir: string }): CachedBundle
   });
 
   return [...explicit, ...inferredSubdirectory, ...inferred].sort(
-    (left, right) => left.source.localeCompare(right.source) || left.bundle.localeCompare(right.bundle),
+    (left, right) =>
+      left.source.localeCompare(right.source) ||
+      left.bundle.localeCompare(right.bundle),
   );
 }
 
@@ -195,7 +209,9 @@ export function findCachedBundle(options: {
         source,
         bundle: options.bundle,
         manifestFile: layout.manifestFile,
-        manifest: parseBundleManifest(JSON.parse(fs.readFileSync(layout.manifestFile, "utf8")) as unknown),
+        manifest: parseBundleManifest(
+          JSON.parse(fs.readFileSync(layout.manifestFile, "utf8")) as unknown,
+        ),
       };
     }
 
@@ -213,7 +229,10 @@ export function findCachedBundle(options: {
 
     // Fall back to inferred repo-as-bundle: repo slug must match the requested bundle name,
     // and the repo must not expose valid subdirectory bundle manifests.
-    const repoBundleManifestFile = path.join(layout.sourceDir, MANIFEST_FILE_NAME);
+    const repoBundleManifestFile = path.join(
+      layout.sourceDir,
+      MANIFEST_FILE_NAME,
+    );
     const repoSlug = source.split("/").at(-1)!;
     if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
       const hasNestedBundle = hasAnySubdirectoryBundle(layout.sourceDir);
@@ -221,7 +240,12 @@ export function findCachedBundle(options: {
       if (!hasNestedBundle) {
         const manifest = inferBundleManifest(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
-          return { source, bundle: repoSlug, manifestFile: repoBundleManifestFile, manifest };
+          return {
+            source,
+            bundle: repoSlug,
+            manifestFile: repoBundleManifestFile,
+            manifest,
+          };
         }
       }
     }
@@ -300,8 +324,10 @@ function findManifestFiles(rootDir: string): string[] {
   return manifestFiles;
 }
 
-
-function inferSubdirectoryBundles(sourceDir: string, explicitBundleKeys: Set<string>): CachedBundle[] {
+function inferSubdirectoryBundles(
+  sourceDir: string,
+  explicitBundleKeys: Set<string>,
+): CachedBundle[] {
   const sourceSegments = path.normalize(sourceDir).split(path.sep).slice(-3);
   const source = sourceSegments.join("/");
 
@@ -334,7 +360,10 @@ function inferSubdirectoryBundles(sourceDir: string, explicitBundleKeys: Set<str
 }
 
 function hasAnySubdirectoryBundle(sourceDir: string): boolean {
-  return hasValidSubdirectoryBundleManifest(sourceDir) || inferSubdirectoryBundles(sourceDir, new Set()).length > 0;
+  return (
+    hasValidSubdirectoryBundleManifest(sourceDir) ||
+    inferSubdirectoryBundles(sourceDir, new Set()).length > 0
+  );
 }
 
 function hasValidSubdirectoryBundleManifest(sourceDir: string): boolean {
@@ -349,7 +378,9 @@ function hasValidSubdirectoryBundleManifest(sourceDir: string): boolean {
     }
 
     try {
-      parseBundleManifest(JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown);
+      parseBundleManifest(
+        JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
+      );
       return true;
     } catch {
       return false;

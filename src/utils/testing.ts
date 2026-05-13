@@ -4,21 +4,33 @@ import path from "node:path";
 import { expect } from "vitest";
 
 /** Formats one expected root-instruction bundle block with Skul boundary markers. */
-export function formatRootInstructionBundleBlock(bundle: string, content: string, source?: string): string {
+export function formatRootInstructionBundleBlock(
+  bundle: string,
+  content: string,
+  source?: string,
+): string {
   const label = source ? `${bundle} (${source})` : bundle;
   const normalizedContent = content.replace(/\s+$/, "");
   return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
 }
 
 /** Formats one expected tracked root-instruction shadow block. */
-export function formatTrackedRootInstructionShadowBlock(bundle: string, content: string): string {
+export function formatTrackedRootInstructionShadowBlock(
+  bundle: string,
+  content: string,
+): string {
   const normalizedContent = content.replace(/\s+$/, "");
   return `<!-- SKUL SHADOW START bundle=${bundle} -->\n${normalizedContent}\n<!-- SKUL SHADOW END -->`;
 }
 
 /** Joins expected root-instruction document parts using the production document layout. */
-export function formatExpectedRootInstructionDocument(...parts: string[]): string {
-  return `${parts.map((part) => part.replace(/\s+$/, "")).filter((part) => part.length > 0).join("\n\n")}\n`;
+export function formatExpectedRootInstructionDocument(
+  ...parts: string[]
+): string {
+  return `${parts
+    .map((part) => part.replace(/\s+$/, ""))
+    .filter((part) => part.length > 0)
+    .join("\n\n")}\n`;
 }
 
 /** Writes one root-instruction test bundle fixture into the local cache layout. */
@@ -34,7 +46,12 @@ export function writeRootInstructionBundleFixture(
     extraFiles?: Record<string, string>;
   },
   helpers: {
-    writeManifest: (homeDir: string, source: string, bundle: string, manifest: object) => void;
+    writeManifest: (
+      homeDir: string,
+      source: string,
+      bundle: string,
+      manifest: object,
+    ) => void;
     writeBundleFile: (
       homeDir: string,
       source: string | undefined,
@@ -46,7 +63,8 @@ export function writeRootInstructionBundleFixture(
 ): void {
   const source = options.source ?? "github.com/user/ai-vault";
   const agent = options.agent ?? "codex";
-  const filePath = options.filePath ?? (agent === "codex" ? "AGENTS.md" : "CLAUDE.md");
+  const filePath =
+    options.filePath ?? (agent === "codex" ? "AGENTS.md" : "CLAUDE.md");
 
   helpers.writeManifest(homeDir, source, options.bundle, {
     name: options.bundle,
@@ -55,10 +73,24 @@ export function writeRootInstructionBundleFixture(
       [agent]: { root_instruction: { path: filePath } },
     },
   });
-  helpers.writeBundleFile(homeDir, source, options.bundle, filePath, options.content);
+  helpers.writeBundleFile(
+    homeDir,
+    source,
+    options.bundle,
+    filePath,
+    options.content,
+  );
 
-  for (const [relativePath, content] of Object.entries(options.extraFiles ?? {})) {
-    helpers.writeBundleFile(homeDir, source, options.bundle, relativePath, content);
+  for (const [relativePath, content] of Object.entries(
+    options.extraFiles ?? {},
+  )) {
+    helpers.writeBundleFile(
+      homeDir,
+      source,
+      options.bundle,
+      relativePath,
+      content,
+    );
   }
 }
 
@@ -75,7 +107,12 @@ export function setupSharedRootInstructionBundles(
     extraFiles?: Record<string, string>;
   }>,
   helpers: {
-    writeManifest: (homeDir: string, source: string, bundle: string, manifest: object) => void;
+    writeManifest: (
+      homeDir: string,
+      source: string,
+      bundle: string,
+      manifest: object,
+    ) => void;
     writeBundleFile: (
       homeDir: string,
       source: string | undefined,
@@ -96,15 +133,23 @@ export function expectRootInstructionDocument(
   fileName: "AGENTS.md" | "CLAUDE.md",
   ...parts: string[]
 ): void {
-  expect(fs.readFileSync(path.join(repoRoot, fileName), "utf8")).toBe(formatExpectedRootInstructionDocument(...parts));
+  expect(fs.readFileSync(path.join(repoRoot, fileName), "utf8")).toBe(
+    formatExpectedRootInstructionDocument(...parts),
+  );
 }
 
 /** Asserts the exact rendered contents of `AGENTS.md`. */
-export function expectAgentsDocument(repoRoot: string, ...parts: string[]): void {
+export function expectAgentsDocument(
+  repoRoot: string,
+  ...parts: string[]
+): void {
   expectRootInstructionDocument(repoRoot, "AGENTS.md", ...parts);
 }
 
 /** Asserts the exact rendered contents of `CLAUDE.md`. */
-export function expectClaudeDocument(repoRoot: string, ...parts: string[]): void {
+export function expectClaudeDocument(
+  repoRoot: string,
+  ...parts: string[]
+): void {
   expectRootInstructionDocument(repoRoot, "CLAUDE.md", ...parts);
 }

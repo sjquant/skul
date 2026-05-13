@@ -42,7 +42,9 @@ describe("detectGitContext", () => {
 
   it("uses one repository fingerprint across linked worktrees and unique worktree ids", () => {
     const repoRoot = createRepository();
-    const worktreeParent = fs.mkdtempSync(path.join(os.tmpdir(), "skul-worktree-"));
+    const worktreeParent = fs.mkdtempSync(
+      path.join(os.tmpdir(), "skul-worktree-"),
+    );
     const worktreeRoot = path.join(worktreeParent, "linked-worktree");
     const normalizedRepoRoot = fs.realpathSync.native(repoRoot);
     tempDirs.push(worktreeParent);

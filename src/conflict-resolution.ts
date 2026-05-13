@@ -38,7 +38,10 @@ export function normalizeConflictPrefix(input: string): string | null {
 }
 
 /** Prefixes the leading filename or directory segment of a relative path. */
-export function suggestPrefixedDestination(relativePath: string, prefix: string): string {
+export function suggestPrefixedDestination(
+  relativePath: string,
+  prefix: string,
+): string {
   const segments = relativePath.split("/");
   const [firstSegment, ...rest] = segments;
 
@@ -47,7 +50,9 @@ export function suggestPrefixedDestination(relativePath: string, prefix: string)
   }
 
   const extension = path.posix.extname(firstSegment);
-  const basename = extension ? firstSegment.slice(0, -extension.length) : firstSegment;
+  const basename = extension
+    ? firstSegment.slice(0, -extension.length)
+    : firstSegment;
   const prefixedSegment = `${basename ? `${prefix}-${basename}` : prefix}${extension}`;
 
   return [prefixedSegment, ...rest].join("/");

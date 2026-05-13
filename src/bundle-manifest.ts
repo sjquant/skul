@@ -16,7 +16,9 @@ export interface BundleManifestTarget {
 
 export interface BundleManifest {
   name?: string;
-  tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
+  tools: Partial<
+    Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
+  >;
 }
 
 export interface CachedBundleLayout {
@@ -46,16 +48,26 @@ export function parseBundleManifest(input: unknown): BundleManifest {
       const targets = Object.fromEntries(
         Object.entries(toolTargetsInput).map(([targetName, value]) => {
           if (!(targetName in toolDef.targets)) {
-            throw new Error(`tools.${toolDef.name}.${targetName} is not supported for tool ${toolDef.name}`);
+            throw new Error(
+              `tools.${toolDef.name}.${targetName} is not supported for tool ${toolDef.name}`,
+            );
           }
 
-          return [targetName, parseBundleManifestTarget(value, `tools.${toolDef.name}.${targetName}`)];
+          return [
+            targetName,
+            parseBundleManifestTarget(
+              value,
+              `tools.${toolDef.name}.${targetName}`,
+            ),
+          ];
         }),
       ) as Partial<Record<ToolTargetName, BundleManifestTarget>>;
 
       return [toolDef.name, targets];
     }),
-  ) as Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>>;
+  ) as Partial<
+    Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
+  >;
 
   if (Object.keys(tools).length === 0) {
     throw new Error("tools must declare at least one tool");
@@ -71,9 +83,15 @@ export function parseBundleManifest(input: unknown): BundleManifest {
 
 /** Infers a bundle manifest from canonical directories and native tool paths on disk. */
 export function inferBundleManifest(bundleDir: string): BundleManifest {
-  const tools: Partial<Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>> = {};
+  const tools: Partial<
+    Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
+  > = {};
   const allTools = listToolDefinitions();
-  const canonicalTargetNames: ToolTargetName[] = ["skills", "commands", "agents"];
+  const canonicalTargetNames: ToolTargetName[] = [
+    "skills",
+    "commands",
+    "agents",
+  ];
 
   // Process canonical directories (skills/, commands/, agents/) — Claude Code canonical format.
   // These apply to all tools that support the given target.
@@ -94,9 +112,16 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   // Native paths override canonical paths for the same tool + target.
   for (const toolDef of allTools) {
     for (const [targetName, targetDef] of Object.entries(toolDef.targets)) {
-      if (isExistingToolTarget(path.join(bundleDir, targetDef.path), targetDef.kind)) {
+      if (
+        isExistingToolTarget(
+          path.join(bundleDir, targetDef.path),
+          targetDef.kind,
+        )
+      ) {
         if (!tools[toolDef.name]) tools[toolDef.name] = {};
-        tools[toolDef.name]![targetName as ToolTargetName] = { path: targetDef.path };
+        tools[toolDef.name]![targetName as ToolTargetName] = {
+          path: targetDef.path,
+        };
       }
     }
   }
@@ -112,7 +137,10 @@ function isExistingDirectory(dirPath: string): boolean {
   }
 }
 
-function isExistingToolTarget(targetPath: string, kind: "directory" | "file"): boolean {
+function isExistingToolTarget(
+  targetPath: string,
+  kind: "directory" | "file",
+): boolean {
   try {
     const stat = fs.statSync(targetPath);
     return kind === "directory" ? stat.isDirectory() : stat.isFile();
@@ -121,7 +149,9 @@ function isExistingToolTarget(targetPath: string, kind: "directory" | "file"): b
   }
 }
 
-function expandRootInstructionTargets(manifest: BundleManifest): BundleManifest {
+function expandRootInstructionTargets(
+  manifest: BundleManifest,
+): BundleManifest {
   const sourcePath = selectRootInstructionSourcePath(manifest.tools);
 
   if (!sourcePath) {
@@ -129,7 +159,10 @@ function expandRootInstructionTargets(manifest: BundleManifest): BundleManifest 
   }
 
   const expandedTools = Object.fromEntries(
-    Object.entries(manifest.tools).map(([toolName, targets]) => [toolName, { ...targets }]),
+    Object.entries(manifest.tools).map(([toolName, targets]) => [
+      toolName,
+      { ...targets },
+    ]),
   ) as BundleManifest["tools"];
 
   for (const toolDef of listToolDefinitions()) {
@@ -155,7 +188,12 @@ function expandRootInstructionTargets(manifest: BundleManifest): BundleManifest 
 function selectRootInstructionSourcePath(
   tools: BundleManifest["tools"],
 ): string | null {
-  const preferredToolOrder: ToolName[] = ["claude-code", "cursor", "opencode", "codex"];
+  const preferredToolOrder: ToolName[] = [
+    "claude-code",
+    "cursor",
+    "opencode",
+    "codex",
+  ];
 
   for (const toolName of preferredToolOrder) {
     const sourcePath = tools[toolName]?.root_instruction?.path;
@@ -174,10 +212,15 @@ export function resolveCachedBundleLayout(options: {
   source: string;
   bundle: string;
 }): CachedBundleLayout {
-  const libraryDir = expectNonEmptyString(options.libraryDir, "library directory");
+  const libraryDir = expectNonEmptyString(
+    options.libraryDir,
+    "library directory",
+  );
   const source = expectNonEmptyString(options.source, "source");
   const bundle = expectSinglePathSegment(options.bundle, "bundle");
-  const sourceSegments = source.split("/").map((segment) => expectSinglePathSegment(segment, "source"));
+  const sourceSegments = source
+    .split("/")
+    .map((segment) => expectSinglePathSegment(segment, "source"));
   const sourceDir = path.join(libraryDir, ...sourceSegments);
   const bundleDir = path.join(sourceDir, bundle);
 
@@ -186,11 +229,15 @@ export function resolveCachedBundleLayout(options: {
     sourceDir,
     bundleDir,
     manifestFile: path.join(bundleDir, MANIFEST_FILE_NAME),
-    resolveBundlePath: (...segments: string[]) => path.join(bundleDir, ...segments),
+    resolveBundlePath: (...segments: string[]) =>
+      path.join(bundleDir, ...segments),
   };
 }
 
-function parseBundleManifestTarget(input: unknown, label: string): BundleManifestTarget {
+function parseBundleManifestTarget(
+  input: unknown,
+  label: string,
+): BundleManifestTarget {
   const target = expectRecord(input, label);
 
   return {
@@ -207,7 +254,9 @@ function parseToolDefinition(input: unknown, label: string): ToolDefinition {
     return toolDef;
   }
 
-  throw new Error(`${label} must be one of: ${tools.map((t) => t.name).join(", ")}`);
+  throw new Error(
+    `${label} must be one of: ${tools.map((t) => t.name).join(", ")}`,
+  );
 }
 
 function expectRecord(input: unknown, label: string): UnknownRecord {
@@ -240,7 +289,11 @@ function expectRelativePath(input: unknown, label: string): string {
   const value = expectNonEmptyString(input, label);
   const normalized = path.normalize(value);
 
-  if (path.isAbsolute(value) || normalized === "." || normalized.startsWith("..")) {
+  if (
+    path.isAbsolute(value) ||
+    normalized === "." ||
+    normalized.startsWith("..")
+  ) {
     throw new Error(`${label} must be a relative path`);
   }
 

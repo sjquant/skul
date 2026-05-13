@@ -4,7 +4,9 @@ import path from "node:path";
 import { pathDepth } from "./fs-utils";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
 
-const KNOWN_TOOL_NAMES = new Set<ToolName>(listToolDefinitions().map((t) => t.name));
+const KNOWN_TOOL_NAMES = new Set<ToolName>(
+  listToolDefinitions().map((t) => t.name),
+);
 
 function isToolName(value: string): value is ToolName {
   return KNOWN_TOOL_NAMES.has(value as ToolName);
@@ -91,13 +93,21 @@ export function readRegistryFile(registryFile: string): Registry {
     return createEmptyRegistry();
   }
 
-  return parseRegistry(JSON.parse(fs.readFileSync(registryFile, "utf8")) as unknown);
+  return parseRegistry(
+    JSON.parse(fs.readFileSync(registryFile, "utf8")) as unknown,
+  );
 }
 
 /** Persists the registry to disk using stable ordering and a trailing newline. */
-export function writeRegistryFile(registryFile: string, registry: Registry): void {
+export function writeRegistryFile(
+  registryFile: string,
+  registry: Registry,
+): void {
   fs.mkdirSync(path.dirname(registryFile), { recursive: true });
-  fs.writeFileSync(registryFile, `${JSON.stringify(sortRegistry(registry), null, 2)}\n`);
+  fs.writeFileSync(
+    registryFile,
+    `${JSON.stringify(sortRegistry(registry), null, 2)}\n`,
+  );
 }
 
 /** Replaces one repository entry in the registry while preserving all others. */
@@ -118,7 +128,9 @@ export function upsertRepoState(
           ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
           protocol: entry.protocol,
           ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
-          ...(entry.resolved_ref !== undefined ? { resolved_ref: entry.resolved_ref } : {}),
+          ...(entry.resolved_ref !== undefined
+            ? { resolved_ref: entry.resolved_ref }
+            : {}),
           ...(entry.resolved_commit !== undefined
             ? { resolved_commit: entry.resolved_commit }
             : {}),
@@ -136,7 +148,9 @@ export function upsertWorktreeState(
   worktreeState: WorktreeState,
 ): Registry {
   if (!(worktreeState.repo_fingerprint in registry.repos)) {
-    throw new Error(`worktrees.${worktreeId}.repo_fingerprint must reference a repository entry`);
+    throw new Error(
+      `worktrees.${worktreeId}.repo_fingerprint must reference a repository entry`,
+    );
   }
 
   return {
@@ -150,7 +164,10 @@ export function upsertWorktreeState(
 }
 
 /** Removes one worktree entry from the registry. */
-export function removeWorktreeState(registry: Registry, worktreeId: string): Registry {
+export function removeWorktreeState(
+  registry: Registry,
+  worktreeId: string,
+): Registry {
   if (!(worktreeId in registry.worktrees)) {
     return {
       version: 1,
@@ -174,9 +191,9 @@ export function listManagedPathsForRemoval(state: {
   files: string[];
   directories?: string[];
 }): string[] {
-  return [...state.files].sort(compareRemovalPath).concat(
-    [...(state.directories ?? [])].sort(compareRemovalPath),
-  );
+  return [...state.files]
+    .sort(compareRemovalPath)
+    .concat([...(state.directories ?? [])].sort(compareRemovalPath));
 }
 
 /** Validates and normalizes raw registry JSON into the typed schema. */
@@ -221,17 +238,26 @@ function parseRepoState(input: unknown, label: string): RepoState {
 
   return {
     repo_root: expectAbsolutePath(repo.repo_root, `${label}.repo_root`),
-    desired_state: parseDesiredState(repo.desired_state, `${label}.desired_state`),
+    desired_state: parseDesiredState(
+      repo.desired_state,
+      `${label}.desired_state`,
+    ),
   };
 }
 
-function parseDesiredState(input: unknown, label: string): DesiredBundleEntry[] {
+function parseDesiredState(
+  input: unknown,
+  label: string,
+): DesiredBundleEntry[] {
   return expectArray(input, label).map((entry, index) =>
     parseDesiredBundleEntry(entry, `${label}[${index}]`),
   );
 }
 
-function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEntry {
+function parseDesiredBundleEntry(
+  input: unknown,
+  label: string,
+): DesiredBundleEntry {
   const entry = expectRecord(input, label);
   const bundle = expectNonEmptyString(entry.bundle, `${label}.bundle`);
   const source =
@@ -252,7 +278,9 @@ function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEn
         });
   const protocol = expectProtocol(entry.protocol, `${label}.protocol`);
   const ref =
-    entry.ref === undefined ? undefined : expectNonEmptyString(entry.ref, `${label}.ref`);
+    entry.ref === undefined
+      ? undefined
+      : expectNonEmptyString(entry.ref, `${label}.ref`);
   const resolvedRef =
     entry.resolved_ref === undefined
       ? undefined
@@ -269,7 +297,9 @@ function parseDesiredBundleEntry(input: unknown, label: string): DesiredBundleEn
     protocol,
     ...(ref !== undefined ? { ref } : {}),
     ...(resolvedRef !== undefined ? { resolved_ref: resolvedRef } : {}),
-    ...(resolvedCommit !== undefined ? { resolved_commit: resolvedCommit } : {}),
+    ...(resolvedCommit !== undefined
+      ? { resolved_commit: resolvedCommit }
+      : {}),
   };
 }
 
@@ -277,24 +307,36 @@ function parseWorktreeState(input: unknown, label: string): WorktreeState {
   const worktree = expectRecord(input, label);
 
   return {
-    repo_fingerprint: expectNonEmptyString(worktree.repo_fingerprint, `${label}.repo_fingerprint`),
+    repo_fingerprint: expectNonEmptyString(
+      worktree.repo_fingerprint,
+      `${label}.repo_fingerprint`,
+    ),
     path: expectAbsolutePath(worktree.path, `${label}.path`),
     materialized_state: parseMaterializedState(
       worktree.materialized_state,
       `${label}.materialized_state`,
     ),
-    shadowed_files: parseShadowedFiles(worktree.shadowed_files, `${label}.shadowed_files`),
+    shadowed_files: parseShadowedFiles(
+      worktree.shadowed_files,
+      `${label}.shadowed_files`,
+    ),
   };
 }
 
-function parseMaterializedState(input: unknown, label: string): MaterializedState {
+function parseMaterializedState(
+  input: unknown,
+  label: string,
+): MaterializedState {
   const state = expectRecord(input, label);
   const bundlesInput = expectRecord(state.bundles, `${label}.bundles`);
 
   const bundles = Object.fromEntries(
     Object.entries(bundlesInput).map(([bundleName, bundleValue]) => [
       bundleName,
-      parseMaterializedBundleState(bundleValue, `${label}.bundles.${bundleName}`),
+      parseMaterializedBundleState(
+        bundleValue,
+        `${label}.bundles.${bundleName}`,
+      ),
     ]),
   );
 
@@ -308,14 +350,20 @@ function parseMaterializedState(input: unknown, label: string): MaterializedStat
 
   return {
     bundles,
-    exclude_configured: expectBoolean(state.exclude_configured, `${label}.exclude_configured`),
+    exclude_configured: expectBoolean(
+      state.exclude_configured,
+      `${label}.exclude_configured`,
+    ),
     ...(rootInstructionBaseContents !== undefined
       ? { root_instruction_base_contents: rootInstructionBaseContents }
       : {}),
   };
 }
 
-function parseMaterializedBundleState(input: unknown, label: string): MaterializedBundleState {
+function parseMaterializedBundleState(
+  input: unknown,
+  label: string,
+): MaterializedBundleState {
   const bundle = expectRecord(input, label);
   const source =
     bundle.source === undefined
@@ -334,21 +382,29 @@ function parseMaterializedBundleState(input: unknown, label: string): Materializ
           `${label}.tools.${toolName} must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
         );
       }
-      return [toolName, parseMaterializedToolState(toolValue, `${label}.tools.${toolName}`)];
+      return [
+        toolName,
+        parseMaterializedToolState(toolValue, `${label}.tools.${toolName}`),
+      ];
     }),
   );
 
   return {
     ...(source !== undefined ? { source } : {}),
-    ...(resolvedCommit !== undefined ? { resolved_commit: resolvedCommit } : {}),
+    ...(resolvedCommit !== undefined
+      ? { resolved_commit: resolvedCommit }
+      : {}),
     tools,
   };
 }
 
-function parseMaterializedToolState(input: unknown, label: string): MaterializedToolState {
+function parseMaterializedToolState(
+  input: unknown,
+  label: string,
+): MaterializedToolState {
   const toolState = expectRecord(input, label);
-  const files = expectArray(toolState.files, `${label}.files`).map((value, index) =>
-    expectRelativePath(value, `${label}.files[${index}]`),
+  const files = expectArray(toolState.files, `${label}.files`).map(
+    (value, index) => expectRelativePath(value, `${label}.files[${index}]`),
   );
   const fileFingerprints =
     toolState.file_fingerprints === undefined
@@ -361,13 +417,16 @@ function parseMaterializedToolState(input: unknown, label: string): Materialized
   const directories =
     toolState.directories === undefined
       ? undefined
-      : expectArray(toolState.directories, `${label}.directories`).map((value, index) =>
-          expectRelativePath(value, `${label}.directories[${index}]`),
+      : expectArray(toolState.directories, `${label}.directories`).map(
+          (value, index) =>
+            expectRelativePath(value, `${label}.directories[${index}]`),
         );
 
   return {
     files,
-    ...(fileFingerprints === undefined ? {} : { file_fingerprints: fileFingerprints }),
+    ...(fileFingerprints === undefined
+      ? {}
+      : { file_fingerprints: fileFingerprints }),
     ...(directories === undefined ? {} : { directories }),
   };
 }
@@ -390,7 +449,10 @@ function parseShadowedFiles(
   );
 }
 
-function parseShadowedFileState(input: unknown, label: string): ShadowedFileState {
+function parseShadowedFileState(
+  input: unknown,
+  label: string,
+): ShadowedFileState {
   const shadowedFile = expectRecord(input, label);
   const tool = expectNonEmptyString(shadowedFile.tool, `${label}.tool`);
 
@@ -414,7 +476,10 @@ function parseShadowedFileState(input: unknown, label: string): ShadowedFileStat
       shadowedFile.rendered_fingerprint,
       `${label}.rendered_fingerprint`,
     ),
-    skip_worktree: expectBoolean(shadowedFile.skip_worktree, `${label}.skip_worktree`),
+    skip_worktree: expectBoolean(
+      shadowedFile.skip_worktree,
+      `${label}.skip_worktree`,
+    ),
   };
 }
 
@@ -434,7 +499,9 @@ function sortRegistry(registry: Registry): Registry {
               ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
               protocol: entry.protocol,
               ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
-              ...(entry.resolved_ref !== undefined ? { resolved_ref: entry.resolved_ref } : {}),
+              ...(entry.resolved_ref !== undefined
+                ? { resolved_ref: entry.resolved_ref }
+                : {}),
               ...(entry.resolved_commit !== undefined
                 ? { resolved_commit: entry.resolved_commit }
                 : {}),
@@ -445,7 +512,10 @@ function sortRegistry(registry: Registry): Registry {
     worktrees: Object.fromEntries(
       Object.entries(registry.worktrees)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([worktreeId, worktreeState]) => [worktreeId, cloneWorktreeState(worktreeState)]),
+        .map(([worktreeId, worktreeState]) => [
+          worktreeId,
+          cloneWorktreeState(worktreeState),
+        ]),
     ),
   };
 }
@@ -459,33 +529,43 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
           ([bundleName, bundleState]) => [
             bundleName,
             {
-              ...(bundleState.source !== undefined ? { source: bundleState.source } : {}),
+              ...(bundleState.source !== undefined
+                ? { source: bundleState.source }
+                : {}),
               ...(bundleState.resolved_commit !== undefined
                 ? { resolved_commit: bundleState.resolved_commit }
                 : {}),
               tools: Object.fromEntries(
-                Object.entries(bundleState.tools).map(([toolName, toolState]) => [
-                  toolName,
-                  {
-                    files: [...toolState.files],
-                    ...(toolState.file_fingerprints !== undefined
-                      ? { file_fingerprints: { ...toolState.file_fingerprints } }
-                      : {}),
-                    ...(toolState.directories !== undefined
-                      ? { directories: [...toolState.directories] }
-                      : {}),
-                  },
-                ]),
+                Object.entries(bundleState.tools).map(
+                  ([toolName, toolState]) => [
+                    toolName,
+                    {
+                      files: [...toolState.files],
+                      ...(toolState.file_fingerprints !== undefined
+                        ? {
+                            file_fingerprints: {
+                              ...toolState.file_fingerprints,
+                            },
+                          }
+                        : {}),
+                      ...(toolState.directories !== undefined
+                        ? { directories: [...toolState.directories] }
+                        : {}),
+                    },
+                  ],
+                ),
               ),
             },
           ],
         ),
       ),
       exclude_configured: worktreeState.materialized_state.exclude_configured,
-      ...(worktreeState.materialized_state.root_instruction_base_contents !== undefined
+      ...(worktreeState.materialized_state.root_instruction_base_contents !==
+      undefined
         ? {
             root_instruction_base_contents: {
-              ...worktreeState.materialized_state.root_instruction_base_contents,
+              ...worktreeState.materialized_state
+                .root_instruction_base_contents,
             },
           }
         : {}),
@@ -493,12 +573,18 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
     shadowed_files: Object.fromEntries(
       Object.entries(worktreeState.shadowed_files)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([relativePath, shadowedFile]) => [relativePath, { ...shadowedFile }]),
+        .map(([relativePath, shadowedFile]) => [
+          relativePath,
+          { ...shadowedFile },
+        ]),
     ),
   };
 }
 
-function parseRootInstructionBaseContents(input: unknown, label: string): Record<string, string> {
+function parseRootInstructionBaseContents(
+  input: unknown,
+  label: string,
+): Record<string, string> {
   const record = expectRecord(input, label);
 
   return Object.fromEntries(
@@ -559,7 +645,11 @@ function expectRelativePath(input: unknown, label: string): string {
   const value = expectNonEmptyString(input, label);
   const normalized = path.normalize(value);
 
-  if (path.isAbsolute(value) || normalized === "." || normalized.startsWith("..")) {
+  if (
+    path.isAbsolute(value) ||
+    normalized === "." ||
+    normalized.startsWith("..")
+  ) {
     throw new Error(`${label} must be a relative path`);
   }
 
@@ -593,7 +683,9 @@ function expectGitObjectId(input: unknown, label: string): string {
   const value = expectNonEmptyString(input, label);
 
   if (!/^[0-9a-f]{7,40}$/i.test(value)) {
-    throw new Error(`${label} must be a 7-40 character hexadecimal Git object id`);
+    throw new Error(
+      `${label} must be a 7-40 character hexadecimal Git object id`,
+    );
   }
 
   return value;
@@ -610,10 +702,15 @@ function parseFileFingerprints(
   return Object.fromEntries(
     Object.entries(record).map(([relativePath, fingerprint]) => {
       if (!knownFiles.has(relativePath)) {
-        throw new Error(`${label}.${relativePath} must reference a tracked file`);
+        throw new Error(
+          `${label}.${relativePath} must reference a tracked file`,
+        );
       }
 
-      return [relativePath, expectNonEmptyString(fingerprint, `${label}.${relativePath}`)];
+      return [
+        relativePath,
+        expectNonEmptyString(fingerprint, `${label}.${relativePath}`),
+      ];
     }),
   );
 }

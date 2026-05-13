@@ -1,0 +1,17 @@
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "biome-check"
+name = "Biome (lint + format)"
+language = "system"
+entry = "pnpm exec biome check --write"
+types_or = ["ts", "javascript", "json"]
+
+[[repos.hooks]]
+id = "typecheck"
+name = "TypeScript typecheck"
+language = "system"
+entry = "pnpm run typecheck"
+pass_filenames = false
+types = ["ts"]

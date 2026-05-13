@@ -2,7 +2,10 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseBundleManifest, resolveCachedBundleLayout } from "./bundle-manifest";
+import {
+  parseBundleManifest,
+  resolveCachedBundleLayout,
+} from "./bundle-manifest";
 
 describe("parseBundleManifest", () => {
   it("accepts a single-tool bundle manifest", () => {
@@ -199,11 +202,7 @@ describe("parseBundleManifest", () => {
       },
       /tools\.claude-code\.skills\.path must be a relative path/i,
     ],
-    [
-      "null input",
-      null,
-      /manifest must be an object/i,
-    ],
+    ["null input", null, /manifest must be an object/i],
     [
       "tools is an array",
       { tools: [{ "claude-code": { skills: { path: "skills" } } }] },
@@ -233,8 +232,19 @@ describe("resolveCachedBundleLayout", () => {
     // Then
     expect(layout).toMatchObject({
       sourceSegments: ["github.com", "user", "ai-vault"],
-      sourceDir: path.join("/Users/dev/.skul/library", "github.com", "user", "ai-vault"),
-      bundleDir: path.join("/Users/dev/.skul/library", "github.com", "user", "ai-vault", "react-expert"),
+      sourceDir: path.join(
+        "/Users/dev/.skul/library",
+        "github.com",
+        "user",
+        "ai-vault",
+      ),
+      bundleDir: path.join(
+        "/Users/dev/.skul/library",
+        "github.com",
+        "user",
+        "ai-vault",
+        "react-expert",
+      ),
       manifestFile: path.join(
         "/Users/dev/.skul/library",
         "github.com",
@@ -261,12 +271,20 @@ describe("resolveCachedBundleLayout", () => {
   it.each([
     [
       "empty library dir",
-      { libraryDir: "", source: "github.com/user/ai-vault", bundle: "react-expert" },
+      {
+        libraryDir: "",
+        source: "github.com/user/ai-vault",
+        bundle: "react-expert",
+      },
       /library directory is required/i,
     ],
     [
       "empty source",
-      { libraryDir: "/Users/dev/.skul/library", source: "", bundle: "react-expert" },
+      {
+        libraryDir: "/Users/dev/.skul/library",
+        source: "",
+        bundle: "react-expert",
+      },
       /source is required/i,
     ],
     [

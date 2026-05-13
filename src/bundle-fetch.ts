@@ -56,7 +56,9 @@ const SSH_AUTH_FAILURE_RE =
  * Otherwise the repo is shallow-cloned into libraryDir/host/owner/repo using
  * HTTPS (default) or SSH when protocol is "ssh".
  */
-export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemoteSourceResult {
+export function fetchRemoteSource(
+  options: FetchRemoteSourceOptions,
+): FetchRemoteSourceResult {
   const targetDir = getTargetDir(options);
 
   if (fs.existsSync(targetDir)) {
@@ -81,7 +83,9 @@ export function fetchRemoteSource(options: FetchRemoteSourceOptions): FetchRemot
 }
 
 /** Reads the currently cached commit, ref, and remote URL for one source. */
-export function readCachedSourceRevision(options: FetchRemoteSourceOptions): CachedSourceRevision {
+export function readCachedSourceRevision(
+  options: FetchRemoteSourceOptions,
+): CachedSourceRevision {
   const targetDir = getTargetDir(options);
 
   if (!fs.existsSync(targetDir)) {
@@ -92,7 +96,16 @@ export function readCachedSourceRevision(options: FetchRemoteSourceOptions): Cac
     cached: true,
     targetDir,
     currentCommit: tryRunGit(["-C", targetDir, "rev-parse", "HEAD"]),
-    currentRef: normalizeCurrentRef(tryRunGit(["-C", targetDir, "symbolic-ref", "--quiet", "--short", "HEAD"])),
+    currentRef: normalizeCurrentRef(
+      tryRunGit([
+        "-C",
+        targetDir,
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD",
+      ]),
+    ),
     remoteUrl: tryRunGit(["-C", targetDir, "remote", "get-url", "origin"]),
   };
 }
@@ -102,8 +115,13 @@ export function inspectRemoteSource(
   options: FetchRemoteSourceOptions & { ref?: string },
 ): RemoteSourceStatus {
   const cached = readCachedSourceRevision(options);
-  const remoteUrl = cached.remoteUrl ?? getCloneUrl(options.source, options.protocol);
-  let resolvedRemote: { kind: "branch" | "tag" | "commit"; resolvedRef?: string; commit: string };
+  const remoteUrl =
+    cached.remoteUrl ?? getCloneUrl(options.source, options.protocol);
+  let resolvedRemote: {
+    kind: "branch" | "tag" | "commit";
+    resolvedRef?: string;
+    commit: string;
+  };
 
   try {
     resolvedRemote = resolveRemoteRef(remoteUrl, options.ref);
@@ -147,7 +165,10 @@ export function updateCachedRemoteSource(
       ? status.currentRef !== status.resolvedRef
       : status.currentRef !== undefined;
 
-  if (status.currentCommit === status.remoteCommit && !requiresCheckoutRealignment) {
+  if (
+    status.currentCommit === status.remoteCommit &&
+    !requiresCheckoutRealignment
+  ) {
     return {
       ...status,
       previousCommit: status.currentCommit,
@@ -158,13 +179,41 @@ export function updateCachedRemoteSource(
 
   try {
     if (status.refKind === "branch") {
-      runGit(["-C", targetDir, "fetch", "--depth=1", "origin", `refs/heads/${status.resolvedRef!}`]);
-      runGit(["-C", targetDir, "checkout", "-B", status.resolvedRef!, "FETCH_HEAD"]);
+      runGit([
+        "-C",
+        targetDir,
+        "fetch",
+        "--depth=1",
+        "origin",
+        `refs/heads/${status.resolvedRef!}`,
+      ]);
+      runGit([
+        "-C",
+        targetDir,
+        "checkout",
+        "-B",
+        status.resolvedRef!,
+        "FETCH_HEAD",
+      ]);
     } else if (status.refKind === "tag") {
-      runGit(["-C", targetDir, "fetch", "--depth=1", "origin", `refs/tags/${status.resolvedRef!}`]);
+      runGit([
+        "-C",
+        targetDir,
+        "fetch",
+        "--depth=1",
+        "origin",
+        `refs/tags/${status.resolvedRef!}`,
+      ]);
       runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
     } else {
-      runGit(["-C", targetDir, "fetch", "--depth=1", "origin", status.remoteCommit]);
+      runGit([
+        "-C",
+        targetDir,
+        "fetch",
+        "--depth=1",
+        "origin",
+        status.remoteCommit,
+      ]);
       runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
     }
   } catch (error) {
@@ -182,7 +231,9 @@ export function updateCachedRemoteSource(
     currentRef: refreshed.currentRef,
     remoteUrl: refreshed.remoteUrl ?? status.remoteUrl,
     previousCommit: initialRevision.currentCommit,
-    updated: status.currentCommit !== status.remoteCommit || requiresCheckoutRealignment,
+    updated:
+      status.currentCommit !== status.remoteCommit ||
+      requiresCheckoutRealignment,
   };
 }
 
@@ -192,7 +243,10 @@ function rewriteInspectFailureForUpdate(error: unknown, source: string): Error {
     error.message.startsWith(`Failed to inspect ${source}`)
   ) {
     return new Error(
-      error.message.replace(`Failed to inspect ${source}`, `Failed to update ${source}`),
+      error.message.replace(
+        `Failed to inspect ${source}`,
+        `Failed to update ${source}`,
+      ),
     );
   }
 
@@ -200,7 +254,9 @@ function rewriteInspectFailureForUpdate(error: unknown, source: string): Error {
 }
 
 /** Removes one cached source from disk and prunes empty cache directories above it. */
-export function clearCachedSource(options: FetchRemoteSourceOptions): ClearCachedSourceResult {
+export function clearCachedSource(
+  options: FetchRemoteSourceOptions,
+): ClearCachedSourceResult {
   const targetDir = getTargetDir(options);
 
   if (!fs.existsSync(targetDir)) {
@@ -214,11 +270,16 @@ export function clearCachedSource(options: FetchRemoteSourceOptions): ClearCache
 }
 
 /** Removes every cached source beneath the library directory. */
-export function clearAllCachedSources(options: { libraryDir: string }): ClearAllCachedSourcesResult {
+export function clearAllCachedSources(options: {
+  libraryDir: string;
+}): ClearAllCachedSourcesResult {
   const clearedSources: string[] = [];
 
   for (const source of listCachedSources(options.libraryDir)) {
-    const result = clearCachedSource({ source, libraryDir: options.libraryDir });
+    const result = clearCachedSource({
+      source,
+      libraryDir: options.libraryDir,
+    });
 
     if (result.cleared) {
       clearedSources.push(source);
@@ -256,12 +317,23 @@ export function listCachedSources(libraryDir: string): string[] {
 
 /** Moves a cached source checkout back to a previously recorded revision. */
 export function restoreCachedRemoteSourceRevision(
-  options: FetchRemoteSourceOptions & { ref?: string; commit: string; refName?: string },
+  options: FetchRemoteSourceOptions & {
+    ref?: string;
+    commit: string;
+    refName?: string;
+  },
 ): void {
   const targetDir = getTargetDir(options);
 
   if (options.refName) {
-    runGit(["-C", targetDir, "checkout", "-B", options.refName, options.commit]);
+    runGit([
+      "-C",
+      targetDir,
+      "checkout",
+      "-B",
+      options.refName,
+      options.commit,
+    ]);
     return;
   }
 
@@ -269,7 +341,9 @@ export function restoreCachedRemoteSourceRevision(
 }
 
 /** Deletes one cached source checkout without reporting whether it existed. */
-export function removeCachedRemoteSource(options: FetchRemoteSourceOptions): void {
+export function removeCachedRemoteSource(
+  options: FetchRemoteSourceOptions,
+): void {
   fs.rmSync(getTargetDir(options), { recursive: true, force: true });
 }
 
@@ -278,7 +352,10 @@ function getTargetDir(options: FetchRemoteSourceOptions): string {
   return path.join(options.libraryDir, ...options.source.split("/"));
 }
 
-function removeEmptyLibraryAncestors(currentDir: string, libraryDir: string): void {
+function removeEmptyLibraryAncestors(
+  currentDir: string,
+  libraryDir: string,
+): void {
   let directory = currentDir;
   const libraryRoot = path.resolve(libraryDir);
 
@@ -292,7 +369,10 @@ function removeEmptyLibraryAncestors(currentDir: string, libraryDir: string): vo
   }
 }
 
-function getCloneUrl(source: string, protocol: "https" | "ssh" = "https"): string {
+function getCloneUrl(
+  source: string,
+  protocol: "https" | "ssh" = "https",
+): string {
   assertSafeSource(source);
 
   const [host, owner, repo] = source.split("/");
@@ -311,13 +391,24 @@ function resolveRemoteRef(
   }
 
   if (requestedRef) {
-    const branchCommit = parseFirstSha(runGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`]));
+    const branchCommit = parseFirstSha(
+      runGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`]),
+    );
 
     if (branchCommit) {
-      return { kind: "branch", resolvedRef: requestedRef, commit: branchCommit };
+      return {
+        kind: "branch",
+        resolvedRef: requestedRef,
+        commit: branchCommit,
+      };
     }
 
-    const tagOutput = runGit(["ls-remote", remoteUrl, `refs/tags/${requestedRef}`, `refs/tags/${requestedRef}^{}`]);
+    const tagOutput = runGit([
+      "ls-remote",
+      remoteUrl,
+      `refs/tags/${requestedRef}`,
+      `refs/tags/${requestedRef}^{}`,
+    ]);
     const tagCommit = parsePreferredTagSha(tagOutput, requestedRef);
 
     if (tagCommit) {
@@ -362,9 +453,18 @@ function parseHeadCommit(output: string): string | undefined {
   return undefined;
 }
 
-function parsePreferredTagSha(output: string, tagName: string): string | undefined {
-  const peeledPattern = new RegExp(`^([0-9a-f]{7,40})\\s+refs/tags/${escapeRegExp(tagName)}\\^{}$`, "i");
-  const directPattern = new RegExp(`^([0-9a-f]{7,40})\\s+refs/tags/${escapeRegExp(tagName)}$`, "i");
+function parsePreferredTagSha(
+  output: string,
+  tagName: string,
+): string | undefined {
+  const peeledPattern = new RegExp(
+    `^([0-9a-f]{7,40})\\s+refs/tags/${escapeRegExp(tagName)}\\^{}$`,
+    "i",
+  );
+  const directPattern = new RegExp(
+    `^([0-9a-f]{7,40})\\s+refs/tags/${escapeRegExp(tagName)}$`,
+    "i",
+  );
   let directCommit: string | undefined;
 
   for (const line of output.split("\n")) {
@@ -446,7 +546,9 @@ function normalizeGitError(
     "code" in error &&
     (error as NodeJS.ErrnoException).code === "ENOENT"
   ) {
-    return new Error("git is not installed or not on PATH. Install git to fetch remote bundles.");
+    return new Error(
+      "git is not installed or not on PATH. Install git to fetch remote bundles.",
+    );
   }
 
   const stderr =
@@ -456,7 +558,10 @@ function normalizeGitError(
 
   let message = `${prefix}${stderr ? `:\n${stderr}` : ""}`;
 
-  if ((context.protocol ?? "https") === "ssh" && SSH_AUTH_FAILURE_RE.test(stderr)) {
+  if (
+    (context.protocol ?? "https") === "ssh" &&
+    SSH_AUTH_FAILURE_RE.test(stderr)
+  ) {
     message += `\nHint: SSH authentication failed. To clone via HTTPS instead, omit --ssh:\n  skul add ${context.source}`;
   }
 

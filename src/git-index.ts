@@ -66,8 +66,14 @@ export interface RootInstructionShadowSafetyInspection {
  * A path is considered tracked when it exists either in the current index or
  * in `HEAD`, including staged deletions where only the `HEAD` blob remains.
  */
-export function isTrackedGitPath(options: { repoRoot: string; filePath: string }): boolean {
-  return inspectGitIndexStages(options).length > 0 || readGitHeadBlob(options) !== null;
+export function isTrackedGitPath(options: {
+  repoRoot: string;
+  filePath: string;
+}): boolean {
+  return (
+    inspectGitIndexStages(options).length > 0 ||
+    readGitHeadBlob(options) !== null
+  );
 }
 
 /**
@@ -103,11 +109,17 @@ export function inspectRootInstructionShadowTarget(options: {
     issues.push("missing-head");
   }
 
-  if (!issues.includes("unmerged") && hasStagedChanges(options.repoRoot, options.filePath)) {
+  if (
+    !issues.includes("unmerged") &&
+    hasStagedChanges(options.repoRoot, options.filePath)
+  ) {
     issues.push("staged-changes");
   }
 
-  if (!issues.includes("unmerged") && hasUnstagedChanges(options.repoRoot, options.filePath)) {
+  if (
+    !issues.includes("unmerged") &&
+    hasUnstagedChanges(options.repoRoot, options.filePath)
+  ) {
     issues.push("unstaged-changes");
   }
 
@@ -130,9 +142,15 @@ export function inspectRootInstructionShadowTarget(options: {
  * Returns `null` when the path has no `HEAD` entry, such as an index-only path
  * that has been staged without ever being committed.
  */
-export function readGitHeadBlob(options: { repoRoot: string; filePath: string }): GitHeadBlob | null {
+export function readGitHeadBlob(options: {
+  repoRoot: string;
+  filePath: string;
+}): GitHeadBlob | null {
   const repoRelativePath = normalizeRepoRelativePath(options.filePath);
-  const objectId = tryRunGit(options.repoRoot, ["rev-parse", `HEAD:${repoRelativePath}`])?.trim();
+  const objectId = tryRunGit(options.repoRoot, [
+    "rev-parse",
+    `HEAD:${repoRelativePath}`,
+  ])?.trim();
 
   if (!objectId) {
     return null;
@@ -147,51 +165,77 @@ export function readGitHeadBlob(options: { repoRoot: string; filePath: string })
 /**
  * Returns all index stage entries for a path.
  */
-export function inspectGitIndexStages(options: { repoRoot: string; filePath: string }): GitIndexStageEntry[] {
+export function inspectGitIndexStages(options: {
+  repoRoot: string;
+  filePath: string;
+}): GitIndexStageEntry[] {
   const repoRelativePath = normalizeRepoRelativePath(options.filePath);
-  const output = runGit(options.repoRoot, ["ls-files", "-s", "--", repoRelativePath]);
+  const output = runGit(options.repoRoot, [
+    "ls-files",
+    "-s",
+    "--",
+    repoRelativePath,
+  ]);
 
   if (output.trim() === "") {
     return [];
   }
 
-  return output
-    .trim()
-    .split("\n")
-    .map(parseGitIndexStageEntry);
+  return output.trim().split("\n").map(parseGitIndexStageEntry);
 }
 
 /**
  * Returns the `git ls-files -v` flags for a path.
  */
-export function readGitIndexFlags(options: { repoRoot: string; filePath: string }): string[] {
+export function readGitIndexFlags(options: {
+  repoRoot: string;
+  filePath: string;
+}): string[] {
   const repoRelativePath = normalizeRepoRelativePath(options.filePath);
-  const output = runGit(options.repoRoot, ["ls-files", "-v", "--", repoRelativePath]);
+  const output = runGit(options.repoRoot, [
+    "ls-files",
+    "-v",
+    "--",
+    repoRelativePath,
+  ]);
 
   if (output.trim() === "") {
     return [];
   }
 
-  return output
-    .trim()
-    .split("\n")
-    .map(parseGitIndexFlag);
+  return output.trim().split("\n").map(parseGitIndexFlag);
 }
 
 /**
  * Marks a tracked path as `skip-worktree`.
  */
-export function setGitSkipWorktree(options: { repoRoot: string; filePath: string }): void {
+export function setGitSkipWorktree(options: {
+  repoRoot: string;
+  filePath: string;
+}): void {
   const repoRelativePath = normalizeRepoRelativePath(options.filePath);
-  runGit(options.repoRoot, ["update-index", "--skip-worktree", "--", repoRelativePath]);
+  runGit(options.repoRoot, [
+    "update-index",
+    "--skip-worktree",
+    "--",
+    repoRelativePath,
+  ]);
 }
 
 /**
  * Clears the `skip-worktree` flag from a tracked path.
  */
-export function clearGitSkipWorktree(options: { repoRoot: string; filePath: string }): void {
+export function clearGitSkipWorktree(options: {
+  repoRoot: string;
+  filePath: string;
+}): void {
   const repoRelativePath = normalizeRepoRelativePath(options.filePath);
-  runGit(options.repoRoot, ["update-index", "--no-skip-worktree", "--", repoRelativePath]);
+  runGit(options.repoRoot, [
+    "update-index",
+    "--no-skip-worktree",
+    "--",
+    repoRelativePath,
+  ]);
 }
 
 function hasUnmergedEntries(stageEntries: GitIndexStageEntry[]): boolean {
@@ -199,11 +243,26 @@ function hasUnmergedEntries(stageEntries: GitIndexStageEntry[]): boolean {
 }
 
 function hasStagedChanges(repoRoot: string, filePath: string): boolean {
-  return gitCommandExitCode(repoRoot, ["diff", "--cached", "--quiet", "--", normalizeRepoRelativePath(filePath)]) === 1;
+  return (
+    gitCommandExitCode(repoRoot, [
+      "diff",
+      "--cached",
+      "--quiet",
+      "--",
+      normalizeRepoRelativePath(filePath),
+    ]) === 1
+  );
 }
 
 function hasUnstagedChanges(repoRoot: string, filePath: string): boolean {
-  return gitCommandExitCode(repoRoot, ["diff", "--quiet", "--", normalizeRepoRelativePath(filePath)]) === 1;
+  return (
+    gitCommandExitCode(repoRoot, [
+      "diff",
+      "--quiet",
+      "--",
+      normalizeRepoRelativePath(filePath),
+    ]) === 1
+  );
 }
 
 function hasIncompatibleIndexFlags(indexFlags: string[]): boolean {
@@ -248,7 +307,11 @@ function gitCommandExitCode(repoRoot: string, args: string[]): number {
     });
     return 0;
   } catch (error) {
-    if (error instanceof Error && "status" in error && typeof error.status === "number") {
+    if (
+      error instanceof Error &&
+      "status" in error &&
+      typeof error.status === "number"
+    ) {
       return error.status;
     }
 

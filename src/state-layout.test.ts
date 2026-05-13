@@ -20,7 +20,14 @@ describe("resolveGlobalStateLayout", () => {
     const layout = resolveGlobalStateLayout({ homeDir: "/Users/dev" });
 
     expect(layout.resolveLibraryPath("github.com", "user", "ai-vault")).toBe(
-      path.join("/Users/dev", ".skul", "library", "github.com", "user", "ai-vault"),
+      path.join(
+        "/Users/dev",
+        ".skul",
+        "library",
+        "github.com",
+        "user",
+        "ai-vault",
+      ),
     );
   });
 

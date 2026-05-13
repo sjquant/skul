@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { configureSkulExcludeBlock, hasSkulExcludeBlock, removeSkulExcludeBlock } from "./git-exclude";
+import {
+  configureSkulExcludeBlock,
+  hasSkulExcludeBlock,
+  removeSkulExcludeBlock,
+} from "./git-exclude";
 
 const tempDirs: string[] = [];
 
@@ -101,7 +105,9 @@ describe("removeSkulExcludeBlock", () => {
 
     // Then
     expect(removed).toBe(true);
-    expect(readExcludeFile(gitDir)).toBe(["node_modules", "", ".env.local", ""].join("\n"));
+    expect(readExcludeFile(gitDir)).toBe(
+      ["node_modules", "", ".env.local", ""].join("\n"),
+    );
   });
 });
 

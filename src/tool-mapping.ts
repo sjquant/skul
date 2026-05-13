@@ -1,7 +1,11 @@
 import path from "node:path";
 
 export type ToolName = "claude-code" | "cursor" | "opencode" | "codex";
-export type ToolTargetName = "skills" | "commands" | "agents" | "root_instruction";
+export type ToolTargetName =
+  | "skills"
+  | "commands"
+  | "agents"
+  | "root_instruction";
 export type ToolTargetEntryKind = "directory" | "file";
 
 export interface ToolTargetDefinition {

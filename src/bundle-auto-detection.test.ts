@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { inferBundleManifest } from "./bundle-manifest";
 import { materializeBundle } from "./bundle-materialization";
-import { formatExpectedRootInstructionDocument, formatRootInstructionBundleBlock } from "./utils/testing";
-import { type ToolName } from "./tool-mapping";
+import type { ToolName } from "./tool-mapping";
+import {
+  formatExpectedRootInstructionDocument,
+  formatRootInstructionBundleBlock,
+} from "./utils/testing";
 
 const tempDirs: string[] = [];
 
@@ -31,7 +34,9 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then – every tool that supports skills should be included
-    expect(manifest.tools["claude-code"]).toEqual({ skills: { path: "skills" } });
+    expect(manifest.tools["claude-code"]).toEqual({
+      skills: { path: "skills" },
+    });
     expect(manifest.tools["cursor"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["opencode"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["codex"]).toEqual({ skills: { path: "skills" } });
@@ -46,9 +51,15 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toEqual({ commands: { path: "commands" } });
-    expect(manifest.tools["cursor"]).toEqual({ commands: { path: "commands" } });
-    expect(manifest.tools["opencode"]).toEqual({ commands: { path: "commands" } });
+    expect(manifest.tools["claude-code"]).toEqual({
+      commands: { path: "commands" },
+    });
+    expect(manifest.tools["cursor"]).toEqual({
+      commands: { path: "commands" },
+    });
+    expect(manifest.tools["opencode"]).toEqual({
+      commands: { path: "commands" },
+    });
     expect(manifest.tools["codex"]).toBeUndefined(); // codex has no commands target
   });
 
@@ -61,7 +72,9 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toEqual({ agents: { path: "agents" } });
+    expect(manifest.tools["claude-code"]).toEqual({
+      agents: { path: "agents" },
+    });
     expect(manifest.tools["cursor"]).toEqual({ agents: { path: "agents" } });
     expect(manifest.tools["opencode"]).toEqual({ agents: { path: "agents" } });
     expect(manifest.tools["codex"]).toEqual({ agents: { path: "agents" } });
@@ -76,10 +89,18 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
-    expect(manifest.tools["cursor"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
-    expect(manifest.tools["opencode"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
-    expect(manifest.tools["codex"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["claude-code"]).toEqual({
+      root_instruction: { path: "CLAUDE.md" },
+    });
+    expect(manifest.tools["cursor"]).toEqual({
+      root_instruction: { path: "CLAUDE.md" },
+    });
+    expect(manifest.tools["opencode"]).toEqual({
+      root_instruction: { path: "CLAUDE.md" },
+    });
+    expect(manifest.tools["codex"]).toEqual({
+      root_instruction: { path: "CLAUDE.md" },
+    });
   });
 
   it("infers an AGENTS.md root instruction file for all root-instruction tools", () => {
@@ -91,22 +112,35 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
-    expect(manifest.tools["cursor"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
-    expect(manifest.tools["opencode"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
-    expect(manifest.tools["codex"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+    expect(manifest.tools["claude-code"]).toEqual({
+      root_instruction: { path: "AGENTS.md" },
+    });
+    expect(manifest.tools["cursor"]).toEqual({
+      root_instruction: { path: "AGENTS.md" },
+    });
+    expect(manifest.tools["opencode"]).toEqual({
+      root_instruction: { path: "AGENTS.md" },
+    });
+    expect(manifest.tools["codex"]).toEqual({
+      root_instruction: { path: "AGENTS.md" },
+    });
   });
 
   it("uses native dotdir path when a native directory exists", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"), "# raw\n");
+    writeFile(
+      path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"),
+      "# raw\n",
+    );
 
     // When
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["cursor"]).toEqual({ skills: { path: ".cursor/skills" } });
+    expect(manifest.tools["cursor"]).toEqual({
+      skills: { path: ".cursor/skills" },
+    });
     // Other tools are absent because neither canonical nor their native dirs exist
     expect(manifest.tools["claude-code"]).toBeUndefined();
   });
@@ -114,8 +148,14 @@ describe("inferBundleManifest", () => {
   it("native dotdir overrides canonical path for the same tool + target", () => {
     // Given: canonical skills/ AND .cursor/skills/ both present
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# canonical\n");
-    writeFile(path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"), "# native\n");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      "# canonical\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"),
+      "# native\n",
+    );
 
     // When
     const manifest = inferBundleManifest(bundleDir);
@@ -131,7 +171,10 @@ describe("inferBundleManifest", () => {
     // Given: canonical commands/ + native .claude/skills/ for claude-code
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "commands", "review.md"), "# review\n");
-    writeFile(path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"), "# native skill\n");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# native skill\n",
+    );
 
     // When
     const manifest = inferBundleManifest(bundleDir);
@@ -146,7 +189,10 @@ describe("inferBundleManifest", () => {
   it("merges canonical directories with a root instruction file for the same tool", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# canonical\n");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      "# canonical\n",
+    );
     writeFile(path.join(bundleDir, "CLAUDE.md"), "# root instructions\n");
 
     // When
@@ -256,8 +302,13 @@ describe("materializeBundle: canonical → cursor", () => {
     });
 
     // Then
-    expect(result.byTool["cursor"]!.files).toEqual([".cursor/skills/react/SKILL.md"]);
-    const content = fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8");
+    expect(result.byTool["cursor"]!.files).toEqual([
+      ".cursor/skills/react/SKILL.md",
+    ]);
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+      "utf8",
+    );
     expect(content).toContain("name: react");
     expect(content).toContain("description: React skills");
     expect(content).toContain("React content");
@@ -282,8 +333,13 @@ describe("materializeBundle: canonical → cursor", () => {
     });
 
     // Then
-    expect(result.byTool["cursor"]!.files).toEqual([".cursor/commands/review.md"]);
-    const content = fs.readFileSync(path.join(repoRoot, ".cursor", "commands", "review.md"), "utf8");
+    expect(result.byTool["cursor"]!.files).toEqual([
+      ".cursor/commands/review.md",
+    ]);
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".cursor", "commands", "review.md"),
+      "utf8",
+    );
     // Cursor commands are plain text — frontmatter is stripped
     expect(content).toBe("Review the diff.\n");
     expect(content).not.toContain("description:");
@@ -314,7 +370,9 @@ describe("materializeBundle: canonical → codex", () => {
     });
 
     // Then
-    expect(result.byTool["codex"]!.files).toContain(".agents/skills/review/SKILL.md");
+    expect(result.byTool["codex"]!.files).toContain(
+      ".agents/skills/review/SKILL.md",
+    );
     const content = fs.readFileSync(
       path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
       "utf8",
@@ -343,10 +401,21 @@ describe("materializeBundle: canonical → codex", () => {
     });
 
     // Then
-    expect(result.byTool["codex"]!.files).toContain(".agents/skills/next-task/SKILL.md");
-    expect(result.byTool["codex"]!.files).toContain(".agents/skills/next-task/agents/openai.yaml");
+    expect(result.byTool["codex"]!.files).toContain(
+      ".agents/skills/next-task/SKILL.md",
+    );
+    expect(result.byTool["codex"]!.files).toContain(
+      ".agents/skills/next-task/agents/openai.yaml",
+    );
     const yaml = fs.readFileSync(
-      path.join(repoRoot, ".agents", "skills", "next-task", "agents", "openai.yaml"),
+      path.join(
+        repoRoot,
+        ".agents",
+        "skills",
+        "next-task",
+        "agents",
+        "openai.yaml",
+      ),
       "utf8",
     );
     expect(yaml).toContain("allow_implicit_invocation: false");
@@ -371,8 +440,13 @@ describe("materializeBundle: canonical → codex", () => {
     });
 
     // Then
-    expect(result.byTool["codex"]!.files).toEqual([".codex/agents/reviewer.toml"]);
-    const content = fs.readFileSync(path.join(repoRoot, ".codex", "agents", "reviewer.toml"), "utf8");
+    expect(result.byTool["codex"]!.files).toEqual([
+      ".codex/agents/reviewer.toml",
+    ]);
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".codex", "agents", "reviewer.toml"),
+      "utf8",
+    );
     expect(content).toContain('name = "reviewer"');
     expect(content).toContain('description = "Code reviewer"');
     expect(content).toContain("Review every PR carefully.");
@@ -403,7 +477,9 @@ describe("materializeBundle: canonical → opencode", () => {
     });
 
     // Then
-    expect(result.byTool["opencode"]!.files).toEqual([".opencode/skills/react/SKILL.md"]);
+    expect(result.byTool["opencode"]!.files).toEqual([
+      ".opencode/skills/react/SKILL.md",
+    ]);
     const content = fs.readFileSync(
       path.join(repoRoot, ".opencode", "skills", "react", "SKILL.md"),
       "utf8",
@@ -431,9 +507,18 @@ describe("materializeBundle: canonical → opencode", () => {
     });
 
     // Then – manualOnly skill lands in opencode's commands dir, not skills dir
-    expect(result.byTool["opencode"]!.files).toEqual([".opencode/commands/fix.md"]);
-    expect(fs.existsSync(path.join(repoRoot, ".opencode", "skills", "fix", "SKILL.md"))).toBe(false);
-    const content = fs.readFileSync(path.join(repoRoot, ".opencode", "commands", "fix.md"), "utf8");
+    expect(result.byTool["opencode"]!.files).toEqual([
+      ".opencode/commands/fix.md",
+    ]);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".opencode", "skills", "fix", "SKILL.md"),
+      ),
+    ).toBe(false);
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".opencode", "commands", "fix.md"),
+      "utf8",
+    );
     expect(content).toContain("Fix the reported issue.");
   });
 
@@ -456,8 +541,13 @@ describe("materializeBundle: canonical → opencode", () => {
     });
 
     // Then
-    expect(result.byTool["opencode"]!.files).toEqual([".opencode/commands/deploy.md"]);
-    const content = fs.readFileSync(path.join(repoRoot, ".opencode", "commands", "deploy.md"), "utf8");
+    expect(result.byTool["opencode"]!.files).toEqual([
+      ".opencode/commands/deploy.md",
+    ]);
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".opencode", "commands", "deploy.md"),
+      "utf8",
+    );
     expect(content).toContain("description: Deploy the app");
     expect(content).toContain("Run the deployment pipeline.");
   });
@@ -473,36 +563,46 @@ describe("materializeBundle: native dotdir passthrough", () => {
     ["cursor", ".cursor/skills", "react/SKILL.md", "# raw cursor skill\n"],
     ["cursor", ".cursor/commands", "review.md", "# raw cursor command\n"],
     ["cursor", ".cursor/agents", "reviewer.md", "# raw cursor agent\n"],
-    ["opencode", ".opencode/skills", "react/SKILL.md", "# raw opencode skill\n"],
+    [
+      "opencode",
+      ".opencode/skills",
+      "react/SKILL.md",
+      "# raw opencode skill\n",
+    ],
     ["codex", ".agents/skills", "react/SKILL.md", "# raw codex skill\n"],
     ["codex", ".codex/agents", "reviewer.toml", 'name = "reviewer"\n'],
   ];
 
-  it.each(nativeCases)(
-    "copies %s native %s/%s verbatim",
-    async (toolName, nativePath, fileName, rawContent) => {
-      // Given
-      const repoRoot = createTempDir("skul-repo-");
-      const bundleDir = createTempDir("skul-bundle-");
-      const targetName = nativePath.split("/")[1] as "skills" | "commands" | "agents";
-      writeFile(path.join(bundleDir, nativePath, fileName), rawContent);
+  it.each(
+    nativeCases,
+  )("copies %s native %s/%s verbatim", async (toolName, nativePath, fileName, rawContent) => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const targetName = nativePath.split("/")[1] as
+      | "skills"
+      | "commands"
+      | "agents";
+    writeFile(path.join(bundleDir, nativePath, fileName), rawContent);
 
-      // When
-      const result = await materializeBundle({
-        repoRoot,
-        bundleDir,
-        manifest: {
-          tools: { [toolName]: { [targetName]: { path: nativePath } } } as any,
-        },
-      });
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { [toolName]: { [targetName]: { path: nativePath } } } as any,
+      },
+    });
 
-      // Then
-      const expectedFile = `${nativePath}/${fileName}`;
-      expect(result.byTool[toolName]!.files).toContain(expectedFile);
-      const writtenContent = fs.readFileSync(path.join(repoRoot, expectedFile), "utf8");
-      expect(writtenContent).toBe(rawContent);
-    },
-  );
+    // Then
+    const expectedFile = `${nativePath}/${fileName}`;
+    expect(result.byTool[toolName]!.files).toContain(expectedFile);
+    const writtenContent = fs.readFileSync(
+      path.join(repoRoot, expectedFile),
+      "utf8",
+    );
+    expect(writtenContent).toBe(rawContent);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -520,22 +620,28 @@ describe("materializeBundle: canonical multi-tool materialization", () => {
     );
 
     // When
-      const result = await materializeBundle({
-        repoRoot,
-        bundleDir,
-        manifest: {
-          tools: {
-            "claude-code": { skills: { path: "skills" } },
-            cursor: { skills: { path: "skills" } },
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: "skills" } },
+          cursor: { skills: { path: "skills" } },
           codex: { skills: { path: "skills" } },
         },
       },
     });
 
     // Then – each tool gets its own translated copy
-    expect(result.byTool["claude-code"]!.files).toContain(".claude/skills/react/SKILL.md");
-    expect(result.byTool["cursor"]!.files).toContain(".cursor/skills/react/SKILL.md");
-    expect(result.byTool["codex"]!.files).toContain(".agents/skills/react/SKILL.md");
+    expect(result.byTool["claude-code"]!.files).toContain(
+      ".claude/skills/react/SKILL.md",
+    );
+    expect(result.byTool["cursor"]!.files).toContain(
+      ".cursor/skills/react/SKILL.md",
+    );
+    expect(result.byTool["codex"]!.files).toContain(
+      ".agents/skills/react/SKILL.md",
+    );
   });
 });
 

@@ -22,7 +22,9 @@ export function resolveGlobalStateLayout(
   const homeDir = options.homeDir.trim();
 
   if (!homeDir) {
-    throw new Error("A home directory is required to resolve the global state layout");
+    throw new Error(
+      "A home directory is required to resolve the global state layout",
+    );
   }
 
   const rootDir = path.join(homeDir, STATE_DIR_NAME);
@@ -32,6 +34,7 @@ export function resolveGlobalStateLayout(
     rootDir,
     registryFile: path.join(rootDir, REGISTRY_FILE_NAME),
     libraryDir,
-    resolveLibraryPath: (...segments: string[]) => path.join(libraryDir, ...segments),
+    resolveLibraryPath: (...segments: string[]) =>
+      path.join(libraryDir, ...segments),
   };
 }

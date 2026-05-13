@@ -1,18 +1,31 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { type BundleManifest } from "./bundle-manifest";
-import { pathDepth } from "./fs-utils";
-import { collectComposedRootInstructionContents } from "./root-instruction-content";
-import { composeRootInstructionContent, wrapRootInstructionBundleContent } from "./root-instruction-render";
-import { translateAgent, translateCommand, translateRootInstruction, translateSkill } from "./bundle-translation";
-import { type FileConflictResolution } from "./cli";
+import type { BundleManifest } from "./bundle-manifest";
+import {
+  translateAgent,
+  translateCommand,
+  translateRootInstruction,
+  translateSkill,
+} from "./bundle-translation";
+import type { FileConflictResolution } from "./cli";
 import {
   DEFAULT_CONFLICT_PREFIX,
   normalizeConflictDestination,
   suggestPrefixedDestination,
 } from "./conflict-resolution";
-import { getToolDefinition, resolveToolTargetPath, type ToolName, type ToolTargetName } from "./tool-mapping";
+import { pathDepth } from "./fs-utils";
+import { collectComposedRootInstructionContents } from "./root-instruction-content";
+import {
+  composeRootInstructionContent,
+  wrapRootInstructionBundleContent,
+} from "./root-instruction-render";
+import {
+  getToolDefinition,
+  resolveToolTargetPath,
+  type ToolName,
+  type ToolTargetName,
+} from "./tool-mapping";
 
 export interface MaterializeBundleResult {
   byTool: Partial<Record<ToolName, { files: string[]; directories: string[] }>>;
@@ -34,13 +47,18 @@ export function previewMaterializeBundleWriteTargets(options: {
   tools?: ToolName[];
 }): string[] {
   const writeTargets = new Set<string>();
-  const toolEntries = options.tools && options.tools.length > 0
-    ? Object.entries(options.manifest.tools).filter(([toolName]) => options.tools!.includes(toolName as ToolName))
-    : Object.entries(options.manifest.tools);
+  const toolEntries =
+    options.tools && options.tools.length > 0
+      ? Object.entries(options.manifest.tools).filter(([toolName]) =>
+          options.tools!.includes(toolName as ToolName),
+        )
+      : Object.entries(options.manifest.tools);
 
   for (const [toolName, targets] of toolEntries) {
     for (const [targetName, target] of Object.entries(targets)) {
-      const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[targetName as ToolTargetName];
+      const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[
+        targetName as ToolTargetName
+      ];
 
       if (targetDefinition?.kind === "file") {
         for (const repoRelativePath of previewRootInstructionWriteTargets({
@@ -55,7 +73,13 @@ export function previewMaterializeBundleWriteTargets(options: {
         continue;
       }
 
-      if (isNativeSourcePath(toolName as ToolName, targetName as ToolTargetName, target.path)) {
+      if (
+        isNativeSourcePath(
+          toolName as ToolName,
+          targetName as ToolTargetName,
+          target.path,
+        )
+      ) {
         const sourceDir = path.join(options.bundleDir, target.path);
         const destinationDir = resolveToolTargetPath(
           toolName as ToolName,
@@ -70,7 +94,12 @@ export function previewMaterializeBundleWriteTargets(options: {
         assertBundleTargetDirectory(sourceDir, target.path);
 
         for (const relativePath of listRelativeFiles(sourceDir)) {
-          writeTargets.add(path.relative(options.repoRoot, path.join(destinationDir, relativePath)));
+          writeTargets.add(
+            path.relative(
+              options.repoRoot,
+              path.join(destinationDir, relativePath),
+            ),
+          );
         }
 
         continue;
@@ -87,7 +116,9 @@ export function previewMaterializeBundleWriteTargets(options: {
     }
   }
 
-  return Array.from(writeTargets).sort((left, right) => left.localeCompare(right));
+  return Array.from(writeTargets).sort((left, right) =>
+    left.localeCompare(right),
+  );
 }
 
 /**
@@ -109,31 +140,43 @@ export async function materializeBundle(options: {
   allowFileOverwriteTargets?: Set<string>;
   deferredWriteTargets?: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
-  resolveFileConflict?: (conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>;
+  resolveFileConflict?: (
+    conflictPath: string,
+    suggestedDestination: string,
+  ) => Promise<FileConflictResolution>;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const writtenSharedFileTargets = new Set<string>();
-  const toolEntries = options.tools && options.tools.length > 0
-    ? Object.entries(options.manifest.tools).filter(([toolName]) => options.tools!.includes(toolName as ToolName))
-    : Object.entries(options.manifest.tools);
-  const composedRootInstructionContents = collectComposedRootInstructionContents({
-    bundleDir: options.bundleDir,
-    manifest: options.manifest,
-    toolNames: toolEntries
-      .filter(([toolName, targets]) =>
-        Object.keys(targets).some((targetName) =>
-          getToolDefinition(toolName as ToolName)?.targets[targetName as ToolTargetName]?.kind === "file",
-        ),
-      )
-      .map(([toolName]) => toolName as ToolName),
-  });
+  const toolEntries =
+    options.tools && options.tools.length > 0
+      ? Object.entries(options.manifest.tools).filter(([toolName]) =>
+          options.tools!.includes(toolName as ToolName),
+        )
+      : Object.entries(options.manifest.tools);
+  const composedRootInstructionContents =
+    collectComposedRootInstructionContents({
+      bundleDir: options.bundleDir,
+      manifest: options.manifest,
+      toolNames: toolEntries
+        .filter(([toolName, targets]) =>
+          Object.keys(targets).some(
+            (targetName) =>
+              getToolDefinition(toolName as ToolName)?.targets[
+                targetName as ToolTargetName
+              ]?.kind === "file",
+          ),
+        )
+        .map(([toolName]) => toolName as ToolName),
+    });
 
   for (const [toolName, targets] of toolEntries) {
     const toolFiles: string[] = [];
     const toolDirectories = new Set<string>();
 
     for (const [targetName, target] of Object.entries(targets)) {
-      const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[targetName as ToolTargetName];
+      const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[
+        targetName as ToolTargetName
+      ];
 
       if (targetDefinition?.kind === "file") {
         await materializeRootInstructionTarget({
@@ -157,7 +200,13 @@ export async function materializeBundle(options: {
         continue;
       }
 
-      if (isNativeSourcePath(toolName as ToolName, targetName as ToolTargetName, target.path)) {
+      if (
+        isNativeSourcePath(
+          toolName as ToolName,
+          targetName as ToolTargetName,
+          target.path,
+        )
+      ) {
         // Native dotdir path: raw copy verbatim into the tool's target directory.
         const reservedDestinations = new Set<string>();
         const sourceDir = path.join(options.bundleDir, target.path);
@@ -208,13 +257,20 @@ export async function materializeBundle(options: {
 
     toolFiles.sort((left, right) => {
       const depthDifference = pathDepth(left) - pathDepth(right);
-      return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
+      return depthDifference !== 0
+        ? depthDifference
+        : left.localeCompare(right);
     });
     const sortedToolDirs = Array.from(toolDirectories).sort((left, right) => {
       const depthDifference = pathDepth(right) - pathDepth(left);
-      return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
+      return depthDifference !== 0
+        ? depthDifference
+        : left.localeCompare(right);
     });
-    byTool[toolName as ToolName] = { files: toolFiles, directories: sortedToolDirs };
+    byTool[toolName as ToolName] = {
+      files: toolFiles,
+      directories: sortedToolDirs,
+    };
   }
 
   return { byTool };
@@ -237,7 +293,10 @@ async function materializeRootInstructionTarget(options: {
   bundleName: string;
   bundleSource?: string;
   resolveFileConflict:
-    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
+    | ((
+        conflictPath: string,
+        suggestedDestination: string,
+      ) => Promise<FileConflictResolution>)
     | undefined;
 }): Promise<void> {
   if (options.targetName !== "root_instruction") {
@@ -250,7 +309,9 @@ async function materializeRootInstructionTarget(options: {
     toolName: options.toolName,
   });
 
-  for (const [repoRelPath, content] of Object.entries(translatedContentByPath)) {
+  for (const [repoRelPath, content] of Object.entries(
+    translatedContentByPath,
+  )) {
     if (options.writtenSharedFileTargets.has(repoRelPath)) {
       options.writtenFiles.push(repoRelPath);
       continue;
@@ -268,7 +329,8 @@ async function materializeRootInstructionTarget(options: {
         rootInstructionBaseContents: options.rootInstructionBaseContents,
         bundleName: options.bundleName,
         bundleSource: options.bundleSource,
-        composedContent: options.composedRootInstructionContents[repoRelPath] ?? content,
+        composedContent:
+          options.composedRootInstructionContents[repoRelPath] ?? content,
       }),
       repoRoot: options.repoRoot,
       writtenFiles: options.writtenFiles,
@@ -310,8 +372,11 @@ function renderRootInstructionDocument(options: {
 }): string {
   return ensureTrailingNewline(
     composeRootInstructionContent([
-      options.rootInstructionBaseContents?.[options.repoRelPath]
-        ?? readExistingRootInstructionBaseContent(options.repoRoot, options.repoRelPath),
+      options.rootInstructionBaseContents?.[options.repoRelPath] ??
+        readExistingRootInstructionBaseContent(
+          options.repoRoot,
+          options.repoRelPath,
+        ),
       wrapRootInstructionBundleContent({
         bundleName: options.bundleName,
         source: options.bundleSource,
@@ -329,11 +394,12 @@ async function copyDirectory(
   ownedDirectories: Set<string>,
   reservedDestinations: Set<string>,
   repoRoot: string,
-  assertSafeWriteTarget:
-    | ((repoRelativePath: string) => void)
-    | undefined,
+  assertSafeWriteTarget: ((repoRelativePath: string) => void) | undefined,
   resolveFileConflict:
-    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
+    | ((
+        conflictPath: string,
+        suggestedDestination: string,
+      ) => Promise<FileConflictResolution>)
     | undefined,
 ): Promise<void> {
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
@@ -377,7 +443,12 @@ async function copyDirectory(
       );
       assertSafeWriteTarget?.(path.relative(repoRoot, finalDestinationPath));
       fs.copyFileSync(sourcePath, finalDestinationPath);
-      reservedDestinations.add(path.relative(targetRoot, finalDestinationPath).split(path.sep).join("/"));
+      reservedDestinations.add(
+        path
+          .relative(targetRoot, finalDestinationPath)
+          .split(path.sep)
+          .join("/"),
+      );
       writtenFiles.push(path.relative(repoRoot, finalDestinationPath));
     }
   }
@@ -388,13 +459,19 @@ async function resolveDestinationPath(options: {
   targetRoot: string;
   reservedDestinations: Set<string>;
   resolveFileConflict:
-    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
+    | ((
+        conflictPath: string,
+        suggestedDestination: string,
+      ) => Promise<FileConflictResolution>)
     | undefined;
 }): Promise<string | null> {
   let destinationPath = options.destinationPath;
 
   while (true) {
-    const relativePath = path.relative(options.targetRoot, destinationPath).split(path.sep).join("/");
+    const relativePath = path
+      .relative(options.targetRoot, destinationPath)
+      .split(path.sep)
+      .join("/");
     const hasReservedConflict = options.reservedDestinations.has(relativePath);
     const hasFilesystemConflict = fs.existsSync(destinationPath);
 
@@ -406,8 +483,14 @@ async function resolveDestinationPath(options: {
       throw new Error(`Conflict detected: ${relativePath}`);
     }
 
-    const suggestedDestination = suggestPrefixedDestination(relativePath, DEFAULT_CONFLICT_PREFIX);
-    const resolution = await options.resolveFileConflict(relativePath, suggestedDestination);
+    const suggestedDestination = suggestPrefixedDestination(
+      relativePath,
+      DEFAULT_CONFLICT_PREFIX,
+    );
+    const resolution = await options.resolveFileConflict(
+      relativePath,
+      suggestedDestination,
+    );
 
     if (resolution.action === "skip") {
       return null;
@@ -422,7 +505,10 @@ async function resolveDestinationPath(options: {
       throw new Error("Conflict destination must stay inside the tool target");
     }
 
-    destinationPath = path.join(options.targetRoot, ...nextRelativePath.split("/"));
+    destinationPath = path.join(
+      options.targetRoot,
+      ...nextRelativePath.split("/"),
+    );
   }
 }
 
@@ -474,16 +560,27 @@ function listRelativeFiles(sourceDir: string, prefix = ""): string[] {
 }
 function assertNotSymlink(entry: fs.Dirent, parentDir: string): void {
   if (entry.isSymbolicLink()) {
-    throw new Error(`Bundle contains a symlink which is not allowed: ${path.join(parentDir, entry.name)}`);
+    throw new Error(
+      `Bundle contains a symlink which is not allowed: ${path.join(parentDir, entry.name)}`,
+    );
   }
 }
 
-function isNativeSourcePath(toolName: ToolName, targetName: ToolTargetName, sourcePath: string): boolean {
+function isNativeSourcePath(
+  toolName: ToolName,
+  targetName: ToolTargetName,
+  sourcePath: string,
+): boolean {
   const nativePath = getToolDefinition(toolName)?.targets[targetName]?.path;
-  return !!nativePath && (sourcePath === nativePath || sourcePath.startsWith(nativePath + "/"));
+  return (
+    !!nativePath &&
+    (sourcePath === nativePath || sourcePath.startsWith(nativePath + "/"))
+  );
 }
 
-function toTranslationToolName(toolName: ToolName): "claude" | "cursor" | "opencode" | "codex" {
+function toTranslationToolName(
+  toolName: ToolName,
+): "claude" | "cursor" | "opencode" | "codex" {
   const map: Record<ToolName, "claude" | "cursor" | "opencode" | "codex"> = {
     "claude-code": "claude",
     cursor: "cursor",
@@ -493,7 +590,11 @@ function toTranslationToolName(toolName: ToolName): "claude" | "cursor" | "openc
   return map[toolName];
 }
 
-function readFilesIntoRecord(dir: string, prefix: string, result: Record<string, string>): void {
+function readFilesIntoRecord(
+  dir: string,
+  prefix: string,
+  result: Record<string, string>,
+): void {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     assertNotSymlink(entry, dir);
 
@@ -518,7 +619,10 @@ async function materializeCanonicalTarget(options: {
   ownedDirectories: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   resolveFileConflict:
-    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
+    | ((
+        conflictPath: string,
+        suggestedDestination: string,
+      ) => Promise<FileConflictResolution>)
     | undefined;
 }): Promise<void> {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
@@ -538,7 +642,11 @@ async function materializeCanonicalTarget(options: {
       const skillDir = path.join(sourceDir, entry.name);
       const files: Record<string, string> = {};
       readFilesIntoRecord(skillDir, "", files);
-      translated = translateSkill({ sourceTool: "claude", targetTool: translTool, files });
+      translated = translateSkill({
+        sourceTool: "claude",
+        targetTool: translTool,
+        files,
+      });
     } else if (options.targetName === "commands") {
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
 
@@ -614,7 +722,11 @@ function previewCanonicalTargetWriteTargets(options: {
       const skillDir = path.join(sourceDir, entry.name);
       const files: Record<string, string> = {};
       readFilesIntoRecord(skillDir, "", files);
-      translated = translateSkill({ sourceTool: "claude", targetTool: translTool, files });
+      translated = translateSkill({
+        sourceTool: "claude",
+        targetTool: translTool,
+        files,
+      });
     } else if (options.targetName === "commands") {
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
 
@@ -668,18 +780,28 @@ async function writeTranslatedFile(options: {
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   allowExistingFileOverwrite?: boolean;
   resolveFileConflict:
-    | ((conflictPath: string, suggestedDestination: string) => Promise<FileConflictResolution>)
+    | ((
+        conflictPath: string,
+        suggestedDestination: string,
+      ) => Promise<FileConflictResolution>)
     | undefined;
   targetRoot?: string;
 }): Promise<boolean> {
   // Conflict resolution paths are expressed relative to the target root. Directory-based
   // targets use the two-segment tool root (e.g. ".cursor/skills"); repo-root files use "".
-  const targetRoot = options.targetRoot ?? options.repoRelPath.split("/").slice(0, 2).join("/");
-  const targetRootAbsPath = path.join(options.repoRoot, ...targetRoot.split("/"));
+  const targetRoot =
+    options.targetRoot ?? options.repoRelPath.split("/").slice(0, 2).join("/");
+  const targetRootAbsPath = path.join(
+    options.repoRoot,
+    ...targetRoot.split("/"),
+  );
   const targetRootIsNew = !fs.existsSync(targetRootAbsPath);
 
   let currentRepoRelPath = options.repoRelPath;
-  let currentAbsPath = path.join(options.repoRoot, ...currentRepoRelPath.split("/"));
+  let currentAbsPath = path.join(
+    options.repoRoot,
+    ...currentRepoRelPath.split("/"),
+  );
 
   while (true) {
     const hasReserved = options.reservedDestinations.has(currentRepoRelPath);
@@ -695,17 +817,26 @@ async function writeTranslatedFile(options: {
       throw new Error(`Conflict detected: ${currentRepoRelPath}`);
     }
 
-    const relWithinTarget = targetRoot === ""
-      ? currentRepoRelPath
-      : currentRepoRelPath.substring(targetRoot.length + 1);
-    const suggestedRelWithinTarget = suggestPrefixedDestination(relWithinTarget, DEFAULT_CONFLICT_PREFIX);
+    const relWithinTarget =
+      targetRoot === ""
+        ? currentRepoRelPath
+        : currentRepoRelPath.substring(targetRoot.length + 1);
+    const suggestedRelWithinTarget = suggestPrefixedDestination(
+      relWithinTarget,
+      DEFAULT_CONFLICT_PREFIX,
+    );
 
-    const resolution = await options.resolveFileConflict(relWithinTarget, suggestedRelWithinTarget);
+    const resolution = await options.resolveFileConflict(
+      relWithinTarget,
+      suggestedRelWithinTarget,
+    );
 
     if (resolution.action === "skip") return false;
 
     if (targetRoot === "") {
-      throw new Error(`Root instruction conflicts cannot be renamed: ${currentRepoRelPath}`);
+      throw new Error(
+        `Root instruction conflicts cannot be renamed: ${currentRepoRelPath}`,
+      );
     }
 
     const newRelWithinTarget =
@@ -717,10 +848,14 @@ async function writeTranslatedFile(options: {
       throw new Error("Conflict destination must stay inside the tool target");
     }
 
-    currentRepoRelPath = targetRoot === ""
-      ? newRelWithinTarget
-      : `${targetRoot}/${newRelWithinTarget}`;
-    currentAbsPath = path.join(options.repoRoot, ...currentRepoRelPath.split("/"));
+    currentRepoRelPath =
+      targetRoot === ""
+        ? newRelWithinTarget
+        : `${targetRoot}/${newRelWithinTarget}`;
+    currentAbsPath = path.join(
+      options.repoRoot,
+      ...currentRepoRelPath.split("/"),
+    );
   }
 
   const parentAbsDir = path.dirname(currentAbsPath);
@@ -739,7 +874,9 @@ async function writeTranslatedFile(options: {
   }
 
   if (targetRoot !== "" && targetRootIsNew) {
-    options.ownedDirectories.add(path.relative(options.repoRoot, targetRootAbsPath));
+    options.ownedDirectories.add(
+      path.relative(options.repoRoot, targetRootAbsPath),
+    );
   }
 
   options.assertSafeWriteTarget?.(currentRepoRelPath);
@@ -749,7 +886,10 @@ async function writeTranslatedFile(options: {
   return true;
 }
 
-function assertBundleTargetDirectory(sourceDir: string, targetPath: string): void {
+function assertBundleTargetDirectory(
+  sourceDir: string,
+  targetPath: string,
+): void {
   if (!fs.existsSync(sourceDir)) {
     throw new Error(`Bundle target path does not exist: ${targetPath}`);
   }

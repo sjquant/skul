@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { type BundleManifest } from "./bundle-manifest";
-import { composeRootInstructionContent } from "./root-instruction-render";
+import type { BundleManifest } from "./bundle-manifest";
 import { translateRootInstruction } from "./bundle-translation";
-import { type ToolName } from "./tool-mapping";
+import { composeRootInstructionContent } from "./root-instruction-render";
+import type { ToolName } from "./tool-mapping";
 
 /** Reads and translates one tool's root-instruction source files by target path. */
 function collectRootInstructionContents(options: {
@@ -76,7 +76,9 @@ export function collectComposedRootInstructionContents(options: {
   );
 }
 
-function toTranslationToolName(toolName: ToolName): "claude" | "cursor" | "opencode" | "codex" {
+function toTranslationToolName(
+  toolName: ToolName,
+): "claude" | "cursor" | "opencode" | "codex" {
   if (toolName === "codex") {
     return "codex";
   }

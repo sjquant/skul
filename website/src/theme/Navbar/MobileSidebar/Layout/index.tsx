@@ -1,7 +1,7 @@
-import clsx from 'clsx';
-import React from 'react';
-import {ThemeClassNames} from '@docusaurus/theme-common';
-import {useNavbarSecondaryMenu} from '@docusaurus/theme-common/internal';
+import { ThemeClassNames } from "@docusaurus/theme-common";
+import { useNavbarSecondaryMenu } from "@docusaurus/theme-common/internal";
+import clsx from "clsx";
+import type React from "react";
 
 type NavbarMobileSidebarLayoutProps = {
   header: React.ReactNode;
@@ -14,19 +14,21 @@ export default function NavbarMobileSidebarLayout({
   primaryMenu,
   secondaryMenu,
 }: NavbarMobileSidebarLayoutProps) {
-  const {shown: secondaryMenuShown} = useNavbarSecondaryMenu();
+  const { shown: secondaryMenuShown } = useNavbarSecondaryMenu();
 
   return (
     <div
       className={clsx(
         ThemeClassNames.layout.navbar.mobileSidebar.container,
-        'navbar-sidebar',
-      )}>
+        "navbar-sidebar",
+      )}
+    >
       {header}
       <div
-        className={clsx('navbar-sidebar__items', {
-          'navbar-sidebar__items--show-secondary': secondaryMenuShown,
-        })}>
+        className={clsx("navbar-sidebar__items", {
+          "navbar-sidebar__items--show-secondary": secondaryMenuShown,
+        })}
+      >
         <NavbarMobileSidebarPanel inert={secondaryMenuShown}>
           {primaryMenu}
         </NavbarMobileSidebarPanel>
@@ -49,9 +51,10 @@ function NavbarMobileSidebarPanel({
     <div
       className={clsx(
         ThemeClassNames.layout.navbar.mobileSidebar.panel,
-        'navbar-sidebar__item menu',
+        "navbar-sidebar__item menu",
       )}
-      inert={inert}>
+      inert={inert}
+    >
       {children}
     </div>
   );

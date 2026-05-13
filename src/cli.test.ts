@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createHelpText, parseCliArgs, type PromptClient } from "./cli";
+import { createHelpText, type PromptClient, parseCliArgs } from "./cli";
 import { detectGitContext } from "./git-context";
 import { assertTrackedRootInstructionShadowSafety, run } from "./index";
 import {
@@ -23,8 +23,8 @@ import {
   formatExpectedRootInstructionDocument,
   formatRootInstructionBundleBlock,
   formatTrackedRootInstructionShadowBlock,
-  setupSharedRootInstructionBundles as writeSharedRootInstructionBundles,
   writeRootInstructionBundleFixture as writeRootInstructionBundle,
+  setupSharedRootInstructionBundles as writeSharedRootInstructionBundles,
 } from "./utils/testing";
 
 const tempDirs: string[] = [];
@@ -57,15 +57,51 @@ describe("parseCliArgs", () => {
     const applyArgs = ["apply"];
 
     // When / Then
-    await expect(parseCliArgs(listArgs)).resolves.toEqual({ kind: "command", command: "list", options: { json: false } });
-    await expect(parseCliArgs(statusArgs)).resolves.toEqual({ kind: "command", command: "status", options: { json: false } });
-    await expect(parseCliArgs(checkArgs)).resolves.toEqual({ kind: "command", command: "check", options: { json: false } });
-    await expect(parseCliArgs(updateArgs)).resolves.toEqual({ kind: "command", command: "update", options: { dryRun: false } });
-    await expect(parseCliArgs(pruneArgs)).resolves.toEqual({ kind: "command", command: "prune", options: {} });
-    await expect(parseCliArgs(gcArgs)).resolves.toEqual({ kind: "command", command: "prune", options: {} });
-    await expect(parseCliArgs(syncArgs)).resolves.toEqual({ kind: "command", command: "sync", options: {} });
-    await expect(parseCliArgs(resetArgs)).resolves.toEqual({ kind: "command", command: "reset", options: { dryRun: false } });
-    await expect(parseCliArgs(applyArgs)).resolves.toEqual({ kind: "command", command: "apply", options: { dryRun: false } });
+    await expect(parseCliArgs(listArgs)).resolves.toEqual({
+      kind: "command",
+      command: "list",
+      options: { json: false },
+    });
+    await expect(parseCliArgs(statusArgs)).resolves.toEqual({
+      kind: "command",
+      command: "status",
+      options: { json: false },
+    });
+    await expect(parseCliArgs(checkArgs)).resolves.toEqual({
+      kind: "command",
+      command: "check",
+      options: { json: false },
+    });
+    await expect(parseCliArgs(updateArgs)).resolves.toEqual({
+      kind: "command",
+      command: "update",
+      options: { dryRun: false },
+    });
+    await expect(parseCliArgs(pruneArgs)).resolves.toEqual({
+      kind: "command",
+      command: "prune",
+      options: {},
+    });
+    await expect(parseCliArgs(gcArgs)).resolves.toEqual({
+      kind: "command",
+      command: "prune",
+      options: {},
+    });
+    await expect(parseCliArgs(syncArgs)).resolves.toEqual({
+      kind: "command",
+      command: "sync",
+      options: {},
+    });
+    await expect(parseCliArgs(resetArgs)).resolves.toEqual({
+      kind: "command",
+      command: "reset",
+      options: { dryRun: false },
+    });
+    await expect(parseCliArgs(applyArgs)).resolves.toEqual({
+      kind: "command",
+      command: "apply",
+      options: { dryRun: false },
+    });
   });
 
   it("parses tracked shadow lifecycle commands", async () => {
@@ -91,9 +127,9 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["shadow"])).rejects.toThrowError(
       /requires exactly one of --suspend or --refresh/i,
     );
-    await expect(parseCliArgs(["shadow", "--suspend", "--refresh"])).rejects.toThrowError(
-      /requires exactly one of --suspend or --refresh/i,
-    );
+    await expect(
+      parseCliArgs(["shadow", "--suspend", "--refresh"]),
+    ).rejects.toThrowError(/requires exactly one of --suspend or --refresh/i);
   });
 
   it("parses add in interactive, cached, and explicit source modes", async () => {
@@ -107,17 +143,29 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+      },
     });
     expect(selectBundle).toHaveBeenCalledWith();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+      },
     });
 
-    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "github.com/user/ai-vault", "react-expert"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -132,7 +180,13 @@ describe("parseCliArgs", () => {
 
   it("normalizes explicit HTTPS source URLs for add", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "https://github.com/user/ai-vault.git", "react-expert"])).resolves.toEqual({
+    await expect(
+      parseCliArgs([
+        "add",
+        "https://github.com/user/ai-vault.git",
+        "react-expert",
+      ]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -147,7 +201,9 @@ describe("parseCliArgs", () => {
 
   it("defaults owner/repo sources to the GitHub registry for add", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "sjquant/ghosts", "core", "--agent", "codex"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "sjquant/ghosts", "core", "--agent", "codex"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -162,7 +218,9 @@ describe("parseCliArgs", () => {
 
   it("normalizes owner/repo.git sources to the GitHub registry for add", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "sjquant/ghosts.git", "core", "--agent", "codex"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "sjquant/ghosts.git", "core", "--agent", "codex"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -177,7 +235,9 @@ describe("parseCliArgs", () => {
 
   it("derives bundle name from repo slug when only a source URL is given", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "github.com/user/react-bundle"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "github.com/user/react-bundle"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -225,56 +285,113 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+      },
     });
   });
 
   it("parses --agent flag as a single selected agent", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "--agent", "claude-code"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "react-expert", "--agent", "claude-code"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: ["claude-code"],
+        dryRun: false,
+      },
     });
   });
 
   it("collects multiple --agent flags into an array", async () => {
     // Given / When / Then
     await expect(
-      parseCliArgs(["add", "react-expert", "--agent", "claude-code", "--agent", "cursor"]),
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "--agent",
+        "claude-code",
+        "--agent",
+        "cursor",
+      ]),
     ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: ["claude-code", "cursor"],
+        dryRun: false,
+      },
     });
   });
 
   it("deduplicates repeated --agent flags for the same tool", async () => {
     // Given / When / Then
     await expect(
-      parseCliArgs(["add", "react-expert", "--agent", "claude-code", "--agent", "claude-code"]),
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "--agent",
+        "claude-code",
+        "--agent",
+        "claude-code",
+      ]),
     ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: ["claude-code"],
+        dryRun: false,
+      },
     });
   });
 
   it("accepts -a as shorthand for --agent", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "-a", "claude-code"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "react-expert", "-a", "claude-code"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code"], dryRun: false },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: ["claude-code"],
+        dryRun: false,
+      },
     });
   });
 
   it("collects multiple -a flags into an array", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "-a", "claude-code", "-a", "cursor"])).resolves.toEqual({
+    await expect(
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "-a",
+        "claude-code",
+        "-a",
+        "cursor",
+      ]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: ["claude-code", "cursor"], dryRun: false },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: ["claude-code", "cursor"],
+        dryRun: false,
+      },
     });
   });
 
@@ -283,16 +400,29 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "react-expert", "-n"])).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: true },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: true,
+      },
     });
   });
 
   it("accepts -s as shorthand for --ssh", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "-s"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "-s"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { source: "github.com/user/ai-vault", bundle: "react-expert", protocol: "ssh", agents: [], dryRun: false },
+      options: {
+        source: "github.com/user/ai-vault",
+        bundle: "react-expert",
+        protocol: "ssh",
+        agents: [],
+        dryRun: false,
+      },
     });
   });
 
@@ -355,7 +485,9 @@ describe("parseCliArgs", () => {
       options: { bundle: "react-expert", json: false },
     });
 
-    await expect(parseCliArgs(["update", "react-expert", "--dry-run"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["update", "react-expert", "--dry-run"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "update",
       options: { bundle: "react-expert", dryRun: true },
@@ -364,14 +496,27 @@ describe("parseCliArgs", () => {
 
   it("parses add ref selectors and commit pins", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "--ref", "stable"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "react-expert", "--ref", "stable"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: false, ref: "stable" },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+        ref: "stable",
+      },
     });
 
     await expect(
-      parseCliArgs(["add", "react-expert", "--pin", "2813b888fb134532be3749c71a38ee111b788e5b"]),
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "--pin",
+        "2813b888fb134532be3749c71a38ee111b788e5b",
+      ]),
     ).resolves.toEqual({
       kind: "command",
       command: "add",
@@ -387,28 +532,50 @@ describe("parseCliArgs", () => {
 
   it("parses clear-cache with a normalized GitHub source", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["clear-cache", "sjquant/ghosts"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["clear-cache", "sjquant/ghosts"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "clear-cache",
-      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: false },
+      options: {
+        source: "github.com/sjquant/ghosts",
+        all: false,
+        dryRun: false,
+      },
     });
   });
 
   it("parses --dry-run flag on clear-cache", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["clear-cache", "https://github.com/sjquant/ghosts.git", "--dry-run"])).resolves.toEqual({
+    await expect(
+      parseCliArgs([
+        "clear-cache",
+        "https://github.com/sjquant/ghosts.git",
+        "--dry-run",
+      ]),
+    ).resolves.toEqual({
       kind: "command",
       command: "clear-cache",
-      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: true },
+      options: {
+        source: "github.com/sjquant/ghosts",
+        all: false,
+        dryRun: true,
+      },
     });
   });
 
   it("normalizes owner/repo.git sources for clear-cache", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["clear-cache", "sjquant/ghosts.git"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["clear-cache", "sjquant/ghosts.git"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "clear-cache",
-      options: { source: "github.com/sjquant/ghosts", all: false, dryRun: false },
+      options: {
+        source: "github.com/sjquant/ghosts",
+        all: false,
+        dryRun: false,
+      },
     });
   });
 
@@ -423,7 +590,9 @@ describe("parseCliArgs", () => {
 
   it("parses list source filters", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["list", "--source", "sjquant/ghosts"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["list", "--source", "sjquant/ghosts"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "list",
       options: { json: false, source: "github.com/sjquant/ghosts" },
@@ -432,7 +601,14 @@ describe("parseCliArgs", () => {
 
   it("parses --ssh flag and sets protocol to ssh", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "github.com/user/ai-vault", "react-expert", "--ssh"])).resolves.toEqual({
+    await expect(
+      parseCliArgs([
+        "add",
+        "github.com/user/ai-vault",
+        "react-expert",
+        "--ssh",
+      ]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -464,7 +640,9 @@ describe("parseCliArgs", () => {
 
   it("auto-detects SSH protocol and derives bundle name from a git@ source URL", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "git@github.com:user/react-bundle.git"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "git@github.com:user/react-bundle.git"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
       options: {
@@ -479,13 +657,22 @@ describe("parseCliArgs", () => {
 
   it("parses --dry-run flag on add, remove, and reset", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "--dry-run"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["add", "react-expert", "--dry-run"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "add",
-      options: { bundle: "react-expert", protocol: "https", agents: [], dryRun: true },
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: true,
+      },
     });
 
-    await expect(parseCliArgs(["remove", "react-expert", "--dry-run"])).resolves.toEqual({
+    await expect(
+      parseCliArgs(["remove", "react-expert", "--dry-run"]),
+    ).resolves.toEqual({
       kind: "command",
       command: "remove",
       options: { bundle: "react-expert", dryRun: true },
@@ -500,7 +687,9 @@ describe("parseCliArgs", () => {
 
   it("rejects unknown commands and invalid arity", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["deploy"])).rejects.toThrowError(/Unknown command: "deploy"/);
+    await expect(parseCliArgs(["deploy"])).rejects.toThrowError(
+      /Unknown command: "deploy"/,
+    );
     await expect(parseCliArgs(["list", "extra"])).rejects.toThrowError(
       /Command list does not accept positional arguments/,
     );
@@ -543,33 +732,59 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["clear-cache"])).rejects.toThrowError(
       /Command clear-cache requires a source or --all/,
     );
-    await expect(parseCliArgs(["clear-cache", "sjquant/ghosts", "--all"])).rejects.toThrowError(
+    await expect(
+      parseCliArgs(["clear-cache", "sjquant/ghosts", "--all"]),
+    ).rejects.toThrowError(
       /Command clear-cache accepts either a source or --all/,
     );
-    await expect(parseCliArgs(["add", "react-expert", "--ref", "stable", "--pin", "2813b88"])).rejects.toThrowError(
-      /accepts either --ref or --pin/i,
-    );
-    await expect(parseCliArgs(["add", "react-expert", "--pin", "stable"])).rejects.toThrowError(
+    await expect(
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "--ref",
+        "stable",
+        "--pin",
+        "2813b88",
+      ]),
+    ).rejects.toThrowError(/accepts either --ref or --pin/i);
+    await expect(
+      parseCliArgs(["add", "react-expert", "--pin", "stable"]),
+    ).rejects.toThrowError(
       /--pin requires a 7-40 character hexadecimal commit SHA/i,
     );
   });
 
   it("suggests a close command when an unknown command is typed", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["addd"])).rejects.toThrowError(/did you mean "add"\?/);
-    await expect(parseCliArgs(["statuss"])).rejects.toThrowError(/did you mean "status"\?/);
+    await expect(parseCliArgs(["addd"])).rejects.toThrowError(
+      /did you mean "add"\?/,
+    );
+    await expect(parseCliArgs(["statuss"])).rejects.toThrowError(
+      /did you mean "status"\?/,
+    );
   });
 
   it("does not suggest a command when the input is too different", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["foobar"])).rejects.toThrowError(/Unknown command: "foobar"$/);
+    await expect(parseCliArgs(["foobar"])).rejects.toThrowError(
+      /Unknown command: "foobar"$/,
+    );
   });
 
   it("returns per-command help when --help follows a known command", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "--help"])).resolves.toEqual({ kind: "help", command: "add" });
-    await expect(parseCliArgs(["status", "--help"])).resolves.toEqual({ kind: "help", command: "status" });
-    await expect(parseCliArgs(["list", "-h"])).resolves.toEqual({ kind: "help", command: "list" });
+    await expect(parseCliArgs(["add", "--help"])).resolves.toEqual({
+      kind: "help",
+      command: "add",
+    });
+    await expect(parseCliArgs(["status", "--help"])).resolves.toEqual({
+      kind: "help",
+      command: "status",
+    });
+    await expect(parseCliArgs(["list", "-h"])).resolves.toEqual({
+      kind: "help",
+      command: "list",
+    });
   });
 });
 
@@ -617,7 +832,9 @@ describe("createHelpText", () => {
     expect(addHelpText).toContain(
       "If the target root instruction file is already tracked, Skul creates a tracked shadow instead of leaving a visible git diff.",
     );
-    expect(shadowHelpText).toContain("Suspend or refresh tracked AGENTS.md / CLAUDE.md shadows");
+    expect(shadowHelpText).toContain(
+      "Suspend or refresh tracked AGENTS.md / CLAUDE.md shadows",
+    );
     expect(shadowHelpText).toContain(
       "--suspend restores tracked AGENTS.md / CLAUDE.md files from HEAD and clears skip-worktree.",
     );
@@ -628,7 +845,9 @@ describe("createHelpText", () => {
       "The manual suspend/refresh flow only works when the root instruction file is still tracked after the Git update.",
     );
     expect(shadowHelpText).toContain("skul shadow --suspend");
-    expect(syncHelpText).toContain("Safely pull git updates around tracked AGENTS.md / CLAUDE.md shadows");
+    expect(syncHelpText).toContain(
+      "Safely pull git updates around tracked AGENTS.md / CLAUDE.md shadows",
+    );
     expect(syncHelpText).toContain(
       "Typical workflow: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
     );
@@ -698,7 +917,11 @@ describe("run", () => {
 
     // When / Then
     await expect(run(["list"], { homeDir })).resolves.toBe(
-      renderBundleListOutput("No cached bundles found.", "", "Add one with: skul add github.com/<owner>/<repo> <bundle-name>"),
+      renderBundleListOutput(
+        "No cached bundles found.",
+        "",
+        "Add one with: skul add github.com/<owner>/<repo> <bundle-name>",
+      ),
     );
   });
 
@@ -716,7 +939,13 @@ describe("run", () => {
 
     // Then
     expect(JSON.parse(output)).toEqual({
-      bundles: [{ name: "react-expert", source: "github.com/user/ai-vault", tools: ["claude-code"] }],
+      bundles: [
+        {
+          name: "react-expert",
+          source: "github.com/user/ai-vault",
+          tools: ["claude-code"],
+        },
+      ],
     });
   });
 
@@ -734,8 +963,12 @@ describe("run", () => {
     });
 
     // When / Then
-    await expect(run(["list", "--source", "github.com/user/ai-vault"], { homeDir })).resolves.toBe(
-      renderBundleListOutput("react-expert [github.com/user/ai-vault] (claude-code)"),
+    await expect(
+      run(["list", "--source", "github.com/user/ai-vault"], { homeDir }),
+    ).resolves.toBe(
+      renderBundleListOutput(
+        "react-expert [github.com/user/ai-vault] (claude-code)",
+      ),
     );
   });
 
@@ -744,7 +977,9 @@ describe("run", () => {
     const homeDir = createHomeDir();
 
     // When / Then
-    await expect(run(["list", "--source", "github.com/user/ai-vault"], { homeDir })).resolves.toBe(
+    await expect(
+      run(["list", "--source", "github.com/user/ai-vault"], { homeDir }),
+    ).resolves.toBe(
       renderBundleListOutput(
         "No cached bundles found for github.com/user/ai-vault.",
         "",
@@ -756,14 +991,21 @@ describe("run", () => {
   it("clears a cached source without requiring a Git repository", async () => {
     // Given
     const homeDir = createHomeDir();
-    const cachedSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
+    const cachedSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      "github.com",
+      "sjquant",
+      "ghosts",
+    );
     fs.mkdirSync(cachedSourceDir, { recursive: true });
     fs.writeFileSync(path.join(cachedSourceDir, "README.md"), "# ghosts\n");
 
     // When / Then
-    await expect(run(["clear-cache", "sjquant/ghosts"], { homeDir })).resolves.toBe(
-      "Cleared cache for github.com/sjquant/ghosts",
-    );
+    await expect(
+      run(["clear-cache", "sjquant/ghosts"], { homeDir }),
+    ).resolves.toBe("Cleared cache for github.com/sjquant/ghosts");
     expect(pathExists(cachedSourceDir)).toBe(false);
   });
 
@@ -773,16 +1015,24 @@ describe("run", () => {
     const repoRoot = createRepository();
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const gitContext = detectGitContext({ cwd: repoRoot })!;
-    const deletedWorktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skul-prune-worktree-"));
-    const deletedRepoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skul-prune-repo-"));
+    const deletedWorktreeRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "skul-prune-worktree-"),
+    );
+    const deletedRepoRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "skul-prune-repo-"),
+    );
     tempDirs.push(deletedWorktreeRoot, deletedRepoRoot);
     fs.rmSync(deletedWorktreeRoot, { recursive: true, force: true });
     fs.rmSync(deletedRepoRoot, { recursive: true, force: true });
 
-    let registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
-      repo_root: repoRoot,
-      desired_state: [{ bundle: "react-expert", protocol: "https" }],
-    });
+    let registry = upsertRepoState(
+      createEmptyRegistry(),
+      gitContext.repoFingerprint,
+      {
+        repo_root: repoRoot,
+        desired_state: [{ bundle: "react-expert", protocol: "https" }],
+      },
+    );
     registry = upsertRepoState(registry, "repo_orphan", {
       repo_root: deletedRepoRoot,
       desired_state: [],
@@ -799,7 +1049,9 @@ describe("run", () => {
     const output = await run(["prune"], { homeDir });
 
     // Then
-    expect(output).toBe("Pruned 1 stale worktree entry; Pruned 1 stale repo entry");
+    expect(output).toBe(
+      "Pruned 1 stale worktree entry; Pruned 1 stale repo entry",
+    );
     const prunedRegistry = readRegistryFile(registryFile);
     expect(prunedRegistry.worktrees).toEqual({});
     expect(prunedRegistry.repos).toHaveProperty(gitContext.repoFingerprint);
@@ -811,20 +1063,29 @@ describe("run", () => {
     const homeDir = createHomeDir();
 
     // When / Then
-    await expect(run(["gc"], { homeDir })).resolves.toBe("No stale registry entries found");
+    await expect(run(["gc"], { homeDir })).resolves.toBe(
+      "No stale registry entries found",
+    );
   });
 
   it("dry-runs clear-cache without deleting the cached source", async () => {
     // Given
     const homeDir = createHomeDir();
-    const cachedSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
+    const cachedSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      "github.com",
+      "sjquant",
+      "ghosts",
+    );
     fs.mkdirSync(cachedSourceDir, { recursive: true });
     fs.writeFileSync(path.join(cachedSourceDir, "README.md"), "# ghosts\n");
 
     // When / Then
-    await expect(run(["clear-cache", "sjquant/ghosts", "--dry-run"], { homeDir })).resolves.toBe(
-      "DRY RUN: Would clear cache for github.com/sjquant/ghosts",
-    );
+    await expect(
+      run(["clear-cache", "sjquant/ghosts", "--dry-run"], { homeDir }),
+    ).resolves.toBe("DRY RUN: Would clear cache for github.com/sjquant/ghosts");
     expect(pathExists(cachedSourceDir)).toBe(true);
   });
 
@@ -833,16 +1094,30 @@ describe("run", () => {
     const homeDir = createHomeDir();
 
     // When / Then
-    await expect(run(["clear-cache", "sjquant/ghosts"], { homeDir })).resolves.toBe(
-      "No cached source found for github.com/sjquant/ghosts",
-    );
+    await expect(
+      run(["clear-cache", "sjquant/ghosts"], { homeDir }),
+    ).resolves.toBe("No cached source found for github.com/sjquant/ghosts");
   });
 
   it("clears all cached sources without requiring a Git repository", async () => {
     // Given
     const homeDir = createHomeDir();
-    const firstSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
-    const secondSourceDir = path.join(homeDir, ".skul", "library", "github.com", "acme", "shared-bundles");
+    const firstSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      "github.com",
+      "sjquant",
+      "ghosts",
+    );
+    const secondSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      "github.com",
+      "acme",
+      "shared-bundles",
+    );
     fs.mkdirSync(firstSourceDir, { recursive: true });
     fs.mkdirSync(secondSourceDir, { recursive: true });
 
@@ -857,15 +1132,29 @@ describe("run", () => {
   it("dry-runs clear-cache --all without deleting cached sources", async () => {
     // Given
     const homeDir = createHomeDir();
-    const firstSourceDir = path.join(homeDir, ".skul", "library", "github.com", "sjquant", "ghosts");
-    const secondSourceDir = path.join(homeDir, ".skul", "library", "github.com", "acme", "shared-bundles");
+    const firstSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      "github.com",
+      "sjquant",
+      "ghosts",
+    );
+    const secondSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      "github.com",
+      "acme",
+      "shared-bundles",
+    );
     fs.mkdirSync(firstSourceDir, { recursive: true });
     fs.mkdirSync(secondSourceDir, { recursive: true });
 
     // When / Then
-    await expect(run(["clear-cache", "--all", "--dry-run"], { homeDir })).resolves.toBe(
-      "DRY RUN: Would clear cache for 2 source(s)",
-    );
+    await expect(
+      run(["clear-cache", "--all", "--dry-run"], { homeDir }),
+    ).resolves.toBe("DRY RUN: Would clear cache for 2 source(s)");
     expect(pathExists(firstSourceDir)).toBe(true);
     expect(pathExists(secondSourceDir)).toBe(true);
   });
@@ -889,7 +1178,13 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
@@ -898,13 +1193,17 @@ describe("run", () => {
 
     // Then
     expect(parsed.repo.desired_state).toEqual([
-      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
+      {
+        bundle: "react-expert",
+        source: "github.com/user/ai-vault",
+        protocol: "https",
+      },
     ]);
     expect(parsed.worktree.materialized).toBe(true);
     expect(parsed.worktree.git_exclude_configured).toBe(true);
-    expect(parsed.worktree.bundles["react-expert"].tools["claude-code"].files).toContain(
-      ".claude/skills/react/SKILL.md",
-    );
+    expect(
+      parsed.worktree.bundles["react-expert"].tools["claude-code"].files,
+    ).toContain(".claude/skills/react/SKILL.md");
   });
 
   it("returns computed shadow status fields in JSON for tracked AGENTS.md and CLAUDE.md", async () => {
@@ -944,7 +1243,10 @@ describe("run", () => {
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), agentsShadow.rendered);
     runGit(repoRoot, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
 
-    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# manually edited claude\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "CLAUDE.md"),
+      "# manually edited claude\n",
+    );
 
     writeRegistryFile(
       registryFile,
@@ -1032,14 +1334,23 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // Create a new linked worktree that has not materialized yet
     const linkedWorktree = createLinkedWorktree(repoRoot);
 
     // When
-    const output = await run(["status", "--json"], { homeDir, cwd: linkedWorktree });
+    const output = await run(["status", "--json"], {
+      homeDir,
+      cwd: linkedWorktree,
+    });
     const parsed = JSON.parse(output);
 
     // Then
@@ -1060,10 +1371,17 @@ describe("run", () => {
         ".claude/skills/react/SKILL.md": "# react\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
-    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      ".claude/skills/react/SKILL.md": "# react v2\n",
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
     });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# react v2\n",
+      },
+    );
 
     // When / Then
     await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -1077,10 +1395,14 @@ describe("run", () => {
     const repoRoot = createRepository();
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const gitContext = detectGitContext({ cwd: repoRoot })!;
-    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
-      repo_root: fs.realpathSync.native(repoRoot),
-      desired_state: [{ bundle: "local-bundle", protocol: "https" }],
-    });
+    const registry = upsertRepoState(
+      createEmptyRegistry(),
+      gitContext.repoFingerprint,
+      {
+        repo_root: fs.realpathSync.native(repoRoot),
+        desired_state: [{ bundle: "local-bundle", protocol: "https" }],
+      },
+    );
     writeRegistryFile(registryFile, registry);
 
     // When / Then
@@ -1102,10 +1424,17 @@ describe("run", () => {
         ".claude/skills/react/SKILL.md": "# react\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
-    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      ".claude/skills/react/SKILL.md": "# react v2\n",
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
     });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# react v2\n",
+      },
+    );
 
     // When
     await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -1114,19 +1443,28 @@ describe("run", () => {
 
     // Then
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react v2\n");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoEntry = registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
-    const worktreeEntry = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoEntry =
+      registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+    const worktreeEntry =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
     expect(repoEntry.desired_state[0]).toMatchObject({
       bundle: "react-expert",
       resolved_ref: "main",
       resolved_commit: updatedCommit,
     });
-    expect(worktreeEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+    expect(
+      worktreeEntry.materialized_state.bundles["react-expert"],
+    ).toMatchObject({
       resolved_commit: updatedCommit,
     });
   });
@@ -1137,7 +1475,9 @@ describe("run", () => {
 
     // When / Then
     try {
-      await expect(run(["check"], { homeDir: fixture.homeDir, cwd: fixture.repoRoot })).rejects.toThrowError(
+      await expect(
+        run(["check"], { homeDir: fixture.homeDir, cwd: fixture.repoRoot }),
+      ).rejects.toThrowError(
         /Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/ai-vault/,
       );
     } finally {
@@ -1151,7 +1491,9 @@ describe("run", () => {
 
     // When / Then
     try {
-      await expect(run(["update"], { homeDir: fixture.homeDir, cwd: fixture.repoRoot })).rejects.toThrowError(
+      await expect(
+        run(["update"], { homeDir: fixture.homeDir, cwd: fixture.repoRoot }),
+      ).rejects.toThrowError(
         /Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/ai-vault/,
       );
     } finally {
@@ -1177,13 +1519,36 @@ describe("run", () => {
       },
     });
     runGit(remoteSource.remoteRepoPath, ["branch", "stable"]);
-    await run(["add", remoteSource.source, remoteSource.bundle, "--ssh", "--ref", "stable"], { homeDir, cwd: repoRoot });
+    await run(
+      [
+        "add",
+        remoteSource.source,
+        remoteSource.bundle,
+        "--ssh",
+        "--ref",
+        "stable",
+      ],
+      { homeDir, cwd: repoRoot },
+    );
 
-    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
-    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/react-bundle.git"]);
+    const cachedSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      ...remoteSource.source.split("/"),
+    );
+    runGit(cachedSourceDir, [
+      "remote",
+      "set-url",
+      "origin",
+      "git@github.com:user/react-bundle.git",
+    ]);
 
     const fakeSshPath = path.join(homeDir, "fake-ssh.sh");
-    fs.writeFileSync(fakeSshPath, "#!/bin/sh\necho 'git@github.com: Permission denied (publickey).' 1>&2\nexit 255\n");
+    fs.writeFileSync(
+      fakeSshPath,
+      "#!/bin/sh\necho 'git@github.com: Permission denied (publickey).' 1>&2\nexit 255\n",
+    );
     fs.chmodSync(fakeSshPath, 0o755);
     const previousGitSsh = process.env["GIT_SSH"];
     process.env["GIT_SSH"] = fakeSshPath;
@@ -1217,11 +1582,21 @@ describe("run", () => {
         ".claude/skills/react/SKILL.md": "# react\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified locally\n");
-    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      ".claude/skills/react/SKILL.md": "# react v2\n",
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
     });
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "# modified locally\n",
+    );
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# react v2\n",
+      },
+    );
 
     // When / Then
     await expect(
@@ -1232,19 +1607,29 @@ describe("run", () => {
           confirmManagedFileRemoval: async () => false,
         }),
       }),
-    ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
+    ).rejects.toThrowError(
+      /Replacement aborted because a modified managed file was kept/,
+    );
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoEntry = registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoEntry =
+      registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
 
     expect(repoEntry.desired_state[0]).toMatchObject({
       bundle: "react-expert",
       resolved_commit: remoteSource.initialCommit,
     });
 
-    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
     expect(updatedCommit).not.toBe(remoteSource.initialCommit);
   });
@@ -1263,25 +1648,44 @@ describe("run", () => {
         ".claude/skills/react/SKILL.md": "# react\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
-    await run(["apply"], { homeDir, cwd: linkedWorktree });
-    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      ".claude/skills/react/SKILL.md": "# react v2\n",
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
     });
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# react v2\n",
+      },
+    );
     await run(["update"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
 
     // Then
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react v2\n");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const linkedEntry = registry.worktrees[detectGitContext({ cwd: linkedWorktree })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const linkedEntry =
+      registry.worktrees[
+        detectGitContext({ cwd: linkedWorktree })!.worktreeId
+      ]!;
 
-    expect(linkedEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+    expect(
+      linkedEntry.materialized_state.bundles["react-expert"],
+    ).toMatchObject({
       resolved_commit: updatedCommit,
     });
   });
@@ -1303,12 +1707,22 @@ describe("run", () => {
         ".cursor/skills/react/SKILL.md": "# react\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
-    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
-    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      ".claude/skills/react/SKILL.md": "# react v2\n",
-      ".cursor/skills/react/SKILL.md": "# react v2\n",
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
     });
+    await run(["add", "react-expert", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# react v2\n",
+        ".cursor/skills/react/SKILL.md": "# react v2\n",
+      },
+    );
 
     // When
     await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -1316,8 +1730,11 @@ describe("run", () => {
     );
 
     // Then
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoEntry = registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoEntry =
+      registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
 
     expect(repoEntry.desired_state).toEqual([
       {
@@ -1349,34 +1766,64 @@ describe("run", () => {
         ".cursor/skills/react/SKILL.md": "# react\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
-    await run(["apply"], { homeDir, cwd: linkedWorktree });
-    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
-    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      ".claude/skills/react/SKILL.md": "# react v2\n",
-      ".cursor/skills/react/SKILL.md": "# react v2\n",
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
     });
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+    await run(["add", "react-expert", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# react v2\n",
+        ".cursor/skills/react/SKILL.md": "# react v2\n",
+      },
+    );
     await run(["update"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
 
     // Then
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react v2\n");
-    expect(pathExists(path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(false);
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const linkedEntry = registry.worktrees[detectGitContext({ cwd: linkedWorktree })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const linkedEntry =
+      registry.worktrees[
+        detectGitContext({ cwd: linkedWorktree })!.worktreeId
+      ]!;
 
-    expect(linkedEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+    expect(
+      linkedEntry.materialized_state.bundles["react-expert"],
+    ).toMatchObject({
       resolved_commit: updatedCommit,
       tools: {
-        "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) },
+        "claude-code": {
+          files: expect.arrayContaining([".claude/skills/react/SKILL.md"]),
+        },
       },
     });
-    expect(linkedEntry.materialized_state.bundles["react-expert"].tools).not.toHaveProperty("cursor");
+    expect(
+      linkedEntry.materialized_state.bundles["react-expert"].tools,
+    ).not.toHaveProperty("cursor");
   });
 
   it("dry-runs add without writing any files", async () => {
@@ -1388,15 +1835,28 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
 
     // When
-    const output = await run(["add", "react-expert", "--dry-run"], { homeDir, cwd: repoRoot });
+    const output = await run(["add", "react-expert", "--dry-run"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // Then: output describes intent without materializing files
     expect(output).toMatch(/DRY RUN/);
     expect(output).toContain("react-expert");
-    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(false);
   });
 
   it("dry-runs remove without deleting any files", async () => {
@@ -1408,16 +1868,29 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
-    const output = await run(["remove", "react-expert", "--dry-run"], { homeDir, cwd: repoRoot });
+    const output = await run(["remove", "react-expert", "--dry-run"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // Then: output describes intent without deleting files
     expect(output).toMatch(/DRY RUN/);
     expect(output).toContain("react-expert");
-    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(true);
   });
 
   it("dry-runs reset without deleting any files", async () => {
@@ -1429,16 +1902,29 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
-    const output = await run(["reset", "--dry-run"], { homeDir, cwd: repoRoot });
+    const output = await run(["reset", "--dry-run"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // Then: output describes intent without deleting files
     expect(output).toMatch(/DRY RUN/);
     expect(output).toContain(".claude/skills/react/SKILL.md");
-    expect(fs.existsSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(true);
   });
 
   it("errors in headless mode when bundle is not specified for add", async () => {
@@ -1449,7 +1935,11 @@ describe("run", () => {
 
     // When / Then: headless prompt client throws with a hint instead of prompting
     await expect(
-      run(["add"], { homeDir, cwd: repoRoot, prompts: createHeadlessPromptClient() }),
+      run(["add"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createHeadlessPromptClient(),
+      }),
     ).rejects.toThrowError(/Bundle name is required in headless mode/);
   });
 
@@ -1463,14 +1953,29 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "# modified\n",
+    );
 
     // When / Then: headless client throws instead of prompting
     await expect(
-      run(["reset"], { homeDir, cwd: repoRoot, prompts: createHeadlessPromptClient() }),
-    ).rejects.toThrowError(/Modified managed file blocks reset in headless mode/);
+      run(["reset"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createHeadlessPromptClient(),
+      }),
+    ).rejects.toThrowError(
+      /Modified managed file blocks reset in headless mode/,
+    );
   });
 
   it("treats root instruction conflict prompts as unreachable in headless mode", async () => {
@@ -1479,8 +1984,13 @@ describe("run", () => {
 
     // When / Then
     await expect(
-      createHeadlessPromptClient().resolveFileConflict("AGENTS.md", "p-AGENTS.md"),
-    ).rejects.toThrowError(/root instructions should be appended, not renamed or skipped/i);
+      createHeadlessPromptClient().resolveFileConflict(
+        "AGENTS.md",
+        "p-AGENTS.md",
+      ),
+    ).rejects.toThrowError(
+      /root instructions should be appended, not renamed or skipped/i,
+    );
   });
 
   it("treats interactive root instruction conflict prompts as unreachable", async () => {
@@ -1492,8 +2002,13 @@ describe("run", () => {
 
     // Then
     await expect(
-      createPromptClientForSelections([], loadPrompts).resolveFileConflict("CLAUDE.md", "p-CLAUDE.md"),
-    ).rejects.toThrowError(/root instructions should be appended, not renamed or skipped/i);
+      createPromptClientForSelections([], loadPrompts).resolveFileConflict(
+        "CLAUDE.md",
+        "p-CLAUDE.md",
+      ),
+    ).rejects.toThrowError(
+      /root instructions should be appended, not renamed or skipped/i,
+    );
     expect(loadPrompts).not.toHaveBeenCalled();
   });
 
@@ -1506,9 +2021,9 @@ describe("run", () => {
     // which throws when no bundle is specified rather than opening a prompt.
     process.env["SKUL_NO_TUI"] = "1";
     try {
-      await expect(run(["add"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
-        /Bundle name is required in headless mode/,
-      );
+      await expect(
+        run(["add"], { homeDir, cwd: repoRoot }),
+      ).rejects.toThrowError(/Bundle name is required in headless mode/);
     } finally {
       delete process.env["SKUL_NO_TUI"];
     }
@@ -1522,7 +2037,13 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     const selectBundle = vi.fn().mockResolvedValue({ bundle: "react-expert" });
 
     // When
@@ -1536,7 +2057,9 @@ describe("run", () => {
 
     // Then
     expect(selectBundle).toHaveBeenCalledWith();
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(true);
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(true);
   });
 
   it("selects the cached source when duplicate bundle names exist", async () => {
@@ -1581,7 +2104,10 @@ describe("run", () => {
 
     // Then
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# second\n");
     expect(
       readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
@@ -1602,7 +2128,13 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     const selectBundle = vi.fn().mockResolvedValue({
       bundle: "react-expert",
       source: "github.com/user/ai-vault",
@@ -1638,22 +2170,36 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-
-    // When
-    await expect(run(["add", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied react-expert for claude-code",
-    );
-
-    // Then
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).toContain(
-      ".claude/skills/react/SKILL.md",
-    );
-    expect(readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees).toHaveProperty(
-      Object.keys(readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees)[0],
+
+    // When
+    await expect(
+      run(["add", "react-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8"),
+    ).toContain(".claude/skills/react/SKILL.md");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees,
+    ).toHaveProperty(
+      Object.keys(
+        readRegistryFile(path.join(homeDir, ".skul", "registry.json"))
+          .worktrees,
+      )[0],
     );
   });
 
@@ -1673,9 +2219,9 @@ describe("run", () => {
     });
 
     // When
-    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied react-expert for claude-code",
-    );
+    await expect(
+      run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
     expect(
@@ -1705,13 +2251,23 @@ describe("run", () => {
         ".claude/skills/react/SKILL.md": "# react\n",
       },
     });
-    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
-    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/ai-vault.git"]);
+    const cachedSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      ...remoteSource.source.split("/"),
+    );
+    runGit(cachedSourceDir, [
+      "remote",
+      "set-url",
+      "origin",
+      "git@github.com:user/ai-vault.git",
+    ]);
 
     // When
-    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied react-expert for claude-code",
-    );
+    await expect(
+      run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
     expect(
@@ -1741,20 +2297,34 @@ describe("run", () => {
         ".claude/skills/react/SKILL.md": "# react\n",
       },
     });
-    const cachedSourceDir = path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/"));
-    runGit(cachedSourceDir, ["remote", "set-url", "origin", "git@github.com:user/ai-vault.git"]);
+    const cachedSourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      ...remoteSource.source.split("/"),
+    );
+    runGit(cachedSourceDir, [
+      "remote",
+      "set-url",
+      "origin",
+      "git@github.com:user/ai-vault.git",
+    ]);
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const gitContext = detectGitContext({ cwd: repoRoot })!;
-    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
-      repo_root: fs.realpathSync.native(repoRoot),
-      desired_state: [{ bundle: remoteSource.bundle, protocol: "https" }],
-    });
+    const registry = upsertRepoState(
+      createEmptyRegistry(),
+      gitContext.repoFingerprint,
+      {
+        repo_root: fs.realpathSync.native(repoRoot),
+        desired_state: [{ bundle: remoteSource.bundle, protocol: "https" }],
+      },
+    );
     writeRegistryFile(registryFile, registry);
 
     // When
-    await expect(run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied react-expert for claude-code",
-    );
+    await expect(
+      run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
     expect(
@@ -1776,37 +2346,88 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" }, commands: { path: ".claude/commands" } } },
+      tools: {
+        "claude-code": {
+          skills: { path: ".claude/skills" },
+          commands: { path: ".claude/commands" },
+        },
+      },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/commands/review.md", "# review\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/commands/review.md",
+      "# review\n",
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
       name: "next-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", ".claude/skills/next/SKILL.md", "# next\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "next-expert",
+      ".claude/skills/next/SKILL.md",
+      "# next\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["add", "next-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied next-expert for claude-code",
-    );
+    await expect(
+      run(["add", "next-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied next-expert for claude-code");
 
     // Then: both bundles coexist on disk
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "commands", "review.md"), "utf8")).toBe("# review\n");
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"), "utf8")).toBe("# next\n");
-    const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "commands", "review.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "next", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next\n");
+    const excludeFile = fs.readFileSync(
+      path.join(repoRoot, ".git", "info", "exclude"),
+      "utf8",
+    );
     expect(excludeFile).toContain(".claude/skills/react/SKILL.md");
     expect(excludeFile).toContain(".claude/commands/review.md");
     expect(excludeFile).toContain(".claude/skills/next/SKILL.md");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
-        "react-expert": { tools: { "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) } } },
-        "next-expert": { tools: { "claude-code": { files: [".claude/skills/next/SKILL.md"] } } },
+        "react-expert": {
+          tools: {
+            "claude-code": {
+              files: expect.arrayContaining([".claude/skills/react/SKILL.md"]),
+            },
+          },
+        },
+        "next-expert": {
+          tools: { "claude-code": { files: [".claude/skills/next/SKILL.md"] } },
+        },
       },
     });
   });
@@ -1817,10 +2438,27 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" }, commands: { path: ".claude/commands" } } },
+      tools: {
+        "claude-code": {
+          skills: { path: ".claude/skills" },
+          commands: { path: ".claude/commands" },
+        },
+      },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/commands/review.md", "# review\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/commands/review.md",
+      "# review\n",
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
       tools: { codex: { skills: { path: ".agents/skills" } } },
@@ -1835,33 +2473,67 @@ describe("run", () => {
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied repo-standards for codex",
-    );
+    await expect(
+      run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied repo-standards for codex");
 
     // Then: both bundles coexist on disk
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "commands", "review.md"), "utf8")).toBe("# review\n");
-    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"), "utf8")).toBe(
-      "# next task\n",
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "commands", "review.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    const excludeFile = fs.readFileSync(
+      path.join(repoRoot, ".git", "info", "exclude"),
+      "utf8",
     );
-    const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
     expect(excludeFile).toContain(".claude/skills/react/SKILL.md");
     expect(excludeFile).toContain(".agents/skills/next-task/SKILL.md");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const repo = registry.repos[Object.keys(registry.repos)[0]];
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(repo.desired_state).toEqual(
       expect.arrayContaining([
-        { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
-        { bundle: "repo-standards", source: "github.com/user/ai-vault", protocol: "https" },
+        {
+          bundle: "react-expert",
+          source: "github.com/user/ai-vault",
+          protocol: "https",
+        },
+        {
+          bundle: "repo-standards",
+          source: "github.com/user/ai-vault",
+          protocol: "https",
+        },
       ]),
     );
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
-        "react-expert": { tools: { "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) } } },
-        "repo-standards": { tools: { codex: { files: [".agents/skills/next-task/SKILL.md"] } } },
+        "react-expert": {
+          tools: {
+            "claude-code": {
+              files: expect.arrayContaining([".claude/skills/react/SKILL.md"]),
+            },
+          },
+        },
+        "repo-standards": {
+          tools: { codex: { files: [".agents/skills/next-task/SKILL.md"] } },
+        },
       },
     });
   });
@@ -1872,26 +2544,46 @@ describe("run", () => {
     const repoRoot = createRepository();
 
     setupSharedRootInstructionBundles(homeDir, [
-      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
-      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+      {
+        bundle: "repo-standards",
+        content: "# Repo standards\nUse consistent conventions.\n",
+      },
+      {
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
     ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["add", "security-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "Applied security-standards for codex, claude-code, cursor, opencode",
     );
 
     // Then
     expectAgentsDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
+      formatRootInstructionBundleBlock(
+        "security-standards",
+        "# Security standards\nNever commit secrets.\n",
+        "github.com/user/ai-vault",
+      ),
     );
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    const fingerprint = worktree.materialized_state.bundles["repo-standards"]!.tools["codex"]!.file_fingerprints!["AGENTS.md"];
+    const fingerprint =
+      worktree.materialized_state.bundles["repo-standards"]!.tools["codex"]!
+        .file_fingerprints!["AGENTS.md"];
     expect(fingerprint).toBe(fingerprintFile(path.join(repoRoot, "AGENTS.md")));
   });
 
@@ -1922,21 +2614,43 @@ describe("run", () => {
     });
 
     // When
-    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["add", "security-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "Applied security-standards for codex, claude-code, cursor, opencode",
     );
 
     // Then
     expectAgentsDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("repo-standards", "# Source A rules\nUse source A.\n", "github.com/user/source-a"),
-      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/source-a"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Source A rules\nUse source A.\n",
+        "github.com/user/source-a",
+      ),
+      formatRootInstructionBundleBlock(
+        "security-standards",
+        "# Security standards\nNever commit secrets.\n",
+        "github.com/user/source-a",
+      ),
     );
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
-      { bundle: "repo-standards", source: "github.com/user/source-a", protocol: "https" },
-      { bundle: "security-standards", source: "github.com/user/source-a", protocol: "https" },
+      {
+        bundle: "repo-standards",
+        source: "github.com/user/source-a",
+        protocol: "https",
+      },
+      {
+        bundle: "security-standards",
+        source: "github.com/user/source-a",
+        protocol: "https",
+      },
     ]);
   });
 
@@ -1946,26 +2660,40 @@ describe("run", () => {
     const repoRoot = createRepository();
 
     setupSharedRootInstructionBundles(homeDir, [
-      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
-      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+      {
+        bundle: "repo-standards",
+        content: "# Repo standards\nUse consistent conventions.\n",
+      },
+      {
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
     ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
     await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["remove", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed repo-standards",
-    );
+    await expect(
+      run(["remove", "repo-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed repo-standards");
 
     // Then
     expectAgentsDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "security-standards",
+        "# Security standards\nNever commit secrets.\n",
+        "github.com/user/ai-vault",
+      ),
     );
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    const fingerprint = worktree.materialized_state.bundles["security-standards"]!.tools["codex"]!.file_fingerprints!["AGENTS.md"];
+    const fingerprint =
+      worktree.materialized_state.bundles["security-standards"]!.tools["codex"]!
+        .file_fingerprints!["AGENTS.md"];
     expect(fingerprint).toBe(fingerprintFile(path.join(repoRoot, "AGENTS.md")));
   });
 
@@ -1975,23 +2703,39 @@ describe("run", () => {
     const repoRoot = createRepository();
 
     setupSharedRootInstructionBundles(homeDir, [
-      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
-      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+      {
+        bundle: "repo-standards",
+        content: "# Repo standards\nUse consistent conventions.\n",
+      },
+      {
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
     ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
     await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "Applied repo-standards for codex, claude-code, cursor, opencode",
     );
 
     // Then
     expectAgentsDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
+      formatRootInstructionBundleBlock(
+        "security-standards",
+        "# Security standards\nNever commit secrets.\n",
+        "github.com/user/ai-vault",
+      ),
     );
   });
 
@@ -2001,15 +2745,23 @@ describe("run", () => {
     const repoRoot = createRepository();
 
     setupSharedRootInstructionBundles(homeDir, [
-      { bundle: "repo-standards", content: "# Repo standards\nUse consistent conventions.\n" },
-      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+      {
+        bundle: "repo-standards",
+        content: "# Repo standards\nUse consistent conventions.\n",
+      },
+      {
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
     ]);
 
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
     const registryPath = path.join(homeDir, ".skul", "registry.json");
     const registry = readRegistryFile(registryPath);
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     registry.repos[repoFingerprint]!.desired_state.push({
       bundle: "security-standards",
       source: "github.com/user/ai-vault",
@@ -2025,8 +2777,16 @@ describe("run", () => {
     // Then
     expectAgentsDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
-      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
+      formatRootInstructionBundleBlock(
+        "security-standards",
+        "# Security standards\nNever commit secrets.\n",
+        "github.com/user/ai-vault",
+      ),
     );
   });
 
@@ -2039,10 +2799,15 @@ describe("run", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "user root instruction\n",
+    );
 
     // When
-    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "Applied repo-standards for codex, claude-code, cursor, opencode",
     );
 
@@ -2050,11 +2815,19 @@ describe("run", () => {
     expectAgentsDocument(
       repoRoot,
       "user root instruction\n",
-      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
     );
     expectClaudeDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
     );
   });
 
@@ -2067,28 +2840,45 @@ describe("run", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "user claude instruction\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "CLAUDE.md"),
+      "user claude instruction\n",
+    );
 
     // When
-    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "Applied repo-standards for codex, claude-code, cursor, opencode",
     );
 
     // Then
     expectAgentsDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
     );
     expectClaudeDocument(
       repoRoot,
       "user claude instruction\n",
-      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
     );
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state.bundles["repo-standards"]!.tools["claude-code"]!.files).toContain(
-      "CLAUDE.md",
-    );
+    expect(
+      worktree.materialized_state.bundles["repo-standards"]!.tools[
+        "claude-code"
+      ]!.files,
+    ).toContain("CLAUDE.md");
   });
 
   it("restores pre-existing AGENTS.md content when the last shared root bundle is removed", async () => {
@@ -2100,16 +2890,21 @@ describe("run", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "user root instruction\n",
+    );
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["remove", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed repo-standards",
-    );
+    await expect(
+      run(["remove", "repo-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed repo-standards");
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user root instruction\n");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "user root instruction\n",
+    );
   });
 
   it("restores pre-existing AGENTS.md content when reset removes shared root bundles", async () => {
@@ -2121,7 +2916,10 @@ describe("run", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "user root instruction\n",
+    );
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
     // When
@@ -2130,7 +2928,9 @@ describe("run", () => {
     );
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("user root instruction\n");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "user root instruction\n",
+    );
   });
 
   it("recaptures restored root base content when a non-root bundle keeps the worktree alive", async () => {
@@ -2146,15 +2946,29 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "user root instruction\n",
+    );
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user root instruction v2\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "user root instruction v2\n",
+    );
 
     // When
-    await expect(run(["add", "repo-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "Applied repo-standards for codex, claude-code, cursor, opencode",
     );
 
@@ -2162,7 +2976,11 @@ describe("run", () => {
     expectAgentsDocument(
       repoRoot,
       "user root instruction v2\n",
-      formatRootInstructionBundleBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
     );
   });
 
@@ -2194,7 +3012,9 @@ describe("run", () => {
     );
 
     // When
-    await expect(run(["add", "shared-claude-guide"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["add", "shared-claude-guide"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "Applied shared-claude-guide for claude-code, cursor, opencode, codex",
     );
 
@@ -2222,22 +3042,31 @@ describe("run", () => {
         extraTools: { "claude-code": { skills: { path: ".claude/skills" } } },
         extraFiles: { ".claude/skills/react/SKILL.md": "# react\n" },
       },
-      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+      {
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
     ]);
 
     await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
     const registryPath = path.join(homeDir, ".skul", "registry.json");
     const initialRegistry = readRegistryFile(registryPath);
-    const initialWorktree = initialRegistry.worktrees[Object.keys(initialRegistry.worktrees)[0]];
+    const initialWorktree =
+      initialRegistry.worktrees[Object.keys(initialRegistry.worktrees)[0]];
     const initialSkillFingerprint =
-      initialWorktree.materialized_state.bundles["repo-guide"]!.tools["claude-code"]!.file_fingerprints![
-        ".claude/skills/react/SKILL.md"
-      ]!;
+      initialWorktree.materialized_state.bundles["repo-guide"]!.tools[
+        "claude-code"
+      ]!.file_fingerprints![".claude/skills/react/SKILL.md"]!;
 
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "# modified\n",
+    );
 
     // When
-    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["add", "security-standards"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "Applied security-standards for codex, claude-code, cursor, opencode",
     );
 
@@ -2245,12 +3074,13 @@ describe("run", () => {
     const registry = readRegistryFile(registryPath);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     const refreshedSkillFingerprint =
-      worktree.materialized_state.bundles["repo-guide"]!.tools["claude-code"]!.file_fingerprints![
-        ".claude/skills/react/SKILL.md"
-      ]!;
+      worktree.materialized_state.bundles["repo-guide"]!.tools["claude-code"]!
+        .file_fingerprints![".claude/skills/react/SKILL.md"]!;
     expect(refreshedSkillFingerprint).toBe(initialSkillFingerprint);
     expect(refreshedSkillFingerprint).not.toBe(
-      fingerprintFile(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+      fingerprintFile(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      ),
     );
   });
 
@@ -2262,27 +3092,58 @@ describe("run", () => {
     const securitySource = "github.com/user/security-source";
 
     setupSharedRootInstructionBundles(homeDir, [
-      { source: repoGuideSource, bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
-      { source: securitySource, bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+      {
+        source: repoGuideSource,
+        bundle: "repo-guide",
+        content: "# Repo guide\nFollow the handbook.\n",
+      },
+      {
+        source: securitySource,
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
     ]);
 
     await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
-    const agentsBefore = fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
-    const claudeBefore = fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
-    fs.rmSync(path.join(homeDir, ".skul", "library", ...repoGuideSource.split("/"), "repo-guide"), {
-      recursive: true,
-      force: true,
-    });
+    const agentsBefore = fs.readFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "utf8",
+    );
+    const claudeBefore = fs.readFileSync(
+      path.join(repoRoot, "CLAUDE.md"),
+      "utf8",
+    );
+    fs.rmSync(
+      path.join(
+        homeDir,
+        ".skul",
+        "library",
+        ...repoGuideSource.split("/"),
+        "repo-guide",
+      ),
+      {
+        recursive: true,
+        force: true,
+      },
+    );
 
     // When / Then
-    await expect(run(["add", "security-standards"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
-      /Bundle not found: repo-guide/,
+    await expect(
+      run(["add", "security-standards"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(/Bundle not found: repo-guide/);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      agentsBefore,
     );
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(agentsBefore);
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(claudeBefore);
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      claudeBefore,
+    );
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
       { bundle: "repo-guide", source: repoGuideSource, protocol: "https" },
     ]);
@@ -2296,29 +3157,59 @@ describe("run", () => {
     const securitySource = "github.com/user/security-source";
 
     setupSharedRootInstructionBundles(homeDir, [
-      { source: repoGuideSource, bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
-      { source: securitySource, bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+      {
+        source: repoGuideSource,
+        bundle: "repo-guide",
+        content: "# Repo guide\nFollow the handbook.\n",
+      },
+      {
+        source: securitySource,
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
     ]);
 
     await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
     await run(["add", "security-standards"], { homeDir, cwd: repoRoot });
-    const agentsBefore = fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
-    fs.rmSync(path.join(homeDir, ".skul", "library", ...securitySource.split("/"), "security-standards"), {
-      recursive: true,
-      force: true,
-    });
+    const agentsBefore = fs.readFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "utf8",
+    );
+    fs.rmSync(
+      path.join(
+        homeDir,
+        ".skul",
+        "library",
+        ...securitySource.split("/"),
+        "security-standards",
+      ),
+      {
+        recursive: true,
+        force: true,
+      },
+    );
 
     // When / Then
-    await expect(run(["remove", "repo-guide"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
-      /Bundle not found: security-standards/,
+    await expect(
+      run(["remove", "repo-guide"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(/Bundle not found: security-standards/);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      agentsBefore,
     );
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(agentsBefore);
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
       { bundle: "repo-guide", source: repoGuideSource, protocol: "https" },
-      { bundle: "security-standards", source: securitySource, protocol: "https" },
+      {
+        bundle: "security-standards",
+        source: securitySource,
+        protocol: "https",
+      },
     ]);
     expect(Object.keys(registry.worktrees)).toHaveLength(1);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
@@ -2335,7 +3226,10 @@ describe("run", () => {
 
     setupSharedRootInstructionBundles(homeDir, [
       { bundle: "repo-guide", content: "# Repo guide\nFollow the handbook.\n" },
-      { bundle: "security-standards", content: "# Security standards\nNever commit secrets.\n" },
+      {
+        bundle: "security-standards",
+        content: "# Security standards\nNever commit secrets.\n",
+      },
     ]);
 
     await run(["add", "repo-guide"], { homeDir, cwd: repoRoot });
@@ -2344,14 +3238,18 @@ describe("run", () => {
     runGit(repoRoot, ["commit", "-m", "materialize shared roots"]);
 
     // When
-    await expect(run(["remove", "repo-guide"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed repo-guide",
-    );
+    await expect(
+      run(["remove", "repo-guide"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed repo-guide");
 
     // Then
     expectAgentsDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("security-standards", "# Security standards\nNever commit secrets.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "security-standards",
+        "# Security standards\nNever commit secrets.\n",
+        "github.com/user/ai-vault",
+      ),
     );
   });
 
@@ -2363,9 +3261,20 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "user file\n",
+    );
 
     // When
     await expect(
@@ -2373,17 +3282,26 @@ describe("run", () => {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
-          resolveFileConflict: async () => ({ action: "prefix", prefix: "team" }),
+          resolveFileConflict: async () => ({
+            action: "prefix",
+            prefix: "team",
+          }),
         }),
       }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "user file\n",
-    );
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "team-react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("user file\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "team-react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
   });
 
@@ -2395,9 +3313,20 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "user file\n",
+    );
 
     // When
     await expect(
@@ -2414,11 +3343,17 @@ describe("run", () => {
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "user file\n",
-    );
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "custom-react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("user file\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "custom-react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
   });
 
@@ -2430,9 +3365,20 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "user file\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "user file\n",
+    );
 
     // When
     await expect(
@@ -2446,10 +3392,17 @@ describe("run", () => {
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "user file\n",
-    );
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "p-react", "SKILL.md"))).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("user file\n");
+    expect(
+      pathExists(
+        path.join(repoRoot, ".claude", "skills", "p-react", "SKILL.md"),
+      ),
+    ).toBe(false);
   });
 
   it("renders repository desired state, worktree files, and exclude status", async () => {
@@ -2458,10 +3411,27 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" }, commands: { path: ".claude/commands" } } },
+      tools: {
+        "claude-code": {
+          skills: { path: ".claude/skills" },
+          commands: { path: ".claude/commands" },
+        },
+      },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/commands/review.md", "# review\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/commands/review.md",
+      "# review\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When / Then
@@ -2492,10 +3462,14 @@ describe("run", () => {
     const repoRoot = createRepository();
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const gitContext = detectGitContext({ cwd: repoRoot })!;
-    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
-      repo_root: fs.realpathSync.native(repoRoot),
-      desired_state: [{ bundle: "react-expert", protocol: "https" }],
-    });
+    const registry = upsertRepoState(
+      createEmptyRegistry(),
+      gitContext.repoFingerprint,
+      {
+        repo_root: fs.realpathSync.native(repoRoot),
+        desired_state: [{ bundle: "react-expert", protocol: "https" }],
+      },
+    );
     writeRegistryFile(registryFile, registry);
 
     // When / Then
@@ -2607,7 +3581,10 @@ describe("run", () => {
 
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), agentsShadow.rendered);
     runGit(repoRoot, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
-    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# manually edited claude\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "CLAUDE.md"),
+      "# manually edited claude\n",
+    );
 
     writeRegistryFile(
       registryFile,
@@ -2693,11 +3670,19 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When / Then
-    await expect(run(["status"], { homeDir, cwd: linkedWorktreeRoot })).resolves.toBe(
+    await expect(
+      run(["status"], { homeDir, cwd: linkedWorktreeRoot }),
+    ).resolves.toBe(
       [
         "Repository Desired State",
         "Bundle: react-expert",
@@ -2718,9 +3703,18 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, ".git", "info", "exclude"), "node_modules\n");
+    fs.writeFileSync(
+      path.join(repoRoot, ".git", "info", "exclude"),
+      "node_modules\n",
+    );
 
     // When / Then
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -2749,10 +3743,27 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" }, commands: { path: ".claude/commands" } } },
+      tools: {
+        "claude-code": {
+          skills: { path: ".claude/skills" },
+          commands: { path: ".claude/commands" },
+        },
+      },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/commands/review.md", "# review\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/commands/review.md",
+      "# review\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(path.join(repoRoot, "notes.txt"), "keep me\n");
 
@@ -2762,17 +3773,32 @@ describe("run", () => {
     );
 
     // Then
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
-    expect(fs.readFileSync(path.join(repoRoot, "notes.txt"), "utf8")).toBe("keep me\n");
-    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
-      "# >>> SKUL START",
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "commands", "review.md")),
+    ).toBe(false);
+    expect(fs.readFileSync(path.join(repoRoot, "notes.txt"), "utf8")).toBe(
+      "keep me\n",
     );
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8"),
+    ).not.toContain("# >>> SKUL START");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     expect(registry.worktrees).toEqual({});
-    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
+    expect(
+      registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]
+        ?.desired_state,
+    ).toEqual([
+      {
+        bundle: "react-expert",
+        source: "github.com/user/ai-vault",
+        protocol: "https",
+      },
     ]);
   });
 
@@ -2784,9 +3810,18 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "# modified\n",
+    );
 
     // When / Then
     await expect(
@@ -2797,10 +3832,15 @@ describe("run", () => {
           confirmManagedFileRemoval: async () => false,
         }),
       }),
-    ).rejects.toThrowError(/Reset aborted because a modified managed file was kept/);
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "# modified\n",
+    ).rejects.toThrowError(
+      /Reset aborted because a modified managed file was kept/,
     );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# modified\n");
   });
 
   it("prompts before replacing a modified managed file and aborts when the user declines", async () => {
@@ -2811,10 +3851,19 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     // Modify the managed file
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "# modified\n",
+    );
 
     // When / Then: re-adding the same bundle should prompt and abort
     await expect(
@@ -2825,10 +3874,15 @@ describe("run", () => {
           confirmManagedFileRemoval: async () => false,
         }),
       }),
-    ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "# modified\n",
+    ).rejects.toThrowError(
+      /Replacement aborted because a modified managed file was kept/,
     );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# modified\n");
   });
 
   it("aborts re-add when a managed file was modified and the user declines replacement", async () => {
@@ -2837,11 +3891,26 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" } }, codex: { skills: { path: ".agents/skills" } } },
+      tools: {
+        "claude-code": { skills: { path: ".claude/skills" } },
+        codex: { skills: { path: ".agents/skills" } },
+      },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "react-expert", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "# modified\n",
+    );
 
     // When / Then: re-adding the same bundle+tool should prompt and abort
     await expect(
@@ -2852,10 +3921,15 @@ describe("run", () => {
           confirmManagedFileRemoval: async () => false,
         }),
       }),
-    ).rejects.toThrowError(/Replacement aborted because a modified managed file was kept/);
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "# modified\n",
+    ).rejects.toThrowError(
+      /Replacement aborted because a modified managed file was kept/,
     );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# modified\n");
   });
 
   it("reports when there is nothing to reset in the current worktree", async () => {
@@ -2878,7 +3952,9 @@ describe("run", () => {
     runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Shadowed content\n");
     runGit(repoRoot, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
-    const renderedFingerprint = fingerprintFile(path.join(repoRoot, "AGENTS.md"));
+    const renderedFingerprint = fingerprintFile(
+      path.join(repoRoot, "AGENTS.md"),
+    );
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const gitContext = detectGitContext({ cwd: repoRoot })!;
     writeRegistryFile(
@@ -2916,9 +3992,13 @@ describe("run", () => {
     await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "Reset Skul-managed files from the current worktree",
     );
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# Team base\n");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# Team base\n",
+    );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("H");
-    await expect(run(["reset", "--dry-run"], { homeDir, cwd: repoRoot })).resolves.toBe(
+    await expect(
+      run(["reset", "--dry-run"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe(
       "DRY RUN: No Skul-managed files found in the current worktree",
     );
   });
@@ -2927,7 +4007,10 @@ describe("run", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "repo base instruction\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "repo base instruction\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track agents"]);
 
@@ -2936,12 +4019,28 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
-    fs.writeFileSync(path.join(linkedWorktree, "AGENTS.md"), "# Shadowed content\n");
-    runGit(linkedWorktree, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
-    const renderedFingerprint = fingerprintFile(path.join(linkedWorktree, "AGENTS.md"));
+    fs.writeFileSync(
+      path.join(linkedWorktree, "AGENTS.md"),
+      "# Shadowed content\n",
+    );
+    runGit(linkedWorktree, [
+      "update-index",
+      "--skip-worktree",
+      "--",
+      "AGENTS.md",
+    ]);
+    const renderedFingerprint = fingerprintFile(
+      path.join(linkedWorktree, "AGENTS.md"),
+    );
     await run(["apply"], { homeDir, cwd: linkedWorktree });
 
     const registryFile = path.join(homeDir, ".skul", "registry.json");
@@ -2971,14 +4070,20 @@ describe("run", () => {
     );
 
     // When
-    await expect(run(["reset"], { homeDir, cwd: linkedWorktree })).resolves.toBe(
-      "Reset Skul-managed files from the current worktree",
-    );
+    await expect(
+      run(["reset"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Reset Skul-managed files from the current worktree");
 
     // Then
-    expect(fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8")).toBe("repo base instruction\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8"),
+    ).toBe("repo base instruction\n");
     expect(readGitIndexFlag(linkedWorktree, "AGENTS.md")).toBe("H");
-    expect(pathExists(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(false);
     const updatedRegistry = readRegistryFile(registryFile);
     expect(updatedRegistry.worktrees[linkedCtx.worktreeId]).toBeUndefined();
   });
@@ -3002,9 +4107,9 @@ describe("run", () => {
     tempDirs.push(cwd);
 
     // When / Then
-    await expect(run(["add", "react-expert"], { homeDir, cwd })).rejects.toThrowError(
-      /skul add requires a Git repository/i,
-    );
+    await expect(
+      run(["add", "react-expert"], { homeDir, cwd }),
+    ).rejects.toThrowError(/skul add requires a Git repository/i);
   });
 
   it("lists available bundles when the requested bundle is missing", async () => {
@@ -3021,7 +4126,9 @@ describe("run", () => {
     });
 
     // When / Then
-    await expect(run(["add", "missing-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+    await expect(
+      run(["add", "missing-bundle"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(
       /Bundle not found: missing-bundle[\s\S]*Available bundles:[\s\S]*react-expert[\s\S]*repo-standards/i,
     );
   });
@@ -3037,24 +4144,44 @@ describe("run", () => {
         cursor: { skills: { path: ".cursor/skills" } },
       },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
 
     // When
     await expect(
-      run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot }),
+      run(["add", "react-expert", "--agent", "claude-code"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
-    expect(pathExists(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md")),
+    ).toBe(false);
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
-        "react-expert": { tools: { "claude-code": { files: [".claude/skills/react/SKILL.md"] } } },
+        "react-expert": {
+          tools: {
+            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+          },
+        },
       },
     });
   });
@@ -3071,25 +4198,48 @@ describe("run", () => {
         codex: { skills: { path: ".agents/skills" } },
       },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".cursor/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".cursor/skills/react/SKILL.md",
+      "# react\n",
+    );
 
     // When
     await expect(
-      run(["add", "react-expert", "--agent", "claude-code", "--agent", "cursor"], {
-        homeDir,
-        cwd: repoRoot,
-      }),
+      run(
+        ["add", "react-expert", "--agent", "claude-code", "--agent", "cursor"],
+        {
+          homeDir,
+          cwd: repoRoot,
+        },
+      ),
     ).resolves.toBe("Applied react-expert for claude-code, cursor");
 
     // Then
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
     expect(
-      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
-    expect(pathExists(path.join(repoRoot, ".agents", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".agents", "skills", "react", "SKILL.md")),
+    ).toBe(false);
   });
 
   it("adds a second tool to a bundle, preserving the first tool's files", async () => {
@@ -3103,28 +4253,58 @@ describe("run", () => {
         cursor: { skills: { path: ".cursor/skills" } },
       },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".cursor/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".cursor/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "react-expert", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // When: add cursor tool to the same bundle
     await expect(
-      run(["add", "react-expert", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
+      run(["add", "react-expert", "--agent", "cursor"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
     ).resolves.toBe("Applied react-expert for cursor");
 
     // Then: both tools' files exist
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
     expect(
-      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
 
     // And the registry records both tools for this bundle
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state.bundles["react-expert"].tools).toMatchObject({
+    expect(
+      worktree.materialized_state.bundles["react-expert"].tools,
+    ).toMatchObject({
       "claude-code": { files: [".claude/skills/react/SKILL.md"] },
       cursor: { files: [".cursor/skills/react/SKILL.md"] },
     });
@@ -3150,32 +4330,66 @@ describe("run", () => {
         cursor: { skills: { path: ".cursor/skills" } },
       },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".cursor/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".cursor/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "react-expert", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
     await run(["apply"], { homeDir, cwd: linkedWorktree });
 
     // When
-    await expect(run(["add", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied react-expert for claude-code, cursor",
-    );
-    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+    await expect(
+      run(["add", "react-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code, cursor");
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
 
     // Then
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
 
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
-      { bundle: "react-expert", source: "github.com/user/ai-vault", protocol: "https" },
+      {
+        bundle: "react-expert",
+        source: "github.com/user/ai-vault",
+        protocol: "https",
+      },
     ]);
     expect(
-      fs.readFileSync(path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
   });
 
@@ -3196,32 +4410,46 @@ describe("run", () => {
         ".cursor/skills/react/SKILL.md": "# react\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle, "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(
+      [
+        "add",
+        remoteSource.source,
+        remoteSource.bundle,
+        "--agent",
+        "claude-code",
+      ],
+      { homeDir, cwd: repoRoot },
+    );
     runGit(remoteSource.remoteRepoPath, ["branch", "stable"]);
     const registryFile = path.join(homeDir, ".skul", "registry.json");
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     const registryWithRef = readRegistryFile(registryFile);
 
     writeRegistryFile(
       registryFile,
       upsertRepoState(registryWithRef, repoFingerprint, {
         repo_root: repoRoot,
-        desired_state: [{
-          ...registryWithRef.repos[repoFingerprint]!.desired_state[0]!,
-          ref: "stable",
-        }],
+        desired_state: [
+          {
+            ...registryWithRef.repos[repoFingerprint]!.desired_state[0]!,
+            ref: "stable",
+          },
+        ],
       }),
     );
 
     // When
-    await expect(run(["add", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied react-expert for claude-code, cursor",
-    );
+    await expect(
+      run(["add", "react-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied react-expert for claude-code, cursor");
 
     // Then
     const registry = readRegistryFile(registryFile);
     const repoEntry = registry.repos[repoFingerprint]!;
-    const worktreeEntry = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const worktreeEntry =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
     expect(repoEntry.desired_state).toEqual([
       {
@@ -3233,11 +4461,15 @@ describe("run", () => {
         resolved_commit: remoteSource.initialCommit,
       },
     ]);
-    expect(worktreeEntry.materialized_state.bundles["react-expert"]).toMatchObject({
+    expect(
+      worktreeEntry.materialized_state.bundles["react-expert"],
+    ).toMatchObject({
       source: remoteSource.source,
       resolved_commit: remoteSource.initialCommit,
     });
-    await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe("react-expert: up-to-date");
+    await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      "react-expert: up-to-date",
+    );
   });
 
   it("drops a preserved ref when the bundle is re-added from a different source", async () => {
@@ -3264,26 +4496,36 @@ describe("run", () => {
         ".claude/skills/react/SKILL.md": "# react b\n",
       },
     });
-    await run(["add", remoteSourceA.source, remoteSourceA.bundle], { homeDir, cwd: repoRoot });
+    await run(["add", remoteSourceA.source, remoteSourceA.bundle], {
+      homeDir,
+      cwd: repoRoot,
+    });
     const registryFile = path.join(homeDir, ".skul", "registry.json");
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     const registryWithRef = readRegistryFile(registryFile);
 
     writeRegistryFile(
       registryFile,
       upsertRepoState(registryWithRef, repoFingerprint, {
         repo_root: repoRoot,
-        desired_state: [{
-          ...registryWithRef.repos[repoFingerprint]!.desired_state[0]!,
-          ref: "stable",
-        }],
+        desired_state: [
+          {
+            ...registryWithRef.repos[repoFingerprint]!.desired_state[0]!,
+            ref: "stable",
+          },
+        ],
       }),
     );
 
     // When
-    await expect(run(["add", remoteSourceB.source, remoteSourceB.bundle], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied react-expert for claude-code",
-    );
+    await expect(
+      run(["add", remoteSourceB.source, remoteSourceB.bundle], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
     const registry = readRegistryFile(registryFile);
@@ -3308,7 +4550,13 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
       tools: { codex: { skills: { path: ".agents/skills" } } },
@@ -3324,11 +4572,19 @@ describe("run", () => {
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toMatch(/Reset/i);
+    await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toMatch(
+      /Reset/i,
+    );
 
     // Then: all files from both bundles are removed
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(pathExists(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
   });
 
   it("removes a named bundle and its managed files from the current worktree", async () => {
@@ -3337,30 +4593,56 @@ describe("run", () => {
     const repoRoot = createRepository();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" }, commands: { path: ".claude/commands" } } },
+      tools: {
+        "claude-code": {
+          skills: { path: ".claude/skills" },
+          commands: { path: ".claude/commands" },
+        },
+      },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/commands/review.md", "# review\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/commands/review.md",
+      "# review\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed react-expert",
-    );
+    await expect(
+      run(["remove", "react-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed react-expert");
 
     // Then: managed files are deleted
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(pathExists(path.join(repoRoot, ".claude", "commands", "review.md"))).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "commands", "review.md")),
+    ).toBe(false);
 
     // Then: git exclude block is removed
-    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
-      "# >>> SKUL START",
-    );
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8"),
+    ).not.toContain("# >>> SKUL START");
 
     // Then: registry is updated
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     expect(registry.worktrees).toEqual({});
-    expect(registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]?.desired_state).toEqual([]);
+    expect(
+      registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]
+        ?.desired_state,
+    ).toEqual([]);
   });
 
   it("removes a specific bundle without disturbing other materialized bundles", async () => {
@@ -3371,7 +4653,13 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
       tools: { codex: { skills: { path: ".agents/skills" } } },
@@ -3387,30 +4675,50 @@ describe("run", () => {
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed react-expert",
-    );
+    await expect(
+      run(["remove", "react-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed react-expert");
 
     // Then: only react-expert's files are removed; repo-standards files remain
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
-    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"), "utf8")).toBe(
-      "# next task\n",
-    );
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
 
     // Then: exclude block retains repo-standards files only
-    const excludeFile = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
+    const excludeFile = fs.readFileSync(
+      path.join(repoRoot, ".git", "info", "exclude"),
+      "utf8",
+    );
     expect(excludeFile).not.toContain(".claude/skills/react/SKILL.md");
     expect(excludeFile).toContain(".agents/skills/next-task/SKILL.md");
 
     // Then: registry reflects only repo-standards
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
-      { bundle: "repo-standards", source: "github.com/user/ai-vault", protocol: "https" },
+      {
+        bundle: "repo-standards",
+        source: "github.com/user/ai-vault",
+        protocol: "https",
+      },
     ]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
-    expect(worktree.materialized_state.bundles).toHaveProperty("repo-standards");
+    expect(worktree.materialized_state.bundles).not.toHaveProperty(
+      "react-expert",
+    );
+    expect(worktree.materialized_state.bundles).toHaveProperty(
+      "repo-standards",
+    );
   });
 
   it("prompts before removing a modified managed file and aborts when the user declines", async () => {
@@ -3421,9 +4729,18 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "# modified\n");
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "# modified\n",
+    );
 
     // When / Then
     await expect(
@@ -3434,10 +4751,15 @@ describe("run", () => {
           confirmManagedFileRemoval: async () => false,
         }),
       }),
-    ).rejects.toThrowError(/Removal aborted because a modified managed file was kept/);
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "# modified\n",
+    ).rejects.toThrowError(
+      /Removal aborted because a modified managed file was kept/,
     );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# modified\n");
   });
 
   it("removes bundle from desired state even when not yet materialized in the current worktree", async () => {
@@ -3449,20 +4771,30 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     // Add (and materialize) from the main worktree
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     // Create a linked worktree that has not materialized react-expert
     const linkedWorktree = createLinkedWorktree(repoRoot);
 
     // When: remove from the linked worktree where nothing is materialized
-    await expect(run(["remove", "react-expert"], { homeDir, cwd: linkedWorktree })).resolves.toBe(
-      "Removed react-expert",
-    );
+    await expect(
+      run(["remove", "react-expert"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Removed react-expert");
 
     // Then: desired_state is cleared; no crash even though no files were on disk
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([]);
   });
 
@@ -3472,7 +4804,9 @@ describe("run", () => {
     const repoRoot = createRepository();
 
     // When / Then
-    await expect(run(["remove", "nonexistent-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+    await expect(
+      run(["remove", "nonexistent-bundle"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(
       /Bundle not found in active set: nonexistent-bundle/,
     );
   });
@@ -3484,13 +4818,19 @@ describe("run", () => {
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When / Then
-    await expect(run(["remove", "nonexistent-bundle"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
-      /Configured bundles: react-expert/,
-    );
+    await expect(
+      run(["remove", "nonexistent-bundle"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(/Configured bundles: react-expert/);
   });
 
   it("surfaces a clear error when remove runs outside a Git repository", async () => {
@@ -3500,9 +4840,9 @@ describe("run", () => {
     tempDirs.push(cwd);
 
     // When / Then
-    await expect(run(["remove", "react-expert"], { homeDir, cwd })).rejects.toThrowError(
-      /skul remove requires a Git repository/,
-    );
+    await expect(
+      run(["remove", "react-expert"], { homeDir, cwd }),
+    ).rejects.toThrowError(/skul remove requires a Git repository/);
   });
 
   it("rejects --agent names that are not supported by the bundle", async () => {
@@ -3513,12 +4853,23 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
 
     // When / Then
     await expect(
-      run(["add", "react-expert", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
-    ).rejects.toThrowError(/Bundle does not support tool\(s\): cursor[\s\S]*Supported tools: claude-code/i);
+      run(["add", "react-expert", "--agent", "cursor"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).rejects.toThrowError(
+      /Bundle does not support tool\(s\): cursor[\s\S]*Supported tools: claude-code/i,
+    );
   });
 
   it("materializes AGENTS.md for codex when the bundle only provides CLAUDE.md", async () => {
@@ -3533,13 +4884,20 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot }),
+      run(["add", "repo-standards", "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
     ).resolves.toBe("Applied repo-standards for codex");
 
     // Then
     expectAgentsDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Shared instructions\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
     );
   });
 
@@ -3554,13 +4912,20 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "repo-standards", "--agent", "claude-code"], { homeDir, cwd: repoRoot }),
+      run(["add", "repo-standards", "--agent", "claude-code"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
     ).resolves.toBe("Applied repo-standards for claude-code");
 
     // Then
     expectClaudeDocument(
       repoRoot,
-      formatRootInstructionBundleBlock("repo-standards", "# Shared instructions\nUse consistent conventions.\n", "github.com/user/ai-vault"),
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Shared instructions\nUse consistent conventions.\n",
+        "github.com/user/ai-vault",
+      ),
     );
   });
 
@@ -3569,7 +4934,10 @@ describe("run", () => {
     const homeDir = createHomeDir();
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" } }, cursor: { skills: { path: ".cursor/skills" } } },
+      tools: {
+        "claude-code": { skills: { path: ".claude/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
     });
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
@@ -3594,7 +4962,13 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
       tools: { codex: { skills: { path: ".agents/skills" } } },
@@ -3617,19 +4991,31 @@ describe("run", () => {
 
     // Then: both bundles' files are written into the linked worktree
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# next task\n");
 
     // And the registry records the linked worktree's materialized state
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
     const worktreeState = registry.worktrees[linkedCtx.worktreeId];
     expect(worktreeState).toBeDefined();
-    expect(worktreeState.materialized_state.bundles).toHaveProperty("react-expert");
-    expect(worktreeState.materialized_state.bundles).toHaveProperty("repo-standards");
+    expect(worktreeState.materialized_state.bundles).toHaveProperty(
+      "react-expert",
+    );
+    expect(worktreeState.materialized_state.bundles).toHaveProperty(
+      "repo-standards",
+    );
   });
 
   it("apply is a no-op when all desired bundles are already materialized", async () => {
@@ -3640,7 +5026,13 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
@@ -3658,7 +5050,13 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
       name: "repo-standards",
       tools: { codex: { skills: { path: ".agents/skills" } } },
@@ -3683,10 +5081,16 @@ describe("run", () => {
 
     // Then: both bundles are now present in the linked worktree
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# next task\n");
   });
 
@@ -3710,18 +5114,33 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    const registryBefore = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
-    const desiredStateBefore = registryBefore.repos[repoFingerprint]?.desired_state;
+    const registryBefore = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    const desiredStateBefore =
+      registryBefore.repos[repoFingerprint]?.desired_state;
 
     // When
     await run(["apply"], { homeDir, cwd: linkedWorktree });
 
     // Then: desired state is unchanged
-    const registryAfter = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    expect(registryAfter.repos[repoFingerprint]?.desired_state).toEqual(desiredStateBefore);
+    const registryAfter = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registryAfter.repos[repoFingerprint]?.desired_state).toEqual(
+      desiredStateBefore,
+    );
   });
 
   it("surfaces a clear error when apply runs outside a Git repository", async () => {
@@ -3745,7 +5164,9 @@ describe("run", () => {
     fs.writeFileSync(registryFile, "{broken json");
 
     // When / Then
-    await expect(run(["status"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+    await expect(
+      run(["status"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(
       /Registry is corrupted[\s\S]*repair or remove[\s\S]*registry\.json/i,
     );
   });
@@ -3758,16 +5179,30 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
       name: "next-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
     // next-expert also writes to the same relative skill path, causing a cross-bundle conflict
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", ".claude/skills/react/SKILL.md", "# next react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "next-expert",
+      ".claude/skills/react/SKILL.md",
+      "# next react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
-    const resolveFileConflict = vi.fn().mockResolvedValue({ action: "prefix", prefix: "next" });
+    const resolveFileConflict = vi
+      .fn()
+      .mockResolvedValue({ action: "prefix", prefix: "next" });
 
     // When: add next-expert whose file conflicts with react-expert's managed file
     await expect(
@@ -3779,23 +5214,44 @@ describe("run", () => {
     ).resolves.toBe("Applied next-expert for claude-code");
 
     // Then: conflict callback was invoked for the conflicting path
-    expect(resolveFileConflict).toHaveBeenCalledWith("react/SKILL.md", expect.any(String));
+    expect(resolveFileConflict).toHaveBeenCalledWith(
+      "react/SKILL.md",
+      expect.any(String),
+    );
 
     // Then: react-expert's original file is preserved unchanged
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe("# react\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react\n");
 
     // Then: next-expert's file is written at the prefixed location
     expect(
-      fs.readFileSync(path.join(repoRoot, ".claude", "skills", "next-react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "next-react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# next react\n");
 
     // Then: the registry records both bundles with their respective file paths
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(worktree.materialized_state).toMatchObject({
       bundles: {
-        "react-expert": { tools: { "claude-code": { files: [".claude/skills/react/SKILL.md"] } } },
-        "next-expert": { tools: { "claude-code": { files: [".claude/skills/next-react/SKILL.md"] } } },
+        "react-expert": {
+          tools: {
+            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+          },
+        },
+        "next-expert": {
+          tools: {
+            "claude-code": { files: [".claude/skills/next-react/SKILL.md"] },
+          },
+        },
       },
     });
   });
@@ -3808,20 +5264,32 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(true);
-
-    // When
-    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed react-expert",
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(
+      true,
     );
 
+    // When
+    await expect(
+      run(["remove", "react-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed react-expert");
+
     // Then: managed file is removed
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(false);
 
     // Then: all Skul-created directories are cleaned up (deepest first)
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(
+      false,
+    );
     expect(pathExists(path.join(repoRoot, ".claude", "skills"))).toBe(false);
   });
 
@@ -3833,36 +5301,67 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
       name: "next-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
     // next-expert writes a different file under the same directory; no conflict occurs
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "next-expert", ".claude/skills/react/NEXT.md", "# next\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "next-expert",
+      ".claude/skills/react/NEXT.md",
+      "# next\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
     await run(["add", "next-expert"], { homeDir, cwd: repoRoot });
 
     // When: remove react-expert only
-    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed react-expert",
-    );
+    await expect(
+      run(["remove", "react-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed react-expert");
 
     // Then: react-expert's file is gone
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(false);
 
     // Then: the shared directory still exists because next-expert owns a file in it
-    expect(fs.readFileSync(path.join(repoRoot, ".claude", "skills", "react", "NEXT.md"), "utf8")).toBe("# next\n");
-    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(true);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "NEXT.md"),
+        "utf8",
+      ),
+    ).toBe("# next\n");
+    expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(
+      true,
+    );
 
     // Then: registry still records next-expert; react-expert is gone from both desired and materialized state
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
-      { bundle: "next-expert", source: "github.com/user/ai-vault", protocol: "https" },
+      {
+        bundle: "next-expert",
+        source: "github.com/user/ai-vault",
+        protocol: "https",
+      },
     ]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state.bundles).not.toHaveProperty("react-expert");
+    expect(worktree.materialized_state.bundles).not.toHaveProperty(
+      "react-expert",
+    );
     expect(worktree.materialized_state.bundles).toHaveProperty("next-expert");
   });
 
@@ -3878,33 +5377,62 @@ describe("run", () => {
         cursor: { skills: { path: ".cursor/skills" } },
       },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    await run(["add", "react-expert", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "react-expert", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // When: apply in the linked worktree should honour the stored tool selection
-    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
 
     // Then: only claude-code files are present; cursor files are absent
     expect(
-      fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8"),
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
     ).toBe("# react\n");
-    expect(pathExists(path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".cursor", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(false);
 
     // Then: registry for linked worktree records only claude-code
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
     const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
     const worktreeState = registry.worktrees[linkedCtx.worktreeId];
-    expect(worktreeState.materialized_state.bundles["react-expert"].tools).toMatchObject({
-      "claude-code": { files: expect.arrayContaining([".claude/skills/react/SKILL.md"]) },
+    expect(
+      worktreeState.materialized_state.bundles["react-expert"].tools,
+    ).toMatchObject({
+      "claude-code": {
+        files: expect.arrayContaining([".claude/skills/react/SKILL.md"]),
+      },
     });
-    expect(worktreeState.materialized_state.bundles["react-expert"].tools).not.toHaveProperty("cursor");
+    expect(
+      worktreeState.materialized_state.bundles["react-expert"].tools,
+    ).not.toHaveProperty("cursor");
   });
 
   it("apply materializes a tracked AGENTS.md in a linked worktree from repository desired state", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "repo base instruction\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "repo base instruction\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track agents"]);
 
@@ -3915,28 +5443,46 @@ describe("run", () => {
     });
     await run(["add", "repo-standards"], { homeDir, cwd: repoRoot });
 
-    expect(fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8")).toBe("repo base instruction\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8"),
+    ).toBe("repo base instruction\n");
 
     // When
-    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied repo-standards");
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied repo-standards");
 
     // Then
     expectAgentsDocument(
       linkedWorktree,
       "repo base instruction\n",
-      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+      ),
     );
     expect(readGitIndexFlag(linkedWorktree, "AGENTS.md")).toBe("S");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
     const linkedEntry = registry.worktrees[linkedCtx.worktreeId]!;
 
     expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
-      { bundle: "repo-standards", source: "github.com/user/ai-vault", protocol: "https" },
+      {
+        bundle: "repo-standards",
+        source: "github.com/user/ai-vault",
+        protocol: "https",
+      },
     ]);
-    expect(linkedEntry.materialized_state.bundles["repo-standards"]!.tools["codex"]!.files).toEqual([]);
+    expect(
+      linkedEntry.materialized_state.bundles["repo-standards"]!.tools["codex"]!
+        .files,
+    ).toEqual([]);
     expect(linkedEntry.shadowed_files["AGENTS.md"]).toMatchObject({
       tool: "codex",
       bundle: "repo-standards",
@@ -3950,7 +5496,10 @@ describe("run", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "repo base instruction\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "repo base instruction\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track agents"]);
 
@@ -3959,12 +5508,28 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
-    fs.writeFileSync(path.join(linkedWorktree, "AGENTS.md"), "# Shadowed content\n");
-    runGit(linkedWorktree, ["update-index", "--skip-worktree", "--", "AGENTS.md"]);
-    const renderedFingerprint = fingerprintFile(path.join(linkedWorktree, "AGENTS.md"));
+    fs.writeFileSync(
+      path.join(linkedWorktree, "AGENTS.md"),
+      "# Shadowed content\n",
+    );
+    runGit(linkedWorktree, [
+      "update-index",
+      "--skip-worktree",
+      "--",
+      "AGENTS.md",
+    ]);
+    const renderedFingerprint = fingerprintFile(
+      path.join(linkedWorktree, "AGENTS.md"),
+    );
 
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const registry = readRegistryFile(registryFile);
@@ -3997,22 +5562,31 @@ describe("run", () => {
     );
 
     // When
-    await expect(run(["apply"], { homeDir, cwd: linkedWorktree })).resolves.toBe("Applied react-expert");
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
 
     // Then
     const updatedRegistry = readRegistryFile(registryFile);
     const linkedEntry = updatedRegistry.worktrees[linkedCtx.worktreeId]!;
     const mainEntry = updatedRegistry.worktrees[repoCtx.worktreeId]!;
 
-    expect(fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8")).toBe("# Shadowed content\n");
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8"),
+    ).toBe("# Shadowed content\n");
     expect(readGitIndexFlag(linkedWorktree, "AGENTS.md")).toBe("S");
-    expect(fs.readFileSync(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"), "utf8")).toBe(
-      "# react\n",
-    );
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react\n");
     expect(linkedEntry.shadowed_files).toEqual(linkedShadowState);
-    expect(linkedEntry.materialized_state.bundles["react-expert"]!.tools["claude-code"]!.files).toContain(
-      ".claude/skills/react/SKILL.md",
-    );
+    expect(
+      linkedEntry.materialized_state.bundles["react-expert"]!.tools[
+        "claude-code"
+      ]!.files,
+    ).toContain(".claude/skills/react/SKILL.md");
     expect(mainEntry.shadowed_files).toEqual({});
   });
 
@@ -4056,24 +5630,39 @@ describe("run", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(homeDir, {
-      bundle: "react-expert",
-      manifest: { name: "react-expert", tools: { "claude-code": { skills: { path: ".claude/skills" } } } },
-      files: { ".claude/skills/react/SKILL.md": "# v1\n" },
-    });
+    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(
+      homeDir,
+      {
+        bundle: "react-expert",
+        manifest: {
+          name: "react-expert",
+          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+        },
+        files: { ".claude/skills/react/SKILL.md": "# v1\n" },
+      },
+    );
     await run(["add", source, bundle], { homeDir, cwd: repoRoot });
     const commitBefore = updateRemoteBundleSource(remoteRepoPath, bundle, {
       ".claude/skills/react/SKILL.md": "# v2\n",
     });
 
     // When
-    const output = await run(["update", "--dry-run"], { homeDir, cwd: repoRoot });
+    const output = await run(["update", "--dry-run"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // Then: output describes what would happen without actually updating
     expect(output).toMatch(/DRY RUN: Would update react-expert/);
 
     // Then: the local cached source is not fetched / updated
-    const skillFile = path.join(repoRoot, ".claude", "skills", "react", "SKILL.md");
+    const skillFile = path.join(
+      repoRoot,
+      ".claude",
+      "skills",
+      "react",
+      "SKILL.md",
+    );
     expect(fs.readFileSync(skillFile, "utf8")).toBe("# v1\n");
     void commitBefore; // silence unused-var warning
   });
@@ -4084,10 +5673,14 @@ describe("run", () => {
     const repoRoot = createRepository();
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const gitContext = detectGitContext({ cwd: repoRoot })!;
-    const registry = upsertRepoState(createEmptyRegistry(), gitContext.repoFingerprint, {
-      repo_root: fs.realpathSync.native(repoRoot),
-      desired_state: [{ bundle: "react-expert", protocol: "https" }],
-    });
+    const registry = upsertRepoState(
+      createEmptyRegistry(),
+      gitContext.repoFingerprint,
+      {
+        repo_root: fs.realpathSync.native(repoRoot),
+        desired_state: [{ bundle: "react-expert", protocol: "https" }],
+      },
+    );
     writeRegistryFile(registryFile, registry);
 
     // When
@@ -4112,32 +5705,53 @@ describe("run", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When: dry-run apply in a linked worktree that has nothing materialized yet
-    const output = await run(["apply", "--dry-run"], { homeDir, cwd: linkedWorktree });
+    const output = await run(["apply", "--dry-run"], {
+      homeDir,
+      cwd: linkedWorktree,
+    });
 
     // Then: output describes what would happen
     expect(output).toMatch(/DRY RUN: Would apply react-expert/);
 
     // Then: no files were written to the linked worktree
-    expect(pathExists(path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"))).toBe(false);
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(false);
   });
 
   it("dry-runs apply reporting intent without cloning when source is not cached", async () => {
     // Given: desired state references a remote source, but nothing is cached locally yet
     const homeDir = createHomeDir();
-    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(homeDir, {
-      bundle: "react-expert",
-      manifest: { name: "react-expert", tools: { "claude-code": { skills: { path: ".claude/skills" } } } },
-      files: { ".claude/skills/react/SKILL.md": "# react\n" },
-    });
+    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(
+      homeDir,
+      {
+        bundle: "react-expert",
+        manifest: {
+          name: "react-expert",
+          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+        },
+        files: { ".claude/skills/react/SKILL.md": "# react\n" },
+      },
+    );
 
     // Set up desired state manually without materializing (simulate a fresh worktree)
     const repoRoot = createRepository();
     const registryFile = path.join(homeDir, ".skul", "registry.json");
-    const repoFingerprint = detectGitContext({ cwd: repoRoot })!.repoFingerprint;
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
     let registry = readRegistryFile(registryFile);
     registry = upsertRepoState(registry, repoFingerprint, {
       repo_root: repoRoot,
@@ -4146,25 +5760,37 @@ describe("run", () => {
     writeRegistryFile(registryFile, registry);
 
     // Remove the cached source so it is not available locally
-    fs.rmSync(path.join(homeDir, ".skul", "library", ...source.split("/")), { recursive: true, force: true });
+    fs.rmSync(path.join(homeDir, ".skul", "library", ...source.split("/")), {
+      recursive: true,
+      force: true,
+    });
 
     // When
-    const output = await run(["apply", "--dry-run"], { homeDir, cwd: repoRoot });
+    const output = await run(["apply", "--dry-run"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // Then: output reports intent without cloning
-    expect(output).toMatch(new RegExp(`DRY RUN: Would clone ${source.replace(/\./g, "\\.")} then apply ${bundle}`));
+    expect(output).toMatch(
+      new RegExp(
+        `DRY RUN: Would clone ${source.replace(/\./g, "\\.")} then apply ${bundle}`,
+      ),
+    );
 
     // Then: no clone was performed
-    expect(pathExists(path.join(homeDir, ".skul", "library", ...source.split("/")))).toBe(false);
+    expect(
+      pathExists(path.join(homeDir, ".skul", "library", ...source.split("/"))),
+    ).toBe(false);
 
     void remoteRepoPath;
   });
 
   it("rejects unknown --agent names with a helpful error", async () => {
     // Given / When / Then
-    await expect(parseCliArgs(["add", "react-expert", "--agent", "copilot"])).rejects.toThrowError(
-      /Unknown tool: copilot[\s\S]*Valid tools:/,
-    );
+    await expect(
+      parseCliArgs(["add", "react-expert", "--agent", "copilot"]),
+    ).rejects.toThrowError(/Unknown tool: copilot[\s\S]*Valid tools:/);
   });
 
   it("persists an explicit ref selector when adding a remote-backed bundle", async () => {
@@ -4184,9 +5810,12 @@ describe("run", () => {
     runGit(remoteSource.remoteRepoPath, ["branch", "stable"]);
 
     // When
-    await expect(run(["add", remoteSource.source, remoteSource.bundle, "--ref", "stable"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied react-expert for claude-code",
-    );
+    await expect(
+      run(
+        ["add", remoteSource.source, remoteSource.bundle, "--ref", "stable"],
+        { homeDir, cwd: repoRoot },
+      ),
+    ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
     expect(
@@ -4220,7 +5849,16 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", remoteSource.source, remoteSource.bundle, "--pin", remoteSource.initialCommit], { homeDir, cwd: repoRoot }),
+      run(
+        [
+          "add",
+          remoteSource.source,
+          remoteSource.bundle,
+          "--pin",
+          remoteSource.initialCommit,
+        ],
+        { homeDir, cwd: repoRoot },
+      ),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
@@ -4244,10 +5882,24 @@ function createHomeDir(): string {
   return homeDir;
 }
 
-function writeManifest(homeDir: string, source: string, bundle: string, manifest: object): void {
-  const bundleDir = path.join(homeDir, ".skul", "library", ...source.split("/"), bundle);
+function writeManifest(
+  homeDir: string,
+  source: string,
+  bundle: string,
+  manifest: object,
+): void {
+  const bundleDir = path.join(
+    homeDir,
+    ".skul",
+    "library",
+    ...source.split("/"),
+    bundle,
+  );
   fs.mkdirSync(bundleDir, { recursive: true });
-  fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  fs.writeFileSync(
+    path.join(bundleDir, "manifest.json"),
+    JSON.stringify(manifest, null, 2),
+  );
 }
 
 function writeBundleFile(
@@ -4258,7 +5910,9 @@ function writeBundleFile(
   content: string,
 ): void {
   const libraryDir = path.join(homeDir, ".skul", "library");
-  const bundleDir = source ? path.join(libraryDir, ...source.split("/"), bundle) : path.join(libraryDir, bundle);
+  const bundleDir = source
+    ? path.join(libraryDir, ...source.split("/"), bundle)
+    : path.join(libraryDir, bundle);
   const filePath = path.join(bundleDir, ...relativePath.split("/"));
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
@@ -4269,7 +5923,10 @@ describe("tracked root-instruction shadow safety", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "# Team base\nFollow repository policy.\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
     writeRootInstructionBundleFixture(homeDir, {
@@ -4278,25 +5935,38 @@ describe("tracked root-instruction shadow safety", () => {
     });
 
     // When
-    await expect(run(["add", "personal-rules", "--agent", "codex"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied personal-rules for codex",
-    );
+    await expect(
+      run(["add", "personal-rules", "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).resolves.toBe("Applied personal-rules for codex");
 
     // Then
     assertAgentsDocument(
       repoRoot,
       "# Team base\nFollow repository policy.\n",
-      formatTrackedRootInstructionShadowBlock("personal-rules", "# Personal rules\nPrefer terse answers.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "personal-rules",
+        "# Personal rules\nPrefer terse answers.\n",
+      ),
     );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
-    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
-      "# >>> SKUL START",
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8"),
+    ).not.toContain("# >>> SKUL START");
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
     );
+    const worktreeState =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
-
-    expect(worktreeState.materialized_state.bundles["personal-rules"]!.tools["codex"]!.files).toEqual([]);
+    expect(
+      worktreeState.materialized_state.bundles["personal-rules"]!.tools[
+        "codex"
+      ]!.files,
+    ).toEqual([]);
     expect(worktreeState.shadowed_files["AGENTS.md"]).toMatchObject({
       tool: "codex",
       bundle: "personal-rules",
@@ -4304,15 +5974,22 @@ describe("tracked root-instruction shadow safety", () => {
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
       skip_worktree: true,
     });
-    expect(worktreeState.shadowed_files["AGENTS.md"]!.overlay_fingerprint).toMatch(/^[0-9a-f]{64}$/);
-    expect(worktreeState.shadowed_files["AGENTS.md"]!.rendered_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(
+      worktreeState.shadowed_files["AGENTS.md"]!.overlay_fingerprint,
+    ).toMatch(/^[0-9a-f]{64}$/);
+    expect(
+      worktreeState.shadowed_files["AGENTS.md"]!.rendered_fingerprint,
+    ).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("creates a tracked CLAUDE.md shadow during add", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# Team base\nUse shared prompts.\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "CLAUDE.md"),
+      "# Team base\nUse shared prompts.\n",
+    );
     runGit(repoRoot, ["add", "CLAUDE.md"]);
     runGit(repoRoot, ["commit", "-m", "track CLAUDE"]);
     writeRootInstructionBundleFixture(homeDir, {
@@ -4323,26 +6000,37 @@ describe("tracked root-instruction shadow safety", () => {
 
     // When
     await expect(
-      run(["add", "repo-guide", "--agent", "claude-code"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe(
-      "Applied repo-guide for claude-code",
-    );
+      run(["add", "repo-guide", "--agent", "claude-code"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).resolves.toBe("Applied repo-guide for claude-code");
 
     // Then
     assertClaudeDocument(
       repoRoot,
       "# Team base\nUse shared prompts.\n",
-      formatTrackedRootInstructionShadowBlock("repo-guide", "# Repo guide\nUse @imports sparingly.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "repo-guide",
+        "# Repo guide\nUse @imports sparingly.\n",
+      ),
     );
     expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
-    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
-      "# >>> SKUL START",
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8"),
+    ).not.toContain("# >>> SKUL START");
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
     );
+    const worktreeState =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
-
-    expect(worktreeState.materialized_state.bundles["repo-guide"]!.tools["claude-code"]!.files).toEqual([]);
+    expect(
+      worktreeState.materialized_state.bundles["repo-guide"]!.tools[
+        "claude-code"
+      ]!.files,
+    ).toEqual([]);
     expect(worktreeState.shadowed_files["CLAUDE.md"]).toMatchObject({
       tool: "claude-code",
       bundle: "repo-guide",
@@ -4363,32 +6051,46 @@ describe("tracked root-instruction shadow safety", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // When
-    await expect(run(["shadow", "--suspend"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Suspended tracked root-instruction shadows for AGENTS.md",
-    );
+    await expect(
+      run(["shadow", "--suspend"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Suspended tracked root-instruction shadows for AGENTS.md");
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked agents v2\n");
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "refresh agents base"]);
-    await expect(run(["shadow", "--refresh"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Refreshed tracked root-instruction shadows for AGENTS.md",
-    );
+    await expect(
+      run(["shadow", "--refresh"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Refreshed tracked root-instruction shadows for AGENTS.md");
 
     // Then
     assertAgentsDocument(
       repoRoot,
       "# tracked agents v2\n",
-      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+      ),
     );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const shadowedFile = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!.shadowed_files["AGENTS.md"]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const shadowedFile =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!
+        .shadowed_files["AGENTS.md"]!;
     expect(shadowedFile.skip_worktree).toBe(true);
-    expect(shadowedFile.base_blob).toBe(runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]));
-    expect(shadowedFile.overlay.trimEnd()).toBe("# Repo standards\nUse consistent conventions.");
+    expect(shadowedFile.base_blob).toBe(
+      runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+    );
+    expect(shadowedFile.overlay.trimEnd()).toBe(
+      "# Repo standards\nUse consistent conventions.",
+    );
   });
 
   it("suspends and refreshes a tracked CLAUDE.md shadow around a HEAD change", async () => {
@@ -4403,33 +6105,47 @@ describe("tracked root-instruction shadow safety", () => {
       agent: "claude-code",
       content: "# Claude standards\nUse Claude defaults.\n",
     });
-    await run(["add", "claude-standards", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["add", "claude-standards", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // When
-    await expect(run(["shadow", "--suspend"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Suspended tracked root-instruction shadows for CLAUDE.md",
-    );
+    await expect(
+      run(["shadow", "--suspend"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Suspended tracked root-instruction shadows for CLAUDE.md");
     expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("H");
     fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# tracked claude v2\n");
     runGit(repoRoot, ["add", "CLAUDE.md"]);
     runGit(repoRoot, ["commit", "-m", "refresh claude base"]);
-    await expect(run(["shadow", "--refresh"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Refreshed tracked root-instruction shadows for CLAUDE.md",
-    );
+    await expect(
+      run(["shadow", "--refresh"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Refreshed tracked root-instruction shadows for CLAUDE.md");
 
     // Then
     assertClaudeDocument(
       repoRoot,
       "# tracked claude v2\n",
-      formatTrackedRootInstructionShadowBlock("claude-standards", "# Claude standards\nUse Claude defaults.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "claude-standards",
+        "# Claude standards\nUse Claude defaults.\n",
+      ),
     );
     expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const shadowedFile = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!.shadowed_files["CLAUDE.md"]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const shadowedFile =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!
+        .shadowed_files["CLAUDE.md"]!;
     expect(shadowedFile.skip_worktree).toBe(true);
-    expect(shadowedFile.base_blob).toBe(runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]));
-    expect(shadowedFile.overlay.trimEnd()).toBe("# Claude standards\nUse Claude defaults.");
+    expect(shadowedFile.base_blob).toBe(
+      runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]),
+    );
+    expect(shadowedFile.overlay.trimEnd()).toBe(
+      "# Claude standards\nUse Claude defaults.",
+    );
   });
 
   it("refreshes a tracked shadow from stored overlay state after the cache is removed", async () => {
@@ -4443,25 +6159,34 @@ describe("tracked root-instruction shadow safety", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // When
-    await expect(run(["shadow", "--suspend"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Suspended tracked root-instruction shadows for AGENTS.md",
-    );
-    fs.rmSync(path.join(homeDir, ".skul", "library"), { recursive: true, force: true });
+    await expect(
+      run(["shadow", "--suspend"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Suspended tracked root-instruction shadows for AGENTS.md");
+    fs.rmSync(path.join(homeDir, ".skul", "library"), {
+      recursive: true,
+      force: true,
+    });
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked agents v2\n");
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "refresh agents base without cache"]);
-    await expect(run(["shadow", "--refresh"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Refreshed tracked root-instruction shadows for AGENTS.md",
-    );
+    await expect(
+      run(["shadow", "--refresh"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Refreshed tracked root-instruction shadows for AGENTS.md");
 
     // Then
     assertAgentsDocument(
       repoRoot,
       "# tracked agents v2\n",
-      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+      ),
     );
   });
 
@@ -4481,8 +6206,14 @@ describe("tracked root-instruction shadow safety", () => {
       agent: "claude-code",
       content: "# Claude standards\nUse Claude defaults.\n",
     });
-    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
-    await run(["add", "claude-standards", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+    await run(["add", "claude-standards", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
     const initialHead = runGit(repoRoot, ["rev-parse", "HEAD"]);
     const updatedHead = pushSyncRepositoryUpdate(
       upstreamRepoPath,
@@ -4502,18 +6233,27 @@ describe("tracked root-instruction shadow safety", () => {
     assertAgentsDocument(
       repoRoot,
       "# tracked agents v2\n",
-      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+      ),
     );
     assertClaudeDocument(
       repoRoot,
       "# tracked claude v2\n",
-      formatTrackedRootInstructionShadowBlock("claude-standards", "# Claude standards\nUse Claude defaults.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "claude-standards",
+        "# Claude standards\nUse Claude defaults.\n",
+      ),
     );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
     expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const worktreeState =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
     expect(worktreeState.shadowed_files["AGENTS.md"]).toMatchObject({
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
@@ -4537,7 +6277,10 @@ describe("tracked root-instruction shadow safety", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
     pushSyncRepositoryUpdate(
       upstreamRepoPath,
       {
@@ -4551,22 +6294,35 @@ describe("tracked root-instruction shadow safety", () => {
     const localHead = runGit(repoRoot, ["rev-parse", "HEAD"]);
 
     // When / Then
-    await expect(run(["sync"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+    await expect(
+      run(["sync"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(
       /Failed to sync the current branch with git pull --ff-only: .*fatal: Not possible to fast-forward, aborting\./is,
     );
     expect(runGit(repoRoot, ["rev-parse", "HEAD"])).toBe(localHead);
     assertAgentsDocument(
       repoRoot,
       "# tracked agents\n",
-      formatTrackedRootInstructionShadowBlock("repo-standards", "# Repo standards\nUse consistent conventions.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards\nUse consistent conventions.\n",
+      ),
     );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const shadowedFile = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!.shadowed_files["AGENTS.md"]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const shadowedFile =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!
+        .shadowed_files["AGENTS.md"]!;
     expect(shadowedFile.skip_worktree).toBe(true);
-    expect(shadowedFile.base_blob).toBe(runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]));
-    expect(shadowedFile.overlay).toBe("# Repo standards\nUse consistent conventions.");
+    expect(shadowedFile.base_blob).toBe(
+      runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+    );
+    expect(shadowedFile.overlay).toBe(
+      "# Repo standards\nUse consistent conventions.",
+    );
   });
 
   it("retires a tracked shadow when upstream stops tracking the root instruction during sync", async () => {
@@ -4579,7 +6335,10 @@ describe("tracked root-instruction shadow safety", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    await run(["add", "repo-standards", "--agent", "codex"], { homeDir, cwd: repoRoot });
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
     const initialHead = runGit(repoRoot, ["rev-parse", "HEAD"]);
     fs.rmSync(path.join(upstreamRepoPath, "AGENTS.md"));
     runGit(upstreamRepoPath, ["add", "AGENTS.md"]);
@@ -4596,8 +6355,11 @@ describe("tracked root-instruction shadow safety", () => {
     expect(pathExists(path.join(repoRoot, "AGENTS.md"))).toBe(false);
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const worktreeState =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
     expect(worktreeState.shadowed_files["AGENTS.md"]).toBeUndefined();
   });
 
@@ -4605,7 +6367,10 @@ describe("tracked root-instruction shadow safety", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "# Team base\nFollow repository policy.\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
     writeRootInstructionBundleFixture(homeDir, {
@@ -4613,18 +6378,23 @@ describe("tracked root-instruction shadow safety", () => {
       content: "# Personal rules\nPrefer terse answers.\n",
     });
     await run(["add", "personal-rules"], { homeDir, cwd: repoRoot });
-    const agentsBefore = fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
+    const agentsBefore = fs.readFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "utf8",
+    );
 
     // When
-    await expect(run(["remove", "personal-rules"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed personal-rules",
-    );
+    await expect(
+      run(["remove", "personal-rules"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed personal-rules");
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
       "# Team base\nFollow repository policy.\n",
     );
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).not.toBe(agentsBefore);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).not.toBe(
+      agentsBefore,
+    );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("H");
   });
 
@@ -4644,19 +6414,28 @@ describe("tracked root-instruction shadow safety", () => {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "react-expert", ".claude/skills/react/SKILL.md", "# react\n");
-    await run(["add", "repo-guide", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "repo-guide", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
     // When
-    await expect(run(["remove", "react-expert"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Removed react-expert",
-    );
+    await expect(
+      run(["remove", "react-expert"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Removed react-expert");
 
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8")).not.toContain(
-      "# >>> SKUL START",
-    );
+    expect(
+      fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8"),
+    ).not.toContain("# >>> SKUL START");
     expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
   });
 
@@ -4664,7 +6443,10 @@ describe("tracked root-instruction shadow safety", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# Team base\nUse shared prompts.\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "CLAUDE.md"),
+      "# Team base\nUse shared prompts.\n",
+    );
     runGit(repoRoot, ["add", "CLAUDE.md"]);
     runGit(repoRoot, ["commit", "-m", "track CLAUDE"]);
     writeRootInstructionBundleFixture(homeDir, {
@@ -4678,14 +6460,18 @@ describe("tracked root-instruction shadow safety", () => {
         "cursor-CLAUDE.md": "# Cursor guide\nUse inline diffs.\n",
       },
     });
-    await run(["add", "shared-guide", "--agent", "claude-code"], { homeDir, cwd: repoRoot });
+    await run(["add", "shared-guide", "--agent", "claude-code"], {
+      homeDir,
+      cwd: repoRoot,
+    });
 
     // When
     await expect(
-      run(["add", "shared-guide", "--agent", "cursor"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe(
-      "Applied shared-guide for cursor",
-    );
+      run(["add", "shared-guide", "--agent", "cursor"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).resolves.toBe("Applied shared-guide for cursor");
 
     // Then
     assertClaudeDocument(
@@ -4697,13 +6483,17 @@ describe("tracked root-instruction shadow safety", () => {
       ),
     );
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const worktreeState =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
-    expect(Object.keys(worktreeState.materialized_state.bundles["shared-guide"]!.tools).sort()).toEqual([
-      "claude-code",
-      "cursor",
-    ]);
+    expect(
+      Object.keys(
+        worktreeState.materialized_state.bundles["shared-guide"]!.tools,
+      ).sort(),
+    ).toEqual(["claude-code", "cursor"]);
   });
 
   it("preserves untouched tracked shadow files during partial --agent refreshes", async () => {
@@ -4721,23 +6511,46 @@ describe("tracked root-instruction shadow safety", () => {
         "claude-code": { root_instruction: { path: "CLAUDE.md" } },
       },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "mixed-shadow", "AGENTS.md", "# Personal AGENTS\n");
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "mixed-shadow", "CLAUDE.md", "# Personal CLAUDE\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "mixed-shadow",
+      "AGENTS.md",
+      "# Personal AGENTS\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "mixed-shadow",
+      "CLAUDE.md",
+      "# Personal CLAUDE\n",
+    );
     await run(["add", "mixed-shadow"], { homeDir, cwd: repoRoot });
-    const claudeBefore = fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
-
-    // When
-    await expect(run(["add", "mixed-shadow", "--agent", "codex"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      "Applied mixed-shadow for codex",
+    const claudeBefore = fs.readFileSync(
+      path.join(repoRoot, "CLAUDE.md"),
+      "utf8",
     );
 
+    // When
+    await expect(
+      run(["add", "mixed-shadow", "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).resolves.toBe("Applied mixed-shadow for codex");
+
     // Then
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(claudeBefore);
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      claudeBefore,
+    );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
     expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("S");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const worktreeState =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
     expect(worktreeState.shadowed_files["AGENTS.md"]).toBeDefined();
     expect(worktreeState.shadowed_files["CLAUDE.md"]).toBeDefined();
@@ -4747,7 +6560,10 @@ describe("tracked root-instruction shadow safety", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "# Team base\nFollow repository policy.\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
     const remoteSource = createRemoteBundleSource(homeDir, {
@@ -4760,13 +6576,24 @@ describe("tracked root-instruction shadow safety", () => {
         "AGENTS.md": "# Personal rules\nPrefer terse answers.\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
-    const initialRegistry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const initialShadow =
-      initialRegistry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!.shadowed_files["AGENTS.md"]!;
-    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      "AGENTS.md": "# Personal rules\nPrefer exact dates.\n",
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
     });
+    const initialRegistry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const initialShadow =
+      initialRegistry.worktrees[
+        detectGitContext({ cwd: repoRoot })!.worktreeId
+      ]!.shadowed_files["AGENTS.md"]!;
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        "AGENTS.md": "# Personal rules\nPrefer exact dates.\n",
+      },
+    );
 
     // When
     await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -4777,25 +6604,43 @@ describe("tracked root-instruction shadow safety", () => {
     assertAgentsDocument(
       repoRoot,
       "# Team base\nFollow repository policy.\n",
-      formatTrackedRootInstructionShadowBlock("personal-rules", "# Personal rules\nPrefer exact dates.\n"),
+      formatTrackedRootInstructionShadowBlock(
+        "personal-rules",
+        "# Personal rules\nPrefer exact dates.\n",
+      ),
     );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const worktreeState =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
     const updatedShadow = worktreeState.shadowed_files["AGENTS.md"]!;
 
-    expect(updatedShadow.base_blob).toBe(runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]));
-    expect(updatedShadow.overlay_fingerprint).not.toBe(initialShadow.overlay_fingerprint);
-    expect(updatedShadow.rendered_fingerprint).not.toBe(initialShadow.rendered_fingerprint);
-    expect(worktreeState.materialized_state.bundles["personal-rules"]!.resolved_commit).toBe(updatedCommit);
+    expect(updatedShadow.base_blob).toBe(
+      runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+    );
+    expect(updatedShadow.overlay_fingerprint).not.toBe(
+      initialShadow.overlay_fingerprint,
+    );
+    expect(updatedShadow.rendered_fingerprint).not.toBe(
+      initialShadow.rendered_fingerprint,
+    );
+    expect(
+      worktreeState.materialized_state.bundles["personal-rules"]!
+        .resolved_commit,
+    ).toBe(updatedCommit);
   });
 
   it("rejects tracked shadow refresh when prompt-time edits change the current rendered file", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "# Team base\nFollow repository policy.\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
     writeManifest(homeDir, "github.com/user/ai-vault", "personal-rules", {
@@ -4807,7 +6652,13 @@ describe("tracked root-instruction shadow safety", () => {
         },
       },
     });
-    writeBundleFile(homeDir, "github.com/user/ai-vault", "personal-rules", "AGENTS.md", "# Personal rules\nPrefer terse answers.\n");
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "personal-rules",
+      "AGENTS.md",
+      "# Personal rules\nPrefer terse answers.\n",
+    );
     writeBundleFile(
       homeDir,
       "github.com/user/ai-vault",
@@ -4816,7 +6667,10 @@ describe("tracked root-instruction shadow safety", () => {
       "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
     );
     await run(["add", "personal-rules"], { homeDir, cwd: repoRoot });
-    fs.writeFileSync(path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"), "# modified\n");
+    fs.writeFileSync(
+      path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"),
+      "# modified\n",
+    );
 
     // When / Then
     await expect(
@@ -4825,23 +6679,34 @@ describe("tracked root-instruction shadow safety", () => {
         cwd: repoRoot,
         prompts: createPromptClientStub({
           confirmManagedFileRemoval: async () => {
-            fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# prompt edit\n");
+            fs.writeFileSync(
+              path.join(repoRoot, "AGENTS.md"),
+              "# prompt edit\n",
+            );
             return true;
           },
         }),
       }),
     ).rejects.toThrowError(/no longer matches Skul's recorded render/);
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# prompt edit\n");
-    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"), "utf8")).toBe(
-      "# modified\n",
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# prompt edit\n",
     );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# modified\n");
   });
 
   it("retires a tracked AGENTS.md shadow when bundle refresh stops targeting the root instruction", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "# Team base\nFollow repository policy.\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
     const remoteSource = createRemoteBundleSource(homeDir, {
@@ -4854,14 +6719,26 @@ describe("tracked root-instruction shadow safety", () => {
         "AGENTS.md": "# Personal rules\nPrefer terse answers.\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
-    const updatedCommit = updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      "manifest.json": `${JSON.stringify({
-        name: "personal-rules",
-        tools: { codex: { skills: { path: ".agents/skills" } } },
-      }, null, 2)}\n`,
-      ".agents/skills/p-rules/SKILL.md": "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
     });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        "manifest.json": `${JSON.stringify(
+          {
+            name: "personal-rules",
+            tools: { codex: { skills: { path: ".agents/skills" } } },
+          },
+          null,
+          2,
+        )}\n`,
+        ".agents/skills/p-rules/SKILL.md":
+          "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
+      },
+    );
 
     // When
     await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -4873,20 +6750,33 @@ describe("tracked root-instruction shadow safety", () => {
       "# Team base\nFollow repository policy.\n",
     );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("H");
-    expect(pathExists(path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"))).toBe(true);
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"),
+      ),
+    ).toBe(true);
 
-    const registry = readRegistryFile(path.join(homeDir, ".skul", "registry.json"));
-    const worktreeState = registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const worktreeState =
+      registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
     expect(worktreeState.shadowed_files["AGENTS.md"]).toBeUndefined();
-    expect(worktreeState.materialized_state.bundles["personal-rules"]!.resolved_commit).toBe(updatedCommit);
+    expect(
+      worktreeState.materialized_state.bundles["personal-rules"]!
+        .resolved_commit,
+    ).toBe(updatedCommit);
   });
 
   it("rejects tracked shadow retirement when the current rendered file was edited locally", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\nFollow repository policy.\n");
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      "# Team base\nFollow repository policy.\n",
+    );
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
     const remoteSource = createRemoteBundleSource(homeDir, {
@@ -4899,21 +6789,33 @@ describe("tracked root-instruction shadow safety", () => {
         "AGENTS.md": "# Personal rules\nPrefer terse answers.\n",
       },
     });
-    await run(["add", remoteSource.source, remoteSource.bundle], { homeDir, cwd: repoRoot });
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
+    });
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# local edit\n");
     updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
-      "manifest.json": `${JSON.stringify({
-        name: "personal-rules",
-        tools: { codex: { skills: { path: ".agents/skills" } } },
-      }, null, 2)}\n`,
-      ".agents/skills/p-rules/SKILL.md": "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
+      "manifest.json": `${JSON.stringify(
+        {
+          name: "personal-rules",
+          tools: { codex: { skills: { path: ".agents/skills" } } },
+        },
+        null,
+        2,
+      )}\n`,
+      ".agents/skills/p-rules/SKILL.md":
+        "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
     });
 
     // When / Then
-    await expect(run(["update"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
+    await expect(
+      run(["update"], { homeDir, cwd: repoRoot }),
+    ).rejects.toThrowError(
       /Cannot retire tracked root-instruction shadow for AGENTS\.md because the current worktree content no longer matches Skul's recorded render/,
     );
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe("# local edit\n");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# local edit\n",
+    );
   });
 
   it("refuses add when materialization targets a tracked root instruction with staged changes", async () => {
@@ -4932,13 +6834,17 @@ describe("tracked root-instruction shadow safety", () => {
 
     vi.resetModules();
     vi.doMock("./bundle-materialization", async () => {
-      const actual = await vi.importActual<typeof import("./bundle-materialization")>("./bundle-materialization");
+      const actual = await vi.importActual<
+        typeof import("./bundle-materialization")
+      >("./bundle-materialization");
 
       return {
         ...actual,
         previewMaterializeBundleWriteTargets: vi.fn(() => ["AGENTS.md"]),
         materializeBundle: vi.fn(async () => {
-          throw new Error("materializeBundle should not run after preflight rejection");
+          throw new Error(
+            "materializeBundle should not run after preflight rejection",
+          );
         }),
       };
     });
@@ -4947,9 +6853,9 @@ describe("tracked root-instruction shadow safety", () => {
     try {
       const { run: isolatedRun } = await import("./index");
 
-      await expect(isolatedRun(["add", "react-expert"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
-        /target has staged changes/,
-      );
+      await expect(
+        isolatedRun(["add", "react-expert"], { homeDir, cwd: repoRoot }),
+      ).rejects.toThrowError(/target has staged changes/);
     } finally {
       vi.doUnmock("./bundle-materialization");
       vi.resetModules();
@@ -5073,19 +6979,29 @@ describe("tracked root-instruction shadow safety", () => {
     );
     await run(["add", "react-expert"], { homeDir, cwd: repoRoot });
 
-    const managedFilePath = path.join(repoRoot, ".claude", "skills", "react", "SKILL.md");
+    const managedFilePath = path.join(
+      repoRoot,
+      ".claude",
+      "skills",
+      "react",
+      "SKILL.md",
+    );
     expect(fs.existsSync(managedFilePath)).toBe(true);
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# unstaged\n");
 
     vi.resetModules();
     vi.doMock("./bundle-materialization", async () => {
-      const actual = await vi.importActual<typeof import("./bundle-materialization")>("./bundle-materialization");
+      const actual = await vi.importActual<
+        typeof import("./bundle-materialization")
+      >("./bundle-materialization");
 
       return {
         ...actual,
         previewMaterializeBundleWriteTargets: vi.fn(() => ["AGENTS.md"]),
         materializeBundle: vi.fn(async () => {
-          throw new Error("materializeBundle should not run after preflight rejection");
+          throw new Error(
+            "materializeBundle should not run after preflight rejection",
+          );
         }),
       };
     });
@@ -5094,16 +7010,15 @@ describe("tracked root-instruction shadow safety", () => {
     try {
       const { run: isolatedRun } = await import("./index");
 
-      await expect(isolatedRun(["add", "react-expert"], { homeDir, cwd: repoRoot })).rejects.toThrowError(
-        /target has unstaged changes/,
-      );
+      await expect(
+        isolatedRun(["add", "react-expert"], { homeDir, cwd: repoRoot }),
+      ).rejects.toThrowError(/target has unstaged changes/);
       expect(fs.existsSync(managedFilePath)).toBe(true);
     } finally {
       vi.doUnmock("./bundle-materialization");
       vi.resetModules();
     }
   });
-
 });
 
 function createRemoteBundleSource(
@@ -5121,7 +7036,9 @@ function createRemoteBundleSource(
   initialCommit: string;
 } {
   const source = options.source ?? "github.com/user/ai-vault";
-  const remoteRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "skul-remote-source-"));
+  const remoteRepoPath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "skul-remote-source-"),
+  );
   tempDirs.push(remoteRepoPath);
 
   runGit(remoteRepoPath, ["init", "--initial-branch=main"]);
@@ -5131,7 +7048,10 @@ function createRemoteBundleSource(
 
   const bundleDir = path.join(remoteRepoPath, options.bundle);
   fs.mkdirSync(bundleDir, { recursive: true });
-  fs.writeFileSync(path.join(bundleDir, "manifest.json"), `${JSON.stringify(options.manifest, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(bundleDir, "manifest.json"),
+    `${JSON.stringify(options.manifest, null, 2)}\n`,
+  );
 
   for (const [relativePath, content] of Object.entries(options.files)) {
     const targetPath = path.join(bundleDir, ...relativePath.split("/"));
@@ -5142,7 +7062,12 @@ function createRemoteBundleSource(
   runGit(remoteRepoPath, ["add", "."]);
   runGit(remoteRepoPath, ["commit", "-m", "Initial bundle"]);
 
-  const targetDir = path.join(homeDir, ".skul", "library", ...source.split("/"));
+  const targetDir = path.join(
+    homeDir,
+    ".skul",
+    "library",
+    ...source.split("/"),
+  );
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
   runGit(path.dirname(targetDir), ["clone", remoteRepoPath, targetDir]);
 
@@ -5160,7 +7085,11 @@ function updateRemoteBundleSource(
   files: Record<string, string>,
 ): string {
   for (const [relativePath, content] of Object.entries(files)) {
-    const targetPath = path.join(remoteRepoPath, bundle, ...relativePath.split("/"));
+    const targetPath = path.join(
+      remoteRepoPath,
+      bundle,
+      ...relativePath.split("/"),
+    );
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(targetPath, content);
   }
@@ -5188,9 +7117,15 @@ function createSyncRepository(initialFiles: Record<string, string>): {
   repoRoot: string;
   upstreamRepoPath: string;
 } {
-  const remoteRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "skul-sync-remote-"));
-  const upstreamRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "skul-sync-upstream-"));
-  const cloneParentDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-sync-clone-"));
+  const remoteRepoPath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "skul-sync-remote-"),
+  );
+  const upstreamRepoPath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "skul-sync-upstream-"),
+  );
+  const cloneParentDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "skul-sync-clone-"),
+  );
   const repoRoot = path.join(cloneParentDir, "repo");
   tempDirs.push(remoteRepoPath, upstreamRepoPath, cloneParentDir);
 
@@ -5239,14 +7174,20 @@ function pushSyncRepositoryUpdate(
 }
 
 function createLinkedWorktree(repoRoot: string): string {
-  const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-linked-worktree-"));
+  const parentDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "skul-linked-worktree-"),
+  );
   const worktreeRoot = path.join(parentDir, "linked-worktree");
   tempDirs.push(parentDir);
   runGit(repoRoot, ["worktree", "add", worktreeRoot]);
   return worktreeRoot;
 }
 
-function runGit(cwd: string, args: string[], options: { allowFailure?: boolean } = {}): string {
+function runGit(
+  cwd: string,
+  args: string[],
+  options: { allowFailure?: boolean } = {},
+): string {
   try {
     return execFileSync("git", args, {
       cwd,
@@ -5286,7 +7227,10 @@ function writeRootInstructionBundleFixture(
     extraFiles?: Record<string, string>;
   },
 ): void {
-  writeRootInstructionBundle(homeDir, options, { writeManifest, writeBundleFile });
+  writeRootInstructionBundle(homeDir, options, {
+    writeManifest,
+    writeBundleFile,
+  });
 }
 
 function setupSharedRootInstructionBundles(
@@ -5301,7 +7245,10 @@ function setupSharedRootInstructionBundles(
     extraFiles?: Record<string, string>;
   }>,
 ): void {
-  writeSharedRootInstructionBundles(homeDir, bundles, { writeManifest, writeBundleFile });
+  writeSharedRootInstructionBundles(homeDir, bundles, {
+    writeManifest,
+    writeBundleFile,
+  });
 }
 
 function expectAgentsDocument(repoRoot: string, ...parts: string[]): void {
@@ -5312,7 +7259,9 @@ function expectClaudeDocument(repoRoot: string, ...parts: string[]): void {
   assertClaudeDocument(repoRoot, ...parts);
 }
 
-function createPromptClientStub(overrides: Partial<PromptClient> = {}): PromptClient {
+function createPromptClientStub(
+  overrides: Partial<PromptClient> = {},
+): PromptClient {
   return {
     selectBundle: async () => ({ bundle: "react-expert" }),
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),

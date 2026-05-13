@@ -30,7 +30,12 @@ describe("updateCachedRemoteSource integration", () => {
     const libraryDir = createLibraryDir();
     const source = "github.com/user/react-bundle";
     const targetDir = seedCachedRemoteSource(libraryDir, source);
-    runGit(targetDir, ["remote", "set-url", "origin", "git@github.com:user/react-bundle.git"]);
+    runGit(targetDir, [
+      "remote",
+      "set-url",
+      "origin",
+      "git@github.com:user/react-bundle.git",
+    ]);
     previousGitSsh = process.env["GIT_SSH"];
     process.env["GIT_SSH"] = createFakeSshCommand(libraryDir);
 
@@ -42,7 +47,9 @@ describe("updateCachedRemoteSource integration", () => {
         protocol: "ssh",
         ref: "stable",
       }),
-    ).toThrowError(/Failed to update github\.com\/user\/react-bundle[\s\S]*Hint: SSH authentication failed/);
+    ).toThrowError(
+      /Failed to update github\.com\/user\/react-bundle[\s\S]*Hint: SSH authentication failed/,
+    );
   });
 });
 
@@ -53,7 +60,9 @@ function createLibraryDir(): string {
 }
 
 function seedCachedRemoteSource(libraryDir: string, source: string): string {
-  const remoteRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "skul-fetch-remote-"));
+  const remoteRepoPath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "skul-fetch-remote-"),
+  );
   tempDirs.push(remoteRepoPath);
   runGit(remoteRepoPath, ["init", "--initial-branch=main"]);
   runGit(remoteRepoPath, ["config", "user.name", "Skul Remote"]);
@@ -73,7 +82,10 @@ function seedCachedRemoteSource(libraryDir: string, source: string): string {
 
 function createFakeSshCommand(libraryDir: string): string {
   const fakeSshPath = path.join(libraryDir, "fake-ssh.sh");
-  fs.writeFileSync(fakeSshPath, "#!/bin/sh\necho 'git@github.com: Permission denied (publickey).' 1>&2\nexit 255\n");
+  fs.writeFileSync(
+    fakeSshPath,
+    "#!/bin/sh\necho 'git@github.com: Permission denied (publickey).' 1>&2\nexit 255\n",
+  );
   fs.chmodSync(fakeSshPath, 0o755);
 
   return fakeSshPath;

@@ -100,20 +100,21 @@ describe("resolveToolTargetPath", () => {
     ["codex", "root_instruction", path.join("/repo", "AGENTS.md")],
   ];
 
-  it.each(cases)("resolves %s %s beneath the repository root", (toolName, targetName, expectedPath) => {
+  it.each(
+    cases,
+  )("resolves %s %s beneath the repository root", (toolName, targetName, expectedPath) => {
     // Given / When / Then
-    expect(resolveToolTargetPath(toolName, targetName, "/repo")).toBe(expectedPath);
+    expect(resolveToolTargetPath(toolName, targetName, "/repo")).toBe(
+      expectedPath,
+    );
   });
 
-  it.each([
-    ["codex", "commands"],
-  ] satisfies Array<[string, ToolTargetName]>)(
-    "returns null when %s does not define %s",
-    (toolName, targetName) => {
-      // Given / When / Then
-      expect(resolveToolTargetPath(toolName, targetName, "/repo")).toBeNull();
-    },
-  );
+  it.each([["codex", "commands"]] satisfies Array<
+    [string, ToolTargetName]
+  >)("returns null when %s does not define %s", (toolName, targetName) => {
+    // Given / When / Then
+    expect(resolveToolTargetPath(toolName, targetName, "/repo")).toBeNull();
+  });
 
   it("returns null for unsupported tools", () => {
     // Given / When / Then

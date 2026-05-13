@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { translateAgent, translateCommand, translateSkill } from "./bundle-translation";
+import {
+  translateAgent,
+  translateCommand,
+  translateSkill,
+} from "./bundle-translation";
 
 describe("translateSkill", () => {
   it("maps Claude skill invocation control to Codex policy", () => {
@@ -35,17 +39,31 @@ describe("translateSkill", () => {
         "Follow the workflow in TASKS.md.",
         "",
       ].join("\n"),
-      ".agents/skills/next-task/agents/openai.yaml": ["policy:", "  allow_implicit_invocation: false", ""].join("\n"),
+      ".agents/skills/next-task/agents/openai.yaml": [
+        "policy:",
+        "  allow_implicit_invocation: false",
+        "",
+      ].join("\n"),
     });
   });
 
   it("maps Codex invocation policy back to Claude skill frontmatter", () => {
     // Given
     const files = {
-      "SKILL.md": ["---", "name: next-task", "description: Handle the next queued task", "---", "", "Body", ""].join(
-        "\n",
-      ),
-      "agents/openai.yaml": ["policy:", "  allow_implicit_invocation: false", ""].join("\n"),
+      "SKILL.md": [
+        "---",
+        "name: next-task",
+        "description: Handle the next queued task",
+        "---",
+        "",
+        "Body",
+        "",
+      ].join("\n"),
+      "agents/openai.yaml": [
+        "policy:",
+        "  allow_implicit_invocation: false",
+        "",
+      ].join("\n"),
     };
 
     // When
@@ -115,7 +133,11 @@ describe("translateSkill", () => {
         "Follow the workflow in TASKS.md.",
         "",
       ].join("\n"),
-      ".agents/skills/next-task/agents/openai.yaml": ["policy:", "  allow_implicit_invocation: false", ""].join("\n"),
+      ".agents/skills/next-task/agents/openai.yaml": [
+        "policy:",
+        "  allow_implicit_invocation: false",
+        "",
+      ].join("\n"),
     };
 
     // When
@@ -171,7 +193,11 @@ describe("translateSkill", () => {
         "Follow the workflow in TASKS.md.",
         "",
       ].join("\n"),
-      ".agents/skills/next-task/agents/openai.yaml": ["policy:", "  allow_implicit_invocation: false", ""].join("\n"),
+      ".agents/skills/next-task/agents/openai.yaml": [
+        "policy:",
+        "  allow_implicit_invocation: false",
+        "",
+      ].join("\n"),
     });
   });
 
@@ -196,7 +222,16 @@ describe("translateSkill", () => {
         targetTool: "cursor",
         files: skill,
       })[".cursor/skills/reviewer/SKILL.md"],
-    ).toBe(["---", "name: reviewer", "description: Review changes", "---", "Review the current diff for bugs.", ""].join("\n"));
+    ).toBe(
+      [
+        "---",
+        "name: reviewer",
+        "description: Review changes",
+        "---",
+        "Review the current diff for bugs.",
+        "",
+      ].join("\n"),
+    );
   });
 
   it("renders OpenCode commands for manual-only skills and OpenCode skills otherwise", () => {
@@ -359,14 +394,32 @@ describe("translateSkill", () => {
         targetTool: "cursor",
         files: codexSkill,
       })[".cursor/skills/repo-guide/SKILL.md"],
-    ).toBe(["---", "name: repo-guide", "description: Explain repo conventions", "---", "Body", ""].join("\n"));
+    ).toBe(
+      [
+        "---",
+        "name: repo-guide",
+        "description: Explain repo conventions",
+        "---",
+        "Body",
+        "",
+      ].join("\n"),
+    );
     expect(
       translateSkill({
         sourceTool: "opencode",
         targetTool: "cursor",
         files: openCodeSkill,
       })[".cursor/skills/repo-guide/SKILL.md"],
-    ).toBe(["---", "name: repo-guide", "description: Explain repo conventions", "---", "Body", ""].join("\n"));
+    ).toBe(
+      [
+        "---",
+        "name: repo-guide",
+        "description: Explain repo conventions",
+        "---",
+        "Body",
+        "",
+      ].join("\n"),
+    );
   });
 });
 
@@ -381,7 +434,10 @@ describe("translateCommand", () => {
         sourceTool: "cursor",
         targetTool: "claude",
         source,
-        options: { name: "review-changes", description: "Review changed files" },
+        options: {
+          name: "review-changes",
+          description: "Review changed files",
+        },
       }),
     ).toEqual({
       ".claude/commands/review-changes.md": [
@@ -412,7 +468,11 @@ describe("translateCommand", () => {
         "Review the changed files and summarize the risks.",
         "",
       ].join("\n"),
-      ".agents/skills/review-changes/agents/openai.yaml": ["policy:", "  allow_implicit_invocation: false", ""].join("\n"),
+      ".agents/skills/review-changes/agents/openai.yaml": [
+        "policy:",
+        "  allow_implicit_invocation: false",
+        "",
+      ].join("\n"),
     });
   });
 
@@ -439,7 +499,8 @@ describe("translateCommand", () => {
         options: { name: "review-changes" },
       }),
     ).toEqual({
-      ".cursor/commands/review-changes.md": "Review the changed files and summarize the risks.\n",
+      ".cursor/commands/review-changes.md":
+        "Review the changed files and summarize the risks.\n",
     });
     expect(
       translateCommand({
@@ -475,7 +536,11 @@ describe("translateCommand", () => {
         "Review the changed files and summarize the risks.",
         "",
       ].join("\n"),
-      ".agents/skills/review-changes/agents/openai.yaml": ["policy:", "  allow_implicit_invocation: false", ""].join("\n"),
+      ".agents/skills/review-changes/agents/openai.yaml": [
+        "policy:",
+        "  allow_implicit_invocation: false",
+        "",
+      ].join("\n"),
     });
   });
 
@@ -517,7 +582,8 @@ describe("translateCommand", () => {
         options: { name: "review-changes" },
       }),
     ).toEqual({
-      ".cursor/commands/review-changes.md": "Review the changed files and summarize the risks.\n",
+      ".cursor/commands/review-changes.md":
+        "Review the changed files and summarize the risks.\n",
     });
     expect(
       translateCommand({
@@ -535,7 +601,11 @@ describe("translateCommand", () => {
         "Review the changed files and summarize the risks.",
         "",
       ].join("\n"),
-      ".agents/skills/review-changes/agents/openai.yaml": ["policy:", "  allow_implicit_invocation: false", ""].join("\n"),
+      ".agents/skills/review-changes/agents/openai.yaml": [
+        "policy:",
+        "  allow_implicit_invocation: false",
+        "",
+      ].join("\n"),
     });
   });
 

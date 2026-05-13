@@ -33,7 +33,10 @@ describe("git index primitives", () => {
     // When
     const tracked = isTrackedGitPath({ repoRoot, filePath: "AGENTS.md" });
     const headBlob = readGitHeadBlob({ repoRoot, filePath: "AGENTS.md" });
-    const stageEntries = inspectGitIndexStages({ repoRoot, filePath: "AGENTS.md" });
+    const stageEntries = inspectGitIndexStages({
+      repoRoot,
+      filePath: "AGENTS.md",
+    });
     const flags = readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" });
 
     // Then
@@ -61,7 +64,10 @@ describe("git index primitives", () => {
     // When
     const tracked = isTrackedGitPath({ repoRoot, filePath: "AGENTS.md" });
     const headBlob = readGitHeadBlob({ repoRoot, filePath: "AGENTS.md" });
-    const stageEntries = inspectGitIndexStages({ repoRoot, filePath: "AGENTS.md" });
+    const stageEntries = inspectGitIndexStages({
+      repoRoot,
+      filePath: "AGENTS.md",
+    });
     const flags = readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" });
 
     // Then
@@ -78,7 +84,10 @@ describe("git index primitives", () => {
     // When
     const tracked = isTrackedGitPath({ repoRoot, filePath: "AGENTS.md" });
     const headBlob = readGitHeadBlob({ repoRoot, filePath: "AGENTS.md" });
-    const stageEntries = inspectGitIndexStages({ repoRoot, filePath: "AGENTS.md" });
+    const stageEntries = inspectGitIndexStages({
+      repoRoot,
+      filePath: "AGENTS.md",
+    });
     const flags = readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" });
 
     // Then
@@ -98,7 +107,10 @@ describe("git index primitives", () => {
     // When
     const tracked = isTrackedGitPath({ repoRoot, filePath: "AGENTS.md" });
     const headBlob = readGitHeadBlob({ repoRoot, filePath: "AGENTS.md" });
-    const stageEntries = inspectGitIndexStages({ repoRoot, filePath: "AGENTS.md" });
+    const stageEntries = inspectGitIndexStages({
+      repoRoot,
+      filePath: "AGENTS.md",
+    });
     const flags = readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" });
 
     // Then
@@ -127,7 +139,10 @@ describe("git index primitives", () => {
 
     // When
     const tracked = isTrackedGitPath({ repoRoot, filePath: "AGENTS.md" });
-    const stageEntries = inspectGitIndexStages({ repoRoot, filePath: "AGENTS.md" });
+    const stageEntries = inspectGitIndexStages({
+      repoRoot,
+      filePath: "AGENTS.md",
+    });
     const flags = readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" });
     const headBlob = readGitHeadBlob({ repoRoot, filePath: "AGENTS.md" });
 
@@ -135,7 +150,9 @@ describe("git index primitives", () => {
     expect(tracked).toBe(true);
     expect(stageEntries).toHaveLength(3);
     expect(stageEntries.map((entry) => entry.stage)).toEqual([1, 2, 3]);
-    expect(stageEntries.every((entry) => entry.path === "AGENTS.md")).toBe(true);
+    expect(stageEntries.every((entry) => entry.path === "AGENTS.md")).toBe(
+      true,
+    );
     expect(flags).toEqual(["M", "M", "M"]);
     expect(headBlob).toMatchObject({
       content: "# main\n",
@@ -153,7 +170,10 @@ describe("git index primitives", () => {
     writeFile(repoRoot, "AGENTS.md", "# second local change\n");
 
     // When
-    const inspection = inspectRootInstructionShadowTarget({ repoRoot, filePath: "AGENTS.md" });
+    const inspection = inspectRootInstructionShadowTarget({
+      repoRoot,
+      filePath: "AGENTS.md",
+    });
 
     // Then
     expect(inspection.tracked).toBe(true);
@@ -167,7 +187,10 @@ describe("git index primitives", () => {
     runGit(repoRoot, ["add", "--", "AGENTS.md"]);
 
     // When
-    const inspection = inspectRootInstructionShadowTarget({ repoRoot, filePath: "AGENTS.md" });
+    const inspection = inspectRootInstructionShadowTarget({
+      repoRoot,
+      filePath: "AGENTS.md",
+    });
 
     // Then
     expect(inspection.tracked).toBe(true);
@@ -182,7 +205,10 @@ describe("git index primitives", () => {
     runGit(repoRoot, ["update-index", "--assume-unchanged", "--", "AGENTS.md"]);
 
     // When
-    const inspection = inspectRootInstructionShadowTarget({ repoRoot, filePath: "AGENTS.md" });
+    const inspection = inspectRootInstructionShadowTarget({
+      repoRoot,
+      filePath: "AGENTS.md",
+    });
 
     // Then
     expect(inspection.tracked).toBe(true);
@@ -200,7 +226,9 @@ describe("git index primitives", () => {
     setGitSkipWorktree({ repoRoot, filePath: "AGENTS.md" });
 
     // Then
-    expect(readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" })).toEqual(["S"]);
+    expect(readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" })).toEqual([
+      "S",
+    ]);
   });
 
   it("clears the skip-worktree flag for a tracked root instruction file", () => {
@@ -214,7 +242,9 @@ describe("git index primitives", () => {
     clearGitSkipWorktree({ repoRoot, filePath: "AGENTS.md" });
 
     // Then
-    expect(readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" })).toEqual(["H"]);
+    expect(readGitIndexFlags({ repoRoot, filePath: "AGENTS.md" })).toEqual([
+      "H",
+    ]);
   });
 });
 
