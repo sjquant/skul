@@ -580,12 +580,17 @@ function isNativeSourcePath(
 
 function toTranslationToolName(
   toolName: ToolName,
-): "claude" | "cursor" | "opencode" | "codex" {
-  const map: Record<ToolName, "claude" | "cursor" | "opencode" | "codex"> = {
+): "claude" | "cursor" | "opencode" | "codex" | "copilot" | "kiro" {
+  const map: Record<
+    ToolName,
+    "claude" | "cursor" | "opencode" | "codex" | "copilot" | "kiro"
+  > = {
     "claude-code": "claude",
     cursor: "cursor",
     opencode: "opencode",
     codex: "codex",
+    copilot: "copilot",
+    kiro: "kiro",
   };
   return map[toolName];
 }
@@ -654,7 +659,7 @@ async function materializeCanonicalTarget(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateCommand({
         sourceTool: "claude",
-        targetTool: translTool,
+        targetTool: translTool as Parameters<typeof translateCommand>[0]["targetTool"],
         source: content,
         options: { name: commandName },
       });
@@ -664,7 +669,7 @@ async function materializeCanonicalTarget(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateAgent({
         sourceTool: "claude",
-        targetTool: translTool,
+        targetTool: translTool as Parameters<typeof translateAgent>[0]["targetTool"],
         source: content,
       });
     } else {
@@ -734,7 +739,7 @@ function previewCanonicalTargetWriteTargets(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateCommand({
         sourceTool: "claude",
-        targetTool: translTool,
+        targetTool: translTool as Parameters<typeof translateCommand>[0]["targetTool"],
         source: content,
         options: { name: commandName },
       });
@@ -744,7 +749,7 @@ function previewCanonicalTargetWriteTargets(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateAgent({
         sourceTool: "claude",
-        targetTool: translTool,
+        targetTool: translTool as Parameters<typeof translateAgent>[0]["targetTool"],
         source: content,
       });
     } else {

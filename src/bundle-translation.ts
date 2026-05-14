@@ -12,10 +12,10 @@ interface MetadataMap {
   [key: string]: MetadataValue;
 }
 
-type SkillTool = "claude" | "cursor" | "codex" | "opencode";
+type SkillTool = "claude" | "cursor" | "codex" | "opencode" | "copilot" | "kiro";
 type CommandTool = "claude" | "cursor" | "opencode";
 type AgentTool = "claude" | "cursor" | "codex" | "opencode";
-type RootInstructionTool = "claude" | "cursor" | "codex" | "opencode";
+type RootInstructionTool = "claude" | "cursor" | "codex" | "opencode" | "copilot" | "kiro";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
@@ -113,7 +113,7 @@ function parseSkill(
 
   const document = parseMarkdownDocument(skillSource);
 
-  if (sourceTool === "claude" || sourceTool === "cursor") {
+  if (sourceTool === "claude" || sourceTool === "cursor" || sourceTool === "copilot" || sourceTool === "kiro") {
     return {
       name: coerceRequiredString(document.metadata.name, "name"),
       description: coerceRequiredString(
@@ -233,6 +233,24 @@ function renderSkill(
           description: model.description,
           compatibility: "opencode",
         },
+        body: model.body,
+      }),
+    };
+  }
+
+  if (targetTool === "copilot" || targetTool === "kiro") {
+    const metadata: MetadataMap = {
+      name: model.name,
+      description: model.description,
+    };
+
+    if (model.manualOnly) {
+      metadata["disable-model-invocation"] = true;
+    }
+
+    return {
+      [skillFilePath(targetTool, model.name)]: renderMarkdownDocument({
+        metadata,
         body: model.body,
       }),
     };
@@ -578,7 +596,7 @@ function toToolMappingName(
     return "claude-code";
   }
 
-  return tool;
+  return tool as ToolName;
 }
 
 function parseCodexAgent(source: string): CodexAgentDocument {

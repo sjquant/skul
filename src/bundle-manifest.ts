@@ -193,6 +193,8 @@ function selectRootInstructionSourcePath(
     "cursor",
     "opencode",
     "codex",
+    "copilot",
+    "kiro",
   ];
 
   for (const toolName of preferredToolOrder) {

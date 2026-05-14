@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export type ToolName = "claude-code" | "cursor" | "opencode" | "codex";
+export type ToolName = "claude-code" | "cursor" | "opencode" | "codex" | "copilot" | "kiro";
 export type ToolTargetName =
   | "skills"
   | "commands"
@@ -51,6 +51,20 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     targets: {
       skills: { path: ".agents/skills", kind: "directory" },
       agents: { path: ".codex/agents", kind: "directory" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
+    },
+  },
+  {
+    name: "copilot",
+    targets: {
+      skills: { path: ".github/skills", kind: "directory" },
+      root_instruction: { path: ".github/copilot-instructions.md", kind: "file" },
+    },
+  },
+  {
+    name: "kiro",
+    targets: {
+      skills: { path: ".kiro/skills", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
     },
   },

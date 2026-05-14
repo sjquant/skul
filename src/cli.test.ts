@@ -2560,7 +2560,7 @@ describe("run", () => {
     await expect(
       run(["add", "security-standards"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
 
     // Then
@@ -2617,7 +2617,7 @@ describe("run", () => {
     await expect(
       run(["add", "security-standards"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
 
     // Then
@@ -2720,7 +2720,7 @@ describe("run", () => {
     await expect(
       run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
 
     // Then
@@ -2808,7 +2808,7 @@ describe("run", () => {
     await expect(
       run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
 
     // Then
@@ -2849,7 +2849,7 @@ describe("run", () => {
     await expect(
       run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
 
     // Then
@@ -2969,7 +2969,7 @@ describe("run", () => {
     await expect(
       run(["add", "repo-standards"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
 
     // Then
@@ -3015,7 +3015,7 @@ describe("run", () => {
     await expect(
       run(["add", "shared-claude-guide"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe(
-      "Applied shared-claude-guide for claude-code, cursor, opencode, codex",
+      "Applied shared-claude-guide for claude-code, cursor, opencode, codex, copilot, kiro",
     );
 
     // Then
@@ -3067,7 +3067,7 @@ describe("run", () => {
     await expect(
       run(["add", "security-standards"], { homeDir, cwd: repoRoot }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
 
     // Then
@@ -5789,8 +5789,8 @@ describe("run", () => {
   it("rejects unknown --agent names with a helpful error", async () => {
     // Given / When / Then
     await expect(
-      parseCliArgs(["add", "react-expert", "--agent", "copilot"]),
-    ).rejects.toThrowError(/Unknown tool: copilot[\s\S]*Valid tools:/);
+      parseCliArgs(["add", "react-expert", "--agent", "windsurf"]),
+    ).rejects.toThrowError(/Unknown tool: windsurf[\s\S]*Valid tools:/);
   });
 
   it("persists an explicit ref selector when adding a remote-backed bundle", async () => {

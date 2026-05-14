@@ -78,18 +78,10 @@ export function collectComposedRootInstructionContents(options: {
 
 function toTranslationToolName(
   toolName: ToolName,
-): "claude" | "cursor" | "opencode" | "codex" {
-  if (toolName === "codex") {
-    return "codex";
+): "claude" | "cursor" | "opencode" | "codex" | "copilot" | "kiro" {
+  if (toolName === "claude-code") {
+    return "claude";
   }
 
-  if (toolName === "cursor") {
-    return "cursor";
-  }
-
-  if (toolName === "opencode") {
-    return "opencode";
-  }
-
-  return "claude";
+  return toolName;
 }

@@ -17,6 +17,8 @@ describe("listToolDefinitions", () => {
       "cursor",
       "opencode",
       "codex",
+      "copilot",
+      "kiro",
     ]);
   });
 });
@@ -70,6 +72,26 @@ describe("getToolDefinition", () => {
         },
       },
     ],
+    [
+      "copilot",
+      {
+        name: "copilot",
+        targets: {
+          skills: { path: ".github/skills", kind: "directory" },
+          root_instruction: { path: ".github/copilot-instructions.md", kind: "file" },
+        },
+      },
+    ],
+    [
+      "kiro",
+      {
+        name: "kiro",
+        targets: {
+          skills: { path: ".kiro/skills", kind: "directory" },
+          root_instruction: { path: "AGENTS.md", kind: "file" },
+        },
+      },
+    ],
   ])("returns the exact target mapping for %s", (toolName, expectedDefinition) => {
     // Given / When / Then
     expect(getToolDefinition(toolName)).toEqual(expectedDefinition);
@@ -77,7 +99,7 @@ describe("getToolDefinition", () => {
 
   it("returns null for unsupported tools", () => {
     // Given / When / Then
-    expect(getToolDefinition("copilot")).toBeNull();
+    expect(getToolDefinition("unknown-tool")).toBeNull();
   });
 });
 
@@ -98,6 +120,10 @@ describe("resolveToolTargetPath", () => {
     ["codex", "agents", path.join("/repo", ".codex/agents")],
     ["claude-code", "root_instruction", path.join("/repo", "CLAUDE.md")],
     ["codex", "root_instruction", path.join("/repo", "AGENTS.md")],
+    ["copilot", "skills", path.join("/repo", ".github/skills")],
+    ["copilot", "root_instruction", path.join("/repo", ".github/copilot-instructions.md")],
+    ["kiro", "skills", path.join("/repo", ".kiro/skills")],
+    ["kiro", "root_instruction", path.join("/repo", "AGENTS.md")],
   ];
 
   it.each(
@@ -109,15 +135,22 @@ describe("resolveToolTargetPath", () => {
     );
   });
 
-  it.each([["codex", "commands"]] satisfies Array<
-    [string, ToolTargetName]
-  >)("returns null when %s does not define %s", (toolName, targetName) => {
-    // Given / When / Then
-    expect(resolveToolTargetPath(toolName, targetName, "/repo")).toBeNull();
-  });
+  it.each([
+    ["codex", "commands"],
+    ["copilot", "commands"],
+    ["copilot", "agents"],
+    ["kiro", "commands"],
+    ["kiro", "agents"],
+  ] satisfies Array<[string, ToolTargetName]>)(
+    "returns null when %s does not define %s",
+    (toolName, targetName) => {
+      // Given / When / Then
+      expect(resolveToolTargetPath(toolName, targetName, "/repo")).toBeNull();
+    },
+  );
 
   it("returns null for unsupported tools", () => {
     // Given / When / Then
-    expect(resolveToolTargetPath("copilot", "skills", "/repo")).toBeNull();
+    expect(resolveToolTargetPath("unknown-tool", "skills", "/repo")).toBeNull();
   });
 });
