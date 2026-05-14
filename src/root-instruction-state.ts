@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { type CachedBundle } from "./bundle-discovery";
-import {
-  type DesiredBundleEntry,
-  type MaterializedBundleState,
-  type MaterializedState,
+import type { CachedBundle } from "./bundle-discovery";
+import type {
+  DesiredBundleEntry,
+  MaterializedBundleState,
+  MaterializedState,
 } from "./registry";
 import { collectComposedRootInstructionContents } from "./root-instruction-content";
 import {
@@ -14,7 +14,7 @@ import {
   isRootInstructionPath,
   wrapRootInstructionBundleContent,
 } from "./root-instruction-render";
-import { type ToolName } from "./tool-mapping";
+import type { ToolName } from "./tool-mapping";
 
 /** Captures pre-existing root-instruction file contents before Skul starts managing them. */
 export function captureRootInstructionBaseContents(options: {
@@ -47,7 +47,9 @@ export function captureRootInstructionBaseContents(options: {
     nextBaseContents[repoRelativePath] = fs.readFileSync(targetPath, "utf8");
   }
 
-  return Object.keys(nextBaseContents).length > 0 ? nextBaseContents : undefined;
+  return Object.keys(nextBaseContents).length > 0
+    ? nextBaseContents
+    : undefined;
 }
 
 /** Rebuilds shared root-instruction files from desired bundle state and returns the rewritten paths. */
@@ -84,7 +86,8 @@ function collectRootInstructionContentByPath(options: {
   const seenBundleTargets = new Set<string>();
 
   for (const desiredEntry of options.desiredState) {
-    const materializedBundleState = options.materializedBundles[desiredEntry.bundle];
+    const materializedBundleState =
+      options.materializedBundles[desiredEntry.bundle];
 
     if (!materializedBundleState) {
       continue;
@@ -100,7 +103,8 @@ function collectRootInstructionContentByPath(options: {
     });
 
     for (const toolName of toolNames) {
-      for (const repoRelativePath of materializedBundleState.tools[toolName]!.files) {
+      for (const repoRelativePath of materializedBundleState.tools[toolName]!
+        .files) {
         if (!isRootInstructionPath(repoRelativePath)) {
           continue;
         }
@@ -123,11 +127,13 @@ function collectRootInstructionContentByPath(options: {
 
         seenBundleTargets.add(bundleTargetKey);
         const existingParts = contentByPath.get(repoRelativePath) ?? [];
-        existingParts.push(wrapRootInstructionBundleContent({
-          bundleName: desiredEntry.bundle,
-          source: desiredEntry.source,
-          content,
-        }));
+        existingParts.push(
+          wrapRootInstructionBundleContent({
+            bundleName: desiredEntry.bundle,
+            source: desiredEntry.source,
+            content,
+          }),
+        );
         contentByPath.set(repoRelativePath, existingParts);
       }
     }
@@ -204,7 +210,10 @@ function captureManagedFileFingerprints(
   files: string[],
 ): Record<string, string> {
   return Object.fromEntries(
-    files.map((relativePath) => [relativePath, fingerprintFile(path.join(repoRoot, relativePath))]),
+    files.map((relativePath) => [
+      relativePath,
+      fingerprintFile(path.join(repoRoot, relativePath)),
+    ]),
   );
 }
 
@@ -243,14 +252,16 @@ export function assertManagedRootInstructionSyncSourcesCached(options: {
   }
 
   for (const desiredEntry of options.desiredState) {
-    const materializedBundleState = options.materializedBundles[desiredEntry.bundle];
+    const materializedBundleState =
+      options.materializedBundles[desiredEntry.bundle];
 
     if (!materializedBundleState) {
       continue;
     }
 
-    const ownsTargetPath = Object.values(materializedBundleState.tools).some((toolState) =>
-      toolState.files.some((filePath) => options.targetPaths.has(filePath)),
+    const ownsTargetPath = Object.values(materializedBundleState.tools).some(
+      (toolState) =>
+        toolState.files.some((filePath) => options.targetPaths.has(filePath)),
     );
 
     if (!ownsTargetPath) {
@@ -267,7 +278,9 @@ export function collectSharedRootInstructionState(
   plannedWriteTargets: string[],
   excludedBundleName: string,
 ): { files: string[]; file_fingerprints: Record<string, string> } {
-  const sharedRootTargets = new Set(plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)));
+  const sharedRootTargets = new Set(
+    plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
+  );
   const files = new Set<string>();
   const fileFingerprints: Record<string, string> = {};
 

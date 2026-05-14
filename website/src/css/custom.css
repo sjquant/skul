@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap");
 
 :root {
   --ifm-color-primary: #0f5f8f;
@@ -10,9 +10,9 @@
   --ifm-color-primary-lightest: #1680c2;
   --ifm-background-color: #f7fafc;
   --ifm-code-font-size: 95%;
-  --ifm-font-family-base: 'IBM Plex Sans', sans-serif;
-  --ifm-font-family-monospace: 'IBM Plex Mono', monospace;
-  --ifm-heading-font-family: 'Space Grotesk', sans-serif;
+  --ifm-font-family-base: "IBM Plex Sans", sans-serif;
+  --ifm-font-family-monospace: "IBM Plex Mono", monospace;
+  --ifm-heading-font-family: "Space Grotesk", sans-serif;
   --ifm-navbar-background-color: rgba(247, 250, 252, 0.88);
   --ifm-navbar-link-color: #10253a;
   --ifm-navbar-shadow: 0 8px 24px rgba(9, 20, 35, 0.06);
@@ -34,7 +34,7 @@
   --ifm-link-color: #0f5f8f;
   --ifm-link-hover-color: #1680c2;
 
-  --skul-heading-font: 'Space Grotesk', sans-serif;
+  --skul-heading-font: "Space Grotesk", sans-serif;
   --skul-page-top: rgba(250, 252, 255, 0.85);
   --skul-glow-cyan: rgba(34, 211, 238, 0.14);
   --skul-glow-amber: rgba(251, 146, 60, 0.12);
@@ -70,7 +70,7 @@
   --skul-code-button-hover: rgba(255, 255, 255, 0.1);
 }
 
-html[data-theme='dark'] {
+html[data-theme="dark"] {
   --ifm-color-primary: #58c5ee;
   --ifm-color-primary-dark: #36b9e9;
   --ifm-color-primary-darker: #26b3e7;
@@ -178,8 +178,16 @@ body {
 .theme-code-block {
   background:
     radial-gradient(circle at top right, var(--skul-glow-cyan), transparent 34%),
-    radial-gradient(circle at left center, var(--skul-glow-amber), transparent 30%),
-    linear-gradient(180deg, var(--skul-code-start) 0%, var(--skul-code-end) 100%);
+    radial-gradient(
+      circle at left center,
+      var(--skul-glow-amber),
+      transparent 30%
+    ),
+    linear-gradient(
+      180deg,
+      var(--skul-code-start) 0%,
+      var(--skul-code-end) 100%
+    );
   box-shadow: var(--skul-card-shadow-strong);
   overflow: hidden;
   position: relative;
@@ -202,7 +210,7 @@ body {
   padding: 0;
 }
 
-.theme-code-block [class*='buttonGroup'] {
+.theme-code-block [class*="buttonGroup"] {
   background: var(--skul-code-button-bg);
   border: 1px solid var(--skul-code-button-border);
   border-radius: 0.5rem;
@@ -218,7 +226,7 @@ body {
   z-index: 3;
 }
 
-.theme-code-block [class*='buttonGroup'] > button {
+.theme-code-block [class*="buttonGroup"] > button {
   align-items: center;
   background: transparent;
   border: 1px solid transparent;
@@ -232,19 +240,19 @@ body {
   padding: 0.35rem;
 }
 
-.theme-code-block [class*='buttonGroup'] > button:hover,
-.theme-code-block [class*='buttonGroup'] > button:focus-visible {
+.theme-code-block [class*="buttonGroup"] > button:hover,
+.theme-code-block [class*="buttonGroup"] > button:focus-visible {
   background: var(--skul-code-button-hover);
   border-color: var(--skul-code-button-border);
   opacity: 1;
 }
 
-.theme-code-block [class*='buttonGroup'] svg {
+.theme-code-block [class*="buttonGroup"] svg {
   height: 1rem;
   width: 1rem;
 }
 
-.theme-code-block [class*='buttonGroup'] [class*='copyButtonSuccessIcon'] {
+.theme-code-block [class*="buttonGroup"] [class*="copyButtonSuccessIcon"] {
   color: var(--skul-accent-cyan-strong);
 }
 
@@ -318,33 +326,33 @@ body {
   color: var(--skul-ink-strong);
 }
 
-html[data-theme='dark'] .navbar__link,
-html[data-theme='dark'] .navbar__brand,
-html[data-theme='dark'] .menu__link,
-html[data-theme='dark'] .table-of-contents__link,
-html[data-theme='dark'] .pagination-nav__label,
-html[data-theme='dark'] .pagination-nav__sublabel {
+html[data-theme="dark"] .navbar__link,
+html[data-theme="dark"] .navbar__brand,
+html[data-theme="dark"] .menu__link,
+html[data-theme="dark"] .table-of-contents__link,
+html[data-theme="dark"] .pagination-nav__label,
+html[data-theme="dark"] .pagination-nav__sublabel {
   color: var(--skul-ink);
 }
 
-html[data-theme='dark'] .navbar__link:hover,
-html[data-theme='dark'] .menu__link:hover,
-html[data-theme='dark'] .table-of-contents__link:hover,
-html[data-theme='dark'] .footer__link-item:hover {
+html[data-theme="dark"] .navbar__link:hover,
+html[data-theme="dark"] .menu__link:hover,
+html[data-theme="dark"] .table-of-contents__link:hover,
+html[data-theme="dark"] .footer__link-item:hover {
   color: var(--skul-ink-strong);
 }
 
-html[data-theme='dark'] .menu__link--active,
-html[data-theme='dark'] .table-of-contents__link--active {
+html[data-theme="dark"] .menu__link--active,
+html[data-theme="dark"] .table-of-contents__link--active {
   color: var(--skul-ink-strong);
 }
 
-html[data-theme='dark'] .theme-doc-sidebar-container,
-html[data-theme='dark'] .theme-doc-toc-desktop {
+html[data-theme="dark"] .theme-doc-sidebar-container,
+html[data-theme="dark"] .theme-doc-toc-desktop {
   border-color: var(--skul-line-soft);
 }
 
-html[data-theme='dark'] .navbar-sidebar,
-html[data-theme='dark'] .navbar-sidebar__brand {
+html[data-theme="dark"] .navbar-sidebar,
+html[data-theme="dark"] .navbar-sidebar__brand {
   background: var(--skul-sidebar-surface);
 }

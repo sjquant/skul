@@ -3,13 +3,20 @@ import path from "node:path";
 
 const START_MARKER = "# >>> SKUL START";
 const END_MARKER = "# <<< SKUL END";
-const SKUL_BLOCK_PATTERN = /(?:^|\n)# >>> SKUL START\n[\s\S]*?\n# <<< SKUL END(?:\n)?/g;
+const SKUL_BLOCK_PATTERN =
+  /(?:^|\n)# >>> SKUL START\n[\s\S]*?\n# <<< SKUL END(?:\n)?/g;
 
 /** Writes or refreshes Skul's managed block inside `.git/info/exclude`. */
-export function configureSkulExcludeBlock(options: { gitDir: string; files: string[] }): boolean {
+export function configureSkulExcludeBlock(options: {
+  gitDir: string;
+  files: string[];
+}): boolean {
   const excludeFile = resolveExcludeFile(options.gitDir);
   const normalizedFiles = normalizeExcludeFiles(options.files);
-  const nextContent = appendSkulExcludeBlock(readExcludeFile(excludeFile), normalizedFiles);
+  const nextContent = appendSkulExcludeBlock(
+    readExcludeFile(excludeFile),
+    normalizedFiles,
+  );
 
   return writeExcludeFile(excludeFile, nextContent);
 }
@@ -40,7 +47,9 @@ export function hasSkulExcludeBlock(options: { gitDir: string }): boolean {
     return false;
   }
 
-  return new RegExp(SKUL_BLOCK_PATTERN.source).test(readExcludeFile(excludeFile));
+  return new RegExp(SKUL_BLOCK_PATTERN.source).test(
+    readExcludeFile(excludeFile),
+  );
 }
 
 function resolveExcludeFile(gitDir: string): string {

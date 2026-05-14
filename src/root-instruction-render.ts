@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 
-import { type ToolName } from "./tool-mapping";
+import type { ToolName } from "./tool-mapping";
 
 /** Joins root-instruction parts into one normalized document body. */
-export function composeRootInstructionContent(parts: Array<string | undefined>): string {
+export function composeRootInstructionContent(
+  parts: Array<string | undefined>,
+): string {
   return parts
     .map((part) => normalizeRootInstructionPart(part))
     .filter((part) => part.length > 0)
@@ -40,7 +42,9 @@ export function renderTrackedRootInstructionShadow(
     );
   }
 
-  const normalizedOverlayContent = normalizeRootInstructionPart(options.overlayContent);
+  const normalizedOverlayContent = normalizeRootInstructionPart(
+    options.overlayContent,
+  );
   const overlay =
     options.strategy === "replace"
       ? normalizedOverlayContent
@@ -74,7 +78,9 @@ export function wrapRootInstructionBundleContent(options: {
     return "";
   }
 
-  const label = options.source ? `${options.bundleName} (${options.source})` : options.bundleName;
+  const label = options.source
+    ? `${options.bundleName} (${options.source})`
+    : options.bundleName;
 
   return [
     `<!-- BEGIN SKUL BUNDLE: ${label} -->`,
@@ -106,7 +112,10 @@ function hasTrackedRootInstructionManualEdit(options: {
   content: string;
   renderedFingerprint: string;
 }): boolean {
-  return fingerprintRootInstructionContent(options.content) !== options.renderedFingerprint;
+  return (
+    fingerprintRootInstructionContent(options.content) !==
+    options.renderedFingerprint
+  );
 }
 
 /** Returns whether a repo-relative path is a managed root-instruction file. */

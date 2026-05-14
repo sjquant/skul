@@ -12,7 +12,9 @@ describe("normalizeConflictDestination", () => {
   });
 
   it("accepts a nested relative path", () => {
-    expect(normalizeConflictDestination("react/SKILL.md")).toBe("react/SKILL.md");
+    expect(normalizeConflictDestination("react/SKILL.md")).toBe(
+      "react/SKILL.md",
+    );
   });
 
   it("trims leading and trailing whitespace", () => {
@@ -80,7 +82,9 @@ describe("suggestPrefixedDestination", () => {
   });
 
   it("prepends the prefix to a nested file, only modifying the first segment", () => {
-    expect(suggestPrefixedDestination("react/SKILL.md", "next")).toBe("next-react/SKILL.md");
+    expect(suggestPrefixedDestination("react/SKILL.md", "next")).toBe(
+      "next-react/SKILL.md",
+    );
   });
 
   it("preserves the extension when prefixing", () => {

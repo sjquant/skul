@@ -1,5 +1,9 @@
 import { escapeRegExp } from "./fs-utils";
-import { getToolDefinition, type ToolName, type ToolTargetName } from "./tool-mapping";
+import {
+  getToolDefinition,
+  type ToolName,
+  type ToolTargetName,
+} from "./tool-mapping";
 
 type ScalarValue = string | boolean;
 type MetadataValue = ScalarValue | MetadataMap;
@@ -97,7 +101,10 @@ export function translateRootInstruction(options: {
   };
 }
 
-function parseSkill(sourceTool: SkillTool, files: Record<string, string>): SkillModel {
+function parseSkill(
+  sourceTool: SkillTool,
+  files: Record<string, string>,
+): SkillModel {
   const skillSource = findFileBySuffix(files, "SKILL.md");
 
   if (!skillSource) {
@@ -109,7 +116,10 @@ function parseSkill(sourceTool: SkillTool, files: Record<string, string>): Skill
   if (sourceTool === "claude" || sourceTool === "cursor") {
     return {
       name: coerceRequiredString(document.metadata.name, "name"),
-      description: coerceRequiredString(document.metadata.description, "description"),
+      description: coerceRequiredString(
+        document.metadata.description,
+        "description",
+      ),
       body: document.body,
       manualOnly: document.metadata["disable-model-invocation"] === true,
       openCodeCompatibility: false,
@@ -119,16 +129,24 @@ function parseSkill(sourceTool: SkillTool, files: Record<string, string>): Skill
   if (sourceTool === "codex") {
     return {
       name: coerceRequiredString(document.metadata.name, "name"),
-      description: coerceRequiredString(document.metadata.description, "description"),
+      description: coerceRequiredString(
+        document.metadata.description,
+        "description",
+      ),
       body: document.body,
-      manualOnly: parseCodexSkillPolicy(findFileBySuffix(files, "agents/openai.yaml")) === false,
+      manualOnly:
+        parseCodexSkillPolicy(findFileBySuffix(files, "agents/openai.yaml")) ===
+        false,
       openCodeCompatibility: false,
     };
   }
 
   return {
     name: coerceRequiredString(document.metadata.name, "name"),
-    description: coerceRequiredString(document.metadata.description, "description"),
+    description: coerceRequiredString(
+      document.metadata.description,
+      "description",
+    ),
     body: document.body,
     manualOnly: false,
     openCodeCompatibility: document.metadata.compatibility === "opencode",
@@ -151,7 +169,10 @@ function renderSkill(
     }
 
     return {
-      [skillFilePath("claude", model.name)]: renderMarkdownDocument({ metadata, body: model.body }),
+      [skillFilePath("claude", model.name)]: renderMarkdownDocument({
+        metadata,
+        body: model.body,
+      }),
     };
   }
 
@@ -166,7 +187,10 @@ function renderSkill(
     }
 
     return {
-      [skillFilePath("cursor", model.name)]: renderMarkdownDocument({ metadata, body: model.body }),
+      [skillFilePath("cursor", model.name)]: renderMarkdownDocument({
+        metadata,
+        body: model.body,
+      }),
     };
   }
 
@@ -183,7 +207,8 @@ function renderSkill(
     };
 
     if (model.manualOnly) {
-      files[`${skillBasePath}/agents/openai.yaml`] = renderCodexSkillPolicy(false);
+      files[`${skillBasePath}/agents/openai.yaml`] =
+        renderCodexSkillPolicy(false);
     }
 
     return files;
@@ -302,14 +327,17 @@ function renderCommand(
   }
 
   return {
-    [`${skillDirectoryPath("codex", commandName)}/SKILL.md`]: renderMarkdownDocument({
-      metadata: {
-        name: commandName,
-        description: options.description ?? model.description ?? "Translated command",
-      },
-      body: model.body,
-    }),
-    [`${skillDirectoryPath("codex", commandName)}/agents/openai.yaml`]: renderCodexSkillPolicy(false),
+    [`${skillDirectoryPath("codex", commandName)}/SKILL.md`]:
+      renderMarkdownDocument({
+        metadata: {
+          name: commandName,
+          description:
+            options.description ?? model.description ?? "Translated command",
+        },
+        body: model.body,
+      }),
+    [`${skillDirectoryPath("codex", commandName)}/agents/openai.yaml`]:
+      renderCodexSkillPolicy(false),
   };
 }
 
@@ -327,14 +355,20 @@ function parseAgent(sourceTool: AgentTool, source: string): AgentModel {
   const document = parseMarkdownDocument(source);
   return {
     name: coerceRequiredString(document.metadata.name, "name"),
-    description: coerceRequiredString(document.metadata.description, "description"),
+    description: coerceRequiredString(
+      document.metadata.description,
+      "description",
+    ),
     body: document.body,
     model: coerceOptionalString(document.metadata.model),
     mode: coerceOptionalString(document.metadata.mode),
   };
 }
 
-function renderAgent(targetTool: AgentTool, model: AgentModel): Record<string, string> {
+function renderAgent(
+  targetTool: AgentTool,
+  model: AgentModel,
+): Record<string, string> {
   if (targetTool === "codex") {
     return {
       [agentFilePath("codex", model.name)]: renderCodexAgent({
@@ -396,7 +430,9 @@ function renderMarkdownDocument(document: MarkdownDocument): string {
 
 function parseYamlMap(source: string): MetadataMap {
   const root: MetadataMap = {};
-  const stack: Array<{ indent: number; value: MetadataMap }> = [{ indent: -1, value: root }];
+  const stack: Array<{ indent: number; value: MetadataMap }> = [
+    { indent: -1, value: root },
+  ];
 
   for (const rawLine of source.split("\n")) {
     if (rawLine.trim() === "") {
@@ -467,12 +503,17 @@ function parseCodexSkillPolicy(source?: string): boolean | undefined {
   return match ? match[1] === "true" : undefined;
 }
 
-function findFileBySuffix(files: Record<string, string>, suffix: string): string | undefined {
+function findFileBySuffix(
+  files: Record<string, string>,
+  suffix: string,
+): string | undefined {
   if (suffix in files) {
     return files[suffix];
   }
 
-  const matches = Object.entries(files).filter(([filePath]) => filePath.endsWith(`/${suffix}`));
+  const matches = Object.entries(files).filter(([filePath]) =>
+    filePath.endsWith(`/${suffix}`),
+  );
 
   if (matches.length === 0) {
     return undefined;
@@ -493,7 +534,10 @@ function skillDirectoryPath(tool: SkillTool, name: string): string {
   return `${targetBasePath(tool, "skills")}/${name}`;
 }
 
-function skillFilePath(tool: Exclude<SkillTool, "codex">, name: string): string {
+function skillFilePath(
+  tool: Exclude<SkillTool, "codex">,
+  name: string,
+): string {
   return `${skillDirectoryPath(tool, name)}/SKILL.md`;
 }
 
@@ -509,8 +553,12 @@ function rootInstructionFilePath(tool: RootInstructionTool): string {
   return targetBasePath(tool, "root_instruction");
 }
 
-function targetBasePath(tool: SkillTool | CommandTool | AgentTool | RootInstructionTool, target: ToolTargetName): string {
-  const path = getToolDefinition(toToolMappingName(tool))?.targets[target]?.path;
+function targetBasePath(
+  tool: SkillTool | CommandTool | AgentTool | RootInstructionTool,
+  target: ToolTargetName,
+): string {
+  const path = getToolDefinition(toToolMappingName(tool))?.targets[target]
+    ?.path;
 
   if (!path) {
     return unsupportedTargetPath(tool, target);
@@ -523,7 +571,9 @@ function unsupportedTargetPath(tool: string, target: string): never {
   throw new Error(`Unsupported ${target} target for ${tool}`);
 }
 
-function toToolMappingName(tool: SkillTool | CommandTool | AgentTool | RootInstructionTool): ToolName {
+function toToolMappingName(
+  tool: SkillTool | CommandTool | AgentTool | RootInstructionTool,
+): ToolName {
   if (tool === "claude") {
     return "claude-code";
   }
@@ -535,7 +585,10 @@ function parseCodexAgent(source: string): CodexAgentDocument {
   return {
     name: parseTomlString(source, "name"),
     description: parseTomlString(source, "description"),
-    developerInstructions: parseTomlMultilineString(source, "developer_instructions"),
+    developerInstructions: parseTomlMultilineString(
+      source,
+      "developer_instructions",
+    ),
     model: parseTomlOptionalString(source, "model"),
     sandboxMode: parseTomlOptionalString(source, "sandbox_mode"),
   };
@@ -555,12 +608,20 @@ function renderCodexAgent(document: CodexAgentDocument): string {
     lines.push(`sandbox_mode = ${renderTomlString(document.sandboxMode)}`);
   }
 
-  lines.push(`developer_instructions = ${renderTomlMultilineString(document.developerInstructions)}`, "");
+  lines.push(
+    `developer_instructions = ${renderTomlMultilineString(document.developerInstructions)}`,
+    "",
+  );
   return lines.join("\n");
 }
 
-function parseTomlOptionalString(source: string, key: string): string | undefined {
-  const match = source.match(new RegExp(`^${escapeRegExp(key)}\\s*=\\s*"([^"]*)"`, "m"));
+function parseTomlOptionalString(
+  source: string,
+  key: string,
+): string | undefined {
+  const match = source.match(
+    new RegExp(`^${escapeRegExp(key)}\\s*=\\s*"([^"]*)"`, "m"),
+  );
   return match?.[1];
 }
 
@@ -594,7 +655,10 @@ function renderTomlMultilineString(value: string): string {
   return `"""\n${value.replaceAll('"""', '\\"\\"\\"')}"""`;
 }
 
-function coerceRequiredString(value: MetadataValue | undefined, label: string): string {
+function coerceRequiredString(
+  value: MetadataValue | undefined,
+  label: string,
+): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`${label} is required`);
   }
@@ -602,7 +666,9 @@ function coerceRequiredString(value: MetadataValue | undefined, label: string): 
   return value;
 }
 
-function coerceOptionalString(value: MetadataValue | undefined): string | undefined {
+function coerceOptionalString(
+  value: MetadataValue | undefined,
+): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 

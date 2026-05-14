@@ -18,7 +18,9 @@ export interface DetectGitContextOptions {
 }
 
 /** Detects repository and worktree identity for a working directory, or returns `null` outside Git. */
-export function detectGitContext(options: DetectGitContextOptions): GitContext | null {
+export function detectGitContext(
+  options: DetectGitContextOptions,
+): GitContext | null {
   const worktreeRoot = gitRevParse(options.cwd, ["--show-toplevel"]);
 
   if (!worktreeRoot) {
@@ -53,11 +55,15 @@ export function detectGitContext(options: DetectGitContextOptions): GitContext |
 
 function gitRevParse(cwd: string, args: string[]): string | null {
   try {
-    return execFileSync("git", ["rev-parse", "--path-format=absolute", ...args], {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    return execFileSync(
+      "git",
+      ["rev-parse", "--path-format=absolute", ...args],
+      {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    ).trim();
   } catch {
     return null;
   }

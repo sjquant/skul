@@ -1,8 +1,20 @@
 .page {
   background:
-    radial-gradient(circle at top left, var(--skul-glow-cyan), transparent 28rem),
-    radial-gradient(circle at top right, var(--skul-glow-amber), transparent 26rem),
-    linear-gradient(180deg, var(--skul-page-top) 0%, var(--ifm-background-color) 22rem);
+    radial-gradient(
+      circle at top left,
+      var(--skul-glow-cyan),
+      transparent 28rem
+    ),
+    radial-gradient(
+      circle at top right,
+      var(--skul-glow-amber),
+      transparent 26rem
+    ),
+    linear-gradient(
+      180deg,
+      var(--skul-page-top) 0%,
+      var(--ifm-background-color) 22rem
+    );
 }
 
 .hero {
@@ -158,15 +170,23 @@
 
 .heroChecklist li::before {
   color: var(--skul-accent-cyan-strong);
-  content: '•';
+  content: "•";
   font-size: 1.1rem;
   line-height: 1;
 }
 
 .commandPanel {
   background:
-    radial-gradient(circle at top right, var(--skul-command-chip-bg), transparent 38%),
-    radial-gradient(circle at left bottom, var(--skul-glow-amber), transparent 28%),
+    radial-gradient(
+      circle at top right,
+      var(--skul-command-chip-bg),
+      transparent 38%
+    ),
+    radial-gradient(
+      circle at left bottom,
+      var(--skul-glow-amber),
+      transparent 28%
+    ),
     var(--skul-panel);
   border: 1px solid var(--skul-line-soft);
   border-radius: 1.2rem;

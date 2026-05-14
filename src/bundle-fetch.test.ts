@@ -33,11 +33,19 @@ describe("fetchRemoteSource", () => {
   it("returns cloned: false and skips git when target directory already exists", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
     fs.mkdirSync(targetDir, { recursive: true });
 
     // When
-    const result = fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir });
+    const result = fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+    });
 
     // Then
     expect(result).toEqual({ cloned: false, targetDir });
@@ -47,12 +55,20 @@ describe("fetchRemoteSource", () => {
   it("shallow-clones the repo and returns cloned: true when directory is missing", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
 
     vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
 
     // When
-    const result = fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir });
+    const result = fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+    });
 
     // Then
     expect(result).toEqual({ cloned: true, targetDir });
@@ -72,18 +88,25 @@ describe("fetchRemoteSource", () => {
     fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir });
 
     // Then
-    expect(fs.existsSync(path.join(libraryDir, "github.com", "user"))).toBe(true);
+    expect(fs.existsSync(path.join(libraryDir, "github.com", "user"))).toBe(
+      true,
+    );
   });
 
   it("throws a helpful error when git is not installed", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const notFoundError = Object.assign(new Error("spawn git ENOENT"), { code: "ENOENT" });
-    vi.mocked(execFileSync).mockImplementation(() => { throw notFoundError; });
+    const notFoundError = Object.assign(new Error("spawn git ENOENT"), {
+      code: "ENOENT",
+    });
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw notFoundError;
+    });
 
     // When / Then
-    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }))
-      .toThrowError(/git is not installed or not on PATH/);
+    expect(() =>
+      fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }),
+    ).toThrowError(/git is not installed or not on PATH/);
   });
 
   it("surfaces stderr from a failed clone", () => {
@@ -92,27 +115,40 @@ describe("fetchRemoteSource", () => {
     const cloneError = Object.assign(new Error("Command failed"), {
       stderr: Buffer.from("ERROR: Repository not found."),
     });
-    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw cloneError;
+    });
 
     // When / Then
-    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }))
-      .toThrowError(/Failed to clone https:\/\/github\.com\/user\/react-bundle[\s\S]*Repository not found/);
+    expect(() =>
+      fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }),
+    ).toThrowError(
+      /Failed to clone https:\/\/github\.com\/user\/react-bundle[\s\S]*Repository not found/,
+    );
   });
 
   it("surfaces a plain error message when stderr is absent", () => {
     // Given
     const libraryDir = createLibraryDir();
-    vi.mocked(execFileSync).mockImplementation(() => { throw new Error("network timeout"); });
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw new Error("network timeout");
+    });
 
     // When / Then
-    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }))
-      .toThrowError(/Failed to clone https:\/\/github\.com\/user\/react-bundle/);
+    expect(() =>
+      fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }),
+    ).toThrowError(/Failed to clone https:\/\/github\.com\/user\/react-bundle/);
   });
 
   it("removes the partial target directory when the clone fails", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
     vi.mocked(execFileSync).mockImplementation(() => {
       // Simulate git creating an empty dir before failing
       fs.mkdirSync(targetDir, { recursive: true });
@@ -120,8 +156,9 @@ describe("fetchRemoteSource", () => {
     });
 
     // When
-    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }))
-      .toThrowError(/Failed to clone/);
+    expect(() =>
+      fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }),
+    ).toThrowError(/Failed to clone/);
 
     // Then — no partial directory left behind
     expect(fs.existsSync(targetDir)).toBe(false);
@@ -130,12 +167,21 @@ describe("fetchRemoteSource", () => {
   it("shallow-clones via SSH when protocol is ssh", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
 
     vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
 
     // When
-    const result = fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" });
+    const result = fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+      protocol: "ssh",
+    });
 
     // Then
     expect(result).toEqual({ cloned: true, targetDir });
@@ -149,12 +195,21 @@ describe("fetchRemoteSource", () => {
   it("shallow-clones via HTTPS when protocol is https (explicit)", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
 
     vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
 
     // When
-    fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "https" });
+    fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+      protocol: "https",
+    });
 
     // Then
     expect(execFileSync).toHaveBeenCalledWith(
@@ -170,11 +225,20 @@ describe("fetchRemoteSource", () => {
     const cloneError = Object.assign(new Error("Command failed"), {
       stderr: Buffer.from("Permission denied (publickey)."),
     });
-    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw cloneError;
+    });
 
     // When / Then
-    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" }))
-      .toThrowError(/Failed to clone git@github\.com:user\/react-bundle\.git[\s\S]*Permission denied/);
+    expect(() =>
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+        protocol: "ssh",
+      }),
+    ).toThrowError(
+      /Failed to clone git@github\.com:user\/react-bundle\.git[\s\S]*Permission denied/,
+    );
   });
 
   it("appends an HTTPS hint when SSH authentication fails with publickey error", () => {
@@ -183,11 +247,20 @@ describe("fetchRemoteSource", () => {
     const cloneError = Object.assign(new Error("Command failed"), {
       stderr: Buffer.from("git@github.com: Permission denied (publickey)."),
     });
-    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw cloneError;
+    });
 
     // When / Then
-    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" }))
-      .toThrowError(/Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/react-bundle/);
+    expect(() =>
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+        protocol: "ssh",
+      }),
+    ).toThrowError(
+      /Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/react-bundle/,
+    );
   });
 
   it("appends an HTTPS hint when SSH authentication fails with 'could not read from remote' error", () => {
@@ -196,25 +269,40 @@ describe("fetchRemoteSource", () => {
     const cloneError = Object.assign(new Error("Command failed"), {
       stderr: Buffer.from("fatal: Could not read from remote repository."),
     });
-    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw cloneError;
+    });
 
     // When / Then
-    expect(() => fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" }))
-      .toThrowError(/Hint: SSH authentication failed/);
+    expect(() =>
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+        protocol: "ssh",
+      }),
+    ).toThrowError(/Hint: SSH authentication failed/);
   });
 
   it("does not append an HTTPS hint for non-auth SSH failures", () => {
     // Given
     const libraryDir = createLibraryDir();
     const cloneError = Object.assign(new Error("Command failed"), {
-      stderr: Buffer.from("ERROR: Repository 'git@github.com:user/react-bundle.git' not found."),
+      stderr: Buffer.from(
+        "ERROR: Repository 'git@github.com:user/react-bundle.git' not found.",
+      ),
     });
-    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw cloneError;
+    });
 
     // When
     let caught: Error | undefined;
     try {
-      fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "ssh" });
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+        protocol: "ssh",
+      });
     } catch (e) {
       caught = e as Error;
     }
@@ -230,12 +318,18 @@ describe("fetchRemoteSource", () => {
     const cloneError = Object.assign(new Error("Command failed"), {
       stderr: Buffer.from("Permission denied."),
     });
-    vi.mocked(execFileSync).mockImplementation(() => { throw cloneError; });
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw cloneError;
+    });
 
     // When
     let caught: Error | undefined;
     try {
-      fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir, protocol: "https" });
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+        protocol: "https",
+      });
     } catch (e) {
       caught = e as Error;
     }
@@ -250,10 +344,12 @@ describe("fetchRemoteSource", () => {
     const libraryDir = createLibraryDir();
 
     // When / Then
-    expect(() => fetchRemoteSource({ source: "../../../etc/passwd", libraryDir }))
-      .toThrowError(/Invalid bundle source/);
-    expect(() => fetchRemoteSource({ source: "github.com/user", libraryDir }))
-      .toThrowError(/Invalid bundle source/);
+    expect(() =>
+      fetchRemoteSource({ source: "../../../etc/passwd", libraryDir }),
+    ).toThrowError(/Invalid bundle source/);
+    expect(() =>
+      fetchRemoteSource({ source: "github.com/user", libraryDir }),
+    ).toThrowError(/Invalid bundle source/);
     expect(execFileSync).not.toHaveBeenCalled();
   });
 });
@@ -262,12 +358,20 @@ describe("clearCachedSource", () => {
   it("removes an existing cached source directory", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
     fs.mkdirSync(targetDir, { recursive: true });
     fs.writeFileSync(path.join(targetDir, "README.md"), "# cached\n");
 
     // When
-    const result = clearCachedSource({ source: "github.com/user/react-bundle", libraryDir });
+    const result = clearCachedSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+    });
 
     // Then
     expect(result).toEqual({ cleared: true, targetDir });
@@ -277,10 +381,18 @@ describe("clearCachedSource", () => {
   it("returns cleared: false when the cached source does not exist", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const targetDir = path.join(libraryDir, "github.com", "user", "react-bundle");
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
 
     // When
-    const result = clearCachedSource({ source: "github.com/user/react-bundle", libraryDir });
+    const result = clearCachedSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+    });
 
     // Then
     expect(result).toEqual({ cleared: false, targetDir });
@@ -306,8 +418,13 @@ describe("listCachedSources", () => {
   it("lists cached sources directly from the library layout", () => {
     // Given
     const libraryDir = createLibraryDir();
-    fs.mkdirSync(path.join(libraryDir, "github.com", "user", "react-bundle"), { recursive: true });
-    fs.mkdirSync(path.join(libraryDir, "github.com", "acme", "shared-bundles"), { recursive: true });
+    fs.mkdirSync(path.join(libraryDir, "github.com", "user", "react-bundle"), {
+      recursive: true,
+    });
+    fs.mkdirSync(
+      path.join(libraryDir, "github.com", "acme", "shared-bundles"),
+      { recursive: true },
+    );
 
     // When
     const sources = listCachedSources(libraryDir);
@@ -324,8 +441,13 @@ describe("clearAllCachedSources", () => {
   it("removes every cached source directory from the global library", () => {
     // Given
     const libraryDir = createLibraryDir();
-    fs.mkdirSync(path.join(libraryDir, "github.com", "user", "react-bundle"), { recursive: true });
-    fs.mkdirSync(path.join(libraryDir, "github.com", "acme", "shared-bundles"), { recursive: true });
+    fs.mkdirSync(path.join(libraryDir, "github.com", "user", "react-bundle"), {
+      recursive: true,
+    });
+    fs.mkdirSync(
+      path.join(libraryDir, "github.com", "acme", "shared-bundles"),
+      { recursive: true },
+    );
 
     // When
     const result = clearAllCachedSources({ libraryDir });

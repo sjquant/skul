@@ -1,15 +1,15 @@
-import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
+import type { SidebarsConfig } from "@docusaurus/plugin-content-docs";
 
 const sidebars: SidebarsConfig = {
   docsSidebar: [
-    'intro',
-    'installation',
-    'quick-start',
-    'supported-tools',
-    'bundle-structure',
-    'how-it-works',
-    'commands',
-    'faq',
+    "intro",
+    "installation",
+    "quick-start",
+    "supported-tools",
+    "bundle-structure",
+    "how-it-works",
+    "commands",
+    "faq",
   ],
 };
 

@@ -51,10 +51,26 @@ describe("normalizeBundleSource", () => {
 
   it.each([
     ["empty source", "", /source is required/i],
-    ["source with query string", "https://github.com/user/ai-vault?ref=main", /unsupported git source/i],
-    ["source without owner and repo", "github.com/user", /unsupported git source/i],
-    ["owner/repo shorthand with dotted owner (treated as host)", "acme.io/repo", /unsupported git source/i],
-    ["owner/repo shorthand with colon in owner (SSH-style)", "acme:user/repo", /unsupported git source/i],
+    [
+      "source with query string",
+      "https://github.com/user/ai-vault?ref=main",
+      /unsupported git source/i,
+    ],
+    [
+      "source without owner and repo",
+      "github.com/user",
+      /unsupported git source/i,
+    ],
+    [
+      "owner/repo shorthand with dotted owner (treated as host)",
+      "acme.io/repo",
+      /unsupported git source/i,
+    ],
+    [
+      "owner/repo shorthand with colon in owner (SSH-style)",
+      "acme:user/repo",
+      /unsupported git source/i,
+    ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given
     const normalize = () => normalizeBundleSource(input);
@@ -117,7 +133,13 @@ describe("listCachedBundles", () => {
   it("ignores directories without a valid manifest file", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const bundleDir = path.join(libraryDir, "github.com", "user", "ai-vault", "broken-bundle");
+    const bundleDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "ai-vault",
+      "broken-bundle",
+    );
     fs.mkdirSync(bundleDir, { recursive: true });
     fs.writeFileSync(path.join(bundleDir, "manifest.json"), "{not json");
 
@@ -133,7 +155,10 @@ describe("listCachedBundles", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "broken-repo");
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
     fs.writeFileSync(path.join(repoDir, "manifest.json"), "{not json");
 
     // When
@@ -152,9 +177,15 @@ describe("listCachedBundles", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "mixed-repo");
     fs.mkdirSync(path.join(repoDir, "broken-bundle"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "broken-bundle", "manifest.json"), "{not json");
+    fs.writeFileSync(
+      path.join(repoDir, "broken-bundle", "manifest.json"),
+      "{not json",
+    );
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
 
     // When
     const bundles = listCachedBundles({ libraryDir });
@@ -172,9 +203,15 @@ describe("listCachedBundles", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "site-bundle");
     fs.mkdirSync(path.join(repoDir, "docs"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "docs", "manifest.json"), JSON.stringify({ name: "pwa" }));
+    fs.writeFileSync(
+      path.join(repoDir, "docs", "manifest.json"),
+      JSON.stringify({ name: "pwa" }),
+    );
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
 
     // When
     const bundles = listCachedBundles({ libraryDir });
@@ -192,7 +229,10 @@ describe("listCachedBundles", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
 
     // When
     const bundles = listCachedBundles({ libraryDir });
@@ -209,9 +249,18 @@ describe("listCachedBundles", () => {
   it("infers a manifest-free subdirectory bundle from canonical directories", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const bundleDir = path.join(libraryDir, "github.com", "user", "ghosts", "core");
+    const bundleDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "ghosts",
+      "core",
+    );
     fs.mkdirSync(path.join(bundleDir, "skills", "wdd"), { recursive: true });
-    fs.writeFileSync(path.join(bundleDir, "skills", "wdd", "SKILL.md"), "# wdd\n");
+    fs.writeFileSync(
+      path.join(bundleDir, "skills", "wdd", "SKILL.md"),
+      "# wdd\n",
+    );
 
     // When
     const bundles = listCachedBundles({ libraryDir });
@@ -229,8 +278,13 @@ describe("listCachedBundles", () => {
     // Given
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "native-root");
-    fs.mkdirSync(path.join(repoDir, ".claude", "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, ".claude", "skills", "react", "SKILL.md"), "# react\n");
+    fs.mkdirSync(path.join(repoDir, ".claude", "skills", "react"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
 
     // When
     const bundles = listCachedBundles({ libraryDir });
@@ -248,7 +302,10 @@ describe("listCachedBundles", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
     writeManifestAtRepoRoot(libraryDir, "github.com/user/react-bundle", {
       tools: { codex: { skills: { path: "ignored" } } },
     });
@@ -288,7 +345,10 @@ describe("listCachedBundles", () => {
     // A skills/ dir at the repo root would normally trigger inference
     const repoDir = path.join(libraryDir, "github.com", "user", "ai-vault");
     fs.mkdirSync(path.join(repoDir, "skills", "shared"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "shared", "SKILL.md"), "# shared\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "shared", "SKILL.md"),
+      "# shared\n",
+    );
 
     // When
     const bundles = listCachedBundles({ libraryDir });
@@ -345,7 +405,10 @@ describe("findCachedBundle", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
 
     // When
     const bundle = findCachedBundle({
@@ -365,9 +428,18 @@ describe("findCachedBundle", () => {
   it("finds an inferred manifest-free subdirectory bundle by source", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const bundleDir = path.join(libraryDir, "github.com", "user", "ghosts", "core");
+    const bundleDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "ghosts",
+      "core",
+    );
     fs.mkdirSync(path.join(bundleDir, "skills", "wdd"), { recursive: true });
-    fs.writeFileSync(path.join(bundleDir, "skills", "wdd", "SKILL.md"), "# wdd\n");
+    fs.writeFileSync(
+      path.join(bundleDir, "skills", "wdd", "SKILL.md"),
+      "# wdd\n",
+    );
 
     // When
     const bundle = findCachedBundle({
@@ -388,10 +460,18 @@ describe("findCachedBundle", () => {
     // Given
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "ghosts");
-    fs.mkdirSync(path.join(repoDir, "core", "skills", "wdd"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "core", "skills", "wdd", "SKILL.md"), "# wdd\n");
+    fs.mkdirSync(path.join(repoDir, "core", "skills", "wdd"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoDir, "core", "skills", "wdd", "SKILL.md"),
+      "# wdd\n",
+    );
     fs.mkdirSync(path.join(repoDir, "skills", "shared"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "shared", "SKILL.md"), "# shared\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "shared", "SKILL.md"),
+      "# shared\n",
+    );
 
     // When
     const findBundle = () =>
@@ -410,7 +490,10 @@ describe("findCachedBundle", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
     writeManifestAtRepoRoot(libraryDir, "github.com/user/react-bundle", {
       tools: { codex: { skills: { path: "ignored" } } },
     });
@@ -434,9 +517,15 @@ describe("findCachedBundle", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "site-bundle");
     fs.mkdirSync(path.join(repoDir, "docs"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "docs", "manifest.json"), JSON.stringify({ name: "pwa" }));
+    fs.writeFileSync(
+      path.join(repoDir, "docs", "manifest.json"),
+      JSON.stringify({ name: "pwa" }),
+    );
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
 
     // When
     const bundle = findCachedBundle({
@@ -457,7 +546,10 @@ describe("findCachedBundle", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
 
     // When
     const bundle = findCachedBundle({ libraryDir, bundle: "react-bundle" });
@@ -474,7 +566,10 @@ describe("findCachedBundle", () => {
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
     fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "react", "SKILL.md"), "# react\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
 
     // When
     const findBundle = () =>
@@ -497,7 +592,10 @@ describe("findCachedBundle", () => {
     });
     const repoDir = path.join(libraryDir, "github.com", "user", "ai-vault");
     fs.mkdirSync(path.join(repoDir, "skills", "shared"), { recursive: true });
-    fs.writeFileSync(path.join(repoDir, "skills", "shared", "SKILL.md"), "# shared\n");
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "shared", "SKILL.md"),
+      "# shared\n",
+    );
 
     // When — try to find an inferred bundle by repo slug
     const findBundle = () =>
@@ -514,7 +612,8 @@ describe("findCachedBundle", () => {
   it.each([
     [
       "missing bundle",
-      (libraryDir: string) => findCachedBundle({ libraryDir, bundle: "missing" }),
+      (libraryDir: string) =>
+        findCachedBundle({ libraryDir, bundle: "missing" }),
       /bundle not found/i,
     ],
     [
@@ -523,9 +622,14 @@ describe("findCachedBundle", () => {
         writeManifest(libraryDir, "github.com/user/ai-vault", "react-expert", {
           tools: { "claude-code": { skills: { path: "skills" } } },
         });
-        writeManifest(libraryDir, "github.com/acme/shared-bundles", "react-expert", {
-          tools: { "claude-code": { skills: { path: "skills" } } },
-        });
+        writeManifest(
+          libraryDir,
+          "github.com/acme/shared-bundles",
+          "react-expert",
+          {
+            tools: { "claude-code": { skills: { path: "skills" } } },
+          },
+        );
 
         return findCachedBundle({ libraryDir, bundle: "react-expert" });
       },
@@ -534,12 +638,32 @@ describe("findCachedBundle", () => {
     [
       "ambiguous bundle name across inferred repo-as-bundles",
       (libraryDir: string) => {
-        const repo1Dir = path.join(libraryDir, "github.com", "user", "react-bundle");
-        const repo2Dir = path.join(libraryDir, "github.com", "acme", "react-bundle");
-        fs.mkdirSync(path.join(repo1Dir, "skills", "react"), { recursive: true });
-        fs.mkdirSync(path.join(repo2Dir, "skills", "react"), { recursive: true });
-        fs.writeFileSync(path.join(repo1Dir, "skills", "react", "SKILL.md"), "# react\n");
-        fs.writeFileSync(path.join(repo2Dir, "skills", "react", "SKILL.md"), "# react\n");
+        const repo1Dir = path.join(
+          libraryDir,
+          "github.com",
+          "user",
+          "react-bundle",
+        );
+        const repo2Dir = path.join(
+          libraryDir,
+          "github.com",
+          "acme",
+          "react-bundle",
+        );
+        fs.mkdirSync(path.join(repo1Dir, "skills", "react"), {
+          recursive: true,
+        });
+        fs.mkdirSync(path.join(repo2Dir, "skills", "react"), {
+          recursive: true,
+        });
+        fs.writeFileSync(
+          path.join(repo1Dir, "skills", "react", "SKILL.md"),
+          "# react\n",
+        );
+        fs.writeFileSync(
+          path.join(repo2Dir, "skills", "react", "SKILL.md"),
+          "# react\n",
+        );
 
         return findCachedBundle({ libraryDir, bundle: "react-bundle" });
       },
@@ -569,7 +693,10 @@ function writeManifest(
 ): void {
   const bundleDir = path.join(libraryDir, ...source.split("/"), bundle);
   fs.mkdirSync(bundleDir, { recursive: true });
-  fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  fs.writeFileSync(
+    path.join(bundleDir, "manifest.json"),
+    JSON.stringify(manifest, null, 2),
+  );
 }
 
 function writeManifestAtRepoRoot(
@@ -579,5 +706,8 @@ function writeManifestAtRepoRoot(
 ): void {
   const sourceDir = path.join(libraryDir, ...source.split("/"));
   fs.mkdirSync(sourceDir, { recursive: true });
-  fs.writeFileSync(path.join(sourceDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  fs.writeFileSync(
+    path.join(sourceDir, "manifest.json"),
+    JSON.stringify(manifest, null, 2),
+  );
 }
