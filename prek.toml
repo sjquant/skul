@@ -5,7 +5,7 @@ repo = "local"
 id = "biome-check"
 name = "Biome (lint + format)"
 language = "system"
-entry = "sh -c 'pnpm exec biome check --write \"$@\"; b=$?; git diff --quiet --exit-code -- \"$@\"; d=$?; [ $b -eq 0 ] && [ $d -eq 0 ]' --"
+entry = "pnpm exec biome check"
 types_or = ["ts", "javascript", "json"]
 
 [[repos.hooks]]
