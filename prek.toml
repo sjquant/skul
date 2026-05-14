@@ -2,16 +2,16 @@
 repo = "local"
 
 [[repos.hooks]]
-id = "biome-check"
+id = "biome"
 name = "Biome (lint + format)"
 language = "system"
-entry = "pnpm exec biome check"
-types_or = ["ts", "javascript", "json"]
+entry = "pnpm exec biome check --write --no-errors-on-unmatched"
+types_or = ["ts", "tsx", "javascript", "jsx"]
 
 [[repos.hooks]]
 id = "typecheck"
-name = "TypeScript typecheck"
+name = "TypeScript type check"
 language = "system"
-entry = "pnpm run typecheck"
+entry = "pnpm tsc --noEmit"
 pass_filenames = false
-types = ["ts"]
+types_or = ["ts", "tsx"]
