@@ -646,6 +646,196 @@ describe("materializeBundle: canonical multi-tool materialization", () => {
 });
 
 // ---------------------------------------------------------------------------
+// materializeBundle — copilot and kiro
+// ---------------------------------------------------------------------------
+
+describe("materializeBundle: copilot", () => {
+  it("materializes a canonical skill into the Copilot skills directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React expert",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { copilot: { skills: { path: "skills" } } } },
+    });
+
+    // Then
+    expect(result.byTool["copilot"]!.files).toContain(
+      ".github/skills/react/SKILL.md",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".github/skills/react/SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("name: react");
+  });
+
+  it("materializes a root instruction into .github/copilot-instructions.md", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "# Coding standards\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { copilot: { root_instruction: { path: "CLAUDE.md" } } },
+      },
+    });
+
+    // Then
+    expect(result.byTool["copilot"]!.files).toEqual([
+      ".github/copilot-instructions.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".github/copilot-instructions.md"),
+        "utf8",
+      ),
+    ).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("bundle", "# Coding standards\n"),
+      ),
+    );
+  });
+});
+
+describe("materializeBundle: kiro", () => {
+  it("materializes a canonical skill into the Kiro skills directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React expert",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { kiro: { skills: { path: "skills" } } } },
+    });
+
+    // Then
+    expect(result.byTool["kiro"]!.files).toContain(
+      ".kiro/skills/react/SKILL.md",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".kiro/skills/react/SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("name: react");
+  });
+
+  it("materializes a root instruction into AGENTS.md", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "AGENTS.md"), "# Coding standards\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { kiro: { root_instruction: { path: "AGENTS.md" } } },
+      },
+    });
+
+    // Then
+    expect(result.byTool["kiro"]!.files).toEqual(["AGENTS.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("bundle", "# Coding standards\n"),
+      ),
+    );
+  });
+});
+
+describe("inferBundleManifest: copilot and kiro native paths", () => {
+  it("detects a native Copilot skills directory", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".github", "skills", "react", "SKILL.md"),
+      "# skill\n",
+    );
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["copilot"]).toEqual({
+      skills: { path: ".github/skills" },
+    });
+    expect(manifest.tools["claude-code"]).toBeUndefined();
+  });
+
+  it("detects a native Kiro skills directory", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".kiro", "skills", "react", "SKILL.md"),
+      "# skill\n",
+    );
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["kiro"]).toEqual({
+      skills: { path: ".kiro/skills" },
+    });
+    expect(manifest.tools["claude-code"]).toBeUndefined();
+  });
+
+  it("detects copilot-instructions.md as a root instruction", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".github", "copilot-instructions.md"),
+      "# instructions\n",
+    );
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["copilot"]).toEqual({
+      root_instruction: { path: ".github/copilot-instructions.md" },
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

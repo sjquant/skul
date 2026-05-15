@@ -901,3 +901,210 @@ describe("translateAgent", () => {
     });
   });
 });
+
+describe("copilot skill translation", () => {
+  it("renders a canonical Claude skill to a Copilot skill", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "copilot",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".github/skills/reviewer/SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("preserves disable-model-invocation when translating to Copilot", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: next-task",
+        "description: Handle the next queued task",
+        "disable-model-invocation: true",
+        "---",
+        "",
+        "Follow the workflow in TASKS.md.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "copilot",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".github/skills/next-task/SKILL.md": [
+        "---",
+        "name: next-task",
+        "description: Handle the next queued task",
+        "disable-model-invocation: true",
+        "---",
+        "Follow the workflow in TASKS.md.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("accepts installed Copilot skill paths as source input", () => {
+    // Given
+    const files = {
+      ".github/skills/reviewer/SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "copilot",
+      targetTool: "claude",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".claude/skills/reviewer/SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("round-trips a skill between Copilot and Codex", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: deploy",
+        "description: Run the deployment pipeline",
+        "---",
+        "",
+        "Execute deploy.sh and verify the health check.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const toCopilot = translateSkill({
+      sourceTool: "claude",
+      targetTool: "copilot",
+      files,
+    });
+    const toCodex = translateSkill({
+      sourceTool: "copilot",
+      targetTool: "codex",
+      files: toCopilot,
+    });
+
+    // Then
+    expect(toCopilot[".github/skills/deploy/SKILL.md"]).toBeDefined();
+    expect(toCodex[".agents/skills/deploy/SKILL.md"]).toBeDefined();
+  });
+});
+
+describe("kiro skill translation", () => {
+  it("renders a canonical Claude skill to a Kiro skill", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "kiro",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".kiro/skills/reviewer/SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("accepts installed Kiro skill paths as source input", () => {
+    // Given
+    const files = {
+      ".kiro/skills/reviewer/SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "kiro",
+      targetTool: "claude",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".claude/skills/reviewer/SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    });
+  });
+});
