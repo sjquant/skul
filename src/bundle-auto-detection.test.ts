@@ -755,24 +755,33 @@ describe("materializeBundle: kiro", () => {
     ).toContain("name: react");
   });
 
-  it("materializes a root instruction into AGENTS.md", async () => {
+  it("materializes a root instruction into .kiro/steering/instructions.md", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, "AGENTS.md"), "# Coding standards\n");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "# Coding standards\n");
 
     // When
     const result = await materializeBundle({
       repoRoot,
       bundleDir,
       manifest: {
-        tools: { kiro: { root_instruction: { path: "AGENTS.md" } } },
+        tools: {
+          kiro: { root_instruction: { path: "CLAUDE.md" } },
+        },
       },
     });
 
     // Then
-    expect(result.byTool["kiro"]!.files).toEqual(["AGENTS.md"]);
-    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+    expect(result.byTool["kiro"]!.files).toEqual([
+      ".kiro/steering/instructions.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".kiro/steering/instructions.md"),
+        "utf8",
+      ),
+    ).toBe(
       formatExpectedRootInstructionDocument(
         formatRootInstructionBundleBlock("bundle", "# Coding standards\n"),
       ),

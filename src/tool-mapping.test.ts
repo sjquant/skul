@@ -88,7 +88,7 @@ describe("getToolDefinition", () => {
         name: "kiro",
         targets: {
           skills: { path: ".kiro/skills", kind: "directory" },
-          root_instruction: { path: "AGENTS.md", kind: "file" },
+          root_instruction: { path: ".kiro/steering/instructions.md", kind: "file" },
         },
       },
     ],
@@ -123,7 +123,7 @@ describe("resolveToolTargetPath", () => {
     ["copilot", "skills", path.join("/repo", ".github/skills")],
     ["copilot", "root_instruction", path.join("/repo", ".github/copilot-instructions.md")],
     ["kiro", "skills", path.join("/repo", ".kiro/skills")],
-    ["kiro", "root_instruction", path.join("/repo", "AGENTS.md")],
+    ["kiro", "root_instruction", path.join("/repo", ".kiro/steering/instructions.md")],
   ];
 
   it.each(
