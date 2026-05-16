@@ -65,7 +65,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "kiro",
     targets: {
       skills: { path: ".kiro/skills", kind: "directory" },
-      root_instruction: { path: ".kiro/steering/instructions.md", kind: "file" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
     },
   },
 ];
