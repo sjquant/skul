@@ -112,27 +112,13 @@ function parseSkill(
   }
 
   const document = parseMarkdownDocument(skillSource);
-
-  if (sourceTool === "claude" || sourceTool === "cursor" || sourceTool === "copilot" || sourceTool === "kiro") {
-    return {
-      name: coerceRequiredString(document.metadata.name, "name"),
-      description: coerceRequiredString(
-        document.metadata.description,
-        "description",
-      ),
-      body: document.body,
-      manualOnly: document.metadata["disable-model-invocation"] === true,
-      openCodeCompatibility: false,
-    };
-  }
+  const name = coerceRequiredString(document.metadata.name, "name");
+  const description = coerceRequiredString(document.metadata.description, "description");
 
   if (sourceTool === "codex") {
     return {
-      name: coerceRequiredString(document.metadata.name, "name"),
-      description: coerceRequiredString(
-        document.metadata.description,
-        "description",
-      ),
+      name,
+      description,
       body: document.body,
       manualOnly:
         parseCodexSkillPolicy(findFileBySuffix(files, "agents/openai.yaml")) ===
@@ -141,15 +127,23 @@ function parseSkill(
     };
   }
 
+  if (sourceTool === "opencode") {
+    return {
+      name,
+      description,
+      body: document.body,
+      manualOnly: false,
+      openCodeCompatibility: document.metadata.compatibility === "opencode",
+    };
+  }
+
+  // claude, cursor, copilot, kiro — all use the same SKILL.md format
   return {
-    name: coerceRequiredString(document.metadata.name, "name"),
-    description: coerceRequiredString(
-      document.metadata.description,
-      "description",
-    ),
+    name,
+    description,
     body: document.body,
-    manualOnly: false,
-    openCodeCompatibility: document.metadata.compatibility === "opencode",
+    manualOnly: document.metadata["disable-model-invocation"] === true,
+    openCodeCompatibility: false,
   };
 }
 
@@ -158,42 +152,6 @@ function renderSkill(
   model: SkillModel,
   options: BundleTranslationOptions = {},
 ): Record<string, string> {
-  if (targetTool === "claude") {
-    const metadata: MetadataMap = {
-      name: model.name,
-      description: model.description,
-    };
-
-    if (model.manualOnly) {
-      metadata["disable-model-invocation"] = true;
-    }
-
-    return {
-      [skillFilePath("claude", model.name)]: renderMarkdownDocument({
-        metadata,
-        body: model.body,
-      }),
-    };
-  }
-
-  if (targetTool === "cursor") {
-    const metadata: MetadataMap = {
-      name: model.name,
-      description: model.description,
-    };
-
-    if (model.manualOnly) {
-      metadata["disable-model-invocation"] = true;
-    }
-
-    return {
-      [skillFilePath("cursor", model.name)]: renderMarkdownDocument({
-        metadata,
-        body: model.body,
-      }),
-    };
-  }
-
   if (targetTool === "codex") {
     const skillBasePath = skillDirectoryPath("codex", model.name);
     const files: Record<string, string> = {
@@ -238,25 +196,22 @@ function renderSkill(
     };
   }
 
-  if (targetTool === "copilot" || targetTool === "kiro") {
-    const metadata: MetadataMap = {
-      name: model.name,
-      description: model.description,
-    };
+  // claude, cursor, copilot, kiro — all use the same SKILL.md format
+  const metadata: MetadataMap = {
+    name: model.name,
+    description: model.description,
+  };
 
-    if (model.manualOnly) {
-      metadata["disable-model-invocation"] = true;
-    }
-
-    return {
-      [skillFilePath(targetTool, model.name)]: renderMarkdownDocument({
-        metadata,
-        body: model.body,
-      }),
-    };
+  if (model.manualOnly) {
+    metadata["disable-model-invocation"] = true;
   }
 
-  throw new Error(`Unsupported skill target: ${targetTool}`);
+  return {
+    [skillFilePath(targetTool, model.name)]: renderMarkdownDocument({
+      metadata,
+      body: model.body,
+    }),
+  };
 }
 
 function parseCommand(sourceTool: CommandTool, source: string): CommandModel {
@@ -587,6 +542,12 @@ function targetBasePath(
 
 function unsupportedTargetPath(tool: string, target: string): never {
   throw new Error(`Unsupported ${target} target for ${tool}`);
+}
+
+/** Maps a ToolName (e.g. "claude-code") to the internal translation name (e.g. "claude"). */
+export function toTranslationToolName(toolName: ToolName): SkillTool {
+  if (toolName === "claude-code") return "claude";
+  return toolName;
 }
 
 function toToolMappingName(

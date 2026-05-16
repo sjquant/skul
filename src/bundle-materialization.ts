@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { BundleManifest } from "./bundle-manifest";
 import {
+  toTranslationToolName,
   translateAgent,
   translateCommand,
   translateRootInstruction,
@@ -578,22 +579,6 @@ function isNativeSourcePath(
   );
 }
 
-function toTranslationToolName(
-  toolName: ToolName,
-): "claude" | "cursor" | "opencode" | "codex" | "copilot" | "kiro" {
-  const map: Record<
-    ToolName,
-    "claude" | "cursor" | "opencode" | "codex" | "copilot" | "kiro"
-  > = {
-    "claude-code": "claude",
-    cursor: "cursor",
-    opencode: "opencode",
-    codex: "codex",
-    copilot: "copilot",
-    kiro: "kiro",
-  };
-  return map[toolName];
-}
 
 function readFilesIntoRecord(
   dir: string,
