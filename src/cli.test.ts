@@ -132,7 +132,7 @@ describe("parseCliArgs", () => {
     ).rejects.toThrowError(/requires exactly one of --suspend or --refresh/i);
   });
 
-  it("parses add in interactive, cached, and explicit source modes", async () => {
+  it("parses add in cached and explicit source modes", async () => {
     // Given
     const selectBundle = vi.fn().mockResolvedValue({ bundle: "react-expert" });
     const prompts = createPromptClientStub({ selectBundle });
@@ -140,17 +140,10 @@ describe("parseCliArgs", () => {
     // When / Then
     await expect(parseCliArgs([], prompts)).resolves.toEqual({ kind: "help" });
 
-    await expect(parseCliArgs(["add"], prompts)).resolves.toEqual({
-      kind: "command",
-      command: "add",
-      options: {
-        bundle: "react-expert",
-        protocol: "https",
-        agents: [],
-        dryRun: false,
-      },
-    });
-    expect(selectBundle).toHaveBeenCalledWith();
+    await expect(parseCliArgs(["add"], prompts)).rejects.toThrowError(
+      /Command add requires a source or bundle name/,
+    );
+    expect(selectBundle).not.toHaveBeenCalled();
 
     await expect(parseCliArgs(["add", "react-expert"])).resolves.toEqual({
       kind: "command",
@@ -246,6 +239,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: false,
+        inferredBundleFromSource: true,
       },
     });
   });
@@ -261,6 +255,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: false,
+        inferredBundleFromSource: true,
       },
     });
   });
@@ -276,6 +271,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: false,
+        inferredBundleFromSource: true,
       },
     });
   });
@@ -651,6 +647,7 @@ describe("parseCliArgs", () => {
         protocol: "ssh",
         agents: [],
         dryRun: false,
+        inferredBundleFromSource: true,
       },
     });
   });
@@ -1927,20 +1924,20 @@ describe("run", () => {
     ).toBe(true);
   });
 
-  it("errors in headless mode when bundle is not specified for add", async () => {
+  it("errors when add is run without a source or bundle name", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     const { createHeadlessPromptClient } = await import("./cli");
 
-    // When / Then: headless prompt client throws with a hint instead of prompting
+    // When / Then
     await expect(
       run(["add"], {
         homeDir,
         cwd: repoRoot,
         prompts: createHeadlessPromptClient(),
       }),
-    ).rejects.toThrowError(/Bundle name is required in headless mode/);
+    ).rejects.toThrowError(/Command add requires a source or bundle name/);
   });
 
   it("errors in headless mode when a modified managed file would be deleted", async () => {
@@ -2017,52 +2014,126 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    // When / Then: SKUL_NO_TUI=1 causes run() to select the headless client,
-    // which throws when no bundle is specified rather than opening a prompt.
+    // When / Then: SKUL_NO_TUI=1 still rejects the unscoped add form before prompting.
     process.env["SKUL_NO_TUI"] = "1";
     try {
       await expect(
         run(["add"], { homeDir, cwd: repoRoot }),
-      ).rejects.toThrowError(/Bundle name is required in headless mode/);
+      ).rejects.toThrowError(/Command add requires a source or bundle name/);
     } finally {
       delete process.env["SKUL_NO_TUI"];
     }
   });
 
-  it("selects a cached bundle interactively when add is run without a bundle name", async () => {
+  it("does not open a global bundle selector when add is run without arguments", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "react-expert",
-      ".claude/skills/react/SKILL.md",
-      "# react\n",
-    );
     const selectBundle = vi.fn().mockResolvedValue({ bundle: "react-expert" });
 
-    // When
+    // When / Then
     await expect(
       run(["add"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({ selectBundle }),
       }),
-    ).resolves.toBe("Applied react-expert for claude-code");
+    ).rejects.toThrowError(/Command add requires a source or bundle name/);
 
     // Then
-    expect(selectBundle).toHaveBeenCalledWith();
-    expect(
-      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
-    ).toBe(true);
+    expect(selectBundle).not.toHaveBeenCalled();
   });
 
-  it("selects the cached source when duplicate bundle names exist", async () => {
+  it("selects a bundle from a multi-bundle source when the single source argument has no repo-slug bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "codex", {
+      name: "codex",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "core",
+      source: "github.com/sjquant/ghosts",
+    });
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundle }),
+      }),
+    ).resolves.toBe("Applied core for codex");
+
+    // Then
+    expect(selectBundle).toHaveBeenCalledWith("github.com/sjquant/ghosts");
+    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"), "utf8")).toBe(
+      "# wdd\n",
+    );
+  });
+
+  it("keeps the selected source-scoped bundle when a ref selector is requested", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/sjquant/ghosts",
+      bundle: "core",
+      manifest: {
+        tools: { codex: { skills: { path: ".agents/skills" } } },
+      },
+      files: {
+        ".agents/skills/wdd/SKILL.md": "# wdd\n",
+      },
+    });
+    runGit(remoteSource.remoteRepoPath, ["checkout", "-b", "stable"]);
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "core",
+      source: "github.com/sjquant/ghosts",
+    });
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts", "--ref", "stable"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundle }),
+      }),
+    ).resolves.toBe("Applied core for codex");
+
+    // Then
+    expect(selectBundle).toHaveBeenCalledWith("github.com/sjquant/ghosts");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "core",
+      source: "github.com/sjquant/ghosts",
+      protocol: "https",
+      ref: "stable",
+      resolved_ref: "stable",
+      resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
+  it("selects from the requested cached source when duplicate bundle names exist", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -2095,7 +2166,7 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add"], {
+      run(["add", "github.com/other/ai-vault"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({ selectBundle }),
@@ -2103,6 +2174,7 @@ describe("run", () => {
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
+    expect(selectBundle).toHaveBeenCalledWith("github.com/other/ai-vault");
     expect(
       fs.readFileSync(
         path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
@@ -2120,7 +2192,7 @@ describe("run", () => {
     });
   });
 
-  it("preserves the selected bundle protocol when add is run without arguments", async () => {
+  it("records the requested SSH protocol when source-scoped selection is used", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -2138,12 +2210,11 @@ describe("run", () => {
     const selectBundle = vi.fn().mockResolvedValue({
       bundle: "react-expert",
       source: "github.com/user/ai-vault",
-      protocol: "ssh",
     });
 
     // When
     await expect(
-      run(["add"], {
+      run(["add", "github.com/user/ai-vault", "--ssh"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({ selectBundle }),
@@ -2151,6 +2222,7 @@ describe("run", () => {
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
+    expect(selectBundle).toHaveBeenCalledWith("github.com/user/ai-vault");
     expect(
       readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
         detectGitContext({ cwd: repoRoot })!.repoFingerprint

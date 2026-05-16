@@ -10,7 +10,9 @@ description: Command reference for the current skul CLI surface.
 
 | Command | Description |
 | --- | --- |
-| `skul add [source] <bundle>` | Fetch a source when needed and materialize a bundle |
+| `skul add <bundle>` | Materialize a uniquely named cached bundle |
+| `skul add <source>` | Fetch a source when needed and select one of its bundles |
+| `skul add <source> <bundle>` | Fetch a source when needed and materialize a specific bundle |
 | `skul remove <bundle>` | Remove one bundle and delete its managed files |
 | `skul reset` | Remove all `skul`-managed files from the current worktree |
 

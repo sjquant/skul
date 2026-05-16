@@ -74,7 +74,9 @@ skul prune
 
 | Command | Description |
 |---|---|
-| `skul add [source] <bundle>` | Fetch source (if remote) and materialize a bundle |
+| `skul add <bundle>` | Materialize a uniquely named cached bundle |
+| `skul add <source>` | Fetch source when needed and select one of its bundles |
+| `skul add <source> <bundle>` | Fetch source when needed and materialize a specific bundle |
 | `skul remove <bundle>` | Remove a bundle and delete its managed files |
 | `skul apply` | Re-materialize all desired bundles in the current worktree |
 | `skul list` | List cached bundles |

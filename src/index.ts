@@ -127,6 +127,7 @@ export async function run(
         agents: parsed.options.agents,
         dryRun: parsed.options.dryRun,
         ref: parsed.options.ref,
+        inferredBundleFromSource: parsed.options.inferredBundleFromSource,
       });
     case "list":
       return renderBundleList({
@@ -621,13 +622,22 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
     return createHeadlessPromptClient();
   }
 
-  const availableBundles = listCachedBundles({ libraryDir })
-    .map((bundle) =>
-      buildBundleSelection(bundle.source, bundle.bundle, libraryDir),
-    )
-    .sort(compareBundleSelections);
-
-  return createPromptClientForSelections(availableBundles);
+  const promptClient = createPromptClientForSelections([]);
+  return {
+    async selectBundle(source?: string): Promise<BundleSelection> {
+      const availableBundles = listCachedBundles({ libraryDir })
+        .filter((bundle) => source === undefined || bundle.source === source)
+        .map((bundle) =>
+          buildBundleSelection(bundle.source, bundle.bundle, libraryDir),
+        )
+        .sort(compareBundleSelections);
+      return createPromptClientForSelections(availableBundles).selectBundle(
+        source,
+      );
+    },
+    resolveFileConflict: promptClient.resolveFileConflict,
+    confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
+  };
 }
 
 function buildBundleSelection(
@@ -1616,15 +1626,18 @@ async function applyBundle(options: {
   agents: ToolName[];
   dryRun: boolean;
   ref?: string;
+  inferredBundleFromSource?: true;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
-  const preparedBundle = prepareApplyBundle({
+  const preparedBundle = await prepareApplyBundle({
     bundle: options.bundle,
     source: options.source,
     protocol: options.protocol,
     requestedTools: options.agents,
     libraryDir: options.libraryDir,
     ref: options.ref,
+    prompts: options.prompts,
+    inferredBundleFromSource: options.inferredBundleFromSource,
   });
 
   if (options.dryRun) {
@@ -1870,14 +1883,16 @@ async function applyBundle(options: {
   ].join("\n");
 }
 
-function prepareApplyBundle(options: {
+async function prepareApplyBundle(options: {
   bundle: string;
   source?: string;
   protocol: "https" | "ssh";
   requestedTools: ToolName[];
   libraryDir: string;
   ref?: string;
-}): {
+  prompts: PromptClient;
+  inferredBundleFromSource?: true;
+}): Promise<{
   cloneLines: string[];
   cachedBundle: CachedBundle;
   bundleSource?: string;
@@ -1886,14 +1901,36 @@ function prepareApplyBundle(options: {
   nextToolNames: ToolName[];
   toolLabel: string;
   hasToolSelection: boolean;
-} {
+}> {
   const cloneLines = fetchBundleSourceForApply(options);
-  let cachedBundle = findCachedBundleWithGuidance({
-    libraryDir: options.libraryDir,
-    bundle: options.bundle,
-    source: options.source,
-  });
-  const bundleSource = options.source ?? cachedBundle.source;
+  let cachedBundle: CachedBundle;
+  let bundleSource: string | undefined;
+
+  try {
+    cachedBundle = findCachedBundleWithGuidance({
+      libraryDir: options.libraryDir,
+      bundle: options.bundle,
+      source: options.source,
+    });
+    bundleSource = options.source ?? cachedBundle.source;
+  } catch (error) {
+    if (!shouldPromptForInferredBundle({
+      error,
+      libraryDir: options.libraryDir,
+      source: options.source,
+      inferredBundleFromSource: options.inferredBundleFromSource,
+    })) {
+      throw error;
+    }
+
+    const selection = await options.prompts.selectBundle(options.source);
+    cachedBundle = findCachedBundleWithGuidance({
+      libraryDir: options.libraryDir,
+      bundle: selection.bundle,
+      source: selection.source ?? options.source,
+    });
+    bundleSource = selection.source ?? options.source ?? cachedBundle.source;
+  }
 
   if (bundleSource && options.ref) {
     updateCachedRemoteSource({
@@ -1904,7 +1941,7 @@ function prepareApplyBundle(options: {
     });
     cachedBundle = findCachedBundleWithGuidance({
       libraryDir: options.libraryDir,
-      bundle: options.bundle,
+      bundle: cachedBundle.bundle,
       source: bundleSource,
     });
   }
@@ -1936,6 +1973,25 @@ function prepareApplyBundle(options: {
     toolLabel: nextToolNames.join(", "),
     hasToolSelection,
   };
+}
+
+function shouldPromptForInferredBundle(options: {
+  error: unknown;
+  libraryDir: string;
+  source?: string;
+  inferredBundleFromSource?: true;
+}): boolean {
+  if (!options.inferredBundleFromSource || !options.source) {
+    return false;
+  }
+
+  if (!(options.error instanceof Error) || !/^Bundle not found: /.test(options.error.message)) {
+    return false;
+  }
+
+  return listCachedBundles({ libraryDir: options.libraryDir }).some(
+    (bundle) => bundle.source === options.source,
+  );
 }
 
 function fetchBundleSourceForApply(options: {
