@@ -1038,6 +1038,74 @@ describe("kiro agent translation", () => {
   });
 });
 
+describe("copilot ↔ kiro agent round-trip", () => {
+  it("translates a Copilot agent to Kiro and back", () => {
+    // Given
+    const source = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "model: sonnet",
+      "---",
+      "",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // The markdown parser strips the leading blank line from the body on render
+    const rendered = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "model: sonnet",
+      "---",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // When
+    const toKiro = translateAgent({ sourceTool: "copilot", targetTool: "kiro", source });
+    const backToCopilot = translateAgent({
+      sourceTool: "kiro",
+      targetTool: "copilot",
+      source: toKiro[".kiro/agents/code-reviewer.md"]!,
+    });
+
+    // Then
+    expect(toKiro).toEqual({ ".kiro/agents/code-reviewer.md": rendered });
+    expect(backToCopilot).toEqual({ ".github/agents/code-reviewer.agent.md": rendered });
+  });
+
+  it("translates a Copilot agent to OpenCode (adds mode: subagent)", () => {
+    // Given
+    const source = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "---",
+      "",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // When
+    const translated = translateAgent({ sourceTool: "copilot", targetTool: "opencode", source });
+
+    // Then
+    expect(translated).toEqual({
+      ".opencode/agents/code-reviewer.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "mode: subagent",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+  });
+});
+
 describe("copilot skill translation", () => {
   it("renders a canonical Claude skill to a Copilot skill", () => {
     // Given

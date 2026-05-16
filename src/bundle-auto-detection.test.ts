@@ -25,7 +25,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("inferBundleManifest", () => {
-  it("infers all four tools from a canonical skills/ directory", () => {
+  it("infers all tools that support skills from a canonical skills/ directory", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react\n");
@@ -34,15 +34,15 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then – every tool that supports skills should be included
-    expect(manifest.tools["claude-code"]).toEqual({
-      skills: { path: "skills" },
-    });
+    expect(manifest.tools["claude-code"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["cursor"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["opencode"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["codex"]).toEqual({ skills: { path: "skills" } });
+    expect(manifest.tools["copilot"]).toEqual({ skills: { path: "skills" } });
+    expect(manifest.tools["kiro"]).toEqual({ skills: { path: "skills" } });
   });
 
-  it("infers commands only for tools that support commands (not codex)", () => {
+  it("infers commands only for tools that support commands", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "commands", "review.md"), "# review\n");
@@ -51,16 +51,12 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toEqual({
-      commands: { path: "commands" },
-    });
-    expect(manifest.tools["cursor"]).toEqual({
-      commands: { path: "commands" },
-    });
-    expect(manifest.tools["opencode"]).toEqual({
-      commands: { path: "commands" },
-    });
-    expect(manifest.tools["codex"]).toBeUndefined(); // codex has no commands target
+    expect(manifest.tools["claude-code"]).toEqual({ commands: { path: "commands" } });
+    expect(manifest.tools["cursor"]).toEqual({ commands: { path: "commands" } });
+    expect(manifest.tools["opencode"]).toEqual({ commands: { path: "commands" } });
+    expect(manifest.tools["codex"]).toBeUndefined(); // no commands target
+    expect(manifest.tools["copilot"]).toBeUndefined(); // no commands target
+    expect(manifest.tools["kiro"]).toBeUndefined(); // no commands target
   });
 
   it("infers agents for all tools that support agents when an agents/ directory is present", () => {
@@ -82,7 +78,7 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["kiro"]).toEqual({ agents: { path: "agents" } });
   });
 
-  it("infers a Claude root instruction file for claude-compatible tools", () => {
+  it("infers a CLAUDE.md root instruction for all root-instruction tools", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "CLAUDE.md"), "# team instructions\n");
@@ -91,21 +87,15 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toEqual({
-      root_instruction: { path: "CLAUDE.md" },
-    });
-    expect(manifest.tools["cursor"]).toEqual({
-      root_instruction: { path: "CLAUDE.md" },
-    });
-    expect(manifest.tools["opencode"]).toEqual({
-      root_instruction: { path: "CLAUDE.md" },
-    });
-    expect(manifest.tools["codex"]).toEqual({
-      root_instruction: { path: "CLAUDE.md" },
-    });
+    expect(manifest.tools["claude-code"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["cursor"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["opencode"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["codex"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["copilot"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["kiro"]).toEqual({ root_instruction: { path: "CLAUDE.md" } });
   });
 
-  it("infers an AGENTS.md root instruction file for all root-instruction tools", () => {
+  it("infers an AGENTS.md root instruction for all root-instruction tools", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "AGENTS.md"), "# codex instructions\n");
@@ -114,18 +104,12 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toEqual({
-      root_instruction: { path: "AGENTS.md" },
-    });
-    expect(manifest.tools["cursor"]).toEqual({
-      root_instruction: { path: "AGENTS.md" },
-    });
-    expect(manifest.tools["opencode"]).toEqual({
-      root_instruction: { path: "AGENTS.md" },
-    });
-    expect(manifest.tools["codex"]).toEqual({
-      root_instruction: { path: "AGENTS.md" },
-    });
+    expect(manifest.tools["claude-code"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+    expect(manifest.tools["cursor"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+    expect(manifest.tools["opencode"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+    expect(manifest.tools["codex"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+    expect(manifest.tools["copilot"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
+    expect(manifest.tools["kiro"]).toEqual({ root_instruction: { path: "AGENTS.md" } });
   });
 
   it("uses native dotdir path when a native directory exists", () => {
@@ -201,22 +185,12 @@ describe("inferBundleManifest", () => {
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
-    expect(manifest.tools["claude-code"]).toEqual({
-      skills: { path: "skills" },
-      root_instruction: { path: "CLAUDE.md" },
-    });
-    expect(manifest.tools["cursor"]).toEqual({
-      skills: { path: "skills" },
-      root_instruction: { path: "CLAUDE.md" },
-    });
-    expect(manifest.tools["opencode"]).toEqual({
-      skills: { path: "skills" },
-      root_instruction: { path: "CLAUDE.md" },
-    });
-    expect(manifest.tools["codex"]).toEqual({
-      skills: { path: "skills" },
-      root_instruction: { path: "CLAUDE.md" },
-    });
+    expect(manifest.tools["claude-code"]).toEqual({ skills: { path: "skills" }, root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["cursor"]).toEqual({ skills: { path: "skills" }, root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["opencode"]).toEqual({ skills: { path: "skills" }, root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["codex"]).toEqual({ skills: { path: "skills" }, root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["copilot"]).toEqual({ skills: { path: "skills" }, root_instruction: { path: "CLAUDE.md" } });
+    expect(manifest.tools["kiro"]).toEqual({ skills: { path: "skills" }, root_instruction: { path: "CLAUDE.md" } });
   });
 
   it("materializes a CLAUDE root instruction into AGENTS.md for codex", async () => {
