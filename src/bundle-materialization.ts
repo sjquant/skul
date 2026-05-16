@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { BundleManifest } from "./bundle-manifest";
 import {
+  toTranslationToolName,
   translateAgent,
   translateCommand,
   translateRootInstruction,
@@ -578,17 +579,6 @@ function isNativeSourcePath(
   );
 }
 
-function toTranslationToolName(
-  toolName: ToolName,
-): "claude" | "cursor" | "opencode" | "codex" {
-  const map: Record<ToolName, "claude" | "cursor" | "opencode" | "codex"> = {
-    "claude-code": "claude",
-    cursor: "cursor",
-    opencode: "opencode",
-    codex: "codex",
-  };
-  return map[toolName];
-}
 
 function readFilesIntoRecord(
   dir: string,
@@ -654,7 +644,7 @@ async function materializeCanonicalTarget(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateCommand({
         sourceTool: "claude",
-        targetTool: translTool,
+        targetTool: translTool as Parameters<typeof translateCommand>[0]["targetTool"],
         source: content,
         options: { name: commandName },
       });
@@ -734,7 +724,7 @@ function previewCanonicalTargetWriteTargets(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateCommand({
         sourceTool: "claude",
-        targetTool: translTool,
+        targetTool: translTool as Parameters<typeof translateCommand>[0]["targetTool"],
         source: content,
         options: { name: commandName },
       });

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { BundleManifest } from "./bundle-manifest";
-import { translateRootInstruction } from "./bundle-translation";
+import { toTranslationToolName, translateRootInstruction } from "./bundle-translation";
 import { composeRootInstructionContent } from "./root-instruction-render";
 import type { ToolName } from "./tool-mapping";
 
@@ -76,20 +76,3 @@ export function collectComposedRootInstructionContents(options: {
   );
 }
 
-function toTranslationToolName(
-  toolName: ToolName,
-): "claude" | "cursor" | "opencode" | "codex" {
-  if (toolName === "codex") {
-    return "codex";
-  }
-
-  if (toolName === "cursor") {
-    return "cursor";
-  }
-
-  if (toolName === "opencode") {
-    return "opencode";
-  }
-
-  return "claude";
-}

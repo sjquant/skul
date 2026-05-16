@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 
-import type { ToolName } from "./tool-mapping";
+import { listToolDefinitions, type ToolName } from "./tool-mapping";
+
+const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set(
+  listToolDefinitions()
+    .map((tool) => tool.targets.root_instruction?.path)
+    .filter((p): p is string => p !== undefined),
+);
 
 /** Joins root-instruction parts into one normalized document body. */
 export function composeRootInstructionContent(
@@ -120,7 +126,7 @@ function hasTrackedRootInstructionManualEdit(options: {
 
 /** Returns whether a repo-relative path is a managed root-instruction file. */
 export function isRootInstructionPath(repoRelativePath: string): boolean {
-  return repoRelativePath === "AGENTS.md" || repoRelativePath === "CLAUDE.md";
+  return ROOT_INSTRUCTION_PATHS.has(repoRelativePath);
 }
 
 function renderTrackedRootInstructionDocument(options: {

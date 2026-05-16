@@ -101,6 +101,12 @@ describe("parseBundleManifest", () => {
         codex: {
           root_instruction: { path: "AGENTS.md" },
         },
+        copilot: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        kiro: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
       },
     });
   });
@@ -133,6 +139,12 @@ describe("parseBundleManifest", () => {
         codex: {
           root_instruction: { path: "CLAUDE.md" },
         },
+        copilot: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        kiro: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
       },
     });
   });
@@ -142,10 +154,10 @@ describe("parseBundleManifest", () => {
       "unsupported tool",
       {
         tools: {
-          copilot: { skills: { path: "skills" } },
+          windsurf: { skills: { path: "skills" } },
         },
       },
-      /tools\.copilot must be one of/i,
+      /tools\.windsurf must be one of/i,
     ],
     [
       "unsupported target for the selected tool",

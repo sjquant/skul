@@ -66,8 +66,10 @@ export function syncManagedRootInstructionFiles(options: {
 
   for (const [repoRelativePath, parts] of contentByPath.entries()) {
     const baseContent = options.rootInstructionBaseContents?.[repoRelativePath];
+    const targetPath = path.join(options.repoRoot, repoRelativePath);
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(
-      path.join(options.repoRoot, repoRelativePath),
+      targetPath,
       `${composeRootInstructionContent([baseContent, ...parts])}\n`,
     );
     writtenPaths.add(repoRelativePath);

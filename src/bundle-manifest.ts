@@ -188,15 +188,8 @@ function expandRootInstructionTargets(
 function selectRootInstructionSourcePath(
   tools: BundleManifest["tools"],
 ): string | null {
-  const preferredToolOrder: ToolName[] = [
-    "claude-code",
-    "cursor",
-    "opencode",
-    "codex",
-  ];
-
-  for (const toolName of preferredToolOrder) {
-    const sourcePath = tools[toolName]?.root_instruction?.path;
+  for (const { name } of listToolDefinitions()) {
+    const sourcePath = tools[name]?.root_instruction?.path;
 
     if (sourcePath) {
       return sourcePath;
