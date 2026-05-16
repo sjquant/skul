@@ -70,6 +70,7 @@ export type CliParseResult =
         agents: ToolName[];
         dryRun: boolean;
         ref?: string;
+        inferredBundleFromSource?: true;
       };
     }
   | {
@@ -573,22 +574,9 @@ function createProgram(
         const ref = resolveRequestedRefSelector(opts);
 
         if (!source && !bundle) {
-          const selection = await prompts.selectBundle();
-          context.result = {
-            kind: "command",
-            command: "add",
-            options: {
-              ...(selection.source !== undefined
-                ? { source: selection.source }
-                : {}),
-              bundle: selection.bundle,
-              protocol: selection.protocol ?? "https",
-              agents,
-              dryRun,
-              ...(ref !== undefined ? { ref } : {}),
-            },
-          };
-          return;
+          throw new Error(
+            "Command add requires a source or bundle name\nHint: run 'skul add <source>' to select a bundle from that source, or 'skul add <bundle>' for a cached unique bundle",
+          );
         }
 
         if (source && !bundle) {
@@ -610,6 +598,7 @@ function createProgram(
                 agents,
                 dryRun,
                 ...(ref !== undefined ? { ref } : {}),
+                inferredBundleFromSource: true,
               },
             };
           } catch {
