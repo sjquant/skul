@@ -902,6 +902,142 @@ describe("translateAgent", () => {
   });
 });
 
+describe("copilot agent translation", () => {
+  it("renders a Claude agent as a Copilot agent with .agent.md extension", () => {
+    // Given
+    const source = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "model: sonnet",
+      "---",
+      "",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // When
+    const translated = translateAgent({
+      sourceTool: "claude",
+      targetTool: "copilot",
+      source,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".github/agents/code-reviewer.agent.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "model: sonnet",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("converts a Copilot agent back into a Claude agent", () => {
+    // Given
+    const source = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "---",
+      "",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // When
+    const translated = translateAgent({
+      sourceTool: "copilot",
+      targetTool: "claude",
+      source,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".claude/agents/code-reviewer.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+  });
+});
+
+describe("kiro agent translation", () => {
+  it("renders a Claude agent as a Kiro agent with .md extension", () => {
+    // Given
+    const source = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "model: sonnet",
+      "---",
+      "",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // When
+    const translated = translateAgent({
+      sourceTool: "claude",
+      targetTool: "kiro",
+      source,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".kiro/agents/code-reviewer.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "model: sonnet",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("converts a Kiro agent back into a Claude agent", () => {
+    // Given
+    const source = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "---",
+      "",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // When
+    const translated = translateAgent({
+      sourceTool: "kiro",
+      targetTool: "claude",
+      source,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".claude/agents/code-reviewer.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+  });
+});
+
 describe("copilot skill translation", () => {
   it("renders a canonical Claude skill to a Copilot skill", () => {
     // Given

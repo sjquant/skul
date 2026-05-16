@@ -63,7 +63,7 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["codex"]).toBeUndefined(); // codex has no commands target
   });
 
-  it("infers agents for all four tools when an agents/ directory is present", () => {
+  it("infers agents for all tools that support agents when an agents/ directory is present", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     writeFile(path.join(bundleDir, "agents", "reviewer.md"), "# reviewer\n");
@@ -78,6 +78,8 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["cursor"]).toEqual({ agents: { path: "agents" } });
     expect(manifest.tools["opencode"]).toEqual({ agents: { path: "agents" } });
     expect(manifest.tools["codex"]).toEqual({ agents: { path: "agents" } });
+    expect(manifest.tools["copilot"]).toEqual({ agents: { path: "agents" } });
+    expect(manifest.tools["kiro"]).toEqual({ agents: { path: "agents" } });
   });
 
   it("infers a Claude root instruction file for claude-compatible tools", () => {
@@ -686,6 +688,35 @@ describe("materializeBundle: copilot", () => {
     ).toContain("name: react");
   });
 
+  it("translates a canonical agent into .github/agents/ with .agent.md extension", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "agents", "reviewer.md"),
+      "---\nname: reviewer\ndescription: Code reviewer\n---\nReview every PR carefully.\n",
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { copilot: { agents: { path: "agents" } } } },
+    });
+
+    // Then
+    expect(result.byTool["copilot"]!.files).toEqual([
+      ".github/agents/reviewer.agent.md",
+    ]);
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".github/agents/reviewer.agent.md"),
+      "utf8",
+    );
+    expect(content).toContain("name: reviewer");
+    expect(content).toContain("description: Code reviewer");
+    expect(content).toContain("Review every PR carefully.");
+  });
+
   it("materializes a root instruction into .github/copilot-instructions.md", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
@@ -755,6 +786,35 @@ describe("materializeBundle: kiro", () => {
     ).toContain("name: react");
   });
 
+  it("translates a canonical agent into .kiro/agents/ with .md extension", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "agents", "reviewer.md"),
+      "---\nname: reviewer\ndescription: Code reviewer\n---\nReview every PR carefully.\n",
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { kiro: { agents: { path: "agents" } } } },
+    });
+
+    // Then
+    expect(result.byTool["kiro"]!.files).toEqual([
+      ".kiro/agents/reviewer.md",
+    ]);
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".kiro/agents/reviewer.md"),
+      "utf8",
+    );
+    expect(content).toContain("name: reviewer");
+    expect(content).toContain("description: Code reviewer");
+    expect(content).toContain("Review every PR carefully.");
+  });
+
   it("materializes a root instruction into AGENTS.md", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
@@ -813,6 +873,42 @@ describe("inferBundleManifest: copilot and kiro native paths", () => {
     // Then
     expect(manifest.tools["kiro"]).toEqual({
       skills: { path: ".kiro/skills" },
+    });
+    expect(manifest.tools["claude-code"]).toBeUndefined();
+  });
+
+  it("detects a native Copilot agents directory", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".github", "agents", "reviewer.agent.md"),
+      "# agent\n",
+    );
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["copilot"]).toEqual({
+      agents: { path: ".github/agents" },
+    });
+    expect(manifest.tools["claude-code"]).toBeUndefined();
+  });
+
+  it("detects a native Kiro agents directory", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".kiro", "agents", "reviewer.md"),
+      "# agent\n",
+    );
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["kiro"]).toEqual({
+      agents: { path: ".kiro/agents" },
     });
     expect(manifest.tools["claude-code"]).toBeUndefined();
   });

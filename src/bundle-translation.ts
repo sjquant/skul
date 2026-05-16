@@ -14,7 +14,7 @@ interface MetadataMap {
 
 type SkillTool = "claude" | "cursor" | "codex" | "opencode" | "copilot" | "kiro";
 type CommandTool = "claude" | "cursor" | "opencode";
-type AgentTool = "claude" | "cursor" | "codex" | "opencode";
+type AgentTool = "claude" | "cursor" | "codex" | "opencode" | "copilot" | "kiro";
 type RootInstructionTool = "claude" | "cursor" | "codex" | "opencode" | "copilot" | "kiro";
 
 interface MarkdownDocument {
@@ -519,7 +519,9 @@ function commandFilePath(tool: CommandTool, name: string): string {
 }
 
 function agentFilePath(tool: AgentTool, name: string): string {
-  return `${targetBasePath(tool, "agents")}/${name}.${tool === "codex" ? "toml" : "md"}`;
+  if (tool === "codex") return `${targetBasePath(tool, "agents")}/${name}.toml`;
+  if (tool === "copilot") return `${targetBasePath(tool, "agents")}/${name}.agent.md`;
+  return `${targetBasePath(tool, "agents")}/${name}.md`;
 }
 
 function rootInstructionFilePath(tool: RootInstructionTool): string {

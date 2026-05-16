@@ -58,6 +58,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "copilot",
     targets: {
       skills: { path: ".github/skills", kind: "directory" },
+      agents: { path: ".github/agents", kind: "directory" },
       root_instruction: { path: ".github/copilot-instructions.md", kind: "file" },
     },
   },
@@ -65,6 +66,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "kiro",
     targets: {
       skills: { path: ".kiro/skills", kind: "directory" },
+      agents: { path: ".kiro/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
     },
   },

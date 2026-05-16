@@ -78,6 +78,7 @@ describe("getToolDefinition", () => {
         name: "copilot",
         targets: {
           skills: { path: ".github/skills", kind: "directory" },
+          agents: { path: ".github/agents", kind: "directory" },
           root_instruction: { path: ".github/copilot-instructions.md", kind: "file" },
         },
       },
@@ -88,6 +89,7 @@ describe("getToolDefinition", () => {
         name: "kiro",
         targets: {
           skills: { path: ".kiro/skills", kind: "directory" },
+          agents: { path: ".kiro/agents", kind: "directory" },
           root_instruction: { path: "AGENTS.md", kind: "file" },
         },
       },
@@ -121,8 +123,10 @@ describe("resolveToolTargetPath", () => {
     ["claude-code", "root_instruction", path.join("/repo", "CLAUDE.md")],
     ["codex", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["copilot", "skills", path.join("/repo", ".github/skills")],
+    ["copilot", "agents", path.join("/repo", ".github/agents")],
     ["copilot", "root_instruction", path.join("/repo", ".github/copilot-instructions.md")],
     ["kiro", "skills", path.join("/repo", ".kiro/skills")],
+    ["kiro", "agents", path.join("/repo", ".kiro/agents")],
     ["kiro", "root_instruction", path.join("/repo", "AGENTS.md")],
   ];
 
@@ -138,9 +142,7 @@ describe("resolveToolTargetPath", () => {
   it.each([
     ["codex", "commands"],
     ["copilot", "commands"],
-    ["copilot", "agents"],
     ["kiro", "commands"],
-    ["kiro", "agents"],
   ] satisfies Array<[string, ToolTargetName]>)(
     "returns null when %s does not define %s",
     (toolName, targetName) => {
