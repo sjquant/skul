@@ -71,3 +71,26 @@ bundle/
 ```
 
 Use native layout when tool-specific behavior matters and cross-tool copying would be wrong.
+
+## Selecting bundle items
+
+By default, `skul add` installs every compatible item in the bundle for the selected tool targets. Use `--include` to install only specific top-level items:
+
+```bash
+skul add react-expert --agent codex --include skills/diagnose
+skul add react-expert --agent codex --include agents/reviewer
+skul add react-expert --agent codex --include root-instruction
+```
+
+Supported selectors are:
+
+- `skills/<name>`
+- `commands/<name>`
+- `agents/<name>`
+- `root-instruction`
+
+Use `--select-items` to choose from the available bundle items interactively:
+
+```bash
+skul add react-expert --agent codex --select-items
+```

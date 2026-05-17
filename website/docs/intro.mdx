@@ -36,6 +36,7 @@ Key behaviors:
 
 - Fetch reusable bundle content from a Git repository.
 - Write files into tool-native locations.
+- Install a whole bundle or only selected bundle items.
 - Hide those files with `.git/info/exclude` instead of modifying `.gitignore`.
 - Track desired state per repository and materialized state per worktree.
 - Re-apply the same setup in fresh worktrees with `skul apply`.
@@ -51,6 +52,7 @@ When a root instruction target is already tracked in Git, `skul` builds a manage
 
 ```bash
 skul add github.com/sjquant/ai-bundles react-expert
+skul add react-expert --agent codex --include skills/diagnose
 skul status
 skul sync
 skul check

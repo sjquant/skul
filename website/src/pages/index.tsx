@@ -15,7 +15,7 @@ type Card = {
 };
 
 const siteDescription =
-  "skul is an AI bundle CLI for sharing Claude Code, Cursor, Codex, and OpenCode skills, commands, and agents across projects without committing local AI setup files.";
+  "skul is an AI bundle CLI for sharing and selectively installing Claude Code, Cursor, Codex, and OpenCode skills, commands, and agents across projects without committing local AI setup files.";
 
 const siteKeywords = [
   "shared ai bundles",
@@ -24,13 +24,19 @@ const siteKeywords = [
   "cursor skills",
   "codex agents",
   "opencode agents",
+  "select ai skills",
   "ai workflow cli",
   "developer ai tooling",
 ];
 
 const heroStats = [
   {
-    value: "One bundle, four tools",
+    value: "Whole bundle or one item",
+    label:
+      "Install an entire bundle, or pick only the skill, agent, command, or root instruction you need.",
+  },
+  {
+    value: "One source, many tools",
     label:
       "Ship the same AI setup to Claude Code, Cursor, Codex, and OpenCode from one source repo.",
   },
@@ -48,14 +54,18 @@ const heroStats = [
 
 const heroChecklist = [
   "Share one bundle repo across Claude Code, Cursor, Codex, and OpenCode",
+  "Install a specific skill, agent, command, or root instruction from a bundle",
   "Keep AI setup local instead of committing tool-specific dotdirs",
-  "Roll out prompt, skill, and agent updates with add, apply, and update",
 ];
 
 const heroWorkflow = [
   {
-    command: "skul add github.com/sjquant/ai-bundles react-expert",
-    detail: "Pull a shared bundle into a project in one command.",
+    command: "skul add github.com/sjquant/ai-bundles core --agent codex",
+    detail: "Pull a shared bundle into a project for the tool you use.",
+  },
+  {
+    command: "skul add core --agent codex --include skills/diagnose",
+    detail: "Install one bundle item when you only need a specific skill.",
   },
   {
     command: "skul apply",
@@ -76,7 +86,7 @@ const workflowSteps = [
   },
   {
     title: "Apply per project",
-    body: "Materialize only the files each tool expects, in the repo you are working in right now.",
+    body: "Materialize the files each tool expects, or narrow installation to selected bundle items.",
   },
   {
     title: "Update without cleanup drama",
