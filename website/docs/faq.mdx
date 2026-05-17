@@ -23,7 +23,7 @@ In both cases, use either canonical directories like `skills/`, `commands/`, and
 
 `skul` fingerprints the files it writes. Modified files require explicit confirmation before removal, or fail fast when `SKUL_NO_TUI=1` is set.
 
-## What about tracked `AGENTS.md` or `CLAUDE.md` files?
+## What about tracked root instruction files?
 
 Those use tracked-shadow behavior instead of plain local file creation. Use `skul sync` for the safe suspend / pull / refresh lifecycle, or run `skul shadow --suspend` and `skul shadow --refresh` manually around Git updates.
 

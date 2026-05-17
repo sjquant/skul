@@ -53,7 +53,7 @@ bundle/
 |- skills/
 |- commands/
 |- agents/
-`- AGENTS.md or CLAUDE.md
+`- AGENTS.md, CLAUDE.md, or .github/copilot-instructions.md
 ```
 
 `skul` copies each directory into every compatible tool target.
@@ -66,8 +66,10 @@ Tool-specific dot directories target a single tool explicitly:
 bundle/
 |- .claude/skills/
 |- .cursor/commands/
+|- .github/agents/
+|- .kiro/skills/
 |- .codex/agents/
-`- AGENTS.md or CLAUDE.md
+`- AGENTS.md, CLAUDE.md, or .github/copilot-instructions.md
 ```
 
 Use native layout when tool-specific behavior matters and cross-tool copying would be wrong.

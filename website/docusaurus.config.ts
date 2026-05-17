@@ -4,7 +4,7 @@ import { themes as prismThemes } from "prism-react-renderer";
 
 const config: Config = {
   title: "skul",
-  tagline: "AI bundles for Claude Code, Cursor, Codex, and OpenCode",
+  tagline: "AI bundles for AI coding tools",
   favicon: "img/favicon.ico",
   future: {
     v4: true,
@@ -45,7 +45,7 @@ const config: Config = {
       {
         name: "keywords",
         content:
-          "shared ai bundles, ai bundle cli, claude code skills, cursor skills, codex agents, opencode agents, ai workflow cli",
+          "shared ai bundles, ai bundle cli, claude code skills, cursor skills, codex agents, opencode agents, copilot skills, kiro agents, ai workflow cli",
       },
       {
         name: "twitter:card",
