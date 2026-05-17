@@ -43,7 +43,6 @@ import {
   type BundleSelection,
   createHeadlessPromptClient,
   createHelpText,
-  createPromptClient,
   createPromptClientForSelections,
   isHeadlessMode,
   type PromptClient,
@@ -2635,6 +2634,14 @@ async function applyWorktree(options: {
       materializedBundleState: existingBundleState,
       availableTools,
     });
+    const replacementState = refreshesExistingBundle
+      ? existingBundleState
+      : existingBundleState && toolsToApply
+        ? selectExistingBundleToolState(existingBundleState, toolsToApply)
+        : existingBundleState;
+    const replacesExistingToolState =
+      replacementState !== undefined &&
+      flattenBundleState(replacementState).files.length > 0;
     const plannedWriteTargets = previewMaterializeBundleWriteTargets({
       repoRoot: gitContext.worktreeRoot,
       bundleDir: path.dirname(cachedBundle.manifestFile),
@@ -2675,7 +2682,7 @@ async function applyWorktree(options: {
         resolveDesiredCachedBundle(options.libraryDir, entry),
     });
 
-    if (refreshesExistingBundle && existingBundleState) {
+    if (replacesExistingToolState && replacementState) {
       assertTrackedRootInstructionShadowSafetyForPaths({
         repoRoot: gitContext.worktreeRoot,
         operation: "refresh",
@@ -2685,7 +2692,7 @@ async function applyWorktree(options: {
       const replacementAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
         excludeShadowedTrackedRootInstructionTargets(
-          flattenBundleState(existingBundleState),
+          flattenBundleState(replacementState),
           trackedRootInstructionShadowPlan.deferredMaterializationTargets,
         ),
         options.prompts,
@@ -2732,14 +2739,27 @@ async function applyWorktree(options: {
       filePaths: plannedWriteTargets,
     });
 
-    if (refreshesExistingBundle && existingBundleState) {
-      removeManagedPaths(
-        gitContext.worktreeRoot,
-        excludeShadowedTrackedRootInstructionTargets(
-          flattenBundleState(existingBundleState),
-          trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+    if (replacesExistingToolState && replacementState) {
+      const pathsToReplace = excludeShadowedTrackedRootInstructionTargets(
+        flattenBundleState(replacementState),
+        trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+      );
+      const replacedRootInstructionPaths = new Set(
+        pathsToReplace.files.filter((filePath) =>
+          isRootInstructionPath(filePath),
         ),
       );
+
+      removeManagedPaths(gitContext.worktreeRoot, pathsToReplace);
+      restoreRootInstructionBaseContents({
+        repoRoot: gitContext.worktreeRoot,
+        baseContents: rootInstructionBaseContents,
+        targetPaths: new Set(
+          Array.from(replacedRootInstructionPaths).filter(
+            (filePath) => !plannedRootInstructionTargets.has(filePath),
+          ),
+        ),
+      });
     }
 
     const materializedResult = await materializeBundle({
@@ -3347,6 +3367,24 @@ function flattenBundleState(bundleState: MaterializedBundleState): {
     files: Array.from(files),
     file_fingerprints,
     directories: Array.from(directories),
+  };
+}
+
+function selectExistingBundleToolState(
+  bundleState: MaterializedBundleState,
+  toolNames: ToolName[],
+): MaterializedBundleState {
+  return {
+    ...(bundleState.source !== undefined ? { source: bundleState.source } : {}),
+    ...(bundleState.resolved_commit !== undefined
+      ? { resolved_commit: bundleState.resolved_commit }
+      : {}),
+    tools: Object.fromEntries(
+      toolNames.flatMap((toolName) => {
+        const toolState = bundleState.tools[toolName];
+        return toolState ? [[toolName, toolState]] : [];
+      }),
+    ),
   };
 }
 

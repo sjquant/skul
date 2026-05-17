@@ -15,7 +15,7 @@ type Card = {
 };
 
 const siteDescription =
-  "skul is an AI bundle CLI for sharing and selectively installing Claude Code, Cursor, Codex, and OpenCode skills, commands, and agents across projects without committing local AI setup files.";
+  "skul is an AI bundle CLI for sharing and selectively installing Claude Code, Cursor, OpenCode, Codex, GitHub Copilot, and Kiro skills, commands, and agents across projects without committing local AI setup files.";
 
 const siteKeywords = [
   "shared ai bundles",
@@ -24,6 +24,8 @@ const siteKeywords = [
   "cursor skills",
   "codex agents",
   "opencode agents",
+  "github copilot skills",
+  "kiro agents",
   "select ai skills",
   "ai workflow cli",
   "developer ai tooling",
@@ -38,7 +40,7 @@ const heroStats = [
   {
     value: "One source, many tools",
     label:
-      "Ship the same AI setup to Claude Code, Cursor, Codex, and OpenCode from one source repo.",
+      "Ship the same AI setup to Claude Code, Cursor, OpenCode, Codex, GitHub Copilot, and Kiro from one source repo.",
   },
   {
     value: "No repo noise",
@@ -53,7 +55,7 @@ const heroStats = [
 ];
 
 const heroChecklist = [
-  "Share one bundle repo across Claude Code, Cursor, Codex, and OpenCode",
+  "Share one bundle repo across Claude Code, Cursor, OpenCode, Codex, GitHub Copilot, and Kiro",
   "Install a specific skill, agent, command, or root instruction from a bundle",
   "Keep AI setup local instead of committing tool-specific dotdirs",
 ];
@@ -110,6 +112,14 @@ const toolCards = [
   {
     title: "OpenCode",
     body: "Support OpenCode projects without inventing a separate packaging workflow.",
+  },
+  {
+    title: "GitHub Copilot",
+    body: "Share Copilot skills and agents while keeping repository policy files controlled.",
+  },
+  {
+    title: "Kiro",
+    body: "Materialize Kiro skills and agents from the same reusable bundle source.",
   },
 ];
 
@@ -185,7 +195,7 @@ function SiteHead({
       <meta property="og:type" content="website" />
       <meta
         property="og:title"
-        content="skul | AI bundles for Claude Code, Cursor, Codex, and OpenCode"
+        content="skul | AI bundles for Claude Code, Cursor, OpenCode, Codex, Copilot, and Kiro"
       />
       <meta property="og:description" content={siteDescription} />
       <meta property="og:url" content={siteUrl} />
@@ -197,7 +207,7 @@ function SiteHead({
       <meta name="twitter:card" content="summary_large_image" />
       <meta
         name="twitter:title"
-        content="skul | AI bundles for Claude Code, Cursor, Codex, and OpenCode"
+        content="skul | AI bundles for Claude Code, Cursor, OpenCode, Codex, Copilot, and Kiro"
       />
       <meta name="twitter:description" content={siteDescription} />
       <meta name="twitter:image" content={socialImageUrl} />
@@ -221,7 +231,7 @@ function HeroSection(): ReactNode {
           </h1>
           <p className={styles.heroLead}>
             <code>skul</code> lets teams reuse AI bundles across Claude Code,
-            Cursor, Codex, and OpenCode.
+            Cursor, OpenCode, Codex, GitHub Copilot, and Kiro.
           </p>
           <p className={styles.heroSupport}>
             Keep shared prompts, skills, and agents in one bundle repo, apply
@@ -293,7 +303,7 @@ function ToolSection(): ReactNode {
         <p className={styles.sectionLabel}>Supported AI tools</p>
         <div className={styles.sectionHeading}>
           <h2 className={styles.sectionTitle}>
-            One bundle model across four coding tools
+            One bundle model across six coding tools
           </h2>
           <p className={styles.sectionBody}>
             Reuse the same bundle source across the tools your team already

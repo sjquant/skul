@@ -2083,9 +2083,12 @@ describe("run", () => {
 
     // Then
     expect(selectBundle).toHaveBeenCalledWith("github.com/sjquant/ghosts");
-    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"), "utf8")).toBe(
-      "# wdd\n",
-    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# wdd\n");
   });
 
   it("keeps the selected source-scoped bundle when a ref selector is requested", async () => {
@@ -4562,6 +4565,90 @@ describe("run", () => {
       "skills/next-task",
       "skills/review",
     ]);
+  });
+
+  it("removes stale linked-worktree files when desired bundle items change", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    await run(["add", "react-expert", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+
+    // When
+    await run(
+      [
+        "add",
+        "react-expert",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/next-task",
+      ],
+      { homeDir, cwd: repoRoot },
+    );
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+
+    // When
+    await run(["add", "react-expert", "--agent", "codex", "--select-items"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub({
+        selectBundleItems: async () => ["skills/review"],
+      }),
+    });
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
+
+    // Then
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
   });
 
   it("applies only root instructions when root-instruction is included", async () => {
