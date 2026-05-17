@@ -32,6 +32,14 @@ skul add git@github.com:sjquant/ai-bundles react-expert
 # Re-apply from cache — no network needed
 skul add react-expert
 
+# Install only selected bundle items
+skul add react-expert --agent codex --include skills/diagnose
+skul add react-expert --agent codex --include agents/reviewer
+skul add react-expert --agent codex --include root-instruction
+
+# Choose bundle items interactively
+skul add react-expert --agent codex --select-items
+
 # See what's cached
 skul list
 
@@ -92,6 +100,8 @@ skul prune
 All mutating commands accept `--dry-run`. `skul list`, `skul status`, and `skul check` accept `--json`.
 
 `skul add` accepts `--ssh` to clone via SSH. `git@host:owner/repo` URLs are auto-detected as SSH. Bare `owner/repo` sources default to `github.com/owner/repo`. Use `--ref` to follow a non-default branch or tag, or `--pin` to lock a bundle to one commit. The chosen protocol is persisted in the registry and reused by `skul apply`.
+
+`skul add` accepts `--include <item>` to install only specific bundle items. Repeat it to include multiple items. Supported selectors are `skills/<name>`, `commands/<name>`, `agents/<name>`, and `root-instruction`; `AGENTS.md` and `CLAUDE.md` are accepted aliases for `root-instruction`. Use `--select-items` to open an interactive bundle-item picker. If `--include` and `--select-items` are used together, the included items are preselected in the picker.
 
 For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
 

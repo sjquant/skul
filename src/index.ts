@@ -27,6 +27,14 @@ import {
   updateCachedRemoteSource,
 } from "./bundle-fetch";
 import {
+  assertBundleSupportsRequestedItems,
+  type BundleItemSelector,
+  bundleItemSelectionsEqual,
+  listSelectableBundleItems,
+  mergeDesiredBundleItems,
+  normalizeBundleItemSelectors,
+} from "./bundle-items";
+import {
   type MaterializeBundleResult,
   materializeBundle,
   previewMaterializeBundleWriteTargets,
@@ -125,6 +133,8 @@ export async function run(
         source: parsed.options.source,
         protocol: parsed.options.protocol,
         agents: parsed.options.agents,
+        includeItems: parsed.options.includeItems ?? [],
+        selectItems: parsed.options.selectItems ?? false,
         dryRun: parsed.options.dryRun,
         ref: parsed.options.ref,
         inferredBundleFromSource: parsed.options.inferredBundleFromSource,
@@ -635,6 +645,7 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
         source,
       );
     },
+    selectBundleItems: promptClient.selectBundleItems,
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
   };
@@ -1383,6 +1394,7 @@ async function updateBundles(options: {
         bundleDir: path.dirname(cachedBundle.manifestFile),
         manifest: cachedBundle.manifest,
         tools: toolsToRefresh,
+        itemSelectors: entry.items,
       });
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
@@ -1400,6 +1412,7 @@ async function updateBundles(options: {
               toolsToRefresh ??
               (Object.keys(cachedBundle.manifest.tools) as ToolName[]),
           }),
+          itemSelectors: entry.items,
           targetPaths: plannedRootInstructionTargets,
           bundleName: entry.bundle,
           bundleSource: entry.source,
@@ -1479,6 +1492,7 @@ async function updateBundles(options: {
           bundleDir: path.dirname(cachedBundle.manifestFile),
           manifest: cachedBundle.manifest,
           tools: toolsToRefresh,
+          itemSelectors: entry.items,
           bundleName: entry.bundle,
           bundleSource: entry.source,
           assertSafeWriteTarget:
@@ -1503,6 +1517,7 @@ async function updateBundles(options: {
             source: entry.source,
             resolvedCommit: refreshed.currentCommit,
             selectedTools: toolsToRefresh,
+            selectedItems: entry.items,
           }),
         };
         currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
@@ -1624,20 +1639,28 @@ async function applyBundle(options: {
   source?: string;
   protocol: "https" | "ssh";
   agents: ToolName[];
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
   dryRun: boolean;
   ref?: string;
   inferredBundleFromSource?: true;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
+  const registryBeforePrepare = readRegistryWithGuidance(options.registryFile);
   const preparedBundle = await prepareApplyBundle({
     bundle: options.bundle,
     source: options.source,
     protocol: options.protocol,
     requestedTools: options.agents,
+    requestedItems: options.includeItems,
+    selectItems: options.selectItems,
+    prompts: options.prompts,
     libraryDir: options.libraryDir,
     ref: options.ref,
-    prompts: options.prompts,
     inferredBundleFromSource: options.inferredBundleFromSource,
+    existingDesiredState:
+      registryBeforePrepare.repos[gitContext.repoFingerprint]?.desired_state ??
+      [],
   });
 
   if (options.dryRun) {
@@ -1647,7 +1670,7 @@ async function applyBundle(options: {
     ].join("\n");
   }
 
-  let registry = readRegistryWithGuidance(options.registryFile);
+  let registry = registryBeforePrepare;
   const existingWorktreeState =
     registry.worktrees[gitContext.worktreeId]?.materialized_state;
   let currentShadowedFiles = {
@@ -1662,6 +1685,7 @@ async function applyBundle(options: {
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
     tools: preparedBundle.selectedTools,
+    itemSelectors: preparedBundle.selectedItems,
   });
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -1674,6 +1698,7 @@ async function applyBundle(options: {
       existingBundleState,
       nextToolNames: preparedBundle.nextToolNames,
     }),
+    itemSelectors: preparedBundle.selectedItems,
     targetPaths: plannedRootInstructionTargets,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
@@ -1780,6 +1805,7 @@ async function applyBundle(options: {
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
     tools: preparedBundle.selectedTools,
+    itemSelectors: preparedBundle.selectedItems,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
     assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
@@ -1808,6 +1834,7 @@ async function applyBundle(options: {
     source: preparedBundle.bundleSource,
     resolvedCommit: preparedBundle.sourceRevision?.currentCommit,
     selectedTools: preparedBundle.selectedTools,
+    selectedItems: preparedBundle.selectedItems,
   });
 
   const newDesiredEntry = buildDesiredEntryForAppliedBundle({
@@ -1817,6 +1844,8 @@ async function applyBundle(options: {
     requestedProtocol: options.protocol,
     requestedRef: options.ref,
     requestedTools: preparedBundle.selectedTools,
+    requestedItems: preparedBundle.selectedItems,
+    replaceRequestedItems: preparedBundle.replacesItemSelection,
     sourceRevision: preparedBundle.sourceRevision,
   });
   const newDesiredState = [
@@ -1888,19 +1917,24 @@ async function prepareApplyBundle(options: {
   source?: string;
   protocol: "https" | "ssh";
   requestedTools: ToolName[];
+  requestedItems: BundleItemSelector[];
+  selectItems: boolean;
+  prompts: PromptClient;
   libraryDir: string;
   ref?: string;
-  prompts: PromptClient;
   inferredBundleFromSource?: true;
+  existingDesiredState: DesiredBundleEntry[];
 }): Promise<{
   cloneLines: string[];
   cachedBundle: CachedBundle;
   bundleSource?: string;
   sourceRevision?: CachedSourceRevision;
   selectedTools?: ToolName[];
+  selectedItems?: BundleItemSelector[];
   nextToolNames: ToolName[];
   toolLabel: string;
   hasToolSelection: boolean;
+  replacesItemSelection: boolean;
 }> {
   const cloneLines = fetchBundleSourceForApply(options);
   let cachedBundle: CachedBundle;
@@ -1914,12 +1948,14 @@ async function prepareApplyBundle(options: {
     });
     bundleSource = options.source ?? cachedBundle.source;
   } catch (error) {
-    if (!shouldPromptForInferredBundle({
-      error,
-      libraryDir: options.libraryDir,
-      source: options.source,
-      inferredBundleFromSource: options.inferredBundleFromSource,
-    })) {
+    if (
+      !shouldPromptForInferredBundle({
+        error,
+        libraryDir: options.libraryDir,
+        source: options.source,
+        inferredBundleFromSource: options.inferredBundleFromSource,
+      })
+    ) {
       throw error;
     }
 
@@ -1962,6 +1998,18 @@ async function prepareApplyBundle(options: {
   const nextToolNames = hasToolSelection
     ? options.requestedTools
     : availableTools;
+  const existingDesiredEntry = options.existingDesiredState.find(
+    (entry) => entry.bundle === cachedBundle.bundle,
+  );
+  const selectedItems = await resolveSelectedBundleItems({
+    bundleDir: path.dirname(cachedBundle.manifestFile),
+    manifest: cachedBundle.manifest,
+    tools: nextToolNames,
+    requestedItems: options.requestedItems,
+    selectItems: options.selectItems,
+    prompts: options.prompts,
+    existingItems: existingDesiredEntry?.items,
+  });
 
   return {
     cloneLines,
@@ -1969,10 +2017,46 @@ async function prepareApplyBundle(options: {
     bundleSource,
     sourceRevision,
     ...(hasToolSelection ? { selectedTools: options.requestedTools } : {}),
+    ...(selectedItems !== undefined ? { selectedItems } : {}),
     nextToolNames,
     toolLabel: nextToolNames.join(", "),
     hasToolSelection,
+    replacesItemSelection: options.selectItems,
   };
+}
+
+async function resolveSelectedBundleItems(options: {
+  bundleDir: string;
+  manifest: CachedBundle["manifest"];
+  tools: ToolName[];
+  requestedItems: BundleItemSelector[];
+  selectItems: boolean;
+  prompts: PromptClient;
+  existingItems?: BundleItemSelector[];
+}): Promise<BundleItemSelector[] | undefined> {
+  if (!options.selectItems && options.requestedItems.length === 0) {
+    return undefined;
+  }
+
+  const availableItems = listSelectableBundleItems({
+    bundleDir: options.bundleDir,
+    manifest: options.manifest,
+    tools: options.tools,
+  });
+  assertBundleSupportsRequestedItems({
+    requestedItems: options.requestedItems,
+    availableItems,
+  });
+  const mergedItems = mergeDesiredBundleItems({
+    existingItems: options.existingItems,
+    requestedItems: normalizeBundleItemSelectors(options.requestedItems),
+  });
+
+  if (!options.selectItems) {
+    return mergedItems;
+  }
+
+  return options.prompts.selectBundleItems(availableItems, mergedItems ?? []);
 }
 
 function shouldPromptForInferredBundle(options: {
@@ -1985,7 +2069,10 @@ function shouldPromptForInferredBundle(options: {
     return false;
   }
 
-  if (!(options.error instanceof Error) || !/^Bundle not found: /.test(options.error.message)) {
+  if (
+    !(options.error instanceof Error) ||
+    !/^Bundle not found: /.test(options.error.message)
+  ) {
     return false;
   }
 
@@ -2036,6 +2123,8 @@ function buildDesiredEntryForAppliedBundle(options: {
   requestedProtocol: "https" | "ssh";
   requestedRef?: string;
   requestedTools?: ToolName[];
+  requestedItems?: BundleItemSelector[];
+  replaceRequestedItems?: boolean;
   sourceRevision?: CachedSourceRevision;
 }): DesiredBundleEntry {
   const existingDesiredEntry = options.existingDesiredState.find(
@@ -2044,6 +2133,11 @@ function buildDesiredEntryForAppliedBundle(options: {
   const mergedDesiredTools = mergeDesiredTools({
     existingEntry: existingDesiredEntry,
     requestedTools: options.requestedTools,
+  });
+  const mergedDesiredItems = mergeDesiredBundleItems({
+    existingItems: existingDesiredEntry?.items,
+    requestedItems: options.requestedItems,
+    replace: options.replaceRequestedItems ?? false,
   });
   const preservesExistingRef =
     existingDesiredEntry?.ref !== undefined &&
@@ -2070,6 +2164,7 @@ function buildDesiredEntryForAppliedBundle(options: {
           ? { source: options.cachedBundle.source }
           : {}),
     ...(mergedDesiredTools !== undefined ? { tools: mergedDesiredTools } : {}),
+    ...(mergedDesiredItems !== undefined ? { items: mergedDesiredItems } : {}),
     protocol: desiredProtocol,
     ...(options.requestedRef !== undefined
       ? { ref: options.requestedRef }
@@ -2545,6 +2640,7 @@ async function applyWorktree(options: {
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
+      itemSelectors: entry.items,
     });
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -2557,6 +2653,7 @@ async function applyWorktree(options: {
         existingBundleState,
         nextToolNames: toolsToApply ?? availableTools,
       }),
+      itemSelectors: entry.items,
       targetPaths: plannedRootInstructionTargets,
       bundleName: entry.bundle,
       bundleSource: entry.source,
@@ -2650,6 +2747,7 @@ async function applyWorktree(options: {
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
+      itemSelectors: entry.items,
       bundleName: entry.bundle,
       bundleSource: entry.source,
       assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
@@ -2673,6 +2771,7 @@ async function applyWorktree(options: {
         source: entry.source,
         resolvedCommit: entry.resolved_commit ?? sourceRevision?.currentCommit,
         selectedTools: refreshesExistingBundle ? undefined : toolsToApply,
+        selectedItems: entry.items,
       }),
     };
     currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
@@ -2762,6 +2861,7 @@ function planTrackedRootInstructionShadows(options: {
   bundleDir: string;
   manifest: CachedBundle["manifest"];
   toolNames: ToolName[];
+  itemSelectors?: BundleItemSelector[];
   targetPaths: Set<string>;
   bundleName: string;
   bundleSource?: string;
@@ -2772,6 +2872,7 @@ function planTrackedRootInstructionShadows(options: {
     bundleDir: options.bundleDir,
     manifest: options.manifest,
     toolNames: options.toolNames,
+    itemSelectors: options.itemSelectors,
   });
   const activeRootInstructionPaths = new Set(
     Object.keys(activeOverlayContents).filter((targetPath) =>
@@ -3175,7 +3276,12 @@ function isDesiredBundleMaterialized(options: {
 
   return (
     expectedTools.every(
-      (toolName) => toolName in options.materializedBundleState.tools,
+      (toolName) =>
+        toolName in options.materializedBundleState.tools &&
+        bundleItemSelectionsEqual(
+          options.desiredEntry.items,
+          options.materializedBundleState.tools[toolName]?.items,
+        ),
     ) &&
     (options.desiredEntry.resolved_commit === undefined ||
       options.materializedBundleState.resolved_commit ===
@@ -3204,7 +3310,14 @@ function getToolsToApply(options: {
 
   const existingTools = options.materializedBundleState.tools;
 
-  return expectedTools.filter((toolName) => !(toolName in existingTools));
+  return expectedTools.filter(
+    (toolName) =>
+      !(toolName in existingTools) ||
+      !bundleItemSelectionsEqual(
+        options.desiredEntry.items,
+        existingTools[toolName]?.items,
+      ),
+  );
 }
 
 // Flatten all files and directories from every tool within a single bundle
@@ -3241,6 +3354,7 @@ function flattenBundleState(bundleState: MaterializedBundleState): {
 function buildMaterializedToolStates(
   repoRoot: string,
   result: MaterializeBundleResult,
+  selectedItems?: BundleItemSelector[],
 ): Record<string, MaterializedToolState> {
   return Object.fromEntries(
     Object.entries(result.byTool).map(([toolName, toolResult]) => [
@@ -3254,6 +3368,7 @@ function buildMaterializedToolStates(
         ...(toolResult.directories.length > 0
           ? { directories: toolResult.directories }
           : {}),
+        ...(selectedItems !== undefined ? { items: selectedItems } : {}),
       } satisfies MaterializedToolState,
     ]),
   );
@@ -3266,6 +3381,7 @@ function buildMaterializedBundleState(options: {
   source?: string;
   resolvedCommit?: string;
   selectedTools?: ToolName[];
+  selectedItems?: BundleItemSelector[];
 }): MaterializedBundleState {
   const preservedTools =
     options.existingBundleState && options.selectedTools
@@ -3293,6 +3409,7 @@ function buildMaterializedBundleState(options: {
       ...buildMaterializedToolStates(
         options.repoRoot,
         options.materializedResult,
+        options.selectedItems,
       ),
     },
   };

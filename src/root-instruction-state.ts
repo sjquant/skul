@@ -102,6 +102,7 @@ function collectRootInstructionContentByPath(options: {
       manifest: cachedBundle.manifest,
       toolNames,
       targetPaths: options.targetPaths,
+      itemSelectors: desiredEntry.items,
     });
 
     for (const toolName of toolNames) {

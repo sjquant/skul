@@ -1,8 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-
+import {
+  type BundleItemSelector,
+  isRootInstructionItemSelected,
+} from "./bundle-items";
 import type { BundleManifest } from "./bundle-manifest";
-import { toTranslationToolName, translateRootInstruction } from "./bundle-translation";
+import {
+  toTranslationToolName,
+  translateRootInstruction,
+} from "./bundle-translation";
 import { composeRootInstructionContent } from "./root-instruction-render";
 import type { ToolName } from "./tool-mapping";
 
@@ -33,7 +39,12 @@ export function collectComposedRootInstructionContents(options: {
   manifest: BundleManifest;
   toolNames: ToolName[];
   targetPaths?: Set<string>;
+  itemSelectors?: BundleItemSelector[];
 }): Record<string, string> {
+  if (!isRootInstructionItemSelected(options.itemSelectors)) {
+    return {};
+  }
+
   const partsByPath = new Map<string, string[]>();
   const seenSourceTargets = new Set<string>();
 
@@ -75,4 +86,3 @@ export function collectComposedRootInstructionContents(options: {
     ]),
   );
 }
-
