@@ -1,6 +1,6 @@
-# Skul — AI Configuration Bundle Manager for Claude Code, Cursor, Codex & OpenCode
+# Skul — AI Configuration Bundle Manager for AI Coding Tools
 
-Apply reusable AI bundles — skills, slash commands, and agents — into tool-native directories without committing them to Git. Skul fetches bundles from a GitHub repository, writes files where each tool expects them, and hides everything via `.git/info/exclude`.
+Apply reusable AI bundles — skills, slash commands, agents, and root instructions — into tool-native directories without committing them to Git. Skul fetches bundles from a GitHub repository, writes files where each tool expects them, and hides everything via `.git/info/exclude`.
 
 [![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
@@ -92,7 +92,7 @@ skul prune
 | `skul check [bundle]` | Check remote-backed bundles for upstream updates |
 | `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
 | `skul prune` | Remove stale registry entries for deleted worktrees and orphaned repos |
-| `skul shadow --suspend \| --refresh` | Restore or rebuild tracked `AGENTS.md` / `CLAUDE.md` shadows |
+| `skul shadow --suspend \| --refresh` | Restore or rebuild tracked root-instruction shadows |
 | `skul sync` | Run `git pull --ff-only` with tracked root-instruction shadow suspend/refresh |
 | `skul reset` | Remove all Skul-managed files from the current worktree |
 | `skul clear-cache [source] --all` | Remove one cached source or all cached remote sources from the global library |
@@ -115,6 +115,8 @@ For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive pro
 | **[Cursor](https://cursor.sh)** | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `CLAUDE.md` |
 | **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `CLAUDE.md` |
 | **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` |
+| **[GitHub Copilot](https://github.com/features/copilot)** | `.github/skills` | — | `.github/agents` | `.github/copilot-instructions.md` |
+| **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` |
 
 Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 
@@ -148,27 +150,32 @@ Inside a bundle, two content layouts are supported:
 
 **Canonical** — `skills/`, `commands/`, `agents/`, `AGENTS.md`, and `CLAUDE.md` at the top level. Skul copies each directory to every tool that supports it, and treats root instruction files as generic cross-tool sources.
 
-**Native** — tool-specific dotdirs (`.claude/skills/`, `.cursor/commands/`, etc.) for content targeting a single tool only.
+**Native** — tool-specific dotdirs (`.claude/skills/`, `.cursor/commands/`, `.github/agents/`, `.kiro/skills/`, etc.) for content targeting a single tool only.
 
 ### Root Instruction Targets
 
-Skul supports two root instruction filenames:
+Skul supports three root instruction target files:
 
 | Target file | Native tools |
 |---|---|
 | `CLAUDE.md` | `claude-code`, `cursor`, `opencode` |
-| `AGENTS.md` | `codex` |
+| `AGENTS.md` | `codex`, `kiro` |
+| `.github/copilot-instructions.md` | `copilot` |
 
-Root instruction bundles are compatible across those targets. If a bundle only ships `CLAUDE.md`, Skul can still materialize `AGENTS.md` for Codex. If a bundle only ships `AGENTS.md`, Skul can still materialize `CLAUDE.md` for Claude Code, Cursor, or OpenCode, as long as the instruction body can be reused as-is.
+Root instruction bundles are compatible across those targets. If a bundle only ships `CLAUDE.md`, Skul can still materialize `AGENTS.md` for Codex or Kiro and `.github/copilot-instructions.md` for GitHub Copilot. If a bundle only ships `AGENTS.md` or `.github/copilot-instructions.md`, Skul can still materialize the equivalent target file for the other tools, as long as the instruction body can be reused as-is.
 
 Examples:
 
 ```bash
-# Bundle only provides CLAUDE.md, but Codex still gets AGENTS.md
+# Bundle only provides CLAUDE.md, but Codex and Kiro still get AGENTS.md
 skul add github.com/sjquant/ai-bundles repo-standards --agent codex
+skul add github.com/sjquant/ai-bundles repo-standards --agent kiro
 
 # Bundle only provides AGENTS.md, but Claude Code still gets CLAUDE.md
 skul add github.com/sjquant/ai-bundles repo-standards --agent claude-code
+
+# Bundle only provides AGENTS.md or CLAUDE.md, but Copilot still gets its native target
+skul add github.com/sjquant/ai-bundles repo-standards --agent copilot
 ```
 
 ---
@@ -188,7 +195,7 @@ Skul uses two different workflows for root instruction files, depending on wheth
 
 **Untracked stealth**
 
-- If `AGENTS.md` or `CLAUDE.md` is not tracked, Skul materializes it like any other managed file and hides it through `.git/info/exclude`.
+- If the target root instruction file is not tracked, Skul materializes it like any other managed file and hides it through `.git/info/exclude`.
 - If the file already existed locally, Skul preserves that pre-existing content as the base and appends bundle content inside explicit `BEGIN/END SKUL BUNDLE` markers.
 - Multiple bundles can share the same untracked root instruction file. Skul recomposes the file in desired-state order and restores the preserved base content when the last contributing bundle is removed or `skul reset` runs.
 
@@ -205,7 +212,7 @@ skul add github.com/sjquant/ai-bundles repo-standards --agent codex
 
 **Tracked shadow**
 
-- If the repo already tracks `AGENTS.md` or `CLAUDE.md`, Skul does not use `.git/info/exclude`.
+- If the repo already tracks the target root instruction file, Skul does not use `.git/info/exclude`.
 - Instead, Skul treats the worktree copy as generated output: it renders `HEAD:<path>` plus the bundle overlay, writes the effective file, and sets `git update-index --skip-worktree`.
 - `skul status` reports tracked root instructions in a separate `Shadowed Instructions` section, including whether the base blob is current, whether the overlay still matches, whether `skip-worktree` is set, and whether manual edits are suspected.
 - A tracked root instruction target has one active shadow owner at a time. Multi-bundle composition is supported for untracked root files, not for tracked shadows.
@@ -236,7 +243,7 @@ skul shadow --refresh
 
 - `skul shadow --suspend` restores tracked root instruction files from `HEAD` and clears `skip-worktree`.
 - `skul shadow --refresh` rebuilds the effective files from the latest `HEAD` content plus the stored overlay and then re-enables `skip-worktree`.
-- The manual suspend/refresh flow assumes the root instruction file is still tracked after your Git update. If upstream removed `AGENTS.md` or `CLAUDE.md`, plain `skul shadow --refresh` will fail because there is no longer any `HEAD` content to rebuild from. For `git pull --ff-only`, prefer `skul sync`, because it can retire shadow entries automatically when upstream stops tracking the file. Manual suspend/pull/refresh does not currently provide the same retirement path.
+- The manual suspend/refresh flow assumes the root instruction file is still tracked after your Git update. If upstream removed the target file, plain `skul shadow --refresh` will fail because there is no longer any `HEAD` content to rebuild from. For `git pull --ff-only`, prefer `skul sync`, because it can retire shadow entries automatically when upstream stops tracking the file. Manual suspend/pull/refresh does not currently provide the same retirement path.
 
 Use `skul sync` when `git pull --ff-only` is the update you want:
 
@@ -321,8 +328,8 @@ Two options: (1) create a GitHub repo with one subdirectory per bundle, each con
 **What happens if I edit a Skul-managed file?**
 Skul fingerprints files on write. Edited files require explicit confirmation before removal, or fail fast with `SKUL_NO_TUI=1`.
 
-**What happens if I edit a tracked shadowed `AGENTS.md` or `CLAUDE.md` directly?**
-Skul treats tracked root-instruction shadows as generated output. `skul status` will usually report `Manual edits: suspected`, and follow-up commands may refuse to refresh, remove, or reset that shadowed file once the rendered output no longer matches Skul's recorded fingerprint. This is a current limitation of tracked shadow mode, so the safe practice is to avoid manual edits to shadowed `AGENTS.md` and `CLAUDE.md` files.
+**What happens if I edit a tracked shadowed root instruction directly?**
+Skul treats tracked root-instruction shadows as generated output. `skul status` will usually report `Manual edits: suspected`, and follow-up commands may refuse to refresh, remove, or reset that shadowed file once the rendered output no longer matches Skul's recorded fingerprint. This is a current limitation of tracked shadow mode, so the safe practice is to avoid manual edits to shadowed root instruction files.
 
 **When should I use `skul shadow --suspend`, `skul shadow --refresh`, or `skul sync`?**
 Use `skul shadow --suspend` before a manual Git update that touches tracked root instruction files. Use `skul shadow --refresh` after that update only when the root instruction file is still tracked in the new `HEAD` and the local shadow state is still intact. Use `skul sync` when a fast-forward pull is all you need, because it wraps both steps around `git pull --ff-only` and can retire shadows automatically if upstream stops tracking the file.
