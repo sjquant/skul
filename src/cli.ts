@@ -102,6 +102,7 @@ export interface PromptClient {
     availableItems: BundleItemSelector[],
     selectedItems: BundleItemSelector[],
   ): Promise<BundleItemSelector[]>;
+  selectAgents(availableAgents: ToolName[]): Promise<ToolName[]>;
   resolveFileConflict(
     conflictPath: string,
     suggestedDestination: string,
@@ -205,6 +206,11 @@ export function createHeadlessPromptClient(): PromptClient {
         "Bundle item selection requires an interactive terminal.\nHint: rerun with --include <item> instead of --select-items",
       );
     },
+    async selectAgents(availableAgents: ToolName[]): Promise<ToolName[]> {
+      throw new Error(
+        `Agent selection is required in headless mode.\nHint: run 'skul add --agent <name>' to specify agents explicitly. Available: ${availableAgents.join(", ")}`,
+      );
+    },
     async resolveFileConflict(
       conflictPath: string,
       suggestedDestination: string,
@@ -295,6 +301,23 @@ export function createPromptClientForSelections(
       }
 
       return choice;
+    },
+    async selectAgents(availableAgents: ToolName[]): Promise<ToolName[]> {
+      const { isCancel, multiselect } = await loadPrompts();
+      const selected = await multiselect<ToolName>({
+        message: "Select agents to install for",
+        options: availableAgents.map((agent) => ({
+          value: agent,
+          label: agent,
+        })),
+        required: true,
+      });
+
+      if (isCancel(selected)) {
+        throw new Error("Agent selection was cancelled");
+      }
+
+      return selected;
     },
     async resolveFileConflict(
       conflictPath: string,
@@ -428,6 +451,7 @@ export function createHelpText(command?: CommandName): string {
   const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
     selectBundleItems: async () => [],
+    selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({
       action: "prefix",
       prefix: DEFAULT_CONFLICT_PREFIX,

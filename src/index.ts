@@ -645,6 +645,7 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
       );
     },
     selectBundleItems: promptClient.selectBundleItems,
+    selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
   };
@@ -1994,9 +1995,10 @@ async function prepareApplyBundle(options: {
     assertBundleSupportsRequestedTools(options.requestedTools, availableTools);
   }
 
-  const nextToolNames = hasToolSelection
+  const selectedRequestedTools = hasToolSelection
     ? options.requestedTools
-    : availableTools;
+    : await options.prompts.selectAgents(availableTools);
+  const nextToolNames = selectedRequestedTools;
   const existingDesiredEntry = options.existingDesiredState.find(
     (entry) => entry.bundle === cachedBundle.bundle,
   );
@@ -2015,7 +2017,7 @@ async function prepareApplyBundle(options: {
     cachedBundle,
     bundleSource,
     sourceRevision,
-    ...(hasToolSelection ? { selectedTools: options.requestedTools } : {}),
+    ...(hasToolSelection ? { selectedTools: selectedRequestedTools } : {}),
     ...(selectedItems !== undefined ? { selectedItems } : {}),
     nextToolNames,
     toolLabel: nextToolNames.join(", "),
