@@ -303,6 +303,10 @@ export function createPromptClientForSelections(
       return choice;
     },
     async selectAgents(availableAgents: ToolName[]): Promise<ToolName[]> {
+      if (availableAgents.length === 0) {
+        throw new Error("This bundle has no available agents");
+      }
+
       const { isCancel, multiselect } = await loadPrompts();
       const selected = await multiselect<ToolName>({
         message: "Select agents to install for",
