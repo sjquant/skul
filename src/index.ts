@@ -61,6 +61,7 @@ import {
 } from "./git-index";
 import {
   type DesiredBundleEntry,
+  type GlobalState,
   listManagedPathsForRemoval,
   type MaterializedBundleState,
   type MaterializedState,
@@ -68,6 +69,7 @@ import {
   readRegistryFile,
   removeWorktreeState,
   type ShadowedFileState,
+  upsertGlobalState,
   upsertRepoState,
   upsertWorktreeState,
   writeRegistryFile,
@@ -87,7 +89,7 @@ import {
   syncManagedRootInstructionFiles,
 } from "./root-instruction-state";
 import { resolveGlobalStateLayout } from "./state-layout";
-import { getToolDefinition, type ToolName } from "./tool-mapping";
+import { getToolDefinition, globalCapableToolNames, type ToolName } from "./tool-mapping";
 
 // Lazily evaluated so that SKUL_NO_TUI set after module load (e.g. in tests) is respected.
 const pc = new Proxy({} as ReturnType<typeof createColors>, {
@@ -123,6 +125,21 @@ export async function run(
 
   switch (parsed.command) {
     case "add":
+      if (parsed.options.global) {
+        return applyBundleGlobal({
+          homeDir: options.homeDir ?? os.homedir(),
+          prompts,
+          registryFile: stateLayout.registryFile,
+          libraryDir: stateLayout.libraryDir,
+          bundle: parsed.options.bundle,
+          source: parsed.options.source,
+          protocol: parsed.options.protocol,
+          agents: parsed.options.agents,
+          dryRun: parsed.options.dryRun,
+          ref: parsed.options.ref,
+          inferredBundleFromSource: parsed.options.inferredBundleFromSource,
+        });
+      }
       return applyBundle({
         cwd,
         prompts,
@@ -145,6 +162,12 @@ export async function run(
         source: parsed.options.source,
       });
     case "status":
+      if (parsed.options.global) {
+        return renderGlobalStatus({
+          registryFile: stateLayout.registryFile,
+          json: parsed.options.json,
+        });
+      }
       return renderStatus({
         cwd,
         registryFile: stateLayout.registryFile,
@@ -183,6 +206,14 @@ export async function run(
         registryFile: stateLayout.registryFile,
       });
     case "reset":
+      if (parsed.options.global) {
+        return resetGlobal({
+          homeDir: options.homeDir ?? os.homedir(),
+          prompts,
+          registryFile: stateLayout.registryFile,
+          dryRun: parsed.options.dryRun,
+        });
+      }
       return resetWorktree({
         cwd,
         prompts,
@@ -190,6 +221,16 @@ export async function run(
         dryRun: parsed.options.dryRun,
       });
     case "remove":
+      if (parsed.options.global) {
+        return removeGlobalBundle({
+          homeDir: options.homeDir ?? os.homedir(),
+          prompts,
+          registryFile: stateLayout.registryFile,
+          libraryDir: stateLayout.libraryDir,
+          bundle: parsed.options.bundle,
+          dryRun: parsed.options.dryRun,
+        });
+      }
       return removeBundle({
         cwd,
         prompts,
@@ -3831,6 +3872,548 @@ function fingerprintFile(filePath: string): string {
     // rather than silently skipping a managed file that may still exist.
     return "";
   }
+}
+
+async function applyBundleGlobal(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  bundle: string;
+  source?: string;
+  protocol: "https" | "ssh";
+  agents: ToolName[];
+  dryRun: boolean;
+  ref?: string;
+  inferredBundleFromSource?: true;
+}): Promise<string> {
+  const supportedTools = globalCapableToolNames();
+  const requestedTools =
+    options.agents.length > 0
+      ? options.agents.filter((t) => supportedTools.includes(t))
+      : supportedTools;
+
+  if (options.agents.length > 0) {
+    const unsupported = options.agents.filter(
+      (t) => !supportedTools.includes(t),
+    );
+    if (unsupported.length > 0) {
+      throw new Error(
+        `Global mode only supports: ${supportedTools.join(", ")}. Unsupported: ${unsupported.join(", ")}`,
+      );
+    }
+  }
+
+  const repoRelPathRemapper = (p: string): string => {
+    if (p === "CLAUDE.md") return ".claude/CLAUDE.md";
+    return p;
+  };
+
+  const preparedBundle = await prepareApplyBundle({
+    bundle: options.bundle,
+    source: options.source,
+    protocol: options.protocol,
+    requestedTools,
+    libraryDir: options.libraryDir,
+    ref: options.ref,
+    prompts: options.prompts,
+    inferredBundleFromSource: options.inferredBundleFromSource,
+  });
+
+  const selectedTools = (
+    preparedBundle.selectedTools ?? preparedBundle.nextToolNames
+  ).filter((t) => supportedTools.includes(t));
+
+  if (selectedTools.length === 0) {
+    throw new Error(
+      `Bundle ${preparedBundle.cachedBundle.bundle} has no tools supported in global mode (supported: ${supportedTools.join(", ")})`,
+    );
+  }
+
+  if (options.dryRun) {
+    return [
+      ...preparedBundle.cloneLines,
+      `${pc.yellow("DRY RUN:")} Would apply ${preparedBundle.cachedBundle.bundle} globally for ${selectedTools.join(", ")}`,
+    ].join("\n");
+  }
+
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const existingGlobal = registry.global;
+  let rootInstructionBaseContents =
+    existingGlobal?.materialized_state.root_instruction_base_contents;
+  const existingBundleState =
+    existingGlobal?.materialized_state.bundles[
+      preparedBundle.cachedBundle.bundle
+    ];
+
+  const plannedWriteTargets = previewMaterializeBundleWriteTargets({
+    repoRoot: options.homeDir,
+    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    manifest: preparedBundle.cachedBundle.manifest,
+    tools: selectedTools,
+    repoRelPathRemapper,
+  });
+
+  const plannedRootInstructionTargets = new Set(
+    plannedWriteTargets.filter((p) => isRootInstructionPath(p)),
+  );
+
+  const existingBundles = existingGlobal?.materialized_state.bundles ?? {};
+
+  rootInstructionBaseContents = captureRootInstructionBaseContents({
+    repoRoot: options.homeDir,
+    targetPaths: plannedRootInstructionTargets,
+    existingBaseContents: rootInstructionBaseContents,
+    managedTargetPaths: collectManagedRootInstructionTargets(existingBundles),
+  });
+
+  const existingDesiredState = existingGlobal?.desired_state ?? [];
+
+  assertManagedRootInstructionSyncSourcesCached({
+    desiredState: existingDesiredState,
+    materializedBundles: existingBundles,
+    targetPaths: plannedRootInstructionTargets,
+    resolveCachedBundle: (entry) =>
+      resolveDesiredCachedBundle(options.libraryDir, entry),
+  });
+
+  let pathsToReplace: ReturnType<
+    typeof excludeShadowedTrackedRootInstructionTargets
+  > | null = null;
+
+  if (existingBundleState) {
+    const toolsToReplace =
+      options.agents.length > 0
+        ? options.agents.filter((t) => t in existingBundleState.tools)
+        : (Object.keys(existingBundleState.tools) as ToolName[]);
+
+    pathsToReplace = {
+      files: Object.values(
+        Object.fromEntries(
+          toolsToReplace.map((t) => [t, existingBundleState.tools[t]!]),
+        ),
+      ).flatMap((ts) => ts.files),
+      file_fingerprints: Object.assign(
+        {},
+        ...toolsToReplace.map(
+          (t) => existingBundleState.tools[t]?.file_fingerprints ?? {},
+        ),
+      ),
+      directories: Object.values(
+        Object.fromEntries(
+          toolsToReplace.map((t) => [t, existingBundleState.tools[t]!]),
+        ),
+      ).flatMap((ts) => ts.directories ?? []),
+    };
+
+    const replacementAllowed = await confirmManagedFileRemovals(
+      options.homeDir,
+      pathsToReplace,
+      options.prompts,
+      "replace",
+    );
+
+    if (!replacementAllowed) {
+      throw new Error(
+        "Replacement aborted because a modified managed file was kept",
+      );
+    }
+  }
+
+  const sharedRootInstructionState = collectSharedRootInstructionState(
+    existingBundles,
+    plannedWriteTargets,
+    preparedBundle.cachedBundle.bundle,
+  );
+
+  if (sharedRootInstructionState.files.length > 0) {
+    const replacementAllowed = await confirmManagedFileRemovals(
+      options.homeDir,
+      sharedRootInstructionState,
+      options.prompts,
+      "replace",
+    );
+    if (!replacementAllowed) {
+      throw new Error(
+        "Replacement aborted because a modified managed file was kept",
+      );
+    }
+  }
+
+  if (pathsToReplace) {
+    removeManagedPaths(options.homeDir, pathsToReplace);
+  }
+
+  const materializedResult = await materializeBundle({
+    repoRoot: options.homeDir,
+    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    manifest: preparedBundle.cachedBundle.manifest,
+    tools: selectedTools,
+    bundleName: preparedBundle.cachedBundle.bundle,
+    bundleSource: preparedBundle.bundleSource,
+    allowFileOverwriteTargets: collectManagedRootInstructionTargets(existingBundles),
+    rootInstructionBaseContents,
+    resolveFileConflict: options.prompts.resolveFileConflict,
+    repoRelPathRemapper,
+  });
+
+  const newBundleState = buildMaterializedBundleState({
+    existingBundleState,
+    materializedResult,
+    repoRoot: options.homeDir,
+    source: preparedBundle.bundleSource,
+    resolvedCommit: preparedBundle.sourceRevision?.currentCommit,
+    selectedTools,
+  });
+
+  const newDesiredEntry = buildDesiredEntryForAppliedBundle({
+    existingDesiredState,
+    cachedBundle: preparedBundle.cachedBundle,
+    requestedSource: options.source,
+    requestedProtocol: options.protocol,
+    requestedRef: options.ref,
+    requestedTools: selectedTools,
+    sourceRevision: preparedBundle.sourceRevision,
+  });
+
+  const newDesiredState = [
+    ...upsertDesiredEntryPreservingOrder(existingDesiredState, newDesiredEntry),
+  ];
+
+  const newBundles: Record<string, MaterializedBundleState> = {
+    ...existingBundles,
+    [preparedBundle.cachedBundle.bundle]: newBundleState,
+  };
+
+  const syncedRootInstructionPaths = syncManagedRootInstructionFiles({
+    repoRoot: options.homeDir,
+    desiredState: newDesiredState,
+    materializedBundles: newBundles,
+    rootInstructionBaseContents,
+    targetPaths: plannedRootInstructionTargets,
+    resolveCachedBundle: (entry) =>
+      resolveDesiredCachedBundle(options.libraryDir, entry),
+  });
+
+  const refreshedBundles = refreshManagedFileFingerprintsForPaths(
+    options.homeDir,
+    newBundles,
+    syncedRootInstructionPaths,
+  );
+
+  const newGlobalState: GlobalState = {
+    desired_state: newDesiredState,
+    materialized_state: {
+      bundles: refreshedBundles,
+      ...(rootInstructionBaseContents !== undefined
+        ? { root_instruction_base_contents: rootInstructionBaseContents }
+        : {}),
+    },
+  };
+
+  registry = upsertGlobalState(registry, newGlobalState);
+  writeRegistryFile(options.registryFile, registry);
+
+  return [
+    ...preparedBundle.cloneLines,
+    pc.green(
+      `Applied ${preparedBundle.cachedBundle.bundle} globally for ${selectedTools.join(", ")}`,
+    ),
+  ].join("\n");
+}
+
+function renderGlobalStatus(options: {
+  registryFile: string;
+  json: boolean;
+}): string {
+  const registry = readRegistryWithGuidance(options.registryFile);
+  const globalState = registry.global;
+
+  if (options.json) {
+    return JSON.stringify(
+      {
+        desired_state: globalState?.desired_state ?? [],
+        materialized: {
+          bundles: Object.fromEntries(
+            Object.entries(
+              globalState?.materialized_state.bundles ?? {},
+            ).map(([bundleName, bundleState]) => [
+              bundleName,
+              {
+                tools: Object.fromEntries(
+                  Object.entries(bundleState.tools).map(([t, s]) => [
+                    t,
+                    { files: s.files },
+                  ]),
+                ),
+              },
+            ]),
+          ),
+        },
+      },
+      null,
+      2,
+    );
+  }
+
+  const lines: string[] = [pc.bold("Global Desired State")];
+
+  if (globalState && globalState.desired_state.length > 0) {
+    for (const entry of globalState.desired_state) {
+      lines.push(`Bundle: ${pc.cyan(entry.bundle)}`);
+    }
+  } else {
+    lines.push(pc.dim("Configured: no"));
+    lines.push(pc.dim('Run "skul add --global <bundle>" to get started'));
+  }
+
+  lines.push("", pc.bold("Global Materialized State"), `Home: ${pc.dim("~/.claude/")}`);
+
+  if (
+    !globalState ||
+    Object.keys(globalState.materialized_state.bundles).length === 0
+  ) {
+    lines.push(pc.dim("Materialized: no"));
+    return lines.join("\n");
+  }
+
+  lines.push(pc.green("Materialized: yes"), "", "Files:");
+
+  for (const [bundleName, bundleState] of Object.entries(
+    globalState.materialized_state.bundles,
+  )) {
+    lines.push(`  Bundle: ${pc.cyan(bundleName)}`);
+    for (const [toolName, toolState] of Object.entries(bundleState.tools)) {
+      lines.push(`    Tool: ${toolName}`);
+      for (const file of toolState.files) {
+        lines.push(`      ${file}`);
+      }
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function removeGlobalBundle(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  bundle: string;
+  dryRun: boolean;
+}): Promise<string> {
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const globalState = registry.global;
+  const isInDesiredState =
+    globalState?.desired_state.some((e) => e.bundle === options.bundle) ?? false;
+  const bundleMaterializedState =
+    globalState?.materialized_state.bundles[options.bundle];
+
+  if (!isInDesiredState && !bundleMaterializedState) {
+    const configured = globalState?.desired_state.map((e) => e.bundle) ?? [];
+    const hint =
+      configured.length > 0
+        ? `Configured global bundles: ${configured.join(", ")}`
+        : `No global bundles configured. Run "skul add --global <bundle>" to add one`;
+    throw new Error(
+      `Bundle not found in global active set: ${options.bundle}. ${hint}`,
+    );
+  }
+
+  if (options.dryRun) {
+    if (bundleMaterializedState) {
+      const files = Object.values(bundleMaterializedState.tools).flatMap(
+        (ts) => ts.files,
+      );
+      const lines = [
+        `${pc.yellow("DRY RUN:")} Would remove global ${options.bundle} (${files.length} file(s))`,
+      ];
+      for (const file of files) lines.push(`  ${file}`);
+      return lines.join("\n");
+    }
+    return `${pc.yellow("DRY RUN:")} Would remove ${options.bundle} from global desired state`;
+  }
+
+  if (bundleMaterializedState) {
+    const bundlePaths = flattenBundleState(bundleMaterializedState);
+    const rootInstructionBaseContents =
+      globalState?.materialized_state.root_instruction_base_contents;
+    const removedRootInstructionPaths = new Set(
+      bundlePaths.files.filter((p) => isRootInstructionPath(p)),
+    );
+    const remainingBundles = { ...globalState!.materialized_state.bundles };
+    delete remainingBundles[options.bundle];
+    const remainingDesiredState =
+      globalState?.desired_state.filter((e) => e.bundle !== options.bundle) ??
+      [];
+    const rewrittenRootInstructionPaths = new Set(
+      Array.from(collectManagedRootInstructionTargets(remainingBundles)).filter(
+        (p) => removedRootInstructionPaths.has(p),
+      ),
+    );
+
+    assertManagedRootInstructionSyncSourcesCached({
+      desiredState: remainingDesiredState,
+      materializedBundles: remainingBundles,
+      targetPaths: rewrittenRootInstructionPaths,
+      resolveCachedBundle: (entry) =>
+        resolveDesiredCachedBundle(options.libraryDir, entry),
+    });
+
+    const removeAllowed = await confirmManagedFileRemovals(
+      options.homeDir,
+      bundlePaths,
+      options.prompts,
+      "remove",
+    );
+    if (!removeAllowed) {
+      throw new Error(
+        "Removal aborted because a modified managed file was kept",
+      );
+    }
+
+    removeManagedPaths(options.homeDir, bundlePaths);
+
+    const remainingRootInstructionTargets =
+      collectManagedRootInstructionTargets(remainingBundles);
+    const restoredRootInstructionPaths = new Set(
+      Array.from(removedRootInstructionPaths).filter(
+        (p) => !remainingRootInstructionTargets.has(p),
+      ),
+    );
+    restoreRootInstructionBaseContents({
+      repoRoot: options.homeDir,
+      baseContents: rootInstructionBaseContents,
+      targetPaths: restoredRootInstructionPaths,
+    });
+
+    const nextRootInstructionBaseContents = rootInstructionBaseContents
+      ? Object.fromEntries(
+          Object.entries(rootInstructionBaseContents).filter(
+            ([p]) => !restoredRootInstructionPaths.has(p),
+          ),
+        )
+      : undefined;
+
+    if (Object.keys(remainingBundles).length > 0) {
+      const syncedRootInstructionPaths = syncManagedRootInstructionFiles({
+        repoRoot: options.homeDir,
+        desiredState: remainingDesiredState,
+        materializedBundles: remainingBundles,
+        rootInstructionBaseContents: nextRootInstructionBaseContents,
+        targetPaths: rewrittenRootInstructionPaths,
+        resolveCachedBundle: (entry) =>
+          resolveDesiredCachedBundle(options.libraryDir, entry),
+      });
+      const refreshedBundles = refreshManagedFileFingerprintsForPaths(
+        options.homeDir,
+        remainingBundles,
+        syncedRootInstructionPaths,
+      );
+
+      const newGlobalState: GlobalState = {
+        desired_state: remainingDesiredState,
+        materialized_state: {
+          bundles: refreshedBundles,
+          ...(nextRootInstructionBaseContents &&
+          Object.keys(nextRootInstructionBaseContents).length > 0
+            ? { root_instruction_base_contents: nextRootInstructionBaseContents }
+            : {}),
+        },
+      };
+      registry = upsertGlobalState(registry, newGlobalState);
+    } else {
+      if (remainingDesiredState.length > 0) {
+        registry = upsertGlobalState(registry, {
+          desired_state: remainingDesiredState,
+          materialized_state: { bundles: {} },
+        });
+      } else {
+        registry = { ...registry, global: undefined };
+      }
+    }
+  } else if (isInDesiredState && globalState) {
+    const newDesiredState = globalState.desired_state.filter(
+      (e) => e.bundle !== options.bundle,
+    );
+    if (
+      newDesiredState.length > 0 ||
+      Object.keys(globalState.materialized_state.bundles).length > 0
+    ) {
+      registry = upsertGlobalState(registry, {
+        ...globalState,
+        desired_state: newDesiredState,
+      });
+    } else {
+      registry = { ...registry, global: undefined };
+    }
+  }
+
+  writeRegistryFile(options.registryFile, registry);
+  return pc.green(`Removed global ${options.bundle}`);
+}
+
+async function resetGlobal(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  dryRun: boolean;
+}): Promise<string> {
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const globalState = registry.global;
+
+  if (
+    !globalState ||
+    Object.keys(globalState.materialized_state.bundles).length === 0
+  ) {
+    return "No globally materialized Skul bundles found";
+  }
+
+  const allBundlePaths = Object.values(
+    globalState.materialized_state.bundles,
+  ).map(flattenBundleState);
+  const allFiles = allBundlePaths.flatMap((bp) => bp.files);
+
+  if (options.dryRun) {
+    const lines = [
+      `${pc.yellow("DRY RUN:")} Would remove ${allFiles.length} globally managed file(s)`,
+    ];
+    for (const file of allFiles) lines.push(`  ${file}`);
+    return lines.join("\n");
+  }
+
+  for (const bundlePaths of allBundlePaths) {
+    const resetAllowed = await confirmManagedFileRemovals(
+      options.homeDir,
+      bundlePaths,
+      options.prompts,
+      "reset",
+    );
+    if (!resetAllowed) {
+      throw new Error("Reset aborted because a modified managed file was kept");
+    }
+  }
+
+  for (const bundlePaths of allBundlePaths) {
+    removeManagedPaths(options.homeDir, bundlePaths);
+  }
+
+  restoreRootInstructionBaseContents({
+    repoRoot: options.homeDir,
+    baseContents:
+      globalState.materialized_state.root_instruction_base_contents,
+    targetPaths: collectManagedRootInstructionTargets(
+      globalState.materialized_state.bundles,
+    ),
+  });
+
+  registry = upsertGlobalState(registry, {
+    desired_state: globalState.desired_state,
+    materialized_state: { bundles: {} },
+  });
+  writeRegistryFile(options.registryFile, registry);
+
+  return pc.green("Reset globally managed Skul files");
 }
 
 function assertUnreachable(_value: never): never {
