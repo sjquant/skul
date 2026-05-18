@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-
+import {
+  type BundleItemSelector,
+  isDirectoryItemSelected,
+  isRootInstructionItemSelected,
+} from "./bundle-items";
 import type { BundleManifest } from "./bundle-manifest";
 import {
   toTranslationToolName,
@@ -46,6 +50,7 @@ export function previewMaterializeBundleWriteTargets(options: {
   bundleDir: string;
   manifest: BundleManifest;
   tools?: ToolName[];
+  itemSelectors?: BundleItemSelector[];
 }): string[] {
   const writeTargets = new Set<string>();
   const toolEntries =
@@ -62,6 +67,10 @@ export function previewMaterializeBundleWriteTargets(options: {
       ];
 
       if (targetDefinition?.kind === "file") {
+        if (!isRootInstructionItemSelected(options.itemSelectors)) {
+          continue;
+        }
+
         for (const repoRelativePath of previewRootInstructionWriteTargets({
           bundleDir: options.bundleDir,
           sourcePath: target.path,
@@ -95,6 +104,16 @@ export function previewMaterializeBundleWriteTargets(options: {
         assertBundleTargetDirectory(sourceDir, target.path);
 
         for (const relativePath of listRelativeFiles(sourceDir)) {
+          if (
+            !isDirectoryItemSelected({
+              selectors: options.itemSelectors,
+              targetName: targetName as ToolTargetName,
+              entryName: relativePath.split(path.sep)[0] ?? relativePath,
+            })
+          ) {
+            continue;
+          }
+
           writeTargets.add(
             path.relative(
               options.repoRoot,
@@ -111,6 +130,7 @@ export function previewMaterializeBundleWriteTargets(options: {
         sourcePath: target.path,
         toolName: toolName as ToolName,
         targetName: targetName as ToolTargetName,
+        itemSelectors: options.itemSelectors,
       })) {
         writeTargets.add(repoRelativePath);
       }
@@ -135,6 +155,7 @@ export async function materializeBundle(options: {
   bundleDir: string;
   manifest: BundleManifest;
   tools?: ToolName[];
+  itemSelectors?: BundleItemSelector[];
   bundleName?: string;
   bundleSource?: string;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
@@ -154,21 +175,24 @@ export async function materializeBundle(options: {
           options.tools!.includes(toolName as ToolName),
         )
       : Object.entries(options.manifest.tools);
-  const composedRootInstructionContents =
-    collectComposedRootInstructionContents({
-      bundleDir: options.bundleDir,
-      manifest: options.manifest,
-      toolNames: toolEntries
-        .filter(([toolName, targets]) =>
-          Object.keys(targets).some(
-            (targetName) =>
-              getToolDefinition(toolName as ToolName)?.targets[
-                targetName as ToolTargetName
-              ]?.kind === "file",
-          ),
-        )
-        .map(([toolName]) => toolName as ToolName),
-    });
+  const composedRootInstructionContents = isRootInstructionItemSelected(
+    options.itemSelectors,
+  )
+    ? collectComposedRootInstructionContents({
+        bundleDir: options.bundleDir,
+        manifest: options.manifest,
+        toolNames: toolEntries
+          .filter(([toolName, targets]) =>
+            Object.keys(targets).some(
+              (targetName) =>
+                getToolDefinition(toolName as ToolName)?.targets[
+                  targetName as ToolTargetName
+                ]?.kind === "file",
+            ),
+          )
+          .map(([toolName]) => toolName as ToolName),
+      })
+    : {};
 
   for (const [toolName, targets] of toolEntries) {
     const toolFiles: string[] = [];
@@ -180,6 +204,10 @@ export async function materializeBundle(options: {
       ];
 
       if (targetDefinition?.kind === "file") {
+        if (!isRootInstructionItemSelected(options.itemSelectors)) {
+          continue;
+        }
+
         await materializeRootInstructionTarget({
           bundleDir: options.bundleDir,
           sourcePath: target.path,
@@ -239,6 +267,13 @@ export async function materializeBundle(options: {
           options.repoRoot,
           options.assertSafeWriteTarget,
           options.resolveFileConflict,
+          options.itemSelectors
+            ? {
+                targetName: targetName as ToolTargetName,
+                selectors: options.itemSelectors,
+                sourceRoot: sourceDir,
+              }
+            : undefined,
         );
       } else {
         // Canonical path: apply cross-tool content transforms via bundle-translation.
@@ -252,6 +287,7 @@ export async function materializeBundle(options: {
           ownedDirectories: toolDirectories,
           assertSafeWriteTarget: options.assertSafeWriteTarget,
           resolveFileConflict: options.resolveFileConflict,
+          itemSelectors: options.itemSelectors,
         });
       }
     }
@@ -402,12 +438,34 @@ async function copyDirectory(
         suggestedDestination: string,
       ) => Promise<FileConflictResolution>)
     | undefined,
+  itemFilter?: {
+    targetName: ToolTargetName;
+    selectors: BundleItemSelector[];
+    sourceRoot: string;
+  },
 ): Promise<void> {
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     assertNotSymlink(entry, sourceDir);
 
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
+    const relativeSourcePath = path.relative(
+      itemFilter?.sourceRoot ?? sourceDir,
+      sourcePath,
+    );
+    const topLevelEntryName =
+      relativeSourcePath.split(path.sep)[0] ?? entry.name;
+
+    if (
+      itemFilter &&
+      !isDirectoryItemSelected({
+        selectors: itemFilter.selectors,
+        targetName: itemFilter.targetName,
+        entryName: topLevelEntryName,
+      })
+    ) {
+      continue;
+    }
 
     if (entry.isDirectory()) {
       await copyDirectory(
@@ -420,6 +478,7 @@ async function copyDirectory(
         repoRoot,
         assertSafeWriteTarget,
         resolveFileConflict,
+        itemFilter,
       );
       continue;
     }
@@ -579,7 +638,6 @@ function isNativeSourcePath(
   );
 }
 
-
 function readFilesIntoRecord(
   dir: string,
   prefix: string,
@@ -614,6 +672,7 @@ async function materializeCanonicalTarget(options: {
         suggestedDestination: string,
       ) => Promise<FileConflictResolution>)
     | undefined;
+  itemSelectors?: BundleItemSelector[];
 }): Promise<void> {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
@@ -623,6 +682,16 @@ async function materializeCanonicalTarget(options: {
 
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     assertNotSymlink(entry, sourceDir);
+
+    if (
+      !isDirectoryItemSelected({
+        selectors: options.itemSelectors,
+        targetName: options.targetName,
+        entryName: entry.name,
+      })
+    ) {
+      continue;
+    }
 
     let translated: Record<string, string>;
 
@@ -644,7 +713,9 @@ async function materializeCanonicalTarget(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateCommand({
         sourceTool: "claude",
-        targetTool: translTool as Parameters<typeof translateCommand>[0]["targetTool"],
+        targetTool: translTool as Parameters<
+          typeof translateCommand
+        >[0]["targetTool"],
         source: content,
         options: { name: commandName },
       });
@@ -694,6 +765,7 @@ function previewCanonicalTargetWriteTargets(options: {
   sourcePath: string;
   toolName: ToolName;
   targetName: ToolTargetName;
+  itemSelectors?: BundleItemSelector[];
 }): string[] {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
@@ -703,6 +775,16 @@ function previewCanonicalTargetWriteTargets(options: {
 
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     assertNotSymlink(entry, sourceDir);
+
+    if (
+      !isDirectoryItemSelected({
+        selectors: options.itemSelectors,
+        targetName: options.targetName,
+        entryName: entry.name,
+      })
+    ) {
+      continue;
+    }
 
     let translated: Record<string, string>;
 
@@ -724,7 +806,9 @@ function previewCanonicalTargetWriteTargets(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateCommand({
         sourceTool: "claude",
-        targetTool: translTool as Parameters<typeof translateCommand>[0]["targetTool"],
+        targetTool: translTool as Parameters<
+          typeof translateCommand
+        >[0]["targetTool"],
         source: content,
         options: { name: commandName },
       });

@@ -2083,9 +2083,12 @@ describe("run", () => {
 
     // Then
     expect(selectBundle).toHaveBeenCalledWith("github.com/sjquant/ghosts");
-    expect(fs.readFileSync(path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"), "utf8")).toBe(
-      "# wdd\n",
-    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# wdd\n");
   });
 
   it("keeps the selected source-scoped bundle when a ref selector is requested", async () => {
@@ -4311,6 +4314,399 @@ describe("run", () => {
     ).toBe("# react\n");
     expect(
       pathExists(path.join(repoRoot, ".agents", "skills", "react", "SKILL.md")),
+    ).toBe(false);
+  });
+
+  it("parses bundle item selection flags for add", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "--include",
+        "skills/diagnose",
+        "--include",
+        "AGENTS.md",
+        "--select-items",
+      ]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        includeItems: ["skills/diagnose", "root-instruction"],
+        selectItems: true,
+        dryRun: false,
+      },
+    });
+  });
+
+  it("applies only selected bundle items when --include is specified", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "add",
+          "react-expert",
+          "--agent",
+          "codex",
+          "--include",
+          "skills/next-task",
+        ],
+        { homeDir, cwd: repoRoot },
+      ),
+    ).resolves.toBe("Applied react-expert for codex");
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      {
+        bundle: "react-expert",
+        source: "github.com/user/ai-vault",
+        tools: ["codex"],
+        items: ["skills/next-task"],
+        protocol: "https",
+      },
+    ]);
+    expect(
+      registry.worktrees[Object.keys(registry.worktrees)[0]!]!
+        .materialized_state.bundles["react-expert"]!.tools.codex!.items,
+    ).toEqual(["skills/next-task"]);
+  });
+
+  it("opens the bundle item selector with --include items preselected", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectBundleItems = vi.fn().mockResolvedValue(["skills/review"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "add",
+          "react-expert",
+          "--agent",
+          "codex",
+          "--include",
+          "skills/next-task",
+          "--select-items",
+        ],
+        {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub({ selectBundleItems }),
+        },
+      ),
+    ).resolves.toBe("Applied react-expert for codex");
+
+    // Then
+    expect(selectBundleItems).toHaveBeenCalledWith(
+      ["skills/next-task", "skills/review"],
+      ["skills/next-task"],
+    );
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+  });
+
+  it("merges selected bundle items when a bundle is re-added with --include", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    await run(
+      [
+        "add",
+        "react-expert",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/next-task",
+      ],
+      { homeDir, cwd: repoRoot },
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "add",
+          "react-expert",
+          "--agent",
+          "codex",
+          "--include",
+          "skills/review",
+        ],
+        { homeDir, cwd: repoRoot },
+      ),
+    ).resolves.toBe("Applied react-expert for codex");
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state[0]?.items).toEqual([
+      "skills/next-task",
+      "skills/review",
+    ]);
+  });
+
+  it("removes stale linked-worktree files when desired bundle items change", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    await run(["add", "react-expert", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+
+    // When
+    await run(
+      [
+        "add",
+        "react-expert",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/next-task",
+      ],
+      { homeDir, cwd: repoRoot },
+    );
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+
+    // When
+    await run(["add", "react-expert", "--agent", "codex", "--select-items"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub({
+        selectBundleItems: async () => ["skills/review"],
+      }),
+    });
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe("Applied react-expert");
+
+    // Then
+    expect(
+      pathExists(
+        path.join(linkedWorktree, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+  });
+
+  it("applies only root instructions when root-instruction is included", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: {
+        codex: {
+          skills: { path: ".agents/skills" },
+          root_instruction: { path: "AGENTS.md" },
+        },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "AGENTS.md",
+      "Follow the repo standards.\n",
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "add",
+          "repo-standards",
+          "--agent",
+          "codex",
+          "--include",
+          "root-instruction",
+        ],
+        { homeDir, cwd: repoRoot },
+      ),
+    ).resolves.toBe("Applied repo-standards for codex");
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock(
+        "repo-standards",
+        "Follow the repo standards.",
+        "github.com/user/ai-vault",
+      ),
+    );
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+      ),
     ).toBe(false);
   });
 
@@ -7336,6 +7732,7 @@ function createPromptClientStub(
 ): PromptClient {
   return {
     selectBundle: async () => ({ bundle: "react-expert" }),
+    selectBundleItems: async (_availableItems, selectedItems) => selectedItems,
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
     confirmManagedFileRemoval: async () => true,
     ...overrides,

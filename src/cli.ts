@@ -4,6 +4,10 @@ import {
   normalizeBundleSource,
 } from "./bundle-discovery";
 import {
+  type BundleItemSelector,
+  normalizeBundleItemSelector,
+} from "./bundle-items";
+import {
   DEFAULT_CONFLICT_PREFIX,
   normalizeConflictDestination,
   normalizeConflictPrefix,
@@ -68,6 +72,8 @@ export type CliParseResult =
         source?: string;
         protocol: "https" | "ssh";
         agents: ToolName[];
+        includeItems?: BundleItemSelector[];
+        selectItems?: boolean;
         dryRun: boolean;
         ref?: string;
         inferredBundleFromSource?: true;
@@ -92,6 +98,10 @@ export interface BundleSelection {
 
 export interface PromptClient {
   selectBundle(source?: string): Promise<BundleSelection>;
+  selectBundleItems(
+    availableItems: BundleItemSelector[],
+    selectedItems: BundleItemSelector[],
+  ): Promise<BundleItemSelector[]>;
   resolveFileConflict(
     conflictPath: string,
     suggestedDestination: string,
@@ -190,6 +200,11 @@ export function createHeadlessPromptClient(): PromptClient {
         `Bundle name is required in headless mode.\nHint: run '${hint}' to specify the bundle explicitly`,
       );
     },
+    async selectBundleItems(): Promise<BundleItemSelector[]> {
+      throw new Error(
+        "Bundle item selection requires an interactive terminal.\nHint: rerun with --include <item> instead of --select-items",
+      );
+    },
     async resolveFileConflict(
       conflictPath: string,
       suggestedDestination: string,
@@ -252,6 +267,31 @@ export function createPromptClientForSelections(
 
       if (isCancel(choice)) {
         throw new Error("Interactive bundle selection was cancelled");
+      }
+
+      return choice;
+    },
+    async selectBundleItems(
+      availableItems: BundleItemSelector[],
+      selectedItems: BundleItemSelector[],
+    ): Promise<BundleItemSelector[]> {
+      if (availableItems.length === 0) {
+        throw new Error("This bundle has no selectable items");
+      }
+
+      const { isCancel, multiselect } = await loadPrompts();
+      const choice = await multiselect({
+        message: "Select bundle items to install",
+        options: availableItems.map((item) => ({
+          value: item,
+          label: item,
+        })),
+        initialValues: selectedItems,
+        required: true,
+      });
+
+      if (isCancel(choice)) {
+        throw new Error("Interactive bundle item selection was cancelled");
       }
 
       return choice;
@@ -387,6 +427,7 @@ export function createHelpText(command?: CommandName): string {
   const output: string[] = [];
   const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
+    selectBundleItems: async () => [],
     resolveFileConflict: async () => ({
       action: "prefix",
       prefix: DEFAULT_CONFLICT_PREFIX,
@@ -475,6 +516,19 @@ function collectToolOption(value: string, previous: ToolName[]): ToolName[] {
   return [...previous, value as ToolName];
 }
 
+function collectBundleItemOption(
+  value: string,
+  previous: BundleItemSelector[],
+): BundleItemSelector[] {
+  const normalized = normalizeBundleItemSelector(value);
+
+  if (previous.includes(normalized)) {
+    return previous;
+  }
+
+  return [...previous, normalized];
+}
+
 function normalizeRefSelector(value: string): string {
   const normalizedValue = value.trim();
 
@@ -552,6 +606,16 @@ function createProgram(
     )
     .option("--pin <commit>", "Pin the bundle to an exact commit SHA")
     .option(
+      "--include <item>",
+      "Install only a bundle item such as skills/name, agents/name, commands/name, or root-instruction (repeatable)",
+      collectBundleItemOption,
+      [] as BundleItemSelector[],
+    )
+    .option(
+      "--select-items",
+      "Choose bundle items interactively before installing",
+    )
+    .option(
       "-n, --dry-run",
       "Preview what would be written without making any changes",
     )
@@ -565,11 +629,15 @@ function createProgram(
           agent: ToolName[];
           ref?: string;
           pin?: string;
+          include: BundleItemSelector[];
+          selectItems?: boolean;
           dryRun?: boolean;
           ssh?: boolean;
         },
       ) => {
         const agents = opts.agent;
+        const includeItems = opts.include;
+        const selectItems = opts.selectItems ?? false;
         const dryRun = opts.dryRun ?? false;
         const ref = resolveRequestedRefSelector(opts);
 
@@ -596,6 +664,8 @@ function createProgram(
                 bundle: repoSlug,
                 protocol: detectedProtocol,
                 agents,
+                ...(includeItems.length > 0 ? { includeItems } : {}),
+                ...(selectItems ? { selectItems } : {}),
                 dryRun,
                 ...(ref !== undefined ? { ref } : {}),
                 inferredBundleFromSource: true,
@@ -610,6 +680,8 @@ function createProgram(
                 bundle: source,
                 protocol: "https",
                 agents,
+                ...(includeItems.length > 0 ? { includeItems } : {}),
+                ...(selectItems ? { selectItems } : {}),
                 dryRun,
                 ...(ref !== undefined ? { ref } : {}),
               },
@@ -632,6 +704,8 @@ function createProgram(
             bundle: bundle!,
             protocol: detectedProtocol,
             agents,
+            ...(includeItems.length > 0 ? { includeItems } : {}),
+            ...(selectItems ? { selectItems } : {}),
             dryRun,
             ...(ref !== undefined ? { ref } : {}),
           },

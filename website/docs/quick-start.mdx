@@ -31,6 +31,19 @@ Re-apply from cache without network access:
 skul add react-expert
 ```
 
+Install selected bundle items only:
+
+```bash
+skul add react-expert --agent codex --include skills/diagnose
+skul add react-expert --agent codex --include root-instruction
+```
+
+Or choose items interactively:
+
+```bash
+skul add react-expert --agent codex --select-items
+```
+
 Inspect state:
 
 ```bash

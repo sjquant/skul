@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  type BundleItemSelector,
+  normalizeBundleItemSelector,
+} from "./bundle-items";
 import { pathDepth } from "./fs-utils";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
 
@@ -16,6 +20,8 @@ export interface DesiredBundleEntry {
   bundle: string;
   source?: string;
   tools?: ToolName[];
+  /** Optional bundle-internal item selectors, such as skills/review or root-instruction. */
+  items?: BundleItemSelector[];
   /** Clone protocol used when the bundle source was first fetched. */
   protocol: "https" | "ssh";
   /** Optional user-selected branch, tag, or commit selector for remote-backed bundles. */
@@ -30,6 +36,7 @@ export interface MaterializedToolState {
   files: string[];
   file_fingerprints?: Record<string, string>;
   directories?: string[];
+  items?: BundleItemSelector[];
 }
 
 export interface MaterializedBundleState {
@@ -126,6 +133,7 @@ export function upsertRepoState(
           bundle: entry.bundle,
           ...(entry.source !== undefined ? { source: entry.source } : {}),
           ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
+          ...(entry.items !== undefined ? { items: [...entry.items] } : {}),
           protocol: entry.protocol,
           ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
           ...(entry.resolved_ref !== undefined
@@ -277,6 +285,14 @@ function parseDesiredBundleEntry(
           return name;
         });
   const protocol = expectProtocol(entry.protocol, `${label}.protocol`);
+  const items =
+    entry.items === undefined
+      ? undefined
+      : expectArray(entry.items, `${label}.items`).map((value, index) =>
+          normalizeBundleItemSelector(
+            expectNonEmptyString(value, `${label}.items[${index}]`),
+          ),
+        );
   const ref =
     entry.ref === undefined
       ? undefined
@@ -294,6 +310,7 @@ function parseDesiredBundleEntry(
     bundle,
     ...(source !== undefined ? { source } : {}),
     ...(tools !== undefined ? { tools } : {}),
+    ...(items !== undefined ? { items } : {}),
     protocol,
     ...(ref !== undefined ? { ref } : {}),
     ...(resolvedRef !== undefined ? { resolved_ref: resolvedRef } : {}),
@@ -421,6 +438,14 @@ function parseMaterializedToolState(
           (value, index) =>
             expectRelativePath(value, `${label}.directories[${index}]`),
         );
+  const items =
+    toolState.items === undefined
+      ? undefined
+      : expectArray(toolState.items, `${label}.items`).map((value, index) =>
+          normalizeBundleItemSelector(
+            expectNonEmptyString(value, `${label}.items[${index}]`),
+          ),
+        );
 
   return {
     files,
@@ -428,6 +453,7 @@ function parseMaterializedToolState(
       ? {}
       : { file_fingerprints: fileFingerprints }),
     ...(directories === undefined ? {} : { directories }),
+    ...(items === undefined ? {} : { items }),
   };
 }
 
@@ -497,6 +523,7 @@ function sortRegistry(registry: Registry): Registry {
               bundle: entry.bundle,
               ...(entry.source !== undefined ? { source: entry.source } : {}),
               ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
+              ...(entry.items !== undefined ? { items: [...entry.items] } : {}),
               protocol: entry.protocol,
               ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
               ...(entry.resolved_ref !== undefined
@@ -550,6 +577,9 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
                         : {}),
                       ...(toolState.directories !== undefined
                         ? { directories: [...toolState.directories] }
+                        : {}),
+                      ...(toolState.items !== undefined
+                        ? { items: [...toolState.items] }
                         : {}),
                     },
                   ],
