@@ -645,6 +645,7 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
       );
     },
     selectBundleItems: promptClient.selectBundleItems,
+    selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
   };
@@ -1988,15 +1989,21 @@ async function prepareApplyBundle(options: {
       })
     : undefined;
   const availableTools = Object.keys(cachedBundle.manifest.tools) as ToolName[];
-  const hasToolSelection = options.requestedTools.length > 0;
+  const wasExplicitlyRequested = options.requestedTools.length > 0;
 
-  if (hasToolSelection) {
+  if (wasExplicitlyRequested) {
     assertBundleSupportsRequestedTools(options.requestedTools, availableTools);
   }
 
-  const nextToolNames = hasToolSelection
-    ? options.requestedTools
-    : availableTools;
+  const selectedRequestedTools =
+    wasExplicitlyRequested || availableTools.length <= 1
+      ? wasExplicitlyRequested
+        ? options.requestedTools
+        : availableTools
+      : await options.prompts.selectAgents(availableTools);
+  const hasToolSelection =
+    wasExplicitlyRequested || selectedRequestedTools.length < availableTools.length;
+  const nextToolNames = selectedRequestedTools;
   const existingDesiredEntry = options.existingDesiredState.find(
     (entry) => entry.bundle === cachedBundle.bundle,
   );
@@ -2015,7 +2022,7 @@ async function prepareApplyBundle(options: {
     cachedBundle,
     bundleSource,
     sourceRevision,
-    ...(hasToolSelection ? { selectedTools: options.requestedTools } : {}),
+    ...(hasToolSelection ? { selectedTools: selectedRequestedTools } : {}),
     ...(selectedItems !== undefined ? { selectedItems } : {}),
     nextToolNames,
     toolLabel: nextToolNames.join(", "),
