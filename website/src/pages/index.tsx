@@ -15,7 +15,7 @@ type Card = {
 };
 
 const siteDescription =
-  "skul is an AI bundle CLI for sharing and selectively installing Claude Code, Cursor, OpenCode, Codex, GitHub Copilot, and Kiro skills, commands, and agents across projects without committing local AI setup files.";
+  "skul is an AI bundle CLI for sharing and selectively installing Claude Code, Cursor, OpenCode, Codex, GitHub Copilot, and Kiro skills, commands, agents, and root instructions across projects without committing local AI setup files.";
 
 const siteKeywords = [
   "shared ai bundles",
@@ -115,11 +115,11 @@ const toolCards = [
   },
   {
     title: "GitHub Copilot",
-    body: "Share Copilot skills and agents while keeping repository policy files controlled.",
+    body: "Share Copilot skills, agents, and instructions while keeping repository policy files controlled.",
   },
   {
     title: "Kiro",
-    body: "Materialize Kiro skills and agents from the same reusable bundle source.",
+    body: "Materialize Kiro skills, agents, and root instructions from the same reusable bundle source.",
   },
 ];
 
@@ -234,8 +234,9 @@ function HeroSection(): ReactNode {
             Cursor, OpenCode, Codex, GitHub Copilot, and Kiro.
           </p>
           <p className={styles.heroSupport}>
-            Keep shared prompts, skills, and agents in one bundle repo, apply
-            them per project, and leave tool-local files out of Git.
+            Keep shared prompts, skills, agents, and root instructions in one
+            bundle repo, apply them per project, and leave tool-local files out
+            of Git.
           </p>
           <div className={styles.ctaRow}>
             <Link
