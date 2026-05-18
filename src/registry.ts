@@ -77,10 +77,21 @@ export interface WorktreeState {
   shadowed_files: Record<string, ShadowedFileState>;
 }
 
+export interface GlobalMaterializedState {
+  bundles: Record<string, MaterializedBundleState>;
+  root_instruction_base_contents?: Record<string, string>;
+}
+
+export interface GlobalState {
+  desired_state: DesiredBundleEntry[];
+  materialized_state: GlobalMaterializedState;
+}
+
 export interface Registry {
   version: 1;
   repos: Record<string, RepoState>;
   worktrees: Record<string, WorktreeState>;
+  global?: GlobalState;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -238,7 +249,11 @@ export function parseRegistry(input: unknown): Registry {
     }
   }
 
-  return { version: 1, repos, worktrees };
+  const globalState = registry.global !== undefined
+    ? parseGlobalState(registry.global, "global")
+    : undefined;
+
+  return { version: 1, repos, worktrees, ...(globalState !== undefined ? { global: globalState } : {}) };
 }
 
 function parseRepoState(input: unknown, label: string): RepoState {

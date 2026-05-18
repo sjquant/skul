@@ -72,9 +72,47 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
+const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    name: "claude-code",
+    targets: {
+      skills: { path: ".claude/skills", kind: "directory" },
+      commands: { path: ".claude/commands", kind: "directory" },
+      agents: { path: ".claude/agents", kind: "directory" },
+      root_instruction: { path: ".claude/CLAUDE.md", kind: "file" },
+    },
+  },
+];
+
 /** Returns a defensive copy of all supported tool definitions. */
 export function listToolDefinitions(): ToolDefinition[] {
   return TOOL_DEFINITIONS.map(cloneToolDefinition);
+}
+
+/** Returns all tool definitions for global (~/) materialization. Only claude-code supported. */
+export function listGlobalToolDefinitions(): ToolDefinition[] {
+  return GLOBAL_TOOL_DEFINITIONS.map(cloneToolDefinition);
+}
+
+/** Returns the global tool definition for one tool, or null if not supported globally. */
+export function getGlobalToolDefinition(name: string): ToolDefinition | null {
+  const tool = GLOBAL_TOOL_DEFINITIONS.find((t) => t.name === name);
+  return tool ? cloneToolDefinition(tool) : null;
+}
+
+/** Returns the names of tools that support global installation. */
+export function globalCapableToolNames(): ToolName[] {
+  return GLOBAL_TOOL_DEFINITIONS.map((t) => t.name);
+}
+
+/** Resolves the absolute target path for one tool target in global (~/) mode. */
+export function resolveGlobalToolTargetPath(
+  toolName: string,
+  targetName: ToolTargetName,
+  homeDir: string,
+): string | null {
+  const target = getGlobalToolDefinition(toolName)?.targets[targetName];
+  return target ? path.join(homeDir, target.path) : null;
 }
 
 /** Looks up one tool definition by name and returns a defensive copy when found. */

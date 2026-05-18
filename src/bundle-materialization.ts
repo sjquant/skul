@@ -51,6 +51,7 @@ export function previewMaterializeBundleWriteTargets(options: {
   manifest: BundleManifest;
   tools?: ToolName[];
   itemSelectors?: BundleItemSelector[];
+  repoRelPathRemapper?: (relPath: string) => string;
 }): string[] {
   const writeTargets = new Set<string>();
   const toolEntries =
@@ -76,6 +77,7 @@ export function previewMaterializeBundleWriteTargets(options: {
           sourcePath: target.path,
           toolName: toolName as ToolName,
           targetName: targetName as ToolTargetName,
+          repoRelPathRemapper: options.repoRelPathRemapper,
         })) {
           writeTargets.add(repoRelativePath);
         }
@@ -166,6 +168,7 @@ export async function materializeBundle(options: {
     conflictPath: string,
     suggestedDestination: string,
   ) => Promise<FileConflictResolution>;
+  repoRelPathRemapper?: (relPath: string) => string;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const writtenSharedFileTargets = new Set<string>();
@@ -225,6 +228,7 @@ export async function materializeBundle(options: {
           bundleName: options.bundleName ?? options.manifest.name ?? "bundle",
           bundleSource: options.bundleSource,
           resolveFileConflict: options.resolveFileConflict,
+          repoRelPathRemapper: options.repoRelPathRemapper,
         });
         continue;
       }
@@ -335,6 +339,7 @@ async function materializeRootInstructionTarget(options: {
         suggestedDestination: string,
       ) => Promise<FileConflictResolution>)
     | undefined;
+  repoRelPathRemapper?: (relPath: string) => string;
 }): Promise<void> {
   if (options.targetName !== "root_instruction") {
     throw new Error(`Unsupported file target: ${options.targetName}`);
@@ -346,9 +351,11 @@ async function materializeRootInstructionTarget(options: {
     toolName: options.toolName,
   });
 
-  for (const [repoRelPath, content] of Object.entries(
+  for (const [origRelPath, content] of Object.entries(
     translatedContentByPath,
   )) {
+    const repoRelPath = options.repoRelPathRemapper?.(origRelPath) ?? origRelPath;
+
     if (options.writtenSharedFileTargets.has(repoRelPath)) {
       options.writtenFiles.push(repoRelPath);
       continue;
@@ -367,7 +374,7 @@ async function materializeRootInstructionTarget(options: {
         bundleName: options.bundleName,
         bundleSource: options.bundleSource,
         composedContent:
-          options.composedRootInstructionContents[repoRelPath] ?? content,
+          options.composedRootInstructionContents[origRelPath] ?? content,
       }),
       repoRoot: options.repoRoot,
       writtenFiles: options.writtenFiles,
@@ -836,12 +843,15 @@ function previewRootInstructionWriteTargets(options: {
   sourcePath: string;
   toolName: ToolName;
   targetName: ToolTargetName;
+  repoRelPathRemapper?: (relPath: string) => string;
 }): string[] {
   if (options.targetName !== "root_instruction") {
     throw new Error(`Unsupported file target: ${options.targetName}`);
   }
 
-  return Object.keys(readTranslatedRootInstructionTargets(options));
+  return Object.keys(readTranslatedRootInstructionTargets(options)).map(
+    (p) => options.repoRelPathRemapper?.(p) ?? p,
+  );
 }
 
 async function writeTranslatedFile(options: {
