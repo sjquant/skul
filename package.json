@@ -27,6 +27,7 @@
     "docs:start": "pnpm install --dir website --frozen-lockfile && pnpm --dir website start",
     "docs:typecheck": "pnpm install --dir website --frozen-lockfile && pnpm --dir website typecheck",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome lint --write .",
@@ -53,6 +54,7 @@
     "@biomejs/biome": "^2.4.15",
     "@j178/prek": "^0.3.13",
     "@types/node": "^25.4.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
