@@ -11,5 +11,9 @@ website/build/
 # AI Agents
 .agents/
 
+# CI
+.base/
+coverage/
+
 # Personal Docs
 TASKS.md

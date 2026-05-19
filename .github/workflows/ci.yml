@@ -8,11 +8,13 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v5
@@ -38,6 +40,7 @@ jobs:
 
       - name: Checkout base branch for coverage comparison
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/checkout@v5
         with:
           ref: ${{ github.base_ref }}
@@ -45,11 +48,13 @@ jobs:
 
       - name: Install base branch dependencies
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         run: pnpm install --frozen-lockfile
         working-directory: .base
 
       - name: Run coverage on base branch
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         run: pnpm run test:coverage
         working-directory: .base
 
