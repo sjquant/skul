@@ -3939,19 +3939,13 @@ async function applyBundleGlobal(options: {
     );
   }
 
-  const selectedTools = options.agents.length > 0
-    ? options.agents.filter((t) => supportedTools.includes(t))
-    : availableGlobalTools;
-
   if (options.dryRun) {
     return [
       ...preparedBundle.cloneLines,
-      `${pc.yellow("DRY RUN:")} Would apply ${preparedBundle.cachedBundle.bundle} globally for ${selectedTools.join(", ")}`,
+      `${pc.yellow("DRY RUN:")} Would apply ${preparedBundle.cachedBundle.bundle} globally for ${availableGlobalTools.join(", ")}`,
     ].join("\n");
   }
 
-  // registry already read above; re-read to pick up any changes from preparedBundle (e.g. cache writes)
-  registry = readRegistryWithGuidance(options.registryFile);
   let rootInstructionBaseContents =
     existingGlobal?.materialized_state.root_instruction_base_contents;
   const existingBundleState =
@@ -3963,7 +3957,7 @@ async function applyBundleGlobal(options: {
     repoRoot: options.homeDir,
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
-    tools: selectedTools,
+    tools: availableGlobalTools,
     repoRelPathRemapper,
   });
 
@@ -4048,7 +4042,7 @@ async function applyBundleGlobal(options: {
     repoRoot: options.homeDir,
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
-    tools: selectedTools,
+    tools: availableGlobalTools,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
     allowFileOverwriteTargets: collectManagedRootInstructionTargets(existingBundles),
@@ -4063,7 +4057,7 @@ async function applyBundleGlobal(options: {
     repoRoot: options.homeDir,
     source: preparedBundle.bundleSource,
     resolvedCommit: preparedBundle.sourceRevision?.currentCommit,
-    selectedTools,
+    selectedTools: availableGlobalTools,
   });
 
   const newDesiredEntry = buildDesiredEntryForAppliedBundle({
@@ -4072,7 +4066,7 @@ async function applyBundleGlobal(options: {
     requestedSource: options.source,
     requestedProtocol: options.protocol,
     requestedRef: options.ref,
-    requestedTools: selectedTools,
+    requestedTools: availableGlobalTools,
     sourceRevision: preparedBundle.sourceRevision,
   });
 
@@ -4118,7 +4112,7 @@ async function applyBundleGlobal(options: {
   return [
     ...preparedBundle.cloneLines,
     pc.green(
-      `Applied ${preparedBundle.cachedBundle.bundle} globally for ${selectedTools.join(", ")}`,
+      `Applied ${preparedBundle.cachedBundle.bundle} globally for ${availableGlobalTools.join(", ")}`,
     ),
   ].join("\n");
 }
@@ -4225,9 +4219,7 @@ async function removeGlobalBundle(options: {
 
   if (options.dryRun) {
     if (bundleMaterializedState) {
-      const files = Object.values(bundleMaterializedState.tools).flatMap(
-        (ts) => ts.files,
-      );
+      const { files } = flattenBundleState(bundleMaterializedState);
       const lines = [
         `${pc.yellow("DRY RUN:")} Would remove global ${options.bundle} (${files.length} file(s))`,
       ];
@@ -4441,6 +4433,11 @@ async function applyGlobal(options: {
   const toApply = globalState.desired_state.filter((entry) => {
     const mat = globalState.materialized_state.bundles[entry.bundle];
     if (!mat) return true;
+    if (!isDesiredBundleMaterialized({
+      desiredEntry: entry,
+      materializedBundleState: mat,
+      availableTools: globalCapableToolNames(),
+    })) return true;
     if (
       entry.source &&
       !readCachedSourceRevision({ source: entry.source, libraryDir: options.libraryDir }).cached

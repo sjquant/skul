@@ -99,9 +99,8 @@ function collectRootInstructionContentByPath(options: {
 
     const cachedBundle = options.resolveCachedBundle(desiredEntry);
     const toolNames = Object.keys(materializedBundleState.tools) as ToolName[];
-    // When a remapper is active, skip pre-remap targetPaths filtering inside
-    // collectComposedRootInstructionContents: translation keys (e.g. "CLAUDE.md") differ from
-    // stored paths (e.g. ".claude/CLAUDE.md"), so the filter would incorrectly exclude content.
+    // In global mode, translation keys (e.g. "CLAUDE.md") differ from stored paths
+    // (e.g. ".claude/CLAUDE.md"), so targetPaths pre-filtering must be skipped and keys remapped after.
     const rawBundleContentByPath = collectComposedRootInstructionContents({
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
@@ -109,7 +108,6 @@ function collectRootInstructionContentByPath(options: {
       targetPaths: options.repoRelPathRemapper ? undefined : options.targetPaths,
       itemSelectors: desiredEntry.items,
     });
-    // Remap translation-output keys (e.g. "CLAUDE.md") to stored paths (e.g. ".claude/CLAUDE.md").
     const bundleContentByPath = options.repoRelPathRemapper
       ? Object.fromEntries(
           Object.entries(rawBundleContentByPath).map(([k, v]) => [

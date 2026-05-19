@@ -72,9 +72,8 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
-// Skills/commands/agents paths are identical between project and global mode for claude-code
-// (both use .claude/skills etc.), so buildGlobalRepoRelPathRemapper only needs to remap
-// root_instruction paths. If a future tool definition changes this, update the remapper.
+// Skills/commands/agents paths are intentionally identical between project and global mode for
+// claude-code (both use .claude/skills etc.); only root_instruction paths differ.
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "claude-code",
@@ -109,19 +108,24 @@ export function globalCapableToolNames(): ToolName[] {
   return GLOBAL_TOOL_DEFINITIONS.map((t) => t.name);
 }
 
-/** Builds a path remapper for global mode: maps project-mode root-instruction paths to their
- * global equivalents (e.g. "CLAUDE.md" → ".claude/CLAUDE.md"). */
-export function buildGlobalRepoRelPathRemapper(): (p: string) => string {
+// Computed once at module load: maps project-mode root-instruction paths to global equivalents
+// (e.g. "CLAUDE.md" → ".claude/CLAUDE.md"). Pure function of the static tool definition arrays.
+const GLOBAL_REPO_REL_PATH_REMAP = (() => {
   const map = new Map<string, string>();
-  for (const projDef of listToolDefinitions()) {
-    const globalDef = getGlobalToolDefinition(projDef.name);
+  for (const projDef of TOOL_DEFINITIONS) {
+    const globalDef = GLOBAL_TOOL_DEFINITIONS.find((g) => g.name === projDef.name);
     const projPath = projDef.targets.root_instruction?.path;
     const globalPath = globalDef?.targets.root_instruction?.path;
     if (projPath && globalPath && projPath !== globalPath) {
       map.set(projPath, globalPath);
     }
   }
-  return (p) => map.get(p) ?? p;
+  return map;
+})();
+
+/** Returns the path remapper for global mode (project-mode → global paths, e.g. "CLAUDE.md" → ".claude/CLAUDE.md"). */
+export function buildGlobalRepoRelPathRemapper(): (p: string) => string {
+  return (p) => GLOBAL_REPO_REL_PATH_REMAP.get(p) ?? p;
 }
 
 /** Looks up one tool definition by name and returns a defensive copy when found. */

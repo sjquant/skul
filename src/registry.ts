@@ -378,6 +378,7 @@ function parseMaterializedState(
       : parseRootInstructionBaseContents(
           state.root_instruction_base_contents,
           `${label}.root_instruction_base_contents`,
+          buildWorktreeRootInstructionAllowedPaths(),
         );
 
   return {
@@ -613,42 +614,13 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
 function parseRootInstructionBaseContents(
   input: unknown,
   label: string,
+  allowedPaths: Set<string>,
 ): Record<string, string> {
   const record = expectRecord(input, label);
 
   return Object.fromEntries(
     Object.entries(record).map(([filePath, value]) => {
-      if (filePath !== "AGENTS.md" && filePath !== "CLAUDE.md") {
-        throw new Error(`${label}.${filePath} must be AGENTS.md or CLAUDE.md`);
-      }
-
-      if (typeof value !== "string") {
-        throw new Error(`${label}.${filePath} must be a string`);
-      }
-
-      return [filePath, value];
-    }),
-  );
-}
-
-function buildGlobalRootInstructionAllowedPaths(): Set<string> {
-  const paths = new Set<string>();
-  for (const def of listGlobalToolDefinitions()) {
-    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
-  }
-  return paths;
-}
-
-function parseGlobalRootInstructionBaseContents(
-  input: unknown,
-  label: string,
-): Record<string, string> {
-  const record = expectRecord(input, label);
-  const ALLOWED = buildGlobalRootInstructionAllowedPaths();
-
-  return Object.fromEntries(
-    Object.entries(record).map(([filePath, value]) => {
-      if (!ALLOWED.has(filePath)) {
+      if (!allowedPaths.has(filePath)) {
         throw new Error(`${label}.${filePath} must be a known root instruction path`);
       }
 
@@ -659,6 +631,22 @@ function parseGlobalRootInstructionBaseContents(
       return [filePath, value];
     }),
   );
+}
+
+function buildWorktreeRootInstructionAllowedPaths(): Set<string> {
+  const paths = new Set<string>();
+  for (const def of listToolDefinitions()) {
+    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
+  }
+  return paths;
+}
+
+function buildGlobalRootInstructionAllowedPaths(): Set<string> {
+  const paths = new Set<string>();
+  for (const def of listGlobalToolDefinitions()) {
+    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
+  }
+  return paths;
 }
 
 function parseGlobalState(input: unknown, label: string): GlobalState {
@@ -681,7 +669,7 @@ function parseGlobalMaterializedState(input: unknown, label: string): GlobalMate
   const rootInstructionBaseContents =
     state.root_instruction_base_contents === undefined
       ? undefined
-      : parseGlobalRootInstructionBaseContents(state.root_instruction_base_contents, `${label}.root_instruction_base_contents`);
+      : parseRootInstructionBaseContents(state.root_instruction_base_contents, `${label}.root_instruction_base_contents`, buildGlobalRootInstructionAllowedPaths());
 
   return {
     bundles,
