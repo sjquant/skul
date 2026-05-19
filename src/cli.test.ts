@@ -4373,6 +4373,7 @@ describe("run", () => {
         includeItems: ["skills/diagnose", "root-instruction"],
         selectItems: true,
         dryRun: false,
+        global: false,
       },
     });
   });

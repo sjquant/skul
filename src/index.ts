@@ -3916,6 +3916,9 @@ async function applyBundleGlobal(options: {
     requestedTools: options.agents.length > 0
       ? options.agents.filter((t) => supportedTools.includes(t))
       : supportedTools,
+    requestedItems: [],
+    selectItems: false,
+    existingDesiredState: [],
     libraryDir: options.libraryDir,
     ref: options.ref,
     prompts: options.prompts,

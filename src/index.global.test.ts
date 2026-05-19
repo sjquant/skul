@@ -697,6 +697,8 @@ function pathExists(targetPath: string): boolean {
 function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
   return {
     selectBundle: async () => ({ bundle: "react-expert" }),
+    selectBundleItems: async (_available, selected) => selected,
+    selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
     confirmManagedFileRemoval: async () => true,
     ...overrides,
