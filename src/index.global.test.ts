@@ -549,6 +549,103 @@ describe("run --global", () => {
       parsed.materialized.bundles["react-expert"].tools["claude-code"].files,
     ).toContain(".claude/skills/react/SKILL.md");
   });
+
+  it("dry-runs remove --global without deleting files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+
+    // When
+    const output = await run(["remove", "--global", "--dry-run", "react-expert"], {
+      homeDir,
+      prompts: createPromptStub(),
+    });
+
+    // Then
+    expect(output).toContain("DRY RUN");
+    expect(output).toContain("react-expert");
+    expect(
+      pathExists(path.join(homeDir, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("dry-runs reset --global without deleting files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+
+    // When
+    const output = await run(["reset", "--global", "--dry-run"], {
+      homeDir,
+      prompts: createPromptStub(),
+    });
+
+    // Then
+    expect(output).toContain("DRY RUN");
+    expect(
+      pathExists(path.join(homeDir, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("removes a bundle that is in desired_state but not materialized", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+    // Reset clears materialized state but keeps desired_state
+    await run(["reset", "--global"], { homeDir, prompts: createPromptStub() });
+
+    const registryBefore = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registryBefore.global!.desired_state).toHaveLength(1);
+    expect(registryBefore.global!.materialized_state.bundles).toEqual({});
+
+    // When: remove from desired_state without a materialized bundle present
+    const output = await run(["remove", "--global", "react-expert"], {
+      homeDir,
+      prompts: createPromptStub(),
+    });
+
+    // Then
+    expect(output).toContain("Removed global react-expert");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registry.global).toBeUndefined();
+  });
 });
 
 function createHomeDir(): string {

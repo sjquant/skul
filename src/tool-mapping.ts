@@ -94,7 +94,8 @@ export function listGlobalToolDefinitions(): ToolDefinition[] {
   return GLOBAL_TOOL_DEFINITIONS.map(cloneToolDefinition);
 }
 
-/** Returns the global tool definition for one tool, or null if not supported globally. */
+/** Returns the global tool definition for one tool, or null if not supported globally.
+ * Exported for use by external consumers inspecting global installation layout. */
 export function getGlobalToolDefinition(name: string): ToolDefinition | null {
   const tool = GLOBAL_TOOL_DEFINITIONS.find((t) => t.name === name);
   return tool ? cloneToolDefinition(tool) : null;
@@ -105,7 +106,23 @@ export function globalCapableToolNames(): ToolName[] {
   return GLOBAL_TOOL_DEFINITIONS.map((t) => t.name);
 }
 
-/** Resolves the absolute target path for one tool target in global (~/) mode. */
+/** Builds a path remapper for global mode: maps project-mode root-instruction paths to their
+ * global equivalents (e.g. "CLAUDE.md" → ".claude/CLAUDE.md"). */
+export function buildGlobalRepoRelPathRemapper(): (p: string) => string {
+  const map = new Map<string, string>();
+  for (const projDef of listToolDefinitions()) {
+    const globalDef = getGlobalToolDefinition(projDef.name);
+    const projPath = projDef.targets.root_instruction?.path;
+    const globalPath = globalDef?.targets.root_instruction?.path;
+    if (projPath && globalPath && projPath !== globalPath) {
+      map.set(projPath, globalPath);
+    }
+  }
+  return (p) => map.get(p) ?? p;
+}
+
+/** Resolves the absolute target path for one tool target in global (~/) mode.
+ * Exported for use by external consumers inspecting global installation layout. */
 export function resolveGlobalToolTargetPath(
   toolName: string,
   targetName: ToolTargetName,

@@ -585,40 +585,7 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
     materialized_state: {
       bundles: Object.fromEntries(
         Object.entries(worktreeState.materialized_state.bundles).map(
-          ([bundleName, bundleState]) => [
-            bundleName,
-            {
-              ...(bundleState.source !== undefined
-                ? { source: bundleState.source }
-                : {}),
-              ...(bundleState.resolved_commit !== undefined
-                ? { resolved_commit: bundleState.resolved_commit }
-                : {}),
-              tools: Object.fromEntries(
-                Object.entries(bundleState.tools).map(
-                  ([toolName, toolState]) => [
-                    toolName,
-                    {
-                      files: [...toolState.files],
-                      ...(toolState.file_fingerprints !== undefined
-                        ? {
-                            file_fingerprints: {
-                              ...toolState.file_fingerprints,
-                            },
-                          }
-                        : {}),
-                      ...(toolState.directories !== undefined
-                        ? { directories: [...toolState.directories] }
-                        : {}),
-                      ...(toolState.items !== undefined
-                        ? { items: [...toolState.items] }
-                        : {}),
-                    },
-                  ],
-                ),
-              ),
-            },
-          ],
+          ([bundleName, bundleState]) => [bundleName, cloneMaterializedBundleState(bundleState)],
         ),
       ),
       exclude_configured: worktreeState.materialized_state.exclude_configured,
@@ -760,6 +727,7 @@ function cloneMaterializedBundleState(state: MaterializedBundleState): Materiali
           files: [...toolState.files],
           ...(toolState.file_fingerprints !== undefined ? { file_fingerprints: { ...toolState.file_fingerprints } } : {}),
           ...(toolState.directories !== undefined ? { directories: [...toolState.directories] } : {}),
+          ...(toolState.items !== undefined ? { items: [...toolState.items] } : {}),
         },
       ]),
     ),

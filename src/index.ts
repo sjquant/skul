@@ -89,7 +89,7 @@ import {
   syncManagedRootInstructionFiles,
 } from "./root-instruction-state";
 import { resolveGlobalStateLayout } from "./state-layout";
-import { getToolDefinition, globalCapableToolNames, type ToolName } from "./tool-mapping";
+import { buildGlobalRepoRelPathRemapper, getToolDefinition, globalCapableToolNames, type ToolName } from "./tool-mapping";
 
 // Lazily evaluated so that SKUL_NO_TUI set after module load (e.g. in tests) is respected.
 const pc = new Proxy({} as ReturnType<typeof createColors>, {
@@ -3897,15 +3897,9 @@ async function applyBundleGlobal(options: {
   inferredBundleFromSource?: true;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
-  const requestedTools =
-    options.agents.length > 0
-      ? options.agents.filter((t) => supportedTools.includes(t))
-      : supportedTools;
 
   if (options.agents.length > 0) {
-    const unsupported = options.agents.filter(
-      (t) => !supportedTools.includes(t),
-    );
+    const unsupported = options.agents.filter((t) => !supportedTools.includes(t));
     if (unsupported.length > 0) {
       throw new Error(
         `Global mode only supports: ${supportedTools.join(", ")}. Unsupported: ${unsupported.join(", ")}`,
@@ -3913,16 +3907,15 @@ async function applyBundleGlobal(options: {
     }
   }
 
-  const repoRelPathRemapper = (p: string): string => {
-    if (p === "CLAUDE.md") return ".claude/CLAUDE.md";
-    return p;
-  };
+  const repoRelPathRemapper = buildGlobalRepoRelPathRemapper();
 
   const preparedBundle = await prepareApplyBundle({
     bundle: options.bundle,
     source: options.source,
     protocol: options.protocol,
-    requestedTools,
+    requestedTools: options.agents.length > 0
+      ? options.agents.filter((t) => supportedTools.includes(t))
+      : supportedTools,
     libraryDir: options.libraryDir,
     ref: options.ref,
     prompts: options.prompts,
@@ -3940,10 +3933,9 @@ async function applyBundleGlobal(options: {
     );
   }
 
-  const selectedTools =
-    options.agents.length > 0
-      ? options.agents.filter((t) => supportedTools.includes(t))
-      : availableGlobalTools;
+  const selectedTools = options.agents.length > 0
+    ? options.agents.filter((t) => supportedTools.includes(t))
+    : availableGlobalTools;
 
   if (options.dryRun) {
     return [
@@ -4170,7 +4162,7 @@ function renderGlobalStatus(options: {
     lines.push(pc.dim('Run "skul add --global <bundle>" to get started'));
   }
 
-  lines.push("", pc.bold("Global Materialized State"), `Home: ${pc.dim("~/.claude/")}`);
+  lines.push("", pc.bold("Global Materialized State"));
 
   if (
     !globalState ||
@@ -4205,10 +4197,7 @@ async function removeGlobalBundle(options: {
   bundle: string;
   dryRun: boolean;
 }): Promise<string> {
-  const repoRelPathRemapper = (p: string): string => {
-    if (p === "CLAUDE.md") return ".claude/CLAUDE.md";
-    return p;
-  };
+  const repoRelPathRemapper = buildGlobalRepoRelPathRemapper();
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
@@ -4439,7 +4428,7 @@ async function applyGlobal(options: {
     return `No global bundles configured. Run "skul add --global <bundle>" to add one`;
   }
 
-  const cloneLines: string[] = [];
+  const outputLines: string[] = [];
   const toApply = globalState.desired_state.filter((entry) => {
     const mat = globalState.materialized_state.bundles[entry.bundle];
     if (!mat) return true;
@@ -4460,16 +4449,7 @@ async function applyGlobal(options: {
   }
 
   for (const entry of toApply) {
-    if (entry.source) {
-      const { cloned } = fetchRemoteSource({
-        source: entry.source,
-        libraryDir: options.libraryDir,
-        protocol: entry.protocol,
-      });
-      if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
-    }
-
-    await applyBundleGlobal({
+    const result = await applyBundleGlobal({
       homeDir: options.homeDir,
       prompts: options.prompts,
       registryFile: options.registryFile,
@@ -4481,10 +4461,10 @@ async function applyGlobal(options: {
       dryRun: false,
       ref: entry.ref,
     });
+    outputLines.push(result);
   }
 
-  const appliedNames = toApply.map((e) => e.bundle).join(", ");
-  return [...cloneLines, pc.green(`Applied ${appliedNames} globally`)].join("\n");
+  return outputLines.join("\n");
 }
 
 function assertUnreachable(_value: never): never {
