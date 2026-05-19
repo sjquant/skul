@@ -89,7 +89,12 @@ import {
   syncManagedRootInstructionFiles,
 } from "./root-instruction-state";
 import { resolveGlobalStateLayout } from "./state-layout";
-import { buildGlobalRepoRelPathRemapper, getToolDefinition, globalCapableToolNames, type ToolName } from "./tool-mapping";
+import {
+  buildGlobalRepoRelPathRemapper,
+  getToolDefinition,
+  globalCapableToolNames,
+  type ToolName,
+} from "./tool-mapping";
 
 // Lazily evaluated so that SKUL_NO_TUI set after module load (e.g. in tests) is respected.
 const pc = new Proxy({} as ReturnType<typeof createColors>, {
@@ -2052,7 +2057,8 @@ async function prepareApplyBundle(options: {
         : availableTools
       : await options.prompts.selectAgents(availableTools);
   const hasToolSelection =
-    wasExplicitlyRequested || selectedRequestedTools.length < availableTools.length;
+    wasExplicitlyRequested ||
+    selectedRequestedTools.length < availableTools.length;
   const nextToolNames = selectedRequestedTools;
   const existingDesiredEntry = options.existingDesiredState.find(
     (entry) => entry.bundle === cachedBundle.bundle,
@@ -3899,7 +3905,9 @@ async function applyBundleGlobal(options: {
   const supportedTools = globalCapableToolNames();
 
   if (options.agents.length > 0) {
-    const unsupported = options.agents.filter((t) => !supportedTools.includes(t));
+    const unsupported = options.agents.filter(
+      (t) => !supportedTools.includes(t),
+    );
     if (unsupported.length > 0) {
       throw new Error(
         `Global mode only supports: ${supportedTools.join(", ")}. Unsupported: ${unsupported.join(", ")}`,
@@ -3916,9 +3924,10 @@ async function applyBundleGlobal(options: {
     bundle: options.bundle,
     source: options.source,
     protocol: options.protocol,
-    requestedTools: options.agents.length > 0
-      ? options.agents.filter((t) => supportedTools.includes(t))
-      : supportedTools,
+    requestedTools:
+      options.agents.length > 0
+        ? options.agents.filter((t) => supportedTools.includes(t))
+        : supportedTools,
     requestedItems: [],
     selectItems: false,
     existingDesiredState: existingGlobal?.desired_state ?? [],
@@ -4045,7 +4054,8 @@ async function applyBundleGlobal(options: {
     tools: availableGlobalTools,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
-    allowFileOverwriteTargets: collectManagedRootInstructionTargets(existingBundles),
+    allowFileOverwriteTargets:
+      collectManagedRootInstructionTargets(existingBundles),
     rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
     repoRelPathRemapper,
@@ -4130,19 +4140,19 @@ function renderGlobalStatus(options: {
         desired_state: globalState?.desired_state ?? [],
         materialized: {
           bundles: Object.fromEntries(
-            Object.entries(
-              globalState?.materialized_state.bundles ?? {},
-            ).map(([bundleName, bundleState]) => [
-              bundleName,
-              {
-                tools: Object.fromEntries(
-                  Object.entries(bundleState.tools).map(([t, s]) => [
-                    t,
-                    { files: s.files },
-                  ]),
-                ),
-              },
-            ]),
+            Object.entries(globalState?.materialized_state.bundles ?? {}).map(
+              ([bundleName, bundleState]) => [
+                bundleName,
+                {
+                  tools: Object.fromEntries(
+                    Object.entries(bundleState.tools).map(([t, s]) => [
+                      t,
+                      { files: s.files },
+                    ]),
+                  ),
+                },
+              ],
+            ),
           ),
         },
       },
@@ -4202,7 +4212,8 @@ async function removeGlobalBundle(options: {
   let registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
   const isInDesiredState =
-    globalState?.desired_state.some((e) => e.bundle === options.bundle) ?? false;
+    globalState?.desired_state.some((e) => e.bundle === options.bundle) ??
+    false;
   const bundleMaterializedState =
     globalState?.materialized_state.bundles[options.bundle];
 
@@ -4313,7 +4324,9 @@ async function removeGlobalBundle(options: {
           bundles: refreshedBundles,
           ...(nextRootInstructionBaseContents &&
           Object.keys(nextRootInstructionBaseContents).length > 0
-            ? { root_instruction_base_contents: nextRootInstructionBaseContents }
+            ? {
+                root_instruction_base_contents: nextRootInstructionBaseContents,
+              }
             : {}),
         },
       };
@@ -4399,8 +4412,7 @@ async function resetGlobal(options: {
   // as-is. Run `apply --global` afterward to re-materialize from desired state.
   restoreRootInstructionBaseContents({
     repoRoot: options.homeDir,
-    baseContents:
-      globalState.materialized_state.root_instruction_base_contents,
+    baseContents: globalState.materialized_state.root_instruction_base_contents,
     targetPaths: collectManagedRootInstructionTargets(
       globalState.materialized_state.bundles,
     ),
@@ -4433,15 +4445,22 @@ async function applyGlobal(options: {
   const toApply = globalState.desired_state.filter((entry) => {
     const mat = globalState.materialized_state.bundles[entry.bundle];
     if (!mat) return true;
-    if (!isDesiredBundleMaterialized({
-      desiredEntry: entry,
-      materializedBundleState: mat,
-      availableTools: globalCapableToolNames(),
-    })) return true;
+    if (
+      !isDesiredBundleMaterialized({
+        desiredEntry: entry,
+        materializedBundleState: mat,
+        availableTools: globalCapableToolNames(),
+      })
+    )
+      return true;
     if (
       entry.source &&
-      !readCachedSourceRevision({ source: entry.source, libraryDir: options.libraryDir }).cached
-    ) return true;
+      !readCachedSourceRevision({
+        source: entry.source,
+        libraryDir: options.libraryDir,
+      }).cached
+    )
+      return true;
     return false;
   });
 

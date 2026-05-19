@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
-import { listGlobalToolDefinitions, listToolDefinitions, type ToolName } from "./tool-mapping";
+import {
+  listGlobalToolDefinitions,
+  listToolDefinitions,
+  type ToolName,
+} from "./tool-mapping";
 
 const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set([
   ...listToolDefinitions()

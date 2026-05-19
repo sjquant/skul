@@ -1,6 +1,12 @@
 import path from "node:path";
 
-export type ToolName = "claude-code" | "cursor" | "opencode" | "codex" | "copilot" | "kiro";
+export type ToolName =
+  | "claude-code"
+  | "cursor"
+  | "opencode"
+  | "codex"
+  | "copilot"
+  | "kiro";
 export type ToolTargetName =
   | "skills"
   | "commands"
@@ -59,7 +65,10 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     targets: {
       skills: { path: ".github/skills", kind: "directory" },
       agents: { path: ".github/agents", kind: "directory" },
-      root_instruction: { path: ".github/copilot-instructions.md", kind: "file" },
+      root_instruction: {
+        path: ".github/copilot-instructions.md",
+        kind: "file",
+      },
     },
   },
   {
@@ -113,7 +122,9 @@ export function globalCapableToolNames(): ToolName[] {
 const GLOBAL_REPO_REL_PATH_REMAP = (() => {
   const map = new Map<string, string>();
   for (const projDef of TOOL_DEFINITIONS) {
-    const globalDef = GLOBAL_TOOL_DEFINITIONS.find((g) => g.name === projDef.name);
+    const globalDef = GLOBAL_TOOL_DEFINITIONS.find(
+      (g) => g.name === projDef.name,
+    );
     const projPath = projDef.targets.root_instruction?.path;
     const globalPath = globalDef?.targets.root_instruction?.path;
     if (projPath && globalPath && projPath !== globalPath) {

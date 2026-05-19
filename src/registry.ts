@@ -6,7 +6,11 @@ import {
   normalizeBundleItemSelector,
 } from "./bundle-items";
 import { pathDepth } from "./fs-utils";
-import { listGlobalToolDefinitions, listToolDefinitions, type ToolName } from "./tool-mapping";
+import {
+  listGlobalToolDefinitions,
+  listToolDefinitions,
+  type ToolName,
+} from "./tool-mapping";
 
 const KNOWN_TOOL_NAMES = new Set<ToolName>(
   listToolDefinitions().map((t) => t.name),
@@ -249,11 +253,17 @@ export function parseRegistry(input: unknown): Registry {
     }
   }
 
-  const globalState = registry.global !== undefined
-    ? parseGlobalState(registry.global, "global")
-    : undefined;
+  const globalState =
+    registry.global !== undefined
+      ? parseGlobalState(registry.global, "global")
+      : undefined;
 
-  return { version: 1, repos, worktrees, ...(globalState !== undefined ? { global: globalState } : {}) };
+  return {
+    version: 1,
+    repos,
+    worktrees,
+    ...(globalState !== undefined ? { global: globalState } : {}),
+  };
 }
 
 function parseRepoState(input: unknown, label: string): RepoState {
@@ -563,15 +573,26 @@ function sortRegistry(registry: Registry): Registry {
     ...(registry.global !== undefined
       ? {
           global: {
-            desired_state: registry.global.desired_state.map((entry) => ({ ...entry })),
+            desired_state: registry.global.desired_state.map((entry) => ({
+              ...entry,
+            })),
             materialized_state: {
               bundles: Object.fromEntries(
                 Object.entries(registry.global.materialized_state.bundles)
                   .sort(([left], [right]) => left.localeCompare(right))
-                  .map(([name, state]) => [name, cloneMaterializedBundleState(state)]),
+                  .map(([name, state]) => [
+                    name,
+                    cloneMaterializedBundleState(state),
+                  ]),
               ),
-              ...(registry.global.materialized_state.root_instruction_base_contents !== undefined
-                ? { root_instruction_base_contents: { ...registry.global.materialized_state.root_instruction_base_contents } }
+              ...(registry.global.materialized_state
+                .root_instruction_base_contents !== undefined
+                ? {
+                    root_instruction_base_contents: {
+                      ...registry.global.materialized_state
+                        .root_instruction_base_contents,
+                    },
+                  }
                 : {}),
             },
           },
@@ -586,7 +607,10 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
     materialized_state: {
       bundles: Object.fromEntries(
         Object.entries(worktreeState.materialized_state.bundles).map(
-          ([bundleName, bundleState]) => [bundleName, cloneMaterializedBundleState(bundleState)],
+          ([bundleName, bundleState]) => [
+            bundleName,
+            cloneMaterializedBundleState(bundleState),
+          ],
         ),
       ),
       exclude_configured: worktreeState.materialized_state.exclude_configured,
@@ -621,7 +645,9 @@ function parseRootInstructionBaseContents(
   return Object.fromEntries(
     Object.entries(record).map(([filePath, value]) => {
       if (!allowedPaths.has(filePath)) {
-        throw new Error(`${label}.${filePath} must be a known root instruction path`);
+        throw new Error(
+          `${label}.${filePath} must be a known root instruction path`,
+        );
       }
 
       if (typeof value !== "string") {
@@ -636,7 +662,8 @@ function parseRootInstructionBaseContents(
 function buildWorktreeRootInstructionAllowedPaths(): Set<string> {
   const paths = new Set<string>();
   for (const def of listToolDefinitions()) {
-    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
+    if (def.targets.root_instruction)
+      paths.add(def.targets.root_instruction.path);
   }
   return paths;
 }
@@ -644,7 +671,8 @@ function buildWorktreeRootInstructionAllowedPaths(): Set<string> {
 function buildGlobalRootInstructionAllowedPaths(): Set<string> {
   const paths = new Set<string>();
   for (const def of listGlobalToolDefinitions()) {
-    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
+    if (def.targets.root_instruction)
+      paths.add(def.targets.root_instruction.path);
   }
   return paths;
 }
@@ -652,28 +680,46 @@ function buildGlobalRootInstructionAllowedPaths(): Set<string> {
 function parseGlobalState(input: unknown, label: string): GlobalState {
   const state = expectRecord(input, label);
   return {
-    desired_state: parseDesiredState(state.desired_state, `${label}.desired_state`),
-    materialized_state: parseGlobalMaterializedState(state.materialized_state, `${label}.materialized_state`),
+    desired_state: parseDesiredState(
+      state.desired_state,
+      `${label}.desired_state`,
+    ),
+    materialized_state: parseGlobalMaterializedState(
+      state.materialized_state,
+      `${label}.materialized_state`,
+    ),
   };
 }
 
-function parseGlobalMaterializedState(input: unknown, label: string): GlobalMaterializedState {
+function parseGlobalMaterializedState(
+  input: unknown,
+  label: string,
+): GlobalMaterializedState {
   const state = expectRecord(input, label);
   const bundlesInput = expectRecord(state.bundles, `${label}.bundles`);
   const bundles = Object.fromEntries(
     Object.entries(bundlesInput).map(([bundleName, bundleValue]) => [
       bundleName,
-      parseMaterializedBundleState(bundleValue, `${label}.bundles.${bundleName}`),
+      parseMaterializedBundleState(
+        bundleValue,
+        `${label}.bundles.${bundleName}`,
+      ),
     ]),
   );
   const rootInstructionBaseContents =
     state.root_instruction_base_contents === undefined
       ? undefined
-      : parseRootInstructionBaseContents(state.root_instruction_base_contents, `${label}.root_instruction_base_contents`, buildGlobalRootInstructionAllowedPaths());
+      : parseRootInstructionBaseContents(
+          state.root_instruction_base_contents,
+          `${label}.root_instruction_base_contents`,
+          buildGlobalRootInstructionAllowedPaths(),
+        );
 
   return {
     bundles,
-    ...(rootInstructionBaseContents !== undefined ? { root_instruction_base_contents: rootInstructionBaseContents } : {}),
+    ...(rootInstructionBaseContents !== undefined
+      ? { root_instruction_base_contents: rootInstructionBaseContents }
+      : {}),
   };
 }
 
@@ -693,26 +739,42 @@ export function upsertGlobalState(
             ([name, state]) => [name, cloneMaterializedBundleState(state)],
           ),
         ),
-        ...(globalState.materialized_state.root_instruction_base_contents !== undefined
-          ? { root_instruction_base_contents: { ...globalState.materialized_state.root_instruction_base_contents } }
+        ...(globalState.materialized_state.root_instruction_base_contents !==
+        undefined
+          ? {
+              root_instruction_base_contents: {
+                ...globalState.materialized_state
+                  .root_instruction_base_contents,
+              },
+            }
           : {}),
       },
     },
   };
 }
 
-function cloneMaterializedBundleState(state: MaterializedBundleState): MaterializedBundleState {
+function cloneMaterializedBundleState(
+  state: MaterializedBundleState,
+): MaterializedBundleState {
   return {
     ...(state.source !== undefined ? { source: state.source } : {}),
-    ...(state.resolved_commit !== undefined ? { resolved_commit: state.resolved_commit } : {}),
+    ...(state.resolved_commit !== undefined
+      ? { resolved_commit: state.resolved_commit }
+      : {}),
     tools: Object.fromEntries(
       Object.entries(state.tools).map(([toolName, toolState]) => [
         toolName,
         {
           files: [...toolState.files],
-          ...(toolState.file_fingerprints !== undefined ? { file_fingerprints: { ...toolState.file_fingerprints } } : {}),
-          ...(toolState.directories !== undefined ? { directories: [...toolState.directories] } : {}),
-          ...(toolState.items !== undefined ? { items: [...toolState.items] } : {}),
+          ...(toolState.file_fingerprints !== undefined
+            ? { file_fingerprints: { ...toolState.file_fingerprints } }
+            : {}),
+          ...(toolState.directories !== undefined
+            ? { directories: [...toolState.directories] }
+            : {}),
+          ...(toolState.items !== undefined
+            ? { items: [...toolState.items] }
+            : {}),
         },
       ]),
     ),

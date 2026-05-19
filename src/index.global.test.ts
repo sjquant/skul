@@ -301,9 +301,7 @@ describe("run --global", () => {
     const registry = readRegistryFile(
       path.join(homeDir, ".skul", "registry.json"),
     );
-    expect(
-      registry.global!.materialized_state.bundles,
-    ).toEqual({});
+    expect(registry.global!.materialized_state.bundles).toEqual({});
     expect(registry.global!.desired_state).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ bundle: "react-expert" }),
@@ -609,10 +607,13 @@ describe("run --global", () => {
     await run(["add", "--global", "react-expert"], { homeDir });
 
     // When
-    const output = await run(["remove", "--global", "--dry-run", "react-expert"], {
-      homeDir,
-      prompts: createPromptStub(),
-    });
+    const output = await run(
+      ["remove", "--global", "--dry-run", "react-expert"],
+      {
+        homeDir,
+        prompts: createPromptStub(),
+      },
+    );
 
     // Then
     expect(output).toContain("DRY RUN");
@@ -738,7 +739,9 @@ function pathExists(targetPath: string): boolean {
 
 function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
   return {
-    selectBundle: async () => { throw new Error("selectBundle should not be called in this test"); },
+    selectBundle: async () => {
+      throw new Error("selectBundle should not be called in this test");
+    },
     selectBundleItems: async (_available, selected) => selected,
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),

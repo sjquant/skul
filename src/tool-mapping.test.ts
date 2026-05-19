@@ -79,7 +79,10 @@ describe("getToolDefinition", () => {
         targets: {
           skills: { path: ".github/skills", kind: "directory" },
           agents: { path: ".github/agents", kind: "directory" },
-          root_instruction: { path: ".github/copilot-instructions.md", kind: "file" },
+          root_instruction: {
+            path: ".github/copilot-instructions.md",
+            kind: "file",
+          },
         },
       },
     ],
@@ -124,7 +127,11 @@ describe("resolveToolTargetPath", () => {
     ["codex", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["copilot", "skills", path.join("/repo", ".github/skills")],
     ["copilot", "agents", path.join("/repo", ".github/agents")],
-    ["copilot", "root_instruction", path.join("/repo", ".github/copilot-instructions.md")],
+    [
+      "copilot",
+      "root_instruction",
+      path.join("/repo", ".github/copilot-instructions.md"),
+    ],
     ["kiro", "skills", path.join("/repo", ".kiro/skills")],
     ["kiro", "agents", path.join("/repo", ".kiro/agents")],
     ["kiro", "root_instruction", path.join("/repo", "AGENTS.md")],
@@ -143,13 +150,12 @@ describe("resolveToolTargetPath", () => {
     ["codex", "commands"],
     ["copilot", "commands"],
     ["kiro", "commands"],
-  ] satisfies Array<[string, ToolTargetName]>)(
-    "returns null when %s does not define %s",
-    (toolName, targetName) => {
-      // Given / When / Then
-      expect(resolveToolTargetPath(toolName, targetName, "/repo")).toBeNull();
-    },
-  );
+  ] satisfies Array<
+    [string, ToolTargetName]
+  >)("returns null when %s does not define %s", (toolName, targetName) => {
+    // Given / When / Then
+    expect(resolveToolTargetPath(toolName, targetName, "/repo")).toBeNull();
+  });
 
   it("returns null for unsupported tools", () => {
     // Given / When / Then

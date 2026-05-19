@@ -39,7 +39,11 @@ export type CliParseResult =
       command: "list";
       options: { json: boolean; source?: string };
     }
-  | { kind: "command"; command: "status"; options: { json: boolean; global: boolean } }
+  | {
+      kind: "command";
+      command: "status";
+      options: { json: boolean; global: boolean };
+    }
   | {
       kind: "command";
       command: "check";
@@ -57,8 +61,16 @@ export type CliParseResult =
       options: { action: "suspend" | "refresh" };
     }
   | { kind: "command"; command: "sync"; options: Record<string, never> }
-  | { kind: "command"; command: "apply"; options: { dryRun: boolean; global: boolean } }
-  | { kind: "command"; command: "reset"; options: { dryRun: boolean; global: boolean } }
+  | {
+      kind: "command";
+      command: "apply";
+      options: { dryRun: boolean; global: boolean };
+    }
+  | {
+      kind: "command";
+      command: "reset";
+      options: { dryRun: boolean; global: boolean };
+    }
   | {
       kind: "command";
       command: "clear-cache";
@@ -907,12 +919,19 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
-    .option("-g, --global", "Remove from ~/.claude/ (global Claude Code config)")
+    .option(
+      "-g, --global",
+      "Remove from ~/.claude/ (global Claude Code config)",
+    )
     .action((bundle: string, opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
         command: "remove",
-        options: { bundle, dryRun: opts.dryRun ?? false, global: opts.global ?? false },
+        options: {
+          bundle,
+          dryRun: opts.dryRun ?? false,
+          global: opts.global ?? false,
+        },
       };
     });
 

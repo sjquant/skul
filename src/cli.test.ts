@@ -1204,7 +1204,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     const output = await run(["status", "--json"], { homeDir, cwd: repoRoot });
@@ -1360,7 +1364,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // Create a new linked worktree that has not materialized yet
     const linkedWorktree = createLinkedWorktree(repoRoot);
@@ -1903,7 +1911,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     const output = await run(["remove", "react-expert", "--dry-run"], {
@@ -1937,7 +1949,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     const output = await run(["reset", "--dry-run"], {
@@ -1988,7 +2004,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     fs.writeFileSync(
       path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
       "# modified\n",
@@ -2049,7 +2069,11 @@ describe("run", () => {
     process.env["SKUL_NO_TUI"] = "1";
     try {
       await expect(
-        run(["add"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+        run(["add"], {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub(),
+        }),
       ).rejects.toThrowError(/Command add requires a source or bundle name/);
     } finally {
       delete process.env["SKUL_NO_TUI"];
@@ -2286,7 +2310,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "react-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
@@ -2326,7 +2354,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", remoteSource.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
@@ -2372,7 +2404,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", remoteSource.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
@@ -2429,7 +2465,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", remoteSource.bundle], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", remoteSource.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
@@ -2484,11 +2524,19 @@ describe("run", () => {
       ".claude/skills/next/SKILL.md",
       "# next\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
-      run(["add", "next-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "next-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe("Applied next-expert for claude-code");
 
     // Then: both bundles coexist on disk
@@ -2576,11 +2624,19 @@ describe("run", () => {
       ".agents/skills/next-task/SKILL.md",
       "# next task\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
-      run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "repo-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe("Applied repo-standards for codex");
 
     // Then: both bundles coexist on disk
@@ -2660,11 +2716,19 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
-      run(["add", "security-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "security-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe(
       "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
@@ -2711,7 +2775,11 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     writeRootInstructionBundleFixture(homeDir, {
       source: "github.com/user/source-b",
@@ -2721,7 +2789,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "security-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "security-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe(
       "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
@@ -2776,8 +2848,16 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "security-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "security-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
@@ -2819,12 +2899,24 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "security-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "security-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
-      run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "repo-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe(
       "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
@@ -2861,7 +2953,11 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     const registryPath = path.join(homeDir, ".skul", "registry.json");
     const registry = readRegistryFile(registryPath);
@@ -2912,7 +3008,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "repo-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe(
       "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
@@ -2953,7 +3053,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "repo-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe(
       "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
@@ -3000,7 +3104,11 @@ describe("run", () => {
       path.join(repoRoot, "AGENTS.md"),
       "user root instruction\n",
     );
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
@@ -3026,7 +3134,11 @@ describe("run", () => {
       path.join(repoRoot, "AGENTS.md"),
       "user root instruction\n",
     );
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -3063,8 +3175,16 @@ describe("run", () => {
       path.join(repoRoot, "AGENTS.md"),
       "user root instruction\n",
     );
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
     fs.writeFileSync(
       path.join(repoRoot, "AGENTS.md"),
@@ -3073,7 +3193,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "repo-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe(
       "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
@@ -3119,7 +3243,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "shared-claude-guide"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "shared-claude-guide"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe(
       "Applied shared-claude-guide for claude-code, cursor, opencode, codex, copilot, kiro",
     );
@@ -3154,7 +3282,11 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-guide"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-guide"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     const registryPath = path.join(homeDir, ".skul", "registry.json");
     const initialRegistry = readRegistryFile(registryPath);
     const initialWorktree =
@@ -3171,7 +3303,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "security-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "security-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe(
       "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
     );
@@ -3210,7 +3346,11 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-guide"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-guide"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     const agentsBefore = fs.readFileSync(
       path.join(repoRoot, "AGENTS.md"),
       "utf8",
@@ -3235,7 +3375,11 @@ describe("run", () => {
 
     // When / Then
     await expect(
-      run(["add", "security-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "security-standards"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).rejects.toThrowError(/Bundle not found: repo-guide/);
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
       agentsBefore,
@@ -3275,8 +3419,16 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-guide"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "security-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-guide"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "security-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     const agentsBefore = fs.readFileSync(
       path.join(repoRoot, "AGENTS.md"),
       "utf8",
@@ -3338,8 +3490,16 @@ describe("run", () => {
       },
     ]);
 
-    await run(["add", "repo-guide"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "security-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-guide"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "security-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     runGit(repoRoot, ["add", "-f", "AGENTS.md", "CLAUDE.md"]);
     runGit(repoRoot, ["commit", "-m", "materialize shared roots"]);
 
@@ -3538,7 +3698,11 @@ describe("run", () => {
       ".claude/commands/review.md",
       "# review\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When / Then
     await expect(run(["status"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -3783,7 +3947,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When / Then
     await expect(
@@ -3816,7 +3984,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     fs.writeFileSync(
       path.join(repoRoot, ".git", "info", "exclude"),
       "node_modules\n",
@@ -3870,7 +4042,11 @@ describe("run", () => {
       ".claude/commands/review.md",
       "# review\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     fs.writeFileSync(path.join(repoRoot, "notes.txt"), "keep me\n");
 
     // When
@@ -3923,7 +4099,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     fs.writeFileSync(
       path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
       "# modified\n",
@@ -3964,7 +4144,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     // Modify the managed file
     fs.writeFileSync(
       path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
@@ -4133,7 +4317,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     fs.writeFileSync(
       path.join(linkedWorktree, "AGENTS.md"),
@@ -4215,7 +4403,11 @@ describe("run", () => {
 
     // When / Then
     await expect(
-      run(["add", "react-expert"], { homeDir, cwd, prompts: createPromptClientStub() }),
+      run(["add", "react-expert"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
     ).rejects.toThrowError(/skul add requires a Git repository/i);
   });
 
@@ -4234,7 +4426,11 @@ describe("run", () => {
 
     // When / Then
     await expect(
-      run(["add", "missing-bundle"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "missing-bundle"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).rejects.toThrowError(
       /Bundle not found: missing-bundle[\s\S]*Available bundles:[\s\S]*react-expert[\s\S]*repo-standards/i,
     );
@@ -4858,7 +5054,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "react-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe("Applied react-expert for claude-code, cursor");
     await expect(
       run(["apply"], { homeDir, cwd: linkedWorktree }),
@@ -4948,7 +5148,11 @@ describe("run", () => {
 
     // When
     await expect(
-      run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+      run(["add", "react-expert"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
     ).resolves.toBe("Applied react-expert for claude-code, cursor");
 
     // Then
@@ -5076,8 +5280,16 @@ describe("run", () => {
       ".agents/skills/next-task/SKILL.md",
       "# next task\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(run(["reset"], { homeDir, cwd: repoRoot })).resolves.toMatch(
@@ -5122,7 +5334,11 @@ describe("run", () => {
       ".claude/commands/review.md",
       "# review\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
@@ -5179,8 +5395,16 @@ describe("run", () => {
       ".agents/skills/next-task/SKILL.md",
       "# next task\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
@@ -5244,7 +5468,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     fs.writeFileSync(
       path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
       "# modified\n",
@@ -5287,7 +5515,11 @@ describe("run", () => {
       "# react\n",
     );
     // Add (and materialize) from the main worktree
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     // Create a linked worktree that has not materialized react-expert
     const linkedWorktree = createLinkedWorktree(repoRoot);
 
@@ -5333,7 +5565,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When / Then
     await expect(
@@ -5492,8 +5728,16 @@ describe("run", () => {
       "# next task\n",
     );
     // Add both bundles from main worktree
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When: apply from linked worktree that has no materialized files
     await expect(
@@ -5544,7 +5788,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(run(["apply"], { homeDir, cwd: repoRoot })).resolves.toBe(
@@ -5580,10 +5828,22 @@ describe("run", () => {
       "# next task\n",
     );
     // Add both to desired state from main worktree
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     // Materialize only react-expert in the linked worktree
-    await run(["add", "react-expert"], { homeDir, cwd: linkedWorktree, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: linkedWorktree,
+      prompts: createPromptClientStub(),
+    });
 
     // When: apply should only materialize the missing bundle
     await expect(
@@ -5632,7 +5892,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     const registryBefore = readRegistryFile(
       path.join(homeDir, ".skul", "registry.json"),
     );
@@ -5709,7 +5973,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# next react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     const resolveFileConflict = vi
       .fn()
@@ -5782,7 +6050,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     expect(pathExists(path.join(repoRoot, ".claude", "skills", "react"))).toBe(
       true,
     );
@@ -5831,8 +6103,16 @@ describe("run", () => {
       ".claude/skills/react/NEXT.md",
       "# next\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
-    await run(["add", "next-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", "next-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When: remove react-expert only
     await expect(
@@ -5953,7 +6233,11 @@ describe("run", () => {
       bundle: "repo-standards",
       content: "# Repo standards\nUse consistent conventions.\n",
     });
-    await run(["add", "repo-standards"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "repo-standards"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     expect(
       fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8"),
@@ -6027,7 +6311,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     fs.writeFileSync(
       path.join(linkedWorktree, "AGENTS.md"),
@@ -6153,7 +6441,11 @@ describe("run", () => {
         files: { ".claude/skills/react/SKILL.md": "# v1\n" },
       },
     );
-    await run(["add", source, bundle], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", source, bundle], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     const commitBefore = updateRemoteBundleSource(remoteRepoPath, bundle, {
       ".claude/skills/react/SKILL.md": "# v2\n",
     });
@@ -6224,7 +6516,11 @@ describe("run", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When: dry-run apply in a linked worktree that has nothing materialized yet
     const output = await run(["apply", "--dry-run"], {
@@ -6898,7 +7194,11 @@ describe("tracked root-instruction shadow safety", () => {
       bundle: "personal-rules",
       content: "# Personal rules\nPrefer terse answers.\n",
     });
-    await run(["add", "personal-rules"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "personal-rules"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     const agentsBefore = fs.readFileSync(
       path.join(repoRoot, "AGENTS.md"),
       "utf8",
@@ -6947,7 +7247,11 @@ describe("tracked root-instruction shadow safety", () => {
       cwd: repoRoot,
       prompts: createPromptClientStub(),
     });
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     // When
     await expect(
@@ -7049,7 +7353,11 @@ describe("tracked root-instruction shadow safety", () => {
       "CLAUDE.md",
       "# Personal CLAUDE\n",
     );
-    await run(["add", "mixed-shadow"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "mixed-shadow"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     const claudeBefore = fs.readFileSync(
       path.join(repoRoot, "CLAUDE.md"),
       "utf8",
@@ -7192,7 +7500,11 @@ describe("tracked root-instruction shadow safety", () => {
       ".agents/skills/p-rules/SKILL.md",
       "---\nname: p-rules\ndescription: Personal rules\n---\n# Personal rules\n",
     );
-    await run(["add", "personal-rules"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "personal-rules"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
     fs.writeFileSync(
       path.join(repoRoot, ".agents", "skills", "p-rules", "SKILL.md"),
       "# modified\n",
@@ -7382,7 +7694,11 @@ describe("tracked root-instruction shadow safety", () => {
       const { run: isolatedRun } = await import("./index");
 
       await expect(
-        isolatedRun(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+        isolatedRun(["add", "react-expert"], {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub(),
+        }),
       ).rejects.toThrowError(/target has staged changes/);
     } finally {
       vi.doUnmock("./bundle-materialization");
@@ -7505,7 +7821,11 @@ describe("tracked root-instruction shadow safety", () => {
       ".claude/skills/react/SKILL.md",
       "# react\n",
     );
-    await run(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() });
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
 
     const managedFilePath = path.join(
       repoRoot,
@@ -7539,7 +7859,11 @@ describe("tracked root-instruction shadow safety", () => {
       const { run: isolatedRun } = await import("./index");
 
       await expect(
-        isolatedRun(["add", "react-expert"], { homeDir, cwd: repoRoot, prompts: createPromptClientStub() }),
+        isolatedRun(["add", "react-expert"], {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub(),
+        }),
       ).rejects.toThrowError(/target has unstaged changes/);
       expect(fs.existsSync(managedFilePath)).toBe(true);
     } finally {
