@@ -72,9 +72,60 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
+// Skills/commands/agents paths are intentionally identical between project and global mode for
+// claude-code (both use .claude/skills etc.); only root_instruction paths differ.
+const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    name: "claude-code",
+    targets: {
+      skills: { path: ".claude/skills", kind: "directory" },
+      commands: { path: ".claude/commands", kind: "directory" },
+      agents: { path: ".claude/agents", kind: "directory" },
+      root_instruction: { path: ".claude/CLAUDE.md", kind: "file" },
+    },
+  },
+];
+
 /** Returns a defensive copy of all supported tool definitions. */
 export function listToolDefinitions(): ToolDefinition[] {
   return TOOL_DEFINITIONS.map(cloneToolDefinition);
+}
+
+/** Returns all tool definitions for global (~/) materialization. Only claude-code supported. */
+export function listGlobalToolDefinitions(): ToolDefinition[] {
+  return GLOBAL_TOOL_DEFINITIONS.map(cloneToolDefinition);
+}
+
+/** Returns the global tool definition for one tool, or null if not supported globally.
+ * Exported for use by external consumers inspecting global installation layout. */
+export function getGlobalToolDefinition(name: string): ToolDefinition | null {
+  const tool = GLOBAL_TOOL_DEFINITIONS.find((t) => t.name === name);
+  return tool ? cloneToolDefinition(tool) : null;
+}
+
+/** Returns the names of tools that support global installation. */
+export function globalCapableToolNames(): ToolName[] {
+  return GLOBAL_TOOL_DEFINITIONS.map((t) => t.name);
+}
+
+// Computed once at module load: maps project-mode root-instruction paths to global equivalents
+// (e.g. "CLAUDE.md" → ".claude/CLAUDE.md"). Pure function of the static tool definition arrays.
+const GLOBAL_REPO_REL_PATH_REMAP = (() => {
+  const map = new Map<string, string>();
+  for (const projDef of TOOL_DEFINITIONS) {
+    const globalDef = GLOBAL_TOOL_DEFINITIONS.find((g) => g.name === projDef.name);
+    const projPath = projDef.targets.root_instruction?.path;
+    const globalPath = globalDef?.targets.root_instruction?.path;
+    if (projPath && globalPath && projPath !== globalPath) {
+      map.set(projPath, globalPath);
+    }
+  }
+  return map;
+})();
+
+/** Returns the path remapper for global mode (project-mode → global paths, e.g. "CLAUDE.md" → ".claude/CLAUDE.md"). */
+export function buildGlobalRepoRelPathRemapper(): (p: string) => string {
+  return (p) => GLOBAL_REPO_REL_PATH_REMAP.get(p) ?? p;
 }
 
 /** Looks up one tool definition by name and returns a defensive copy when found. */

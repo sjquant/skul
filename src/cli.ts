@@ -39,7 +39,7 @@ export type CliParseResult =
       command: "list";
       options: { json: boolean; source?: string };
     }
-  | { kind: "command"; command: "status"; options: { json: boolean } }
+  | { kind: "command"; command: "status"; options: { json: boolean; global: boolean } }
   | {
       kind: "command";
       command: "check";
@@ -57,8 +57,8 @@ export type CliParseResult =
       options: { action: "suspend" | "refresh" };
     }
   | { kind: "command"; command: "sync"; options: Record<string, never> }
-  | { kind: "command"; command: "apply"; options: { dryRun: boolean } }
-  | { kind: "command"; command: "reset"; options: { dryRun: boolean } }
+  | { kind: "command"; command: "apply"; options: { dryRun: boolean; global: boolean } }
+  | { kind: "command"; command: "reset"; options: { dryRun: boolean; global: boolean } }
   | {
       kind: "command";
       command: "clear-cache";
@@ -77,12 +77,13 @@ export type CliParseResult =
         dryRun: boolean;
         ref?: string;
         inferredBundleFromSource?: true;
+        global: boolean;
       };
     }
   | {
       kind: "command";
       command: "remove";
-      options: { bundle: string; dryRun: boolean };
+      options: { bundle: string; dryRun: boolean; global: boolean };
     };
 
 export type FileConflictResolution =
@@ -648,6 +649,7 @@ function createProgram(
       "Preview what would be written without making any changes",
     )
     .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
+    .option("-g, --global", "Install to ~/.claude/ (global Claude Code config)")
     .addHelpText("after", ADD_HELP_DETAILS)
     .action(
       async (
@@ -661,12 +663,14 @@ function createProgram(
           selectItems?: boolean;
           dryRun?: boolean;
           ssh?: boolean;
+          global?: boolean;
         },
       ) => {
         const agents = opts.agent;
         const includeItems = opts.include;
         const selectItems = opts.selectItems ?? false;
         const dryRun = opts.dryRun ?? false;
+        const global = opts.global ?? false;
         const ref = resolveRequestedRefSelector(opts);
 
         if (!source && !bundle) {
@@ -697,6 +701,7 @@ function createProgram(
                 dryRun,
                 ...(ref !== undefined ? { ref } : {}),
                 inferredBundleFromSource: true,
+                global,
               },
             };
           } catch {
@@ -712,6 +717,7 @@ function createProgram(
                 ...(selectItems ? { selectItems } : {}),
                 dryRun,
                 ...(ref !== undefined ? { ref } : {}),
+                global,
               },
             };
           }
@@ -736,6 +742,7 @@ function createProgram(
             ...(selectItems ? { selectItems } : {}),
             dryRun,
             ...(ref !== undefined ? { ref } : {}),
+            global,
           },
         };
       },
@@ -765,11 +772,12 @@ function createProgram(
       "Show desired state, current worktree materialization, and tracked root-instruction shadow health",
     )
     .option("-j, --json", "Output as JSON (for scripting and agent use)")
-    .action((opts: { json?: boolean }) => {
+    .option("-g, --global", "Show ~/.claude/ state (global Claude Code config)")
+    .action((opts: { json?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
         command: "status",
-        options: { json: opts.json ?? false },
+        options: { json: opts.json ?? false, global: opts.global ?? false },
       };
     });
 
@@ -862,11 +870,12 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be written without making any changes",
     )
-    .action((opts: { dryRun?: boolean }) => {
+    .option("-g, --global", "Apply global desired-state bundles to ~/.claude/")
+    .action((opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
         command: "apply",
-        options: { dryRun: opts.dryRun ?? false },
+        options: { dryRun: opts.dryRun ?? false, global: opts.global ?? false },
       };
     });
 
@@ -879,11 +888,12 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
-    .action((opts: { dryRun?: boolean }) => {
+    .option("-g, --global", "Reset ~/.claude/ (global Claude Code config)")
+    .action((opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
         command: "reset",
-        options: { dryRun: opts.dryRun ?? false },
+        options: { dryRun: opts.dryRun ?? false, global: opts.global ?? false },
       };
     });
 
@@ -897,11 +907,12 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
-    .action((bundle: string, opts: { dryRun?: boolean }) => {
+    .option("-g, --global", "Remove from ~/.claude/ (global Claude Code config)")
+    .action((bundle: string, opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
         command: "remove",
-        options: { bundle, dryRun: opts.dryRun ?? false },
+        options: { bundle, dryRun: opts.dryRun ?? false, global: opts.global ?? false },
       };
     });
 

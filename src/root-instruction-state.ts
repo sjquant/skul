@@ -60,6 +60,7 @@ export function syncManagedRootInstructionFiles(options: {
   rootInstructionBaseContents?: Record<string, string>;
   targetPaths?: Set<string>;
   resolveCachedBundle: (entry: DesiredBundleEntry) => CachedBundle;
+  repoRelPathRemapper?: (relPath: string) => string;
 }): Set<string> {
   const contentByPath = collectRootInstructionContentByPath(options);
   const writtenPaths = new Set<string>();
@@ -83,6 +84,7 @@ function collectRootInstructionContentByPath(options: {
   materializedBundles: MaterializedState["bundles"];
   targetPaths?: Set<string>;
   resolveCachedBundle: (entry: DesiredBundleEntry) => CachedBundle;
+  repoRelPathRemapper?: (relPath: string) => string;
 }): Map<string, string[]> {
   const contentByPath = new Map<string, string[]>();
   const seenBundleTargets = new Set<string>();
@@ -97,13 +99,23 @@ function collectRootInstructionContentByPath(options: {
 
     const cachedBundle = options.resolveCachedBundle(desiredEntry);
     const toolNames = Object.keys(materializedBundleState.tools) as ToolName[];
-    const bundleContentByPath = collectComposedRootInstructionContents({
+    // In global mode, translation keys (e.g. "CLAUDE.md") differ from stored paths
+    // (e.g. ".claude/CLAUDE.md"), so targetPaths pre-filtering must be skipped and keys remapped after.
+    const rawBundleContentByPath = collectComposedRootInstructionContents({
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       toolNames,
-      targetPaths: options.targetPaths,
+      targetPaths: options.repoRelPathRemapper ? undefined : options.targetPaths,
       itemSelectors: desiredEntry.items,
     });
+    const bundleContentByPath = options.repoRelPathRemapper
+      ? Object.fromEntries(
+          Object.entries(rawBundleContentByPath).map(([k, v]) => [
+            options.repoRelPathRemapper!(k),
+            v,
+          ]),
+        )
+      : rawBundleContentByPath;
 
     for (const toolName of toolNames) {
       for (const repoRelativePath of materializedBundleState.tools[toolName]!

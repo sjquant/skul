@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 
-import { listToolDefinitions, type ToolName } from "./tool-mapping";
+import { listGlobalToolDefinitions, listToolDefinitions, type ToolName } from "./tool-mapping";
 
-const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set(
-  listToolDefinitions()
+const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set([
+  ...listToolDefinitions()
     .map((tool) => tool.targets.root_instruction?.path)
     .filter((p): p is string => p !== undefined),
-);
+  ...listGlobalToolDefinitions()
+    .map((tool) => tool.targets.root_instruction?.path)
+    .filter((p): p is string => p !== undefined),
+]);
 
 /** Joins root-instruction parts into one normalized document body. */
 export function composeRootInstructionContent(

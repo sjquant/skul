@@ -65,7 +65,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(statusArgs)).resolves.toEqual({
       kind: "command",
       command: "status",
-      options: { json: false },
+      options: { json: false, global: false },
     });
     await expect(parseCliArgs(checkArgs)).resolves.toEqual({
       kind: "command",
@@ -95,12 +95,12 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({
       kind: "command",
       command: "reset",
-      options: { dryRun: false },
+      options: { dryRun: false, global: false },
     });
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({
       kind: "command",
       command: "apply",
-      options: { dryRun: false },
+      options: { dryRun: false, global: false },
     });
   });
 
@@ -153,6 +153,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: false,
+        global: false,
       },
     });
 
@@ -167,6 +168,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -188,6 +190,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -205,6 +208,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: ["codex"],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -222,6 +226,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: ["codex"],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -240,6 +245,7 @@ describe("parseCliArgs", () => {
         agents: [],
         dryRun: false,
         inferredBundleFromSource: true,
+        global: false,
       },
     });
   });
@@ -256,6 +262,7 @@ describe("parseCliArgs", () => {
         agents: [],
         dryRun: false,
         inferredBundleFromSource: true,
+        global: false,
       },
     });
   });
@@ -272,6 +279,7 @@ describe("parseCliArgs", () => {
         agents: [],
         dryRun: false,
         inferredBundleFromSource: true,
+        global: false,
       },
     });
   });
@@ -286,6 +294,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -302,6 +311,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: ["claude-code"],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -325,6 +335,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: ["claude-code", "cursor"],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -348,6 +359,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: ["claude-code"],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -364,6 +376,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: ["claude-code"],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -387,6 +400,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: ["claude-code", "cursor"],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -401,6 +415,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: true,
+        global: false,
       },
     });
   });
@@ -418,6 +433,7 @@ describe("parseCliArgs", () => {
         protocol: "ssh",
         agents: [],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -433,7 +449,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["status", "-j"])).resolves.toEqual({
       kind: "command",
       command: "status",
-      options: { json: true },
+      options: { json: true, global: false },
     });
 
     await expect(parseCliArgs(["check", "-j"])).resolves.toEqual({
@@ -448,7 +464,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["remove", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "remove",
-      options: { bundle: "react-expert", dryRun: false },
+      options: { bundle: "react-expert", dryRun: false, global: false },
     });
   });
 
@@ -463,7 +479,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["status", "--json"])).resolves.toEqual({
       kind: "command",
       command: "status",
-      options: { json: true },
+      options: { json: true, global: false },
     });
 
     await expect(parseCliArgs(["check", "--json"])).resolves.toEqual({
@@ -503,6 +519,7 @@ describe("parseCliArgs", () => {
         agents: [],
         dryRun: false,
         ref: "stable",
+        global: false,
       },
     });
 
@@ -522,6 +539,7 @@ describe("parseCliArgs", () => {
         agents: [],
         dryRun: false,
         ref: "2813b888fb134532be3749c71a38ee111b788e5b",
+        global: false,
       },
     });
   });
@@ -613,6 +631,7 @@ describe("parseCliArgs", () => {
         protocol: "ssh",
         agents: [],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -630,6 +649,7 @@ describe("parseCliArgs", () => {
         protocol: "ssh",
         agents: [],
         dryRun: false,
+        global: false,
       },
     });
   });
@@ -648,6 +668,7 @@ describe("parseCliArgs", () => {
         agents: [],
         dryRun: false,
         inferredBundleFromSource: true,
+        global: false,
       },
     });
   });
@@ -664,6 +685,7 @@ describe("parseCliArgs", () => {
         protocol: "https",
         agents: [],
         dryRun: true,
+        global: false,
       },
     });
 
@@ -672,13 +694,13 @@ describe("parseCliArgs", () => {
     ).resolves.toEqual({
       kind: "command",
       command: "remove",
-      options: { bundle: "react-expert", dryRun: true },
+      options: { bundle: "react-expert", dryRun: true, global: false },
     });
 
     await expect(parseCliArgs(["reset", "--dry-run"])).resolves.toEqual({
       kind: "command",
       command: "reset",
-      options: { dryRun: true },
+      options: { dryRun: true, global: false },
     });
   });
 
@@ -4351,6 +4373,7 @@ describe("run", () => {
         includeItems: ["skills/diagnose", "root-instruction"],
         selectItems: true,
         dryRun: false,
+        global: false,
       },
     });
   });

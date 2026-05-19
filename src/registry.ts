@@ -6,7 +6,7 @@ import {
   normalizeBundleItemSelector,
 } from "./bundle-items";
 import { pathDepth } from "./fs-utils";
-import { listToolDefinitions, type ToolName } from "./tool-mapping";
+import { listGlobalToolDefinitions, listToolDefinitions, type ToolName } from "./tool-mapping";
 
 const KNOWN_TOOL_NAMES = new Set<ToolName>(
   listToolDefinitions().map((t) => t.name),
@@ -77,10 +77,21 @@ export interface WorktreeState {
   shadowed_files: Record<string, ShadowedFileState>;
 }
 
+export interface GlobalMaterializedState {
+  bundles: Record<string, MaterializedBundleState>;
+  root_instruction_base_contents?: Record<string, string>;
+}
+
+export interface GlobalState {
+  desired_state: DesiredBundleEntry[];
+  materialized_state: GlobalMaterializedState;
+}
+
 export interface Registry {
   version: 1;
   repos: Record<string, RepoState>;
   worktrees: Record<string, WorktreeState>;
+  global?: GlobalState;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -238,7 +249,11 @@ export function parseRegistry(input: unknown): Registry {
     }
   }
 
-  return { version: 1, repos, worktrees };
+  const globalState = registry.global !== undefined
+    ? parseGlobalState(registry.global, "global")
+    : undefined;
+
+  return { version: 1, repos, worktrees, ...(globalState !== undefined ? { global: globalState } : {}) };
 }
 
 function parseRepoState(input: unknown, label: string): RepoState {
@@ -363,6 +378,7 @@ function parseMaterializedState(
       : parseRootInstructionBaseContents(
           state.root_instruction_base_contents,
           `${label}.root_instruction_base_contents`,
+          buildWorktreeRootInstructionAllowedPaths(),
         );
 
   return {
@@ -544,6 +560,23 @@ function sortRegistry(registry: Registry): Registry {
           cloneWorktreeState(worktreeState),
         ]),
     ),
+    ...(registry.global !== undefined
+      ? {
+          global: {
+            desired_state: registry.global.desired_state.map((entry) => ({ ...entry })),
+            materialized_state: {
+              bundles: Object.fromEntries(
+                Object.entries(registry.global.materialized_state.bundles)
+                  .sort(([left], [right]) => left.localeCompare(right))
+                  .map(([name, state]) => [name, cloneMaterializedBundleState(state)]),
+              ),
+              ...(registry.global.materialized_state.root_instruction_base_contents !== undefined
+                ? { root_instruction_base_contents: { ...registry.global.materialized_state.root_instruction_base_contents } }
+                : {}),
+            },
+          },
+        }
+      : {}),
   };
 }
 
@@ -553,40 +586,7 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
     materialized_state: {
       bundles: Object.fromEntries(
         Object.entries(worktreeState.materialized_state.bundles).map(
-          ([bundleName, bundleState]) => [
-            bundleName,
-            {
-              ...(bundleState.source !== undefined
-                ? { source: bundleState.source }
-                : {}),
-              ...(bundleState.resolved_commit !== undefined
-                ? { resolved_commit: bundleState.resolved_commit }
-                : {}),
-              tools: Object.fromEntries(
-                Object.entries(bundleState.tools).map(
-                  ([toolName, toolState]) => [
-                    toolName,
-                    {
-                      files: [...toolState.files],
-                      ...(toolState.file_fingerprints !== undefined
-                        ? {
-                            file_fingerprints: {
-                              ...toolState.file_fingerprints,
-                            },
-                          }
-                        : {}),
-                      ...(toolState.directories !== undefined
-                        ? { directories: [...toolState.directories] }
-                        : {}),
-                      ...(toolState.items !== undefined
-                        ? { items: [...toolState.items] }
-                        : {}),
-                    },
-                  ],
-                ),
-              ),
-            },
-          ],
+          ([bundleName, bundleState]) => [bundleName, cloneMaterializedBundleState(bundleState)],
         ),
       ),
       exclude_configured: worktreeState.materialized_state.exclude_configured,
@@ -614,13 +614,14 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
 function parseRootInstructionBaseContents(
   input: unknown,
   label: string,
+  allowedPaths: Set<string>,
 ): Record<string, string> {
   const record = expectRecord(input, label);
 
   return Object.fromEntries(
     Object.entries(record).map(([filePath, value]) => {
-      if (filePath !== "AGENTS.md" && filePath !== "CLAUDE.md") {
-        throw new Error(`${label}.${filePath} must be AGENTS.md or CLAUDE.md`);
+      if (!allowedPaths.has(filePath)) {
+        throw new Error(`${label}.${filePath} must be a known root instruction path`);
       }
 
       if (typeof value !== "string") {
@@ -630,6 +631,92 @@ function parseRootInstructionBaseContents(
       return [filePath, value];
     }),
   );
+}
+
+function buildWorktreeRootInstructionAllowedPaths(): Set<string> {
+  const paths = new Set<string>();
+  for (const def of listToolDefinitions()) {
+    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
+  }
+  return paths;
+}
+
+function buildGlobalRootInstructionAllowedPaths(): Set<string> {
+  const paths = new Set<string>();
+  for (const def of listGlobalToolDefinitions()) {
+    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
+  }
+  return paths;
+}
+
+function parseGlobalState(input: unknown, label: string): GlobalState {
+  const state = expectRecord(input, label);
+  return {
+    desired_state: parseDesiredState(state.desired_state, `${label}.desired_state`),
+    materialized_state: parseGlobalMaterializedState(state.materialized_state, `${label}.materialized_state`),
+  };
+}
+
+function parseGlobalMaterializedState(input: unknown, label: string): GlobalMaterializedState {
+  const state = expectRecord(input, label);
+  const bundlesInput = expectRecord(state.bundles, `${label}.bundles`);
+  const bundles = Object.fromEntries(
+    Object.entries(bundlesInput).map(([bundleName, bundleValue]) => [
+      bundleName,
+      parseMaterializedBundleState(bundleValue, `${label}.bundles.${bundleName}`),
+    ]),
+  );
+  const rootInstructionBaseContents =
+    state.root_instruction_base_contents === undefined
+      ? undefined
+      : parseRootInstructionBaseContents(state.root_instruction_base_contents, `${label}.root_instruction_base_contents`, buildGlobalRootInstructionAllowedPaths());
+
+  return {
+    bundles,
+    ...(rootInstructionBaseContents !== undefined ? { root_instruction_base_contents: rootInstructionBaseContents } : {}),
+  };
+}
+
+export function upsertGlobalState(
+  registry: Registry,
+  globalState: GlobalState,
+): Registry {
+  return {
+    version: 1,
+    repos: { ...registry.repos },
+    worktrees: { ...registry.worktrees },
+    global: {
+      desired_state: globalState.desired_state.map((entry) => ({ ...entry })),
+      materialized_state: {
+        bundles: Object.fromEntries(
+          Object.entries(globalState.materialized_state.bundles).map(
+            ([name, state]) => [name, cloneMaterializedBundleState(state)],
+          ),
+        ),
+        ...(globalState.materialized_state.root_instruction_base_contents !== undefined
+          ? { root_instruction_base_contents: { ...globalState.materialized_state.root_instruction_base_contents } }
+          : {}),
+      },
+    },
+  };
+}
+
+function cloneMaterializedBundleState(state: MaterializedBundleState): MaterializedBundleState {
+  return {
+    ...(state.source !== undefined ? { source: state.source } : {}),
+    ...(state.resolved_commit !== undefined ? { resolved_commit: state.resolved_commit } : {}),
+    tools: Object.fromEntries(
+      Object.entries(state.tools).map(([toolName, toolState]) => [
+        toolName,
+        {
+          files: [...toolState.files],
+          ...(toolState.file_fingerprints !== undefined ? { file_fingerprints: { ...toolState.file_fingerprints } } : {}),
+          ...(toolState.directories !== undefined ? { directories: [...toolState.directories] } : {}),
+          ...(toolState.items !== undefined ? { items: [...toolState.items] } : {}),
+        },
+      ]),
+    ),
+  };
 }
 
 function compareRemovalPath(left: string, right: string): number {
