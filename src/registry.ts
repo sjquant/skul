@@ -6,7 +6,7 @@ import {
   normalizeBundleItemSelector,
 } from "./bundle-items";
 import { pathDepth } from "./fs-utils";
-import { listToolDefinitions, type ToolName } from "./tool-mapping";
+import { listGlobalToolDefinitions, listToolDefinitions, type ToolName } from "./tool-mapping";
 
 const KNOWN_TOOL_NAMES = new Set<ToolName>(
   listToolDefinitions().map((t) => t.name),
@@ -664,12 +664,23 @@ function parseRootInstructionBaseContents(
   );
 }
 
+function buildGlobalRootInstructionAllowedPaths(): Set<string> {
+  const paths = new Set<string>();
+  for (const def of listToolDefinitions()) {
+    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
+  }
+  for (const def of listGlobalToolDefinitions()) {
+    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
+  }
+  return paths;
+}
+
 function parseGlobalRootInstructionBaseContents(
   input: unknown,
   label: string,
 ): Record<string, string> {
   const record = expectRecord(input, label);
-  const ALLOWED = new Set(["AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"]);
+  const ALLOWED = buildGlobalRootInstructionAllowedPaths();
 
   return Object.fromEntries(
     Object.entries(record).map(([filePath, value]) => {

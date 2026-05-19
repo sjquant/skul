@@ -57,7 +57,7 @@ export type CliParseResult =
       options: { action: "suspend" | "refresh" };
     }
   | { kind: "command"; command: "sync"; options: Record<string, never> }
-  | { kind: "command"; command: "apply"; options: { dryRun: boolean } }
+  | { kind: "command"; command: "apply"; options: { dryRun: boolean; global: boolean } }
   | { kind: "command"; command: "reset"; options: { dryRun: boolean; global: boolean } }
   | {
       kind: "command";
@@ -870,11 +870,12 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be written without making any changes",
     )
-    .action((opts: { dryRun?: boolean }) => {
+    .option("-g, --global", "Apply global desired-state bundles to ~/.claude/")
+    .action((opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
         command: "apply",
-        options: { dryRun: opts.dryRun ?? false },
+        options: { dryRun: opts.dryRun ?? false, global: opts.global ?? false },
       };
     });
 

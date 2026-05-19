@@ -100,7 +100,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({
       kind: "command",
       command: "apply",
-      options: { dryRun: false },
+      options: { dryRun: false, global: false },
     });
   });
 

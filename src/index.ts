@@ -247,6 +247,15 @@ export async function run(
         dryRun: parsed.options.dryRun,
       });
     case "apply":
+      if (parsed.options.global) {
+        return applyGlobal({
+          homeDir: options.homeDir ?? os.homedir(),
+          prompts,
+          registryFile: stateLayout.registryFile,
+          libraryDir: stateLayout.libraryDir,
+          dryRun: parsed.options.dryRun,
+        });
+      }
       return applyWorktree({
         cwd,
         prompts,
@@ -3920,15 +3929,21 @@ async function applyBundleGlobal(options: {
     inferredBundleFromSource: options.inferredBundleFromSource,
   });
 
-  const selectedTools = (
-    preparedBundle.selectedTools ?? preparedBundle.nextToolNames
-  ).filter((t) => supportedTools.includes(t));
+  const availableGlobalTools = preparedBundle.nextToolNames.filter((t) =>
+    supportedTools.includes(t),
+  );
 
-  if (selectedTools.length === 0) {
+  if (availableGlobalTools.length === 0) {
+    const bundleTools = Object.keys(preparedBundle.cachedBundle.manifest.tools);
     throw new Error(
-      `Bundle ${preparedBundle.cachedBundle.bundle} has no tools supported in global mode (supported: ${supportedTools.join(", ")})`,
+      `Bundle "${preparedBundle.cachedBundle.bundle}" has no globally installable tools (bundle provides: ${bundleTools.join(", ")}; global mode supports: ${supportedTools.join(", ")})`,
     );
   }
+
+  const selectedTools =
+    options.agents.length > 0
+      ? options.agents.filter((t) => supportedTools.includes(t))
+      : availableGlobalTools;
 
   if (options.dryRun) {
     return [
@@ -3987,24 +4002,11 @@ async function applyBundleGlobal(options: {
         ? options.agents.filter((t) => t in existingBundleState.tools)
         : (Object.keys(existingBundleState.tools) as ToolName[]);
 
-    pathsToReplace = {
-      files: Object.values(
-        Object.fromEntries(
-          toolsToReplace.map((t) => [t, existingBundleState.tools[t]!]),
-        ),
-      ).flatMap((ts) => ts.files),
-      file_fingerprints: Object.assign(
-        {},
-        ...toolsToReplace.map(
-          (t) => existingBundleState.tools[t]?.file_fingerprints ?? {},
-        ),
+    pathsToReplace = flattenBundleState({
+      tools: Object.fromEntries(
+        toolsToReplace.map((t) => [t, existingBundleState.tools[t]!]),
       ),
-      directories: Object.values(
-        Object.fromEntries(
-          toolsToReplace.map((t) => [t, existingBundleState.tools[t]!]),
-        ),
-      ).flatMap((ts) => ts.directories ?? []),
-    };
+    });
 
     const replacementAllowed = await confirmManagedFileRemovals(
       options.homeDir,
@@ -4093,6 +4095,7 @@ async function applyBundleGlobal(options: {
     targetPaths: plannedRootInstructionTargets,
     resolveCachedBundle: (entry) =>
       resolveDesiredCachedBundle(options.libraryDir, entry),
+    repoRelPathRemapper,
   });
 
   const refreshedBundles = refreshManagedFileFingerprintsForPaths(
@@ -4202,6 +4205,11 @@ async function removeGlobalBundle(options: {
   bundle: string;
   dryRun: boolean;
 }): Promise<string> {
+  const repoRelPathRemapper = (p: string): string => {
+    if (p === "CLAUDE.md") return ".claude/CLAUDE.md";
+    return p;
+  };
+
   let registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
   const isInDesiredState =
@@ -4304,6 +4312,7 @@ async function removeGlobalBundle(options: {
         targetPaths: rewrittenRootInstructionPaths,
         resolveCachedBundle: (entry) =>
           resolveDesiredCachedBundle(options.libraryDir, entry),
+        repoRelPathRemapper,
       });
       const refreshedBundles = refreshManagedFileFingerprintsForPaths(
         options.homeDir,
@@ -4414,6 +4423,68 @@ async function resetGlobal(options: {
   writeRegistryFile(options.registryFile, registry);
 
   return pc.green("Reset globally managed Skul files");
+}
+
+async function applyGlobal(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  dryRun: boolean;
+}): Promise<string> {
+  const registry = readRegistryWithGuidance(options.registryFile);
+  const globalState = registry.global;
+
+  if (!globalState || globalState.desired_state.length === 0) {
+    return `No global bundles configured. Run "skul add --global <bundle>" to add one`;
+  }
+
+  const cloneLines: string[] = [];
+  const toApply = globalState.desired_state.filter((entry) => {
+    const mat = globalState.materialized_state.bundles[entry.bundle];
+    if (!mat) return true;
+    if (entry.source && !readCachedSourceRevision({ source: entry.source, libraryDir: options.libraryDir }).cached) return true;
+    return false;
+  });
+
+  if (toApply.length === 0) {
+    return options.dryRun
+      ? "DRY RUN: All global bundles are already materialized"
+      : "All global bundles are already materialized";
+  }
+
+  if (options.dryRun) {
+    return toApply
+      .map((e) => `${pc.yellow("DRY RUN:")} Would apply ${e.bundle} globally`)
+      .join("\n");
+  }
+
+  for (const entry of toApply) {
+    if (entry.source) {
+      const { cloned } = fetchRemoteSource({
+        source: entry.source,
+        libraryDir: options.libraryDir,
+        protocol: entry.protocol,
+      });
+      if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
+    }
+
+    await applyBundleGlobal({
+      homeDir: options.homeDir,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      bundle: entry.bundle,
+      source: entry.source,
+      protocol: entry.protocol,
+      agents: entry.tools ?? [],
+      dryRun: false,
+      ref: entry.ref,
+    });
+  }
+
+  const appliedNames = toApply.map((e) => e.bundle).join(", ");
+  return [...cloneLines, pc.green(`Applied ${appliedNames} globally`)].join("\n");
 }
 
 function assertUnreachable(_value: never): never {
