@@ -633,9 +633,6 @@ function parseRootInstructionBaseContents(
 
 function buildGlobalRootInstructionAllowedPaths(): Set<string> {
   const paths = new Set<string>();
-  for (const def of listToolDefinitions()) {
-    if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
-  }
   for (const def of listGlobalToolDefinitions()) {
     if (def.targets.root_instruction) paths.add(def.targets.root_instruction.path);
   }

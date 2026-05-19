@@ -649,7 +649,7 @@ function createProgram(
       "Preview what would be written without making any changes",
     )
     .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
-    .option("-g, --global", "Install to the global Claude Code config (~/.claude/) instead of the current repository")
+    .option("-g, --global", "Install to ~/.claude/ (global Claude Code config)")
     .addHelpText("after", ADD_HELP_DETAILS)
     .action(
       async (
@@ -772,7 +772,7 @@ function createProgram(
       "Show desired state, current worktree materialization, and tracked root-instruction shadow health",
     )
     .option("-j, --json", "Output as JSON (for scripting and agent use)")
-    .option("-g, --global", "Show global Claude Code config (~/.claude/) instead of the current repository")
+    .option("-g, --global", "Show ~/.claude/ state (global Claude Code config)")
     .action((opts: { json?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
@@ -888,7 +888,7 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
-    .option("-g, --global", "Reset global Claude Code config (~/.claude/) instead of the current repository")
+    .option("-g, --global", "Reset ~/.claude/ (global Claude Code config)")
     .action((opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
@@ -907,7 +907,7 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
-    .option("-g, --global", "Remove from global Claude Code config (~/.claude/) instead of the current repository")
+    .option("-g, --global", "Remove from ~/.claude/ (global Claude Code config)")
     .action((bundle: string, opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",

@@ -499,6 +499,48 @@ describe("run --global", () => {
     ).resolves.toContain("Applied react-expert globally for claude-code");
   });
 
+  it("status, remove, and reset --global work without a git repository", async () => {
+    // Given: a bundle installed globally, cwd is outside any git repo
+    const homeDir = createHomeDir();
+    const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-nogit-"));
+    tempDirs.push(nonGitDir);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir, cwd: nonGitDir });
+
+    // When / Then: status, remove, and reset all work without a git repo
+    await expect(
+      run(["status", "--global"], { homeDir, cwd: nonGitDir }),
+    ).resolves.toContain("react-expert");
+
+    await expect(
+      run(["remove", "--global", "react-expert"], {
+        homeDir,
+        cwd: nonGitDir,
+        prompts: createPromptStub(),
+      }),
+    ).resolves.toBeDefined();
+
+    // Re-install for reset test
+    await run(["add", "--global", "react-expert"], { homeDir, cwd: nonGitDir });
+    await expect(
+      run(["reset", "--global"], {
+        homeDir,
+        cwd: nonGitDir,
+        prompts: createPromptStub(),
+      }),
+    ).resolves.toContain("Reset");
+  });
+
   it("throws when the bundle has no globally installable tools", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -696,7 +738,7 @@ function pathExists(targetPath: string): boolean {
 
 function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
   return {
-    selectBundle: async () => ({ bundle: "react-expert" }),
+    selectBundle: async () => { throw new Error("selectBundle should not be called in this test"); },
     selectBundleItems: async (_available, selected) => selected,
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),

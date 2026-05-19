@@ -3909,6 +3909,9 @@ async function applyBundleGlobal(options: {
 
   const repoRelPathRemapper = buildGlobalRepoRelPathRemapper();
 
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const existingGlobal = registry.global;
+
   const preparedBundle = await prepareApplyBundle({
     bundle: options.bundle,
     source: options.source,
@@ -3918,7 +3921,7 @@ async function applyBundleGlobal(options: {
       : supportedTools,
     requestedItems: [],
     selectItems: false,
-    existingDesiredState: [],
+    existingDesiredState: existingGlobal?.desired_state ?? [],
     libraryDir: options.libraryDir,
     ref: options.ref,
     prompts: options.prompts,
@@ -3947,8 +3950,8 @@ async function applyBundleGlobal(options: {
     ].join("\n");
   }
 
-  let registry = readRegistryWithGuidance(options.registryFile);
-  const existingGlobal = registry.global;
+  // registry already read above; re-read to pick up any changes from preparedBundle (e.g. cache writes)
+  registry = readRegistryWithGuidance(options.registryFile);
   let rootInstructionBaseContents =
     existingGlobal?.materialized_state.root_instruction_base_contents;
   const existingBundleState =
@@ -4399,6 +4402,9 @@ async function resetGlobal(options: {
     removeManagedPaths(options.homeDir, bundlePaths);
   }
 
+  // reset --global removes all bundle materialization entirely; shared root-instruction files
+  // (e.g. .claude/CLAUDE.md) are not re-composed for remaining bundles — base content is restored
+  // as-is. Run `apply --global` afterward to re-materialize from desired state.
   restoreRootInstructionBaseContents({
     repoRoot: options.homeDir,
     baseContents:
@@ -4435,7 +4441,10 @@ async function applyGlobal(options: {
   const toApply = globalState.desired_state.filter((entry) => {
     const mat = globalState.materialized_state.bundles[entry.bundle];
     if (!mat) return true;
-    if (entry.source && !readCachedSourceRevision({ source: entry.source, libraryDir: options.libraryDir }).cached) return true;
+    if (
+      entry.source &&
+      !readCachedSourceRevision({ source: entry.source, libraryDir: options.libraryDir }).cached
+    ) return true;
     return false;
   });
 
@@ -4452,19 +4461,25 @@ async function applyGlobal(options: {
   }
 
   for (const entry of toApply) {
-    const result = await applyBundleGlobal({
-      homeDir: options.homeDir,
-      prompts: options.prompts,
-      registryFile: options.registryFile,
-      libraryDir: options.libraryDir,
-      bundle: entry.bundle,
-      source: entry.source,
-      protocol: entry.protocol,
-      agents: entry.tools ?? [],
-      dryRun: false,
-      ref: entry.ref,
-    });
-    outputLines.push(result);
+    try {
+      const result = await applyBundleGlobal({
+        homeDir: options.homeDir,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        bundle: entry.bundle,
+        source: entry.source,
+        protocol: entry.protocol,
+        agents: entry.tools ?? [],
+        dryRun: false,
+        ref: entry.ref,
+      });
+      outputLines.push(result);
+    } catch (err) {
+      outputLines.push(
+        `${pc.red("ERROR:")} Failed to apply ${entry.bundle}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   return outputLines.join("\n");

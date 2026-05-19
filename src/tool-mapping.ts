@@ -72,6 +72,9 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
+// Skills/commands/agents paths are identical between project and global mode for claude-code
+// (both use .claude/skills etc.), so buildGlobalRepoRelPathRemapper only needs to remap
+// root_instruction paths. If a future tool definition changes this, update the remapper.
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "claude-code",
@@ -119,17 +122,6 @@ export function buildGlobalRepoRelPathRemapper(): (p: string) => string {
     }
   }
   return (p) => map.get(p) ?? p;
-}
-
-/** Resolves the absolute target path for one tool target in global (~/) mode.
- * Exported for use by external consumers inspecting global installation layout. */
-export function resolveGlobalToolTargetPath(
-  toolName: string,
-  targetName: ToolTargetName,
-  homeDir: string,
-): string | null {
-  const target = getGlobalToolDefinition(toolName)?.targets[targetName];
-  return target ? path.join(homeDir, target.path) : null;
 }
 
 /** Looks up one tool definition by name and returns a defensive copy when found. */
