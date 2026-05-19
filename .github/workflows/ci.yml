@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -32,6 +36,25 @@ jobs:
       - name: Test with coverage
         run: pnpm run test:coverage
 
+      - name: Checkout base branch for coverage comparison
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.base_ref }}
+          path: .base
+
+      - name: Install base branch dependencies
+        if: github.event_name == 'pull_request'
+        run: pnpm install --frozen-lockfile
+        working-directory: .base
+
+      - name: Run coverage on base branch
+        if: github.event_name == 'pull_request'
+        run: pnpm run test:coverage
+        working-directory: .base
+
       - name: Report coverage
         if: github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          json-summary-compare-path: .base/coverage/coverage-summary.json
