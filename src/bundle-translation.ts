@@ -18,8 +18,9 @@ type SkillTool =
   | "codex"
   | "opencode"
   | "copilot"
-  | "kiro";
-type CommandTool = "claude" | "cursor" | "opencode";
+  | "kiro"
+  | "antigravity";
+type CommandTool = "claude" | "cursor" | "opencode" | "antigravity";
 type AgentTool =
   | "claude"
   | "cursor"
@@ -33,7 +34,8 @@ type RootInstructionTool =
   | "codex"
   | "opencode"
   | "copilot"
-  | "kiro";
+  | "kiro"
+  | "antigravity";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
@@ -243,6 +245,15 @@ function parseCommand(sourceTool: CommandTool, source: string): CommandModel {
     };
   }
 
+  if (sourceTool === "antigravity") {
+    const document = parseMarkdownDocument(source);
+    return {
+      body: document.body,
+      description: coerceOptionalString(document.metadata.description),
+      manualOnly: true,
+    };
+  }
+
   const document = parseMarkdownDocument(source);
 
   if (sourceTool === "claude") {
@@ -311,6 +322,24 @@ function renderCommand(
 
     return {
       [commandFilePath("opencode", commandName)]:
+        Object.keys(metadata).length === 0
+          ? model.body
+          : renderMarkdownDocument({
+              metadata,
+              body: model.body,
+            }),
+    };
+  }
+
+  if (targetTool === "antigravity") {
+    const metadata: MetadataMap = {};
+
+    if (options.description ?? model.description) {
+      metadata.description = options.description ?? model.description!;
+    }
+
+    return {
+      [commandFilePath("antigravity", commandName)]:
         Object.keys(metadata).length === 0
           ? model.body
           : renderMarkdownDocument({

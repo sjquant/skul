@@ -421,6 +421,40 @@ describe("translateSkill", () => {
       ].join("\n"),
     );
   });
+
+
+  it("renders a native Antigravity skill", () => {
+    // Given
+    const skill = {
+      "SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes",
+        "---",
+        "",
+        "Review the current diff for bugs.",
+        "",
+      ].join("\n"),
+    };
+
+    // When / Then
+    expect(
+      translateSkill({
+        sourceTool: "claude",
+        targetTool: "antigravity",
+        files: skill,
+      })[".agent/skills/reviewer/SKILL.md"],
+    ).toBe(
+      [
+        "---",
+        "name: reviewer",
+        "description: Review changes",
+        "---",
+        "Review the current diff for bugs.",
+        "",
+      ].join("\n"),
+    );
+  });
 });
 
 describe("translateCommand", () => {
@@ -630,6 +664,56 @@ describe("translateCommand", () => {
         "Run tests and summarize any failures.",
         "",
       ].join("\n"),
+    });
+  });
+
+  it("renders an Antigravity workflow from a Claude command", () => {
+    // Given
+    const source = [
+      "---",
+      "description: Review changed files",
+      "---",
+      "",
+      "Review the changed files and summarize the risks.",
+      "",
+    ].join("\n");
+
+    // When
+    const transformed = translateCommand({
+      sourceTool: "claude",
+      targetTool: "antigravity",
+      source,
+      options: { name: "review-changes" },
+    });
+
+    // Then
+    expect(transformed).toEqual({
+      ".agent/workflows/review-changes.md": [
+        "---",
+        "description: Review changed files",
+        "---",
+        "Review the changed files and summarize the risks.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("renders a plain Antigravity workflow when there is no description", () => {
+    // Given
+    const source = "Review the changed files and summarize the risks.\n";
+
+    // When
+    const transformed = translateCommand({
+      sourceTool: "cursor",
+      targetTool: "antigravity",
+      source,
+      options: { name: "review-changes" },
+    });
+
+    // Then
+    expect(transformed).toEqual({
+      ".agent/workflows/review-changes.md":
+        "Review the changed files and summarize the risks.\n",
     });
   });
 

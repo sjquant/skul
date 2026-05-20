@@ -6,7 +6,8 @@ export type ToolName =
   | "opencode"
   | "codex"
   | "copilot"
-  | "kiro";
+  | "kiro"
+  | "antigravity";
 export type ToolTargetName =
   | "skills"
   | "commands"
@@ -77,6 +78,14 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".kiro/skills", kind: "directory" },
       agents: { path: ".kiro/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+    },
+  },
+  {
+    name: "antigravity",
+    targets: {
+      skills: { path: ".agent/skills", kind: "directory" },
+      commands: { path: ".agent/workflows", kind: "directory" },
+      root_instruction: { path: "GEMINI.md", kind: "file" },
     },
   },
 ];

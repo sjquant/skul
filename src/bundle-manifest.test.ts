@@ -107,6 +107,9 @@ describe("parseBundleManifest", () => {
         kiro: {
           root_instruction: { path: "CLAUDE.md" },
         },
+        antigravity: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
       },
     });
   });
@@ -143,6 +146,9 @@ describe("parseBundleManifest", () => {
           root_instruction: { path: "CLAUDE.md" },
         },
         kiro: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        antigravity: {
           root_instruction: { path: "CLAUDE.md" },
         },
       },

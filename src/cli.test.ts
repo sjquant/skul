@@ -2730,7 +2730,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity",
     );
 
     // Then
@@ -2795,7 +2795,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity",
     );
 
     // Then
@@ -2918,7 +2918,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity",
     );
 
     // Then
@@ -3014,7 +3014,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity",
     );
 
     // Then
@@ -3059,7 +3059,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity",
     );
 
     // Then
@@ -3199,7 +3199,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity",
     );
 
     // Then
@@ -3249,7 +3249,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied shared-claude-guide for claude-code, cursor, opencode, codex, copilot, kiro",
+      "Applied shared-claude-guide for claude-code, cursor, opencode, codex, copilot, kiro, antigravity",
     );
 
     // Then
@@ -3309,7 +3309,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity",
     );
 
     // Then
