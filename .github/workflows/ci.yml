@@ -58,8 +58,12 @@ jobs:
         run: pnpm run test:coverage
         working-directory: .base
 
-      - name: Report coverage
-        if: github.event_name == 'pull_request'
+      - name: Report coverage (with base comparison)
+        if: github.event_name == 'pull_request' && hashFiles('.base/coverage/coverage-summary.json') != ''
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           json-summary-compare-path: .base/coverage/coverage-summary.json
+
+      - name: Report coverage
+        if: github.event_name == 'pull_request' && hashFiles('.base/coverage/coverage-summary.json') == ''
+        uses: davelosert/vitest-coverage-report-action@v2
