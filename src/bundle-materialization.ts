@@ -733,7 +733,9 @@ async function materializeCanonicalTarget(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateAgent({
         sourceTool: "claude",
-        targetTool: translTool,
+        targetTool: translTool as Parameters<
+          typeof translateAgent
+        >[0]["targetTool"],
         source: content,
       });
     } else {
@@ -826,7 +828,9 @@ function previewCanonicalTargetWriteTargets(options: {
       const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
       translated = translateAgent({
         sourceTool: "claude",
-        targetTool: translTool,
+        targetTool: translTool as Parameters<
+          typeof translateAgent
+        >[0]["targetTool"],
         source: content,
       });
     } else {

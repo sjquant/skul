@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   translateAgent,
   translateCommand,
+  translateRootInstruction,
   translateSkill,
 } from "./bundle-translation";
 
@@ -421,6 +422,39 @@ describe("translateSkill", () => {
       ].join("\n"),
     );
   });
+
+  it("renders a native Antigravity skill", () => {
+    // Given
+    const skill = {
+      "SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes",
+        "---",
+        "",
+        "Review the current diff for bugs.",
+        "",
+      ].join("\n"),
+    };
+
+    // When / Then
+    expect(
+      translateSkill({
+        sourceTool: "claude",
+        targetTool: "antigravity",
+        files: skill,
+      })[".agent/skills/reviewer/SKILL.md"],
+    ).toBe(
+      [
+        "---",
+        "name: reviewer",
+        "description: Review changes",
+        "---",
+        "Review the current diff for bugs.",
+        "",
+      ].join("\n"),
+    );
+  });
 });
 
 describe("translateCommand", () => {
@@ -628,6 +662,87 @@ describe("translateCommand", () => {
         "description: Run tests",
         "---",
         "Run tests and summarize any failures.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("renders an Antigravity workflow from a Claude command", () => {
+    // Given
+    const source = [
+      "---",
+      "description: Review changed files",
+      "---",
+      "",
+      "Review the changed files and summarize the risks.",
+      "",
+    ].join("\n");
+
+    // When
+    const transformed = translateCommand({
+      sourceTool: "claude",
+      targetTool: "antigravity",
+      source,
+      options: { name: "review-changes" },
+    });
+
+    // Then
+    expect(transformed).toEqual({
+      ".agent/workflows/review-changes.md": [
+        "---",
+        "description: Review changed files",
+        "---",
+        "Review the changed files and summarize the risks.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("renders a plain Antigravity workflow when there is no description", () => {
+    // Given
+    const source = "Review the changed files and summarize the risks.\n";
+
+    // When
+    const transformed = translateCommand({
+      sourceTool: "cursor",
+      targetTool: "antigravity",
+      source,
+      options: { name: "review-changes" },
+    });
+
+    // Then
+    expect(transformed).toEqual({
+      ".agent/workflows/review-changes.md":
+        "Review the changed files and summarize the risks.\n",
+    });
+  });
+
+  it("converts an Antigravity workflow back into a Claude command", () => {
+    // Given
+    const source = [
+      "---",
+      "description: Review changed files",
+      "---",
+      "Review the changed files and summarize the risks.",
+      "",
+    ].join("\n");
+
+    // When
+    const transformed = translateCommand({
+      sourceTool: "antigravity",
+      targetTool: "claude",
+      source,
+      options: { name: "review-changes" },
+    });
+
+    // Then
+    expect(transformed).toEqual({
+      ".claude/commands/review-changes.md": [
+        "---",
+        "description: Review changed files",
+        "disable-model-invocation: true",
+        "---",
+        "Review the changed files and summarize the risks.",
         "",
       ].join("\n"),
     });
@@ -1319,6 +1434,44 @@ describe("kiro skill translation", () => {
         "Review the current diff for correctness.",
         "",
       ].join("\n"),
+    });
+  });
+});
+
+describe("translateRootInstruction", () => {
+  it("writes content to GEMINI.md for antigravity", () => {
+    // Given / When / Then
+    expect(
+      translateRootInstruction({
+        targetTool: "antigravity",
+        source: "Follow the repo conventions.\n",
+      }),
+    ).toEqual({
+      "GEMINI.md": "Follow the repo conventions.\n",
+    });
+  });
+
+  it("writes content to CLAUDE.md for claude", () => {
+    // Given / When / Then
+    expect(
+      translateRootInstruction({
+        targetTool: "claude",
+        source: "Follow the repo conventions.\n",
+      }),
+    ).toEqual({
+      "CLAUDE.md": "Follow the repo conventions.\n",
+    });
+  });
+
+  it("writes content to AGENTS.md for codex", () => {
+    // Given / When / Then
+    expect(
+      translateRootInstruction({
+        targetTool: "codex",
+        source: "Follow the repo conventions.\n",
+      }),
+    ).toEqual({
+      "AGENTS.md": "Follow the repo conventions.\n",
     });
   });
 });

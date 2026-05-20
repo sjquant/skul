@@ -19,6 +19,7 @@ describe("listToolDefinitions", () => {
       "codex",
       "copilot",
       "kiro",
+      "antigravity",
     ]);
   });
 });
@@ -97,6 +98,17 @@ describe("getToolDefinition", () => {
         },
       },
     ],
+    [
+      "antigravity",
+      {
+        name: "antigravity",
+        targets: {
+          skills: { path: ".agent/skills", kind: "directory" },
+          commands: { path: ".agent/workflows", kind: "directory" },
+          root_instruction: { path: "GEMINI.md", kind: "file" },
+        },
+      },
+    ],
   ])("returns the exact target mapping for %s", (toolName, expectedDefinition) => {
     // Given / When / Then
     expect(getToolDefinition(toolName)).toEqual(expectedDefinition);
@@ -135,6 +147,9 @@ describe("resolveToolTargetPath", () => {
     ["kiro", "skills", path.join("/repo", ".kiro/skills")],
     ["kiro", "agents", path.join("/repo", ".kiro/agents")],
     ["kiro", "root_instruction", path.join("/repo", "AGENTS.md")],
+    ["antigravity", "skills", path.join("/repo", ".agent/skills")],
+    ["antigravity", "commands", path.join("/repo", ".agent/workflows")],
+    ["antigravity", "root_instruction", path.join("/repo", "GEMINI.md")],
   ];
 
   it.each(
@@ -150,6 +165,7 @@ describe("resolveToolTargetPath", () => {
     ["codex", "commands"],
     ["copilot", "commands"],
     ["kiro", "commands"],
+    ["antigravity", "agents"],
   ] satisfies Array<
     [string, ToolTargetName]
   >)("returns null when %s does not define %s", (toolName, targetName) => {
