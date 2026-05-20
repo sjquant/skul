@@ -160,7 +160,7 @@ function parseSkill(
     };
   }
 
-  // claude, cursor, copilot, kiro — all use the same SKILL.md format
+  // claude, cursor, copilot, kiro, antigravity — all use the same SKILL.md format
   return {
     name,
     description,
@@ -219,7 +219,7 @@ function renderSkill(
     };
   }
 
-  // claude, cursor, copilot, kiro — all use the same SKILL.md format
+  // claude, cursor, copilot, kiro, antigravity — all use the same SKILL.md format
   const metadata: MetadataMap = {
     name: model.name,
     description: model.description,
@@ -245,26 +245,7 @@ function parseCommand(sourceTool: CommandTool, source: string): CommandModel {
     };
   }
 
-  if (sourceTool === "antigravity") {
-    const document = parseMarkdownDocument(source);
-    return {
-      body: document.body,
-      description: coerceOptionalString(document.metadata.description),
-      manualOnly: true,
-    };
-  }
-
   const document = parseMarkdownDocument(source);
-
-  if (sourceTool === "claude") {
-    return {
-      body: document.body,
-      description: coerceOptionalString(document.metadata.description),
-      agent: coerceOptionalString(document.metadata.agent),
-      model: coerceOptionalString(document.metadata.model),
-      manualOnly: true,
-    };
-  }
 
   return {
     body: document.body,
@@ -305,41 +286,25 @@ function renderCommand(
     };
   }
 
-  if (targetTool === "opencode") {
+  if (targetTool === "opencode" || targetTool === "antigravity") {
     const metadata: MetadataMap = {};
 
     if (options.description ?? model.description) {
       metadata.description = options.description ?? model.description!;
     }
 
-    if (model.agent) {
-      metadata.agent = model.agent;
-    }
+    if (targetTool === "opencode") {
+      if (model.agent) {
+        metadata.agent = model.agent;
+      }
 
-    if (model.model) {
-      metadata.model = model.model;
-    }
-
-    return {
-      [commandFilePath("opencode", commandName)]:
-        Object.keys(metadata).length === 0
-          ? model.body
-          : renderMarkdownDocument({
-              metadata,
-              body: model.body,
-            }),
-    };
-  }
-
-  if (targetTool === "antigravity") {
-    const metadata: MetadataMap = {};
-
-    if (options.description ?? model.description) {
-      metadata.description = options.description ?? model.description!;
+      if (model.model) {
+        metadata.model = model.model;
+      }
     }
 
     return {
-      [commandFilePath("antigravity", commandName)]:
+      [commandFilePath(targetTool, commandName)]:
         Object.keys(metadata).length === 0
           ? model.body
           : renderMarkdownDocument({
