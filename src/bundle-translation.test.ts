@@ -1064,7 +1064,11 @@ describe("copilot ↔ kiro agent round-trip", () => {
     ].join("\n");
 
     // When
-    const toKiro = translateAgent({ sourceTool: "copilot", targetTool: "kiro", source });
+    const toKiro = translateAgent({
+      sourceTool: "copilot",
+      targetTool: "kiro",
+      source,
+    });
     const backToCopilot = translateAgent({
       sourceTool: "kiro",
       targetTool: "copilot",
@@ -1073,7 +1077,9 @@ describe("copilot ↔ kiro agent round-trip", () => {
 
     // Then
     expect(toKiro).toEqual({ ".kiro/agents/code-reviewer.md": rendered });
-    expect(backToCopilot).toEqual({ ".github/agents/code-reviewer.agent.md": rendered });
+    expect(backToCopilot).toEqual({
+      ".github/agents/code-reviewer.agent.md": rendered,
+    });
   });
 
   it("translates a Copilot agent to OpenCode (adds mode: subagent)", () => {
@@ -1089,7 +1095,11 @@ describe("copilot ↔ kiro agent round-trip", () => {
     ].join("\n");
 
     // When
-    const translated = translateAgent({ sourceTool: "copilot", targetTool: "opencode", source });
+    const translated = translateAgent({
+      sourceTool: "copilot",
+      targetTool: "opencode",
+      source,
+    });
 
     // Then
     expect(translated).toEqual({

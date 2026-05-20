@@ -354,7 +354,8 @@ async function materializeRootInstructionTarget(options: {
   for (const [origRelPath, content] of Object.entries(
     translatedContentByPath,
   )) {
-    const repoRelPath = options.repoRelPathRemapper?.(origRelPath) ?? origRelPath;
+    const repoRelPath =
+      options.repoRelPathRemapper?.(origRelPath) ?? origRelPath;
 
     if (options.writtenSharedFileTargets.has(repoRelPath)) {
       options.writtenFiles.push(repoRelPath);

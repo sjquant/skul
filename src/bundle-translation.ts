@@ -12,10 +12,28 @@ interface MetadataMap {
   [key: string]: MetadataValue;
 }
 
-type SkillTool = "claude" | "cursor" | "codex" | "opencode" | "copilot" | "kiro";
+type SkillTool =
+  | "claude"
+  | "cursor"
+  | "codex"
+  | "opencode"
+  | "copilot"
+  | "kiro";
 type CommandTool = "claude" | "cursor" | "opencode";
-type AgentTool = "claude" | "cursor" | "codex" | "opencode" | "copilot" | "kiro";
-type RootInstructionTool = "claude" | "cursor" | "codex" | "opencode" | "copilot" | "kiro";
+type AgentTool =
+  | "claude"
+  | "cursor"
+  | "codex"
+  | "opencode"
+  | "copilot"
+  | "kiro";
+type RootInstructionTool =
+  | "claude"
+  | "cursor"
+  | "codex"
+  | "opencode"
+  | "copilot"
+  | "kiro";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
@@ -113,7 +131,10 @@ function parseSkill(
 
   const document = parseMarkdownDocument(skillSource);
   const name = coerceRequiredString(document.metadata.name, "name");
-  const description = coerceRequiredString(document.metadata.description, "description");
+  const description = coerceRequiredString(
+    document.metadata.description,
+    "description",
+  );
 
   if (sourceTool === "codex") {
     return {
@@ -520,7 +541,8 @@ function commandFilePath(tool: CommandTool, name: string): string {
 
 function agentFilePath(tool: AgentTool, name: string): string {
   if (tool === "codex") return `${targetBasePath(tool, "agents")}/${name}.toml`;
-  if (tool === "copilot") return `${targetBasePath(tool, "agents")}/${name}.agent.md`;
+  if (tool === "copilot")
+    return `${targetBasePath(tool, "agents")}/${name}.agent.md`;
   return `${targetBasePath(tool, "agents")}/${name}.md`;
 }
 

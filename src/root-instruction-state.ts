@@ -105,7 +105,9 @@ function collectRootInstructionContentByPath(options: {
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       toolNames,
-      targetPaths: options.repoRelPathRemapper ? undefined : options.targetPaths,
+      targetPaths: options.repoRelPathRemapper
+        ? undefined
+        : options.targetPaths,
       itemSelectors: desiredEntry.items,
     });
     const bundleContentByPath = options.repoRelPathRemapper

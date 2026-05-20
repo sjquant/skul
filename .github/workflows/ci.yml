@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run check:ci
+
+      - name: Type check
+        run: pnpm run typecheck
+
+      - name: Test with coverage
+        run: pnpm run test:coverage
+
+      - name: Checkout base branch for coverage comparison
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.base_ref }}
+          path: .base
+
+      - name: Install base branch dependencies
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: pnpm install --frozen-lockfile
+        working-directory: .base
+
+      - name: Run coverage on base branch
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: pnpm run test:coverage
+        working-directory: .base
+
+      - name: Report coverage (with base comparison)
+        if: github.event_name == 'pull_request' && hashFiles('.base/coverage/coverage-summary.json') != ''
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          json-summary-compare-path: .base/coverage/coverage-summary.json
+
+      - name: Report coverage
+        if: github.event_name == 'pull_request' && hashFiles('.base/coverage/coverage-summary.json') == ''
+        uses: davelosert/vitest-coverage-report-action@v2
