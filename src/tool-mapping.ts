@@ -41,7 +41,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".cursor/skills", kind: "directory" },
       commands: { path: ".cursor/commands", kind: "directory" },
       agents: { path: ".cursor/agents", kind: "directory" },
-      root_instruction: { path: ".cursorrules", kind: "file" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
     },
   },
   {

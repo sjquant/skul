@@ -817,7 +817,7 @@ describe("createHelpText", () => {
 
     // Then
     expect(helpText).toContain(
-      "cursor targets .cursorrules; codex, opencode, and kiro target AGENTS.md; copilot targets .github/copilot-instructions.md; antigravity targets GEMINI.md; claude-code targets CLAUDE.md.",
+      "cursor, codex, opencode, and kiro target AGENTS.md; copilot targets .github/copilot-instructions.md; antigravity targets GEMINI.md; claude-code targets CLAUDE.md.",
     );
     expect(helpText).toContain(
       "Untracked root instructions are composed locally and hidden through .git/info/exclude.",
@@ -7311,9 +7311,9 @@ describe("tracked root-instruction shadow safety", () => {
         "# Claude guide\nUse @imports sparingly.\n",
       ),
     );
-    // cursor content goes to its own .cursorrules file
+    // cursor targets AGENTS.md, so that file is written separately
     expect(
-      fs.readFileSync(path.join(repoRoot, ".cursorrules"), "utf8"),
+      fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8"),
     ).toBe(
       formatExpectedRootInstructionDocument(
         formatRootInstructionBundleBlock(
