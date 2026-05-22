@@ -80,10 +80,7 @@ describe("getToolDefinition", () => {
         targets: {
           skills: { path: ".github/skills", kind: "directory" },
           agents: { path: ".github/agents", kind: "directory" },
-          root_instruction: {
-            path: ".github/copilot-instructions.md",
-            kind: "file",
-          },
+          root_instruction: { path: "AGENTS.md", kind: "file" },
         },
       },
     ],
@@ -105,7 +102,7 @@ describe("getToolDefinition", () => {
         targets: {
           skills: { path: ".agent/skills", kind: "directory" },
           commands: { path: ".agent/workflows", kind: "directory" },
-          root_instruction: { path: "GEMINI.md", kind: "file" },
+          root_instruction: { path: "AGENTS.md", kind: "file" },
         },
       },
     ],
@@ -139,17 +136,13 @@ describe("resolveToolTargetPath", () => {
     ["codex", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["copilot", "skills", path.join("/repo", ".github/skills")],
     ["copilot", "agents", path.join("/repo", ".github/agents")],
-    [
-      "copilot",
-      "root_instruction",
-      path.join("/repo", ".github/copilot-instructions.md"),
-    ],
+    ["copilot", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["kiro", "skills", path.join("/repo", ".kiro/skills")],
     ["kiro", "agents", path.join("/repo", ".kiro/agents")],
     ["kiro", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["antigravity", "skills", path.join("/repo", ".agent/skills")],
     ["antigravity", "commands", path.join("/repo", ".agent/workflows")],
-    ["antigravity", "root_instruction", path.join("/repo", "GEMINI.md")],
+    ["antigravity", "root_instruction", path.join("/repo", "AGENTS.md")],
   ];
 
   it.each(

@@ -1439,7 +1439,7 @@ describe("kiro skill translation", () => {
 });
 
 describe("translateRootInstruction", () => {
-  it("writes content to GEMINI.md for antigravity", () => {
+  it("writes content to AGENTS.md for antigravity", () => {
     // Given / When / Then
     expect(
       translateRootInstruction({
@@ -1447,7 +1447,7 @@ describe("translateRootInstruction", () => {
         source: "Follow the repo conventions.\n",
       }),
     ).toEqual({
-      "GEMINI.md": "Follow the repo conventions.\n",
+      "AGENTS.md": "Follow the repo conventions.\n",
     });
   });
 
