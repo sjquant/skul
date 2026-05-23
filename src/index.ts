@@ -3966,7 +3966,7 @@ async function applyBundleGlobal(options: {
   const skippedTools =
     options.agents.length === 0
       ? Object.keys(preparedBundle.cachedBundle.manifest.tools).filter(
-          (t) => !supportedTools.includes(t),
+          (t) => !(supportedTools as string[]).includes(t),
         )
       : [];
 
