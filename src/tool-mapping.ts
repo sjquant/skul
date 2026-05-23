@@ -142,10 +142,12 @@ export function globalCapableToolNames(): ToolName[] {
   return GLOBAL_TOOL_DEFINITIONS.map((t) => t.name);
 }
 
-// Computed once at module load: maps project-mode root-instruction paths to global equivalents
-// (e.g. "CLAUDE.md" → ".claude/CLAUDE.md"). Pure function of the static tool definition arrays.
+// Computed once at module load: maps each globally-capable tool name to its
+// project→global root-instruction path pair. Keyed by tool name (not project
+// path) to avoid collisions when multiple tools share the same project path
+// (e.g. copilot and antigravity both use AGENTS.md at project level).
 const GLOBAL_REPO_REL_PATH_REMAP = (() => {
-  const map = new Map<string, string>();
+  const map = new Map<string, { from: string; to: string }>();
   for (const projDef of TOOL_DEFINITIONS) {
     const globalDef = GLOBAL_TOOL_DEFINITIONS.find(
       (g) => g.name === projDef.name,
@@ -153,15 +155,22 @@ const GLOBAL_REPO_REL_PATH_REMAP = (() => {
     const projPath = projDef.targets.root_instruction?.path;
     const globalPath = globalDef?.targets.root_instruction?.path;
     if (projPath && globalPath && projPath !== globalPath) {
-      map.set(projPath, globalPath);
+      map.set(projDef.name, { from: projPath, to: globalPath });
     }
   }
   return map;
 })();
 
-/** Returns the path remapper for global mode (project-mode → global paths, e.g. "CLAUDE.md" → ".claude/CLAUDE.md"). */
-export function buildGlobalRepoRelPathRemapper(): (p: string) => string {
-  return (p) => GLOBAL_REPO_REL_PATH_REMAP.get(p) ?? p;
+/** Returns the path remapper for global mode. Takes the tool name so that tools sharing
+ * the same project path (e.g. AGENTS.md) can each remap to their own global path. */
+export function buildGlobalRepoRelPathRemapper(): (
+  toolName: string,
+  p: string,
+) => string {
+  return (toolName, p) => {
+    const entry = GLOBAL_REPO_REL_PATH_REMAP.get(toolName);
+    return entry && p === entry.from ? entry.to : p;
+  };
 }
 
 /** Looks up one tool definition by name and returns a defensive copy when found. */

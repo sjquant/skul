@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildGlobalRepoRelPathRemapper,
   getGlobalToolDefinition,
   getToolDefinition,
   globalCapableToolNames,
@@ -221,5 +222,40 @@ describe("getGlobalToolDefinition", () => {
     // Given / When / Then
     expect(getGlobalToolDefinition("cursor")).toBeNull();
     expect(getGlobalToolDefinition("kiro")).toBeNull();
+  });
+});
+
+describe("buildGlobalRepoRelPathRemapper", () => {
+  it("remaps claude-code root instruction from CLAUDE.md to .claude/CLAUDE.md", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("claude-code", "CLAUDE.md")).toBe(".claude/CLAUDE.md");
+  });
+
+  it("remaps copilot root instruction from AGENTS.md to .github/copilot-instructions.md", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("copilot", "AGENTS.md")).toBe(".github/copilot-instructions.md");
+  });
+
+  it("remaps antigravity root instruction from AGENTS.md to .gemini/GEMINI.md", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("antigravity", "AGENTS.md")).toBe(".gemini/GEMINI.md");
+  });
+
+  it("does not cross-contaminate: copilot and antigravity remap to different global paths", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("copilot", "AGENTS.md")).not.toBe(remap("antigravity", "AGENTS.md"));
+  });
+
+  it("returns the path unchanged for tools with no global root instruction remapping", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("cursor", "AGENTS.md")).toBe("AGENTS.md");
+    expect(remap("codex", "AGENTS.md")).toBe("AGENTS.md");
+  });
+
+  it("returns the path unchanged for non-root-instruction paths", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("claude-code", ".claude/skills/foo/SKILL.md")).toBe(
+      ".claude/skills/foo/SKILL.md",
+    );
   });
 });
