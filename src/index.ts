@@ -2185,6 +2185,7 @@ function buildDesiredEntryForAppliedBundle(options: {
   requestedProtocol: "https" | "ssh";
   requestedRef?: string;
   requestedTools?: ToolName[];
+  replaceRequestedTools?: boolean;
   requestedItems?: BundleItemSelector[];
   replaceRequestedItems?: boolean;
   sourceRevision?: CachedSourceRevision;
@@ -2195,6 +2196,7 @@ function buildDesiredEntryForAppliedBundle(options: {
   const mergedDesiredTools = mergeDesiredTools({
     existingEntry: existingDesiredEntry,
     requestedTools: options.requestedTools,
+    replace: options.replaceRequestedTools,
   });
   const mergedDesiredItems = mergeDesiredBundleItems({
     existingItems: existingDesiredEntry?.items,
@@ -3711,12 +3713,13 @@ function selectDesiredEntries(
 function mergeDesiredTools(options: {
   existingEntry?: DesiredBundleEntry;
   requestedTools?: ToolName[];
+  replace?: boolean;
 }): ToolName[] | undefined {
   if (options.requestedTools === undefined) {
     return undefined;
   }
 
-  if (options.existingEntry?.tools === undefined) {
+  if (options.replace || options.existingEntry?.tools === undefined) {
     return [...options.requestedTools];
   }
 
@@ -3920,6 +3923,15 @@ async function applyBundleGlobal(options: {
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingGlobal = registry.global;
 
+  // When no --agent is specified, auto-select all globally-capable tools that
+  // the bundle actually supports, rather than requesting all supported tools
+  // upfront (which would fail validation for bundles that don't cover every tool).
+  const globalAutoSelectPrompts: PromptClient = {
+    ...options.prompts,
+    selectAgents: async (availableAgents) =>
+      availableAgents.filter((t) => supportedTools.includes(t)),
+  };
+
   const preparedBundle = await prepareApplyBundle({
     bundle: options.bundle,
     source: options.source,
@@ -3927,13 +3939,14 @@ async function applyBundleGlobal(options: {
     requestedTools:
       options.agents.length > 0
         ? options.agents.filter((t) => supportedTools.includes(t))
-        : supportedTools,
+        : [],
     requestedItems: [],
     selectItems: false,
     existingDesiredState: existingGlobal?.desired_state ?? [],
     libraryDir: options.libraryDir,
     ref: options.ref,
-    prompts: options.prompts,
+    prompts:
+      options.agents.length > 0 ? options.prompts : globalAutoSelectPrompts,
     inferredBundleFromSource: options.inferredBundleFromSource,
   });
 
@@ -3947,6 +3960,15 @@ async function applyBundleGlobal(options: {
       `Bundle "${preparedBundle.cachedBundle.bundle}" has no globally installable tools (bundle provides: ${bundleTools.join(", ")}; global mode supports: ${supportedTools.join(", ")})`,
     );
   }
+
+  // Warn when auto-selecting (no --agent) and the bundle contains tools that
+  // aren't globally installable — they were silently dropped by globalAutoSelectPrompts.
+  const skippedTools =
+    options.agents.length === 0
+      ? Object.keys(preparedBundle.cachedBundle.manifest.tools).filter(
+          (t) => !(supportedTools as string[]).includes(t),
+        )
+      : [];
 
   if (options.dryRun) {
     return [
@@ -4077,6 +4099,7 @@ async function applyBundleGlobal(options: {
     requestedProtocol: options.protocol,
     requestedRef: options.ref,
     requestedTools: availableGlobalTools,
+    replaceRequestedTools: options.agents.length === 0,
     sourceRevision: preparedBundle.sourceRevision,
   });
 
@@ -4119,12 +4142,22 @@ async function applyBundleGlobal(options: {
   registry = upsertGlobalState(registry, newGlobalState);
   writeRegistryFile(options.registryFile, registry);
 
-  return [
+  const lines = [
     ...preparedBundle.cloneLines,
     pc.green(
       `Applied ${preparedBundle.cachedBundle.bundle} globally for ${availableGlobalTools.join(", ")}`,
     ),
-  ].join("\n");
+  ];
+
+  if (skippedTools.length > 0) {
+    lines.push(
+      pc.yellow(
+        `Note: ${skippedTools.join(", ")} ${skippedTools.length === 1 ? "is" : "are"} not supported in global mode and ${skippedTools.length === 1 ? "was" : "were"} skipped`,
+      ),
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function renderGlobalStatus(options: {

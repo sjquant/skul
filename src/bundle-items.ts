@@ -27,6 +27,7 @@ export function normalizeBundleItemSelector(
     value === ROOT_INSTRUCTION_SELECTOR ||
     value === "AGENTS.md" ||
     value === "CLAUDE.md" ||
+    value === "GEMINI.md" ||
     value === ".github/copilot-instructions.md"
   ) {
     return ROOT_INSTRUCTION_SELECTOR;

@@ -146,7 +146,7 @@ const COMMAND_ALIASES: Record<string, CommandName> = {
 const PROGRAM_HELP_DETAILS = [
   "",
   "Root instructions:",
-  "  codex bundles target AGENTS.md; claude-code, cursor, and opencode target CLAUDE.md.",
+  "  cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, copilot targets .github/copilot-instructions.md and antigravity targets .gemini/GEMINI.md; claude-code targets CLAUDE.md.",
   "  Untracked root instructions are composed locally and hidden through .git/info/exclude.",
   "  Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
   "",
@@ -158,13 +158,13 @@ const PROGRAM_HELP_DETAILS = [
 const ADD_HELP_DETAILS = [
   "",
   "Root instruction targets:",
-  "  Bundles may contribute AGENTS.md and CLAUDE.md alongside skills/ and commands/ content.",
+  "  Bundles may contribute root instruction files alongside skills/ and commands/ content.",
   "  If the target root instruction file is already tracked, Skul creates a tracked shadow instead of leaving a visible git diff.",
 ].join("\n");
 const SHADOW_HELP_DETAILS = [
   "",
   "Lifecycle:",
-  "  --suspend restores tracked AGENTS.md / CLAUDE.md files from HEAD and clears skip-worktree.",
+  "  --suspend restores tracked root instruction files from HEAD and clears skip-worktree.",
   "  --refresh rebuilds the effective shadow from the latest HEAD plus Skul overlay content and re-enables skip-worktree.",
   "  The manual suspend/refresh flow only works when the root instruction file is still tracked after the Git update.",
   "  Refresh refuses staged changes, unstaged edits, unmerged files, incompatible index flags, and manual edits to the current shadow render.",
@@ -178,7 +178,7 @@ const SYNC_HELP_DETAILS = [
   "",
   "Lifecycle:",
   "  Typical workflow: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
-  "  Prefer this in headless automation so tracked AGENTS.md / CLAUDE.md shadows are suspended and restored in one step.",
+  "  Prefer this in headless automation so tracked root instruction shadows are suspended and restored in one step.",
   "  If git pull fails, Skul attempts to restore the prior shadow state before returning the error.",
   "  If upstream stops tracking a shadowed root instruction, sync retires the shadow and removes its local state.",
 ].join("\n");
@@ -451,8 +451,14 @@ export function createPromptClientForSelections(
   };
 }
 
+const ROOT_INSTRUCTION_CONFLICT_PATHS = new Set(
+  listToolDefinitions()
+    .map((t) => t.targets.root_instruction?.path)
+    .filter((p): p is string => p !== undefined),
+);
+
 function isRootInstructionConflictPath(conflictPath: string): boolean {
-  return conflictPath === "AGENTS.md" || conflictPath === "CLAUDE.md";
+  return ROOT_INSTRUCTION_CONFLICT_PATHS.has(conflictPath);
 }
 
 function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
@@ -839,7 +845,7 @@ function createProgram(
     });
   const shadowCommand = program
     .command("shadow")
-    .description("Suspend or refresh tracked AGENTS.md / CLAUDE.md shadows")
+    .description("Suspend or refresh tracked root instruction shadows")
     .option(
       "--suspend",
       "Restore tracked root instructions from HEAD and clear skip-worktree",
@@ -866,7 +872,7 @@ function createProgram(
   const syncCommand = program
     .command("sync")
     .description(
-      "Safely pull git updates around tracked AGENTS.md / CLAUDE.md shadows",
+      "Safely pull git updates around tracked root instruction shadows",
     )
     .addHelpText("after", SYNC_HELP_DETAILS)
     .action(() => {

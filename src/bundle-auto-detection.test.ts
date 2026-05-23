@@ -741,7 +741,7 @@ describe("materializeBundle: copilot", () => {
     expect(content).toContain("Review every PR carefully.");
   });
 
-  it("materializes a root instruction into .github/copilot-instructions.md", async () => {
+  it("materializes a root instruction into AGENTS.md for copilot", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -757,15 +757,8 @@ describe("materializeBundle: copilot", () => {
     });
 
     // Then
-    expect(result.byTool["copilot"]!.files).toEqual([
-      ".github/copilot-instructions.md",
-    ]);
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".github/copilot-instructions.md"),
-        "utf8",
-      ),
-    ).toBe(
+    expect(result.byTool["copilot"]!.files).toEqual(["AGENTS.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
       formatExpectedRootInstructionDocument(
         formatRootInstructionBundleBlock("bundle", "# Coding standards\n"),
       ),
@@ -935,20 +928,17 @@ describe("inferBundleManifest: copilot and kiro native paths", () => {
     expect(manifest.tools["claude-code"]).toBeUndefined();
   });
 
-  it("detects copilot-instructions.md as a root instruction", () => {
+  it("detects AGENTS.md as copilot's root instruction", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
-    writeFile(
-      path.join(bundleDir, ".github", "copilot-instructions.md"),
-      "# instructions\n",
-    );
+    writeFile(path.join(bundleDir, "AGENTS.md"), "# instructions\n");
 
     // When
     const manifest = inferBundleManifest(bundleDir);
 
     // Then
     expect(manifest.tools["copilot"]).toEqual({
-      root_instruction: { path: ".github/copilot-instructions.md" },
+      root_instruction: { path: "AGENTS.md" },
     });
   });
 });

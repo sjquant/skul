@@ -554,11 +554,10 @@ describe("run --global", () => {
       "# task\n",
     );
 
-    // When / Then: fails because codex is not a globally-capable tool and
-    // prepareApplyBundle rejects the requested claude-code tool as unsupported
+    // When / Then: fails because codex is not a globally-capable tool
     await expect(
       run(["add", "--global", "codex-only"], { homeDir }),
-    ).rejects.toThrowError(/Bundle does not support tool\(s\)/i);
+    ).rejects.toThrowError(/no globally installable tools/i);
   });
 
   it("returns JSON global status when --json is passed", async () => {
@@ -650,6 +649,255 @@ describe("run --global", () => {
     expect(
       pathExists(path.join(homeDir, ".claude", "skills", "react", "SKILL.md")),
     ).toBe(true);
+  });
+
+  it("writes copilot root instruction to ~/.github/copilot-instructions.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        copilot: { root_instruction: { path: "AGENTS.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "AGENTS.md",
+      "# Copilot guidance\n",
+    );
+
+    // When
+    const output = await run(["add", "--global", "team-guide"], { homeDir });
+
+    // Then: root instruction lands at the copilot-native global path
+    expect(output).toContain("Applied team-guide globally for copilot");
+    const targetPath = path.join(homeDir, ".github", "copilot-instructions.md");
+    expect(fs.existsSync(targetPath)).toBe(true);
+    expect(fs.readFileSync(targetPath, "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "team-guide",
+          "# Copilot guidance\n",
+          "github.com/user/ai-vault",
+        ),
+      ),
+    );
+  });
+
+  it("writes antigravity root instruction to ~/.gemini/GEMINI.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        antigravity: { root_instruction: { path: "AGENTS.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "AGENTS.md",
+      "# Gemini guidance\n",
+    );
+
+    // When
+    const output = await run(["add", "--global", "team-guide"], { homeDir });
+
+    // Then: root instruction lands at the antigravity-native global path
+    expect(output).toContain("Applied team-guide globally for antigravity");
+    const targetPath = path.join(homeDir, ".gemini", "GEMINI.md");
+    expect(fs.existsSync(targetPath)).toBe(true);
+    expect(fs.readFileSync(targetPath, "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "team-guide",
+          "# Gemini guidance\n",
+          "github.com/user/ai-vault",
+        ),
+      ),
+    );
+  });
+
+  it("splits a bundle supporting both copilot and antigravity into their respective global paths", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        copilot: { root_instruction: { path: "AGENTS.md" } },
+        antigravity: { root_instruction: { path: "AGENTS.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "AGENTS.md",
+      "# Shared AI guidance\n",
+    );
+
+    // When
+    await run(["add", "--global", "team-guide"], { homeDir });
+
+    // Then: copilot goes to .github/copilot-instructions.md
+    const copilotPath = path.join(
+      homeDir,
+      ".github",
+      "copilot-instructions.md",
+    );
+    expect(fs.existsSync(copilotPath)).toBe(true);
+    expect(fs.readFileSync(copilotPath, "utf8")).toContain(
+      "# Shared AI guidance",
+    );
+
+    // Then: antigravity goes to .gemini/GEMINI.md — a different file
+    const antigravityPath = path.join(homeDir, ".gemini", "GEMINI.md");
+    expect(fs.existsSync(antigravityPath)).toBe(true);
+    expect(fs.readFileSync(antigravityPath, "utf8")).toContain(
+      "# Shared AI guidance",
+    );
+
+    // Paths must be different files
+    expect(copilotPath).not.toBe(antigravityPath);
+  });
+
+  it("replaces desired tools (not unions) when re-applying without --agent after an explicit --agent install", async () => {
+    // Given: first install explicitly selects only claude-code
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        "claude-code": { root_instruction: { path: "CLAUDE.md" } },
+        copilot: { root_instruction: { path: "AGENTS.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "CLAUDE.md",
+      "# Claude guidance\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "AGENTS.md",
+      "# Shared guidance\n",
+    );
+    await run(["add", "--global", "--agent", "claude-code", "team-guide"], {
+      homeDir,
+    });
+
+    // desired_state stores the explicit selection: only claude-code
+    const registryBefore = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registryBefore.global!.desired_state[0]!.tools).toEqual([
+      "claude-code",
+    ]);
+
+    // When: user re-applies without --agent (auto-select all globally-capable tools)
+    await run(["add", "--global", "team-guide"], { homeDir });
+
+    // Then: desired tools is REPLACED (not unioned) with the auto-selected set.
+    // The bundle supports all globally-capable tools (claude-code, copilot, antigravity)
+    // so desired_state.tools is updated to reflect the current auto-selected set rather
+    // than keeping the old explicit claude-code-only selection merged in.
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registry.global!.desired_state[0]!.tools).toEqual(
+      expect.arrayContaining(["claude-code", "copilot", "antigravity"]),
+    );
+    // Crucially, the tools list is the REPLACED set (all auto-selected), not claude-code alone
+    expect(registry.global!.desired_state[0]!.tools).toHaveLength(3);
+  });
+
+  it("unions desired tools when re-applying with an explicit --agent flag", async () => {
+    // Given: bundle starts with claude-code only
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        "claude-code": { root_instruction: { path: "CLAUDE.md" } },
+        copilot: { root_instruction: { path: "AGENTS.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "CLAUDE.md",
+      "# Claude guidance\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "AGENTS.md",
+      "# Shared guidance\n",
+    );
+    await run(["add", "--global", "--agent", "claude-code", "team-guide"], {
+      homeDir,
+    });
+
+    const registryBefore = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registryBefore.global!.desired_state[0]!.tools).toEqual([
+      "claude-code",
+    ]);
+
+    // When: re-apply with an explicit different --agent (should union)
+    await run(["add", "--global", "--agent", "copilot", "team-guide"], {
+      homeDir,
+    });
+
+    // Then: both tools are now in desired_state (unioned)
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registry.global!.desired_state[0]!.tools).toEqual(
+      expect.arrayContaining(["claude-code", "copilot"]),
+    );
+  });
+
+  it("emits a warning when bundle tools include non-global tools that are skipped", async () => {
+    // Given: bundle supports both claude-code (global) and kiro (not global)
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "mixed-bundle", {
+      name: "mixed-bundle",
+      tools: {
+        "claude-code": { skills: { path: ".claude/skills" } },
+        kiro: { skills: { path: ".kiro/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "mixed-bundle",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "mixed-bundle",
+      ".kiro/skills/react/SKILL.md",
+      "# react\n",
+    );
+
+    // When
+    const output = await run(["add", "--global", "mixed-bundle"], { homeDir });
+
+    // Then: install succeeds for claude-code but warns about kiro
+    expect(output).toContain("Applied mixed-bundle globally for claude-code");
+    expect(output).toContain("kiro");
+    expect(output).toContain("skipped");
   });
 
   it("removes a bundle that is in desired_state but not materialized", async () => {

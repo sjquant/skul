@@ -15,6 +15,7 @@ import {
   wrapRootInstructionBundleContent,
 } from "./root-instruction-render";
 import type { ToolName } from "./tool-mapping";
+import { globalCapableToolNames } from "./tool-mapping";
 
 /** Captures pre-existing root-instruction file contents before Skul starts managing them. */
 export function captureRootInstructionBaseContents(options: {
@@ -60,7 +61,7 @@ export function syncManagedRootInstructionFiles(options: {
   rootInstructionBaseContents?: Record<string, string>;
   targetPaths?: Set<string>;
   resolveCachedBundle: (entry: DesiredBundleEntry) => CachedBundle;
-  repoRelPathRemapper?: (relPath: string) => string;
+  repoRelPathRemapper?: (toolName: string, relPath: string) => string;
 }): Set<string> {
   const contentByPath = collectRootInstructionContentByPath(options);
   const writtenPaths = new Set<string>();
@@ -84,7 +85,7 @@ function collectRootInstructionContentByPath(options: {
   materializedBundles: MaterializedState["bundles"];
   targetPaths?: Set<string>;
   resolveCachedBundle: (entry: DesiredBundleEntry) => CachedBundle;
-  repoRelPathRemapper?: (relPath: string) => string;
+  repoRelPathRemapper?: (toolName: string, relPath: string) => string;
 }): Map<string, string[]> {
   const contentByPath = new Map<string, string[]>();
   const seenBundleTargets = new Set<string>();
@@ -99,59 +100,116 @@ function collectRootInstructionContentByPath(options: {
 
     const cachedBundle = options.resolveCachedBundle(desiredEntry);
     const toolNames = Object.keys(materializedBundleState.tools) as ToolName[];
-    // In global mode, translation keys (e.g. "CLAUDE.md") differ from stored paths
-    // (e.g. ".claude/CLAUDE.md"), so targetPaths pre-filtering must be skipped and keys remapped after.
-    const rawBundleContentByPath = collectComposedRootInstructionContents({
-      bundleDir: path.dirname(cachedBundle.manifestFile),
-      manifest: cachedBundle.manifest,
-      toolNames,
-      targetPaths: options.repoRelPathRemapper
-        ? undefined
-        : options.targetPaths,
-      itemSelectors: desiredEntry.items,
-    });
-    const bundleContentByPath = options.repoRelPathRemapper
-      ? Object.fromEntries(
-          Object.entries(rawBundleContentByPath).map(([k, v]) => [
-            options.repoRelPathRemapper!(k),
+
+    if (options.repoRelPathRemapper) {
+      // In global mode, tools that share a project path (e.g. AGENTS.md) may remap to different
+      // global targets (e.g. .github/copilot-instructions.md vs .gemini/GEMINI.md). Collect and
+      // remap per-tool so each tool maps to its own global path independently.
+      // Only process globally-capable tools; non-global tools in the materialized state (e.g. from
+      // registry corruption) would pass through the remapper unchanged and write to homeDir at the
+      // project-level path.
+      const globalTools = globalCapableToolNames();
+      for (const toolName of toolNames.filter((t) => globalTools.includes(t))) {
+        const rawToolContentByPath = collectComposedRootInstructionContents({
+          bundleDir: path.dirname(cachedBundle.manifestFile),
+          manifest: cachedBundle.manifest,
+          toolNames: [toolName],
+          targetPaths: undefined,
+          itemSelectors: desiredEntry.items,
+        });
+
+        const toolContentByPath = Object.fromEntries(
+          Object.entries(rawToolContentByPath).map(([k, v]) => [
+            options.repoRelPathRemapper!(toolName, k),
             v,
           ]),
-        )
-      : rawBundleContentByPath;
-
-    for (const toolName of toolNames) {
-      for (const repoRelativePath of materializedBundleState.tools[toolName]!
-        .files) {
-        if (!isRootInstructionPath(repoRelativePath)) {
-          continue;
-        }
-
-        if (options.targetPaths && !options.targetPaths.has(repoRelativePath)) {
-          continue;
-        }
-
-        const content = bundleContentByPath[repoRelativePath];
-
-        if (content === undefined) {
-          continue;
-        }
-
-        const bundleTargetKey = `${desiredEntry.bundle}:${repoRelativePath}`;
-
-        if (seenBundleTargets.has(bundleTargetKey)) {
-          continue;
-        }
-
-        seenBundleTargets.add(bundleTargetKey);
-        const existingParts = contentByPath.get(repoRelativePath) ?? [];
-        existingParts.push(
-          wrapRootInstructionBundleContent({
-            bundleName: desiredEntry.bundle,
-            source: desiredEntry.source,
-            content,
-          }),
         );
-        contentByPath.set(repoRelativePath, existingParts);
+
+        for (const repoRelativePath of materializedBundleState.tools[toolName]!
+          .files) {
+          if (!isRootInstructionPath(repoRelativePath)) {
+            continue;
+          }
+
+          if (
+            options.targetPaths &&
+            !options.targetPaths.has(repoRelativePath)
+          ) {
+            continue;
+          }
+
+          const content = toolContentByPath[repoRelativePath];
+
+          if (content === undefined) {
+            continue;
+          }
+
+          const bundleTargetKey = `${desiredEntry.bundle}:${repoRelativePath}`;
+
+          if (seenBundleTargets.has(bundleTargetKey)) {
+            continue;
+          }
+
+          seenBundleTargets.add(bundleTargetKey);
+          const existingParts = contentByPath.get(repoRelativePath) ?? [];
+          existingParts.push(
+            wrapRootInstructionBundleContent({
+              bundleName: desiredEntry.bundle,
+              source: desiredEntry.source,
+              content,
+            }),
+          );
+          contentByPath.set(repoRelativePath, existingParts);
+        }
+      }
+    } else {
+      // Non-global mode: collect all tools at once so tools sharing a path (e.g. multiple tools
+      // targeting AGENTS.md) have their content properly aggregated before writing.
+      const rawBundleContentByPath = collectComposedRootInstructionContents({
+        bundleDir: path.dirname(cachedBundle.manifestFile),
+        manifest: cachedBundle.manifest,
+        toolNames,
+        targetPaths: options.targetPaths,
+        itemSelectors: desiredEntry.items,
+      });
+
+      for (const toolName of toolNames) {
+        for (const repoRelativePath of materializedBundleState.tools[toolName]!
+          .files) {
+          if (!isRootInstructionPath(repoRelativePath)) {
+            continue;
+          }
+
+          if (
+            options.targetPaths &&
+            !options.targetPaths.has(repoRelativePath)
+          ) {
+            continue;
+          }
+
+          const content = rawBundleContentByPath[repoRelativePath];
+
+          if (content === undefined) {
+            continue;
+          }
+
+          const bundleTargetKey = `${desiredEntry.bundle}:${repoRelativePath}`;
+
+          if (seenBundleTargets.has(bundleTargetKey)) {
+            continue;
+          }
+
+          seenBundleTargets.add(bundleTargetKey);
+          const existingParts = contentByPath.get(repoRelativePath) ?? [];
+          existingParts.push(
+            wrapRootInstructionBundleContent({
+              bundleName: desiredEntry.bundle,
+              source: desiredEntry.source,
+              content,
+            }),
+          );
+          contentByPath.set(repoRelativePath, existingParts);
+        }
       }
     }
   }

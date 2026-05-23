@@ -817,7 +817,7 @@ describe("createHelpText", () => {
 
     // Then
     expect(helpText).toContain(
-      "codex bundles target AGENTS.md; claude-code, cursor, and opencode target CLAUDE.md.",
+      "cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, copilot targets .github/copilot-instructions.md and antigravity targets .gemini/GEMINI.md; claude-code targets CLAUDE.md.",
     );
     expect(helpText).toContain(
       "Untracked root instructions are composed locally and hidden through .git/info/exclude.",
@@ -846,16 +846,16 @@ describe("createHelpText", () => {
 
     // Then
     expect(addHelpText).toContain(
-      "Bundles may contribute AGENTS.md and CLAUDE.md alongside skills/ and commands/ content.",
+      "Bundles may contribute root instruction files alongside skills/ and commands/ content.",
     );
     expect(addHelpText).toContain(
       "If the target root instruction file is already tracked, Skul creates a tracked shadow instead of leaving a visible git diff.",
     );
     expect(shadowHelpText).toContain(
-      "Suspend or refresh tracked AGENTS.md / CLAUDE.md shadows",
+      "Suspend or refresh tracked root instruction shadows",
     );
     expect(shadowHelpText).toContain(
-      "--suspend restores tracked AGENTS.md / CLAUDE.md files from HEAD and clears skip-worktree.",
+      "--suspend restores tracked root instruction files from HEAD and clears skip-worktree.",
     );
     expect(shadowHelpText).toContain(
       "--refresh rebuilds the effective shadow from the latest HEAD plus Skul overlay content and re-enables skip-worktree.",
@@ -865,13 +865,13 @@ describe("createHelpText", () => {
     );
     expect(shadowHelpText).toContain("skul shadow --suspend");
     expect(syncHelpText).toContain(
-      "Safely pull git updates around tracked AGENTS.md / CLAUDE.md shadows",
+      "Safely pull git updates around tracked root instruction shadows",
     );
     expect(syncHelpText).toContain(
       "Typical workflow: skul shadow --suspend -> git pull --ff-only -> skul shadow --refresh",
     );
     expect(syncHelpText).toContain(
-      "Prefer this in headless automation so tracked AGENTS.md / CLAUDE.md shadows are suspended and restored in one step.",
+      "Prefer this in headless automation so tracked root instruction shadows are suspended and restored in one step.",
     );
     expect(syncHelpText).toContain(
       "If git pull fails, Skul attempts to restore the prior shadow state before returning the error.",
@@ -3219,45 +3219,46 @@ describe("run", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
 
-    writeManifest(homeDir, "github.com/user/ai-vault", "shared-claude-guide", {
-      name: "shared-claude-guide",
+    // codex and opencode both target AGENTS.md, so their bundle content is combined
+    writeManifest(homeDir, "github.com/user/ai-vault", "shared-agents-guide", {
+      name: "shared-agents-guide",
       tools: {
-        "claude-code": { root_instruction: { path: "claude-guide.md" } },
-        cursor: { root_instruction: { path: "cursor-guide.md" } },
+        codex: { root_instruction: { path: "codex-guide.md" } },
+        opencode: { root_instruction: { path: "opencode-guide.md" } },
       },
     });
     writeBundleFile(
       homeDir,
       "github.com/user/ai-vault",
-      "shared-claude-guide",
-      "claude-guide.md",
-      "# Claude guide\nUse Claude defaults.\n",
+      "shared-agents-guide",
+      "codex-guide.md",
+      "# Codex guide\nUse Codex defaults.\n",
     );
     writeBundleFile(
       homeDir,
       "github.com/user/ai-vault",
-      "shared-claude-guide",
-      "cursor-guide.md",
-      "# Cursor guide\nUse Cursor defaults.\n",
+      "shared-agents-guide",
+      "opencode-guide.md",
+      "# OpenCode guide\nUse OpenCode defaults.\n",
     );
 
     // When
     await expect(
-      run(["add", "shared-claude-guide"], {
+      run(["add", "shared-agents-guide"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied shared-claude-guide for claude-code, cursor, opencode, codex, copilot, kiro, antigravity",
+      "Applied shared-agents-guide for codex, opencode, claude-code, cursor, copilot, kiro, antigravity",
     );
 
-    // Then
-    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+    // Then: codex and opencode content is merged into the shared AGENTS.md target
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
       formatExpectedRootInstructionDocument(
         formatRootInstructionBundleBlock(
-          "shared-claude-guide",
-          "# Claude guide\nUse Claude defaults.\n\n# Cursor guide\nUse Cursor defaults.\n",
+          "shared-agents-guide",
+          "# Codex guide\nUse Codex defaults.\n\n# OpenCode guide\nUse OpenCode defaults.\n",
           "github.com/user/ai-vault",
         ),
       ),
@@ -7280,10 +7281,10 @@ describe("tracked root-instruction shadow safety", () => {
       agent: "claude-code",
       content: "# Claude guide\nUse @imports sparingly.\n",
       extraTools: {
-        cursor: { root_instruction: { path: "cursor-CLAUDE.md" } },
+        cursor: { root_instruction: { path: "cursor-rules.md" } },
       },
       extraFiles: {
-        "cursor-CLAUDE.md": "# Cursor guide\nUse inline diffs.\n",
+        "cursor-rules.md": "# Cursor guide\nUse inline diffs.\n",
       },
     });
     await run(["add", "shared-guide", "--agent", "claude-code"], {
@@ -7301,13 +7302,23 @@ describe("tracked root-instruction shadow safety", () => {
       }),
     ).resolves.toBe("Applied shared-guide for cursor");
 
-    // Then
+    // Then: cursor targets AGENTS.md (not CLAUDE.md), so CLAUDE.md shadow is unchanged (claude-code only)
     assertClaudeDocument(
       repoRoot,
       "# Team base\nUse shared prompts.\n",
       formatTrackedRootInstructionShadowBlock(
         "shared-guide",
-        "# Claude guide\nUse @imports sparingly.\n\n# Cursor guide\nUse inline diffs.\n",
+        "# Claude guide\nUse @imports sparingly.\n",
+      ),
+    );
+    // cursor targets AGENTS.md, so that file is written separately
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "shared-guide",
+          "# Cursor guide\nUse inline diffs.\n",
+          "github.com/user/ai-vault",
+        ),
       ),
     );
 

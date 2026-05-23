@@ -3,7 +3,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildGlobalRepoRelPathRemapper,
+  getGlobalToolDefinition,
   getToolDefinition,
+  globalCapableToolNames,
   listToolDefinitions,
   resolveToolTargetPath,
   type ToolTargetName,
@@ -46,7 +49,7 @@ describe("getToolDefinition", () => {
           skills: { path: ".cursor/skills", kind: "directory" },
           commands: { path: ".cursor/commands", kind: "directory" },
           agents: { path: ".cursor/agents", kind: "directory" },
-          root_instruction: { path: "CLAUDE.md", kind: "file" },
+          root_instruction: { path: "AGENTS.md", kind: "file" },
         },
       },
     ],
@@ -58,7 +61,7 @@ describe("getToolDefinition", () => {
           skills: { path: ".opencode/skills", kind: "directory" },
           commands: { path: ".opencode/commands", kind: "directory" },
           agents: { path: ".opencode/agents", kind: "directory" },
-          root_instruction: { path: "CLAUDE.md", kind: "file" },
+          root_instruction: { path: "AGENTS.md", kind: "file" },
         },
       },
     ],
@@ -80,10 +83,7 @@ describe("getToolDefinition", () => {
         targets: {
           skills: { path: ".github/skills", kind: "directory" },
           agents: { path: ".github/agents", kind: "directory" },
-          root_instruction: {
-            path: ".github/copilot-instructions.md",
-            kind: "file",
-          },
+          root_instruction: { path: "AGENTS.md", kind: "file" },
         },
       },
     ],
@@ -105,7 +105,7 @@ describe("getToolDefinition", () => {
         targets: {
           skills: { path: ".agent/skills", kind: "directory" },
           commands: { path: ".agent/workflows", kind: "directory" },
-          root_instruction: { path: "GEMINI.md", kind: "file" },
+          root_instruction: { path: "AGENTS.md", kind: "file" },
         },
       },
     ],
@@ -128,28 +128,24 @@ describe("resolveToolTargetPath", () => {
     ["cursor", "skills", path.join("/repo", ".cursor/skills")],
     ["cursor", "commands", path.join("/repo", ".cursor/commands")],
     ["cursor", "agents", path.join("/repo", ".cursor/agents")],
-    ["cursor", "root_instruction", path.join("/repo", "CLAUDE.md")],
+    ["cursor", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["opencode", "skills", path.join("/repo", ".opencode/skills")],
     ["opencode", "commands", path.join("/repo", ".opencode/commands")],
     ["opencode", "agents", path.join("/repo", ".opencode/agents")],
-    ["opencode", "root_instruction", path.join("/repo", "CLAUDE.md")],
+    ["opencode", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["codex", "skills", path.join("/repo", ".agents/skills")],
     ["codex", "agents", path.join("/repo", ".codex/agents")],
     ["claude-code", "root_instruction", path.join("/repo", "CLAUDE.md")],
     ["codex", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["copilot", "skills", path.join("/repo", ".github/skills")],
     ["copilot", "agents", path.join("/repo", ".github/agents")],
-    [
-      "copilot",
-      "root_instruction",
-      path.join("/repo", ".github/copilot-instructions.md"),
-    ],
+    ["copilot", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["kiro", "skills", path.join("/repo", ".kiro/skills")],
     ["kiro", "agents", path.join("/repo", ".kiro/agents")],
     ["kiro", "root_instruction", path.join("/repo", "AGENTS.md")],
     ["antigravity", "skills", path.join("/repo", ".agent/skills")],
     ["antigravity", "commands", path.join("/repo", ".agent/workflows")],
-    ["antigravity", "root_instruction", path.join("/repo", "GEMINI.md")],
+    ["antigravity", "root_instruction", path.join("/repo", "AGENTS.md")],
   ];
 
   it.each(
@@ -176,5 +172,94 @@ describe("resolveToolTargetPath", () => {
   it("returns null for unsupported tools", () => {
     // Given / When / Then
     expect(resolveToolTargetPath("unknown-tool", "skills", "/repo")).toBeNull();
+  });
+});
+
+describe("globalCapableToolNames", () => {
+  it("returns tools that support global installation", () => {
+    // Given / When / Then
+    expect(globalCapableToolNames()).toEqual([
+      "claude-code",
+      "copilot",
+      "antigravity",
+    ]);
+  });
+});
+
+describe("getGlobalToolDefinition", () => {
+  it.each([
+    [
+      "copilot",
+      {
+        name: "copilot",
+        targets: {
+          skills: { path: ".github/skills", kind: "directory" },
+          agents: { path: ".github/agents", kind: "directory" },
+          root_instruction: {
+            path: ".github/copilot-instructions.md",
+            kind: "file",
+          },
+        },
+      },
+    ],
+    [
+      "antigravity",
+      {
+        name: "antigravity",
+        targets: {
+          skills: { path: ".agent/skills", kind: "directory" },
+          commands: { path: ".agent/workflows", kind: "directory" },
+          root_instruction: { path: ".gemini/GEMINI.md", kind: "file" },
+        },
+      },
+    ],
+  ])("returns the global definition for %s", (toolName, expectedDefinition) => {
+    // Given / When / Then
+    expect(getGlobalToolDefinition(toolName)).toEqual(expectedDefinition);
+  });
+
+  it("returns null for tools without global support", () => {
+    // Given / When / Then
+    expect(getGlobalToolDefinition("cursor")).toBeNull();
+    expect(getGlobalToolDefinition("kiro")).toBeNull();
+  });
+});
+
+describe("buildGlobalRepoRelPathRemapper", () => {
+  it("remaps claude-code root instruction from CLAUDE.md to .claude/CLAUDE.md", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("claude-code", "CLAUDE.md")).toBe(".claude/CLAUDE.md");
+  });
+
+  it("remaps copilot root instruction from AGENTS.md to .github/copilot-instructions.md", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("copilot", "AGENTS.md")).toBe(
+      ".github/copilot-instructions.md",
+    );
+  });
+
+  it("remaps antigravity root instruction from AGENTS.md to .gemini/GEMINI.md", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("antigravity", "AGENTS.md")).toBe(".gemini/GEMINI.md");
+  });
+
+  it("does not cross-contaminate: copilot and antigravity remap to different global paths", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("copilot", "AGENTS.md")).not.toBe(
+      remap("antigravity", "AGENTS.md"),
+    );
+  });
+
+  it("returns the path unchanged for tools with no global root instruction remapping", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("cursor", "AGENTS.md")).toBe("AGENTS.md");
+    expect(remap("codex", "AGENTS.md")).toBe("AGENTS.md");
+  });
+
+  it("returns the path unchanged for non-root-instruction paths", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("claude-code", ".claude/skills/foo/SKILL.md")).toBe(
+      ".claude/skills/foo/SKILL.md",
+    );
   });
 });
