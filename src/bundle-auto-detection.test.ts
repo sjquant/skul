@@ -758,9 +758,7 @@ describe("materializeBundle: copilot", () => {
 
     // Then
     expect(result.byTool["copilot"]!.files).toEqual(["AGENTS.md"]);
-    expect(
-      fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8"),
-    ).toBe(
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
       formatExpectedRootInstructionDocument(
         formatRootInstructionBundleBlock("bundle", "# Coding standards\n"),
       ),

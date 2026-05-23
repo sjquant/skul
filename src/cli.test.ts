@@ -7312,9 +7312,7 @@ describe("tracked root-instruction shadow safety", () => {
       ),
     );
     // cursor targets AGENTS.md, so that file is written separately
-    expect(
-      fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8"),
-    ).toBe(
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
       formatExpectedRootInstructionDocument(
         formatRootInstructionBundleBlock(
           "shared-guide",

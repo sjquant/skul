@@ -233,7 +233,9 @@ describe("buildGlobalRepoRelPathRemapper", () => {
 
   it("remaps copilot root instruction from AGENTS.md to .github/copilot-instructions.md", () => {
     const remap = buildGlobalRepoRelPathRemapper();
-    expect(remap("copilot", "AGENTS.md")).toBe(".github/copilot-instructions.md");
+    expect(remap("copilot", "AGENTS.md")).toBe(
+      ".github/copilot-instructions.md",
+    );
   });
 
   it("remaps antigravity root instruction from AGENTS.md to .gemini/GEMINI.md", () => {
@@ -243,7 +245,9 @@ describe("buildGlobalRepoRelPathRemapper", () => {
 
   it("does not cross-contaminate: copilot and antigravity remap to different global paths", () => {
     const remap = buildGlobalRepoRelPathRemapper();
-    expect(remap("copilot", "AGENTS.md")).not.toBe(remap("antigravity", "AGENTS.md"));
+    expect(remap("copilot", "AGENTS.md")).not.toBe(
+      remap("antigravity", "AGENTS.md"),
+    );
   });
 
   it("returns the path unchanged for tools with no global root instruction remapping", () => {

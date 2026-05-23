@@ -673,11 +673,7 @@ describe("run --global", () => {
 
     // Then: root instruction lands at the copilot-native global path
     expect(output).toContain("Applied team-guide globally for copilot");
-    const targetPath = path.join(
-      homeDir,
-      ".github",
-      "copilot-instructions.md",
-    );
+    const targetPath = path.join(homeDir, ".github", "copilot-instructions.md");
     expect(fs.existsSync(targetPath)).toBe(true);
     expect(fs.readFileSync(targetPath, "utf8")).toBe(
       formatExpectedRootInstructionDocument(
@@ -747,9 +743,15 @@ describe("run --global", () => {
     await run(["add", "--global", "team-guide"], { homeDir });
 
     // Then: copilot goes to .github/copilot-instructions.md
-    const copilotPath = path.join(homeDir, ".github", "copilot-instructions.md");
+    const copilotPath = path.join(
+      homeDir,
+      ".github",
+      "copilot-instructions.md",
+    );
     expect(fs.existsSync(copilotPath)).toBe(true);
-    expect(fs.readFileSync(copilotPath, "utf8")).toContain("# Shared AI guidance");
+    expect(fs.readFileSync(copilotPath, "utf8")).toContain(
+      "# Shared AI guidance",
+    );
 
     // Then: antigravity goes to .gemini/GEMINI.md — a different file
     const antigravityPath = path.join(homeDir, ".gemini", "GEMINI.md");
