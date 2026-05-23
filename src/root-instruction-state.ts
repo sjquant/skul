@@ -15,6 +15,7 @@ import {
   wrapRootInstructionBundleContent,
 } from "./root-instruction-render";
 import type { ToolName } from "./tool-mapping";
+import { globalCapableToolNames } from "./tool-mapping";
 
 /** Captures pre-existing root-instruction file contents before Skul starts managing them. */
 export function captureRootInstructionBaseContents(options: {
@@ -104,7 +105,11 @@ function collectRootInstructionContentByPath(options: {
       // In global mode, tools that share a project path (e.g. AGENTS.md) may remap to different
       // global targets (e.g. .github/copilot-instructions.md vs .gemini/GEMINI.md). Collect and
       // remap per-tool so each tool maps to its own global path independently.
-      for (const toolName of toolNames) {
+      // Only process globally-capable tools; non-global tools in the materialized state (e.g. from
+      // registry corruption) would pass through the remapper unchanged and write to homeDir at the
+      // project-level path.
+      const globalTools = globalCapableToolNames();
+      for (const toolName of toolNames.filter((t) => globalTools.includes(t))) {
         const rawToolContentByPath = collectComposedRootInstructionContents({
           bundleDir: path.dirname(cachedBundle.manifestFile),
           manifest: cachedBundle.manifest,

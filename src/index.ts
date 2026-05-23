@@ -2185,6 +2185,7 @@ function buildDesiredEntryForAppliedBundle(options: {
   requestedProtocol: "https" | "ssh";
   requestedRef?: string;
   requestedTools?: ToolName[];
+  replaceRequestedTools?: boolean;
   requestedItems?: BundleItemSelector[];
   replaceRequestedItems?: boolean;
   sourceRevision?: CachedSourceRevision;
@@ -2195,6 +2196,7 @@ function buildDesiredEntryForAppliedBundle(options: {
   const mergedDesiredTools = mergeDesiredTools({
     existingEntry: existingDesiredEntry,
     requestedTools: options.requestedTools,
+    replace: options.replaceRequestedTools,
   });
   const mergedDesiredItems = mergeDesiredBundleItems({
     existingItems: existingDesiredEntry?.items,
@@ -3711,12 +3713,13 @@ function selectDesiredEntries(
 function mergeDesiredTools(options: {
   existingEntry?: DesiredBundleEntry;
   requestedTools?: ToolName[];
+  replace?: boolean;
 }): ToolName[] | undefined {
   if (options.requestedTools === undefined) {
     return undefined;
   }
 
-  if (options.existingEntry?.tools === undefined) {
+  if (options.replace || options.existingEntry?.tools === undefined) {
     return [...options.requestedTools];
   }
 
@@ -3958,6 +3961,15 @@ async function applyBundleGlobal(options: {
     );
   }
 
+  // Warn when auto-selecting (no --agent) and the bundle contains tools that
+  // aren't globally installable — they were silently dropped by globalAutoSelectPrompts.
+  const skippedTools =
+    options.agents.length === 0
+      ? Object.keys(preparedBundle.cachedBundle.manifest.tools).filter(
+          (t) => !supportedTools.includes(t),
+        )
+      : [];
+
   if (options.dryRun) {
     return [
       ...preparedBundle.cloneLines,
@@ -4087,6 +4099,7 @@ async function applyBundleGlobal(options: {
     requestedProtocol: options.protocol,
     requestedRef: options.ref,
     requestedTools: availableGlobalTools,
+    replaceRequestedTools: options.agents.length === 0,
     sourceRevision: preparedBundle.sourceRevision,
   });
 
@@ -4129,12 +4142,22 @@ async function applyBundleGlobal(options: {
   registry = upsertGlobalState(registry, newGlobalState);
   writeRegistryFile(options.registryFile, registry);
 
-  return [
+  const lines = [
     ...preparedBundle.cloneLines,
     pc.green(
       `Applied ${preparedBundle.cachedBundle.bundle} globally for ${availableGlobalTools.join(", ")}`,
     ),
-  ].join("\n");
+  ];
+
+  if (skippedTools.length > 0) {
+    lines.push(
+      pc.yellow(
+        `Note: ${skippedTools.join(", ")} ${skippedTools.length === 1 ? "is" : "are"} not supported in global mode and ${skippedTools.length === 1 ? "was" : "were"} skipped`,
+      ),
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function renderGlobalStatus(options: {
