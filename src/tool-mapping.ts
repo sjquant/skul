@@ -115,7 +115,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
     targets: {
       skills: { path: ".agent/skills", kind: "directory" },
       commands: { path: ".agent/workflows", kind: "directory" },
-      root_instruction: { path: "GEMINI.md", kind: "file" },
+      root_instruction: { path: ".gemini/GEMINI.md", kind: "file" },
     },
   },
 ];

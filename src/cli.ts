@@ -146,7 +146,7 @@ const COMMAND_ALIASES: Record<string, CommandName> = {
 const PROGRAM_HELP_DETAILS = [
   "",
   "Root instructions:",
-  "  cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, copilot targets .github/copilot-instructions.md and antigravity targets GEMINI.md; claude-code targets CLAUDE.md.",
+  "  cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, copilot targets .github/copilot-instructions.md and antigravity targets .gemini/GEMINI.md; claude-code targets CLAUDE.md.",
   "  Untracked root instructions are composed locally and hidden through .git/info/exclude.",
   "  Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
   "",
