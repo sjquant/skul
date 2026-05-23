@@ -87,8 +87,8 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
-// Skills/commands/agents paths are intentionally identical between project and global mode for
-// claude-code (both use .claude/skills etc.); only root_instruction paths differ.
+// Skills/commands/agents paths are identical between project and global mode;
+// only root_instruction paths differ to match each tool's global config convention.
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "claude-code",
@@ -97,6 +97,25 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".claude/commands", kind: "directory" },
       agents: { path: ".claude/agents", kind: "directory" },
       root_instruction: { path: ".claude/CLAUDE.md", kind: "file" },
+    },
+  },
+  {
+    name: "copilot",
+    targets: {
+      skills: { path: ".github/skills", kind: "directory" },
+      agents: { path: ".github/agents", kind: "directory" },
+      root_instruction: {
+        path: ".github/copilot-instructions.md",
+        kind: "file",
+      },
+    },
+  },
+  {
+    name: "antigravity",
+    targets: {
+      skills: { path: ".agent/skills", kind: "directory" },
+      commands: { path: ".agent/workflows", kind: "directory" },
+      root_instruction: { path: "GEMINI.md", kind: "file" },
     },
   },
 ];

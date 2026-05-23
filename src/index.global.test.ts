@@ -554,11 +554,10 @@ describe("run --global", () => {
       "# task\n",
     );
 
-    // When / Then: fails because codex is not a globally-capable tool and
-    // prepareApplyBundle rejects the requested claude-code tool as unsupported
+    // When / Then: fails because codex is not a globally-capable tool
     await expect(
       run(["add", "--global", "codex-only"], { homeDir }),
-    ).rejects.toThrowError(/Bundle does not support tool\(s\)/i);
+    ).rejects.toThrowError(/no globally installable tools/i);
   });
 
   it("returns JSON global status when --json is passed", async () => {

@@ -3920,6 +3920,15 @@ async function applyBundleGlobal(options: {
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingGlobal = registry.global;
 
+  // When no --agent is specified, auto-select all globally-capable tools that
+  // the bundle actually supports, rather than requesting all supported tools
+  // upfront (which would fail validation for bundles that don't cover every tool).
+  const globalAutoSelectPrompts: PromptClient = {
+    ...options.prompts,
+    selectAgents: async (availableAgents) =>
+      availableAgents.filter((t) => supportedTools.includes(t)),
+  };
+
   const preparedBundle = await prepareApplyBundle({
     bundle: options.bundle,
     source: options.source,
@@ -3927,13 +3936,14 @@ async function applyBundleGlobal(options: {
     requestedTools:
       options.agents.length > 0
         ? options.agents.filter((t) => supportedTools.includes(t))
-        : supportedTools,
+        : [],
     requestedItems: [],
     selectItems: false,
     existingDesiredState: existingGlobal?.desired_state ?? [],
     libraryDir: options.libraryDir,
     ref: options.ref,
-    prompts: options.prompts,
+    prompts:
+      options.agents.length > 0 ? options.prompts : globalAutoSelectPrompts,
     inferredBundleFromSource: options.inferredBundleFromSource,
   });
 

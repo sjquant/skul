@@ -817,7 +817,7 @@ describe("createHelpText", () => {
 
     // Then
     expect(helpText).toContain(
-      "cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; antigravity targets GEMINI.md globally; claude-code targets CLAUDE.md.",
+      "cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, copilot targets .github/copilot-instructions.md and antigravity targets GEMINI.md; claude-code targets CLAUDE.md.",
     );
     expect(helpText).toContain(
       "Untracked root instructions are composed locally and hidden through .git/info/exclude.",

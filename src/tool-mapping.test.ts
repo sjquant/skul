@@ -3,7 +3,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  getGlobalToolDefinition,
   getToolDefinition,
+  globalCapableToolNames,
   listToolDefinitions,
   resolveToolTargetPath,
   type ToolTargetName,
@@ -169,5 +171,55 @@ describe("resolveToolTargetPath", () => {
   it("returns null for unsupported tools", () => {
     // Given / When / Then
     expect(resolveToolTargetPath("unknown-tool", "skills", "/repo")).toBeNull();
+  });
+});
+
+describe("globalCapableToolNames", () => {
+  it("returns tools that support global installation", () => {
+    // Given / When / Then
+    expect(globalCapableToolNames()).toEqual([
+      "claude-code",
+      "copilot",
+      "antigravity",
+    ]);
+  });
+});
+
+describe("getGlobalToolDefinition", () => {
+  it.each([
+    [
+      "copilot",
+      {
+        name: "copilot",
+        targets: {
+          skills: { path: ".github/skills", kind: "directory" },
+          agents: { path: ".github/agents", kind: "directory" },
+          root_instruction: {
+            path: ".github/copilot-instructions.md",
+            kind: "file",
+          },
+        },
+      },
+    ],
+    [
+      "antigravity",
+      {
+        name: "antigravity",
+        targets: {
+          skills: { path: ".agent/skills", kind: "directory" },
+          commands: { path: ".agent/workflows", kind: "directory" },
+          root_instruction: { path: "GEMINI.md", kind: "file" },
+        },
+      },
+    ],
+  ])("returns the global definition for %s", (toolName, expectedDefinition) => {
+    // Given / When / Then
+    expect(getGlobalToolDefinition(toolName)).toEqual(expectedDefinition);
+  });
+
+  it("returns null for tools without global support", () => {
+    // Given / When / Then
+    expect(getGlobalToolDefinition("cursor")).toBeNull();
+    expect(getGlobalToolDefinition("kiro")).toBeNull();
   });
 });
