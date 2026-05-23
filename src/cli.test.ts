@@ -7302,7 +7302,7 @@ describe("tracked root-instruction shadow safety", () => {
       }),
     ).resolves.toBe("Applied shared-guide for cursor");
 
-    // Then: cursor targets .cursorrules, so CLAUDE.md shadow is unchanged (claude-code only)
+    // Then: cursor targets AGENTS.md (not CLAUDE.md), so CLAUDE.md shadow is unchanged (claude-code only)
     assertClaudeDocument(
       repoRoot,
       "# Team base\nUse shared prompts.\n",

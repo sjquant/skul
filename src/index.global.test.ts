@@ -651,6 +651,117 @@ describe("run --global", () => {
     ).toBe(true);
   });
 
+  it("writes copilot root instruction to ~/.github/copilot-instructions.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        copilot: { root_instruction: { path: "AGENTS.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "AGENTS.md",
+      "# Copilot guidance\n",
+    );
+
+    // When
+    const output = await run(["add", "--global", "team-guide"], { homeDir });
+
+    // Then: root instruction lands at the copilot-native global path
+    expect(output).toContain("Applied team-guide globally for copilot");
+    const targetPath = path.join(
+      homeDir,
+      ".github",
+      "copilot-instructions.md",
+    );
+    expect(fs.existsSync(targetPath)).toBe(true);
+    expect(fs.readFileSync(targetPath, "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "team-guide",
+          "# Copilot guidance\n",
+          "github.com/user/ai-vault",
+        ),
+      ),
+    );
+  });
+
+  it("writes antigravity root instruction to ~/.gemini/GEMINI.md", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        antigravity: { root_instruction: { path: "AGENTS.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "AGENTS.md",
+      "# Gemini guidance\n",
+    );
+
+    // When
+    const output = await run(["add", "--global", "team-guide"], { homeDir });
+
+    // Then: root instruction lands at the antigravity-native global path
+    expect(output).toContain("Applied team-guide globally for antigravity");
+    const targetPath = path.join(homeDir, ".gemini", "GEMINI.md");
+    expect(fs.existsSync(targetPath)).toBe(true);
+    expect(fs.readFileSync(targetPath, "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "team-guide",
+          "# Gemini guidance\n",
+          "github.com/user/ai-vault",
+        ),
+      ),
+    );
+  });
+
+  it("splits a bundle supporting both copilot and antigravity into their respective global paths", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        copilot: { root_instruction: { path: "AGENTS.md" } },
+        antigravity: { root_instruction: { path: "AGENTS.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      "AGENTS.md",
+      "# Shared AI guidance\n",
+    );
+
+    // When
+    await run(["add", "--global", "team-guide"], { homeDir });
+
+    // Then: copilot goes to .github/copilot-instructions.md
+    const copilotPath = path.join(homeDir, ".github", "copilot-instructions.md");
+    expect(fs.existsSync(copilotPath)).toBe(true);
+    expect(fs.readFileSync(copilotPath, "utf8")).toContain("# Shared AI guidance");
+
+    // Then: antigravity goes to .gemini/GEMINI.md — a different file
+    const antigravityPath = path.join(homeDir, ".gemini", "GEMINI.md");
+    expect(fs.existsSync(antigravityPath)).toBe(true);
+    expect(fs.readFileSync(antigravityPath, "utf8")).toContain(
+      "# Shared AI guidance",
+    );
+
+    // Paths must be different files
+    expect(copilotPath).not.toBe(antigravityPath);
+  });
+
   it("removes a bundle that is in desired_state but not materialized", async () => {
     // Given
     const homeDir = createHomeDir();
