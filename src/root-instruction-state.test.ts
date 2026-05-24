@@ -80,63 +80,77 @@ function makeDesiredEntry(
 
 describe("captureRootInstructionBaseContents", () => {
   it("captures the content of a pre-existing file", () => {
+    // Given
     const repoRoot = createTempDir();
     writeFile(path.join(repoRoot, "CLAUDE.md"), "# My personal rules\n");
 
+    // When
     const result = captureRootInstructionBaseContents({
       repoRoot,
       targetPaths: new Set(["CLAUDE.md"]),
     });
 
+    // Then
     expect(result).toEqual({ "CLAUDE.md": "# My personal rules\n" });
   });
 
   it("returns undefined when no files exist at the target paths", () => {
+    // Given
     const repoRoot = createTempDir();
 
+    // When
     const result = captureRootInstructionBaseContents({
       repoRoot,
       targetPaths: new Set(["CLAUDE.md"]),
     });
 
+    // Then
     expect(result).toBeUndefined();
   });
 
   it("skips a path that is already recorded in existingBaseContents", () => {
+    // Given: CLAUDE.md on disk has new content, but it's already in the record
     const repoRoot = createTempDir();
     writeFile(path.join(repoRoot, "CLAUDE.md"), "# New content\n");
 
+    // When
     const result = captureRootInstructionBaseContents({
       repoRoot,
       targetPaths: new Set(["CLAUDE.md"]),
       existingBaseContents: { "CLAUDE.md": "# Original content\n" },
     });
 
-    // The existing record is preserved verbatim
-    expect(result!["CLAUDE.md"]).toBe("# Original content\n");
+    // Then: the existing record is preserved verbatim
+    expect(result?.["CLAUDE.md"]).toBe("# Original content\n");
   });
 
   it("skips a path that is already managed by Skul", () => {
+    // Given
     const repoRoot = createTempDir();
     writeFile(path.join(repoRoot, "CLAUDE.md"), "<!-- SKUL managed -->\n");
 
+    // When
     const result = captureRootInstructionBaseContents({
       repoRoot,
       targetPaths: new Set(["CLAUDE.md"]),
       managedTargetPaths: new Set(["CLAUDE.md"]),
     });
 
+    // Then
     expect(result).toBeUndefined();
   });
 
   it("returns undefined when targetPaths is empty", () => {
+    // Given
     const repoRoot = createTempDir();
 
+    // When
     const result = captureRootInstructionBaseContents({
       repoRoot,
       targetPaths: new Set(),
     });
 
+    // Then
     expect(result).toBeUndefined();
   });
 });
@@ -147,9 +161,9 @@ describe("captureRootInstructionBaseContents", () => {
 
 describe("syncManagedRootInstructionFiles", () => {
   it("writes bundle-wrapped content to the repo root and returns the written path", () => {
+    // Given
     const repoRoot = createTempDir();
     const cacheDir = createTempDir();
-
     const manifest: BundleManifest = {
       tools: { "claude-code": { root_instruction: { path: "CLAUDE.md" } } },
     };
@@ -159,13 +173,13 @@ describe("syncManagedRootInstructionFiles", () => {
       manifest,
       files: { "CLAUDE.md": "# My rules\n" },
     });
-
     const materializedBundles: MaterializedState["bundles"] = {
       "my-bundle": {
         tools: { "claude-code": { files: ["CLAUDE.md"] } },
       },
     };
 
+    // When
     const written = syncManagedRootInstructionFiles({
       repoRoot,
       desiredState: [makeDesiredEntry("my-bundle")],
@@ -173,6 +187,7 @@ describe("syncManagedRootInstructionFiles", () => {
       resolveCachedBundle: () => cachedBundle,
     });
 
+    // Then
     expect(written).toEqual(new Set(["CLAUDE.md"]));
     const content = fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
     expect(content).toBe(
@@ -187,9 +202,9 @@ describe("syncManagedRootInstructionFiles", () => {
   });
 
   it("prepends pre-existing base content before the bundle block", () => {
+    // Given
     const repoRoot = createTempDir();
     const cacheDir = createTempDir();
-
     const manifest: BundleManifest = {
       tools: { "claude-code": { root_instruction: { path: "CLAUDE.md" } } },
     };
@@ -199,13 +214,13 @@ describe("syncManagedRootInstructionFiles", () => {
       manifest,
       files: { "CLAUDE.md": "# Bundle rules\n" },
     });
-
     const materializedBundles: MaterializedState["bundles"] = {
       "my-bundle": {
         tools: { "claude-code": { files: ["CLAUDE.md"] } },
       },
     };
 
+    // When
     const written = syncManagedRootInstructionFiles({
       repoRoot,
       desiredState: [makeDesiredEntry("my-bundle")],
@@ -214,6 +229,7 @@ describe("syncManagedRootInstructionFiles", () => {
       resolveCachedBundle: () => cachedBundle,
     });
 
+    // Then
     expect(written).toContain("CLAUDE.md");
     const content = fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
     expect(content).toBe(
@@ -229,9 +245,9 @@ describe("syncManagedRootInstructionFiles", () => {
   });
 
   it("remaps project-level root instruction paths in global mode", () => {
+    // Given
     const repoRoot = createTempDir();
     const cacheDir = createTempDir();
-
     const manifest: BundleManifest = {
       tools: { "claude-code": { root_instruction: { path: "CLAUDE.md" } } },
     };
@@ -241,7 +257,6 @@ describe("syncManagedRootInstructionFiles", () => {
       manifest,
       files: { "CLAUDE.md": "# Global rules\n" },
     });
-
     // In global mode, claude-code's CLAUDE.md → .claude/CLAUDE.md
     const materializedBundles: MaterializedState["bundles"] = {
       "global-bundle": {
@@ -249,6 +264,7 @@ describe("syncManagedRootInstructionFiles", () => {
       },
     };
 
+    // When
     const written = syncManagedRootInstructionFiles({
       repoRoot,
       desiredState: [makeDesiredEntry("global-bundle")],
@@ -258,6 +274,7 @@ describe("syncManagedRootInstructionFiles", () => {
       resolveCachedBundle: () => cachedBundle,
     });
 
+    // Then
     expect(written).toContain(".claude/CLAUDE.md");
     expect(fs.existsSync(path.join(repoRoot, ".claude", "CLAUDE.md"))).toBe(
       true,
@@ -265,9 +282,9 @@ describe("syncManagedRootInstructionFiles", () => {
   });
 
   it("skips a bundle with no materialized state", () => {
+    // Given
     const repoRoot = createTempDir();
     const cacheDir = createTempDir();
-
     const manifest: BundleManifest = {
       tools: { "claude-code": { root_instruction: { path: "CLAUDE.md" } } },
     };
@@ -278,6 +295,7 @@ describe("syncManagedRootInstructionFiles", () => {
       files: { "CLAUDE.md": "# Ghost rules\n" },
     });
 
+    // When
     const written = syncManagedRootInstructionFiles({
       repoRoot,
       desiredState: [makeDesiredEntry("ghost-bundle")],
@@ -285,6 +303,7 @@ describe("syncManagedRootInstructionFiles", () => {
       resolveCachedBundle: () => cachedBundle,
     });
 
+    // Then
     expect(written.size).toBe(0);
     expect(fs.existsSync(path.join(repoRoot, "CLAUDE.md"))).toBe(false);
   });
@@ -296,14 +315,17 @@ describe("syncManagedRootInstructionFiles", () => {
 
 describe("restoreRootInstructionBaseContents", () => {
   it("writes the saved base content back to disk and returns the path", () => {
+    // Given
     const repoRoot = createTempDir();
 
+    // When
     const restored = restoreRootInstructionBaseContents({
       repoRoot,
       baseContents: { "CLAUDE.md": "# My personal rules\n" },
       targetPaths: new Set(["CLAUDE.md"]),
     });
 
+    // Then
     expect(restored).toEqual(new Set(["CLAUDE.md"]));
     expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
       "# My personal rules\n",
@@ -311,39 +333,48 @@ describe("restoreRootInstructionBaseContents", () => {
   });
 
   it("returns an empty set when baseContents is undefined", () => {
+    // Given
     const repoRoot = createTempDir();
 
+    // When
     const restored = restoreRootInstructionBaseContents({
       repoRoot,
       baseContents: undefined,
       targetPaths: new Set(["CLAUDE.md"]),
     });
 
+    // Then
     expect(restored.size).toBe(0);
   });
 
   it("skips paths not present in baseContents", () => {
+    // Given
     const repoRoot = createTempDir();
 
+    // When
     const restored = restoreRootInstructionBaseContents({
       repoRoot,
       baseContents: { "AGENTS.md": "# AGENTS content\n" },
       targetPaths: new Set(["CLAUDE.md"]), // not in baseContents
     });
 
+    // Then
     expect(restored.size).toBe(0);
     expect(fs.existsSync(path.join(repoRoot, "CLAUDE.md"))).toBe(false);
   });
 
   it("returns an empty set when targetPaths is empty", () => {
+    // Given
     const repoRoot = createTempDir();
 
+    // When
     const restored = restoreRootInstructionBaseContents({
       repoRoot,
       baseContents: { "CLAUDE.md": "# rules\n" },
       targetPaths: new Set(),
     });
 
+    // Then
     expect(restored.size).toBe(0);
   });
 });
@@ -354,6 +385,7 @@ describe("restoreRootInstructionBaseContents", () => {
 
 describe("refreshManagedFileFingerprintsForPaths", () => {
   it("returns the same bundles structure when filePaths is empty", () => {
+    // Given
     const bundles: MaterializedState["bundles"] = {
       "my-bundle": {
         tools: {
@@ -365,20 +397,22 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
       },
     };
 
+    // When
     const result = refreshManagedFileFingerprintsForPaths(
       "/repo",
       bundles,
       new Set(),
     );
 
+    // Then
     expect(result).toEqual(bundles);
   });
 
   it("recomputes the fingerprint for a rewritten file", () => {
+    // Given
     const repoRoot = createTempDir();
     const content = "# Updated rules\n";
     writeFile(path.join(repoRoot, "CLAUDE.md"), content);
-
     const bundles: MaterializedState["bundles"] = {
       "my-bundle": {
         tools: {
@@ -390,24 +424,24 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
       },
     };
 
+    // When
     const result = refreshManagedFileFingerprintsForPaths(
       repoRoot,
       bundles,
       new Set(["CLAUDE.md"]),
     );
 
-    const expectedHash = sha256(content);
+    // Then
     expect(
-      result["my-bundle"]!.tools["claude-code"]!.file_fingerprints![
+      result["my-bundle"]?.tools["claude-code"]?.file_fingerprints?.[
         "CLAUDE.md"
       ],
-    ).toBe(expectedHash);
+    ).toBe(sha256(content));
   });
 
   it("records an empty string fingerprint when the file cannot be read", () => {
+    // Given: CLAUDE.md does not exist on disk
     const repoRoot = createTempDir();
-    // CLAUDE.md does not exist on disk
-
     const bundles: MaterializedState["bundles"] = {
       "my-bundle": {
         tools: {
@@ -419,14 +453,16 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
       },
     };
 
+    // When
     const result = refreshManagedFileFingerprintsForPaths(
       repoRoot,
       bundles,
       new Set(["CLAUDE.md"]),
     );
 
+    // Then
     expect(
-      result["my-bundle"]!.tools["claude-code"]!.file_fingerprints![
+      result["my-bundle"]?.tools["claude-code"]?.file_fingerprints?.[
         "CLAUDE.md"
       ],
     ).toBe("");
@@ -439,6 +475,7 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
 
 describe("collectManagedRootInstructionTargets", () => {
   it("returns the set of root instruction paths owned by materialized bundles", () => {
+    // Given
     const bundles: MaterializedState["bundles"] = {
       "bundle-a": {
         tools: {
@@ -454,16 +491,21 @@ describe("collectManagedRootInstructionTargets", () => {
       },
     };
 
+    // When
     const targets = collectManagedRootInstructionTargets(bundles);
 
+    // Then
     expect(targets).toContain("CLAUDE.md");
     expect(targets).toContain("AGENTS.md");
-    // Non-root-instruction paths are excluded
     expect(targets).not.toContain(".claude/skills/react/SKILL.md");
   });
 
   it("returns an empty set when no bundles are materialized", () => {
-    expect(collectManagedRootInstructionTargets({})).toEqual(new Set());
+    // When
+    const targets = collectManagedRootInstructionTargets({});
+
+    // Then
+    expect(targets).toEqual(new Set());
   });
 });
 
@@ -473,8 +515,10 @@ describe("collectManagedRootInstructionTargets", () => {
 
 describe("assertManagedRootInstructionSyncSourcesCached", () => {
   it("is a no-op when targetPaths is empty", () => {
+    // Given
     const resolveCachedBundle = vi.fn();
 
+    // When
     assertManagedRootInstructionSyncSourcesCached({
       desiredState: [makeDesiredEntry("my-bundle")],
       materializedBundles: {
@@ -484,12 +528,15 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
       resolveCachedBundle,
     });
 
+    // Then: resolver is never called when there are no target paths
     expect(resolveCachedBundle).not.toHaveBeenCalled();
   });
 
   it("is a no-op when the bundle does not own the target path", () => {
+    // Given
     const resolveCachedBundle = vi.fn();
 
+    // When
     assertManagedRootInstructionSyncSourcesCached({
       desiredState: [makeDesiredEntry("my-bundle")],
       materializedBundles: {
@@ -503,14 +550,15 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
       resolveCachedBundle,
     });
 
-    // The bundle's files don't include CLAUDE.md, so no resolution needed
+    // Then: resolver is not called because the bundle's files don't include CLAUDE.md
     expect(resolveCachedBundle).not.toHaveBeenCalled();
   });
 
   it("calls resolveCachedBundle for a bundle that owns the target path", () => {
-    const cachedBundle = {} as CachedBundle;
-    const resolveCachedBundle = vi.fn(() => cachedBundle);
+    // Given
+    const resolveCachedBundle = vi.fn(() => ({}) as CachedBundle);
 
+    // When
     assertManagedRootInstructionSyncSourcesCached({
       desiredState: [makeDesiredEntry("my-bundle")],
       materializedBundles: {
@@ -520,14 +568,17 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
       resolveCachedBundle,
     });
 
+    // Then
     expect(resolveCachedBundle).toHaveBeenCalledOnce();
   });
 
   it("propagates an error thrown by resolveCachedBundle", () => {
+    // Given
     const resolveCachedBundle = vi.fn(() => {
       throw new Error("bundle not cached");
     });
 
+    // When / Then
     expect(() =>
       assertManagedRootInstructionSyncSourcesCached({
         desiredState: [makeDesiredEntry("my-bundle")],
@@ -547,6 +598,7 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
 
 describe("collectSharedRootInstructionState", () => {
   it("collects root instruction paths owned by bundles other than the excluded one", () => {
+    // Given
     const bundles: MaterializedState["bundles"] = {
       "bundle-a": {
         tools: {
@@ -566,40 +618,42 @@ describe("collectSharedRootInstructionState", () => {
       },
     };
 
+    // When
     const result = collectSharedRootInstructionState(
       bundles,
       ["CLAUDE.md", "AGENTS.md"],
       "bundle-a", // excluded
     );
 
-    // Only bundle-b's path should appear
+    // Then: only bundle-b's path appears
     expect(result.files).toEqual(["AGENTS.md"]);
     expect(result.file_fingerprints["AGENTS.md"]).toBe("hash-b");
     expect(result.files).not.toContain("CLAUDE.md");
   });
 
   it("excludes non-root-instruction paths from the shared state", () => {
+    // Given
     const bundles: MaterializedState["bundles"] = {
       "bundle-a": {
         tools: {
-          "claude-code": {
-            files: [".claude/skills/react/SKILL.md"],
-          },
+          "claude-code": { files: [".claude/skills/react/SKILL.md"] },
         },
       },
     };
 
+    // When
     const result = collectSharedRootInstructionState(
       bundles,
       [".claude/skills/react/SKILL.md"],
-      "bundle-b", // excluded (different bundle)
+      "bundle-b", // a different bundle is excluded; bundle-a is still checked
     );
 
-    // Skill files are not root instruction paths
+    // Then: skill files are not root instruction paths
     expect(result.files).toEqual([]);
   });
 
   it("returns empty state when all bundles are excluded", () => {
+    // Given
     const bundles: MaterializedState["bundles"] = {
       "bundle-a": {
         tools: {
@@ -611,12 +665,14 @@ describe("collectSharedRootInstructionState", () => {
       },
     };
 
+    // When
     const result = collectSharedRootInstructionState(
       bundles,
       ["CLAUDE.md"],
       "bundle-a",
     );
 
+    // Then
     expect(result.files).toEqual([]);
     expect(result.file_fingerprints).toEqual({});
   });

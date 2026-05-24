@@ -41,115 +41,227 @@ function writeFile(filePath: string, content: string): void {
 
 describe("normalizeBundleItemSelector", () => {
   it('passes "root-instruction" through unchanged', () => {
-    expect(normalizeBundleItemSelector("root-instruction")).toBe(
-      "root-instruction",
-    );
+    // Given
+    const selector = "root-instruction";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("root-instruction");
   });
 
   it("normalizes CLAUDE.md alias to root-instruction", () => {
-    expect(normalizeBundleItemSelector("CLAUDE.md")).toBe("root-instruction");
+    // Given
+    const selector = "CLAUDE.md";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("root-instruction");
   });
 
   it("normalizes AGENTS.md alias to root-instruction", () => {
-    expect(normalizeBundleItemSelector("AGENTS.md")).toBe("root-instruction");
+    // Given
+    const selector = "AGENTS.md";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("root-instruction");
   });
 
   it("normalizes GEMINI.md alias to root-instruction", () => {
-    expect(normalizeBundleItemSelector("GEMINI.md")).toBe("root-instruction");
+    // Given
+    const selector = "GEMINI.md";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("root-instruction");
   });
 
   it("normalizes .github/copilot-instructions.md alias to root-instruction", () => {
-    expect(normalizeBundleItemSelector(".github/copilot-instructions.md")).toBe(
-      "root-instruction",
-    );
+    // Given
+    const selector = ".github/copilot-instructions.md";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("root-instruction");
   });
 
   it("accepts a plain skills selector with no extension", () => {
-    expect(normalizeBundleItemSelector("skills/react")).toBe("skills/react");
+    // Given
+    const selector = "skills/react";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("skills/react");
   });
 
   it("accepts a plain commands selector", () => {
-    expect(normalizeBundleItemSelector("commands/review")).toBe(
-      "commands/review",
-    );
+    // Given
+    const selector = "commands/review";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("commands/review");
   });
 
   it("accepts a plain agents selector", () => {
-    expect(normalizeBundleItemSelector("agents/reviewer")).toBe(
-      "agents/reviewer",
-    );
+    // Given
+    const selector = "agents/reviewer";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("agents/reviewer");
   });
 
   it("strips .md extension", () => {
-    expect(normalizeBundleItemSelector("skills/react.md")).toBe("skills/react");
+    // Given
+    const selector = "skills/react.md";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("skills/react");
   });
 
   it("strips .toml extension", () => {
-    expect(normalizeBundleItemSelector("agents/reviewer.toml")).toBe(
-      "agents/reviewer",
-    );
+    // Given
+    const selector = "agents/reviewer.toml";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("agents/reviewer");
   });
 
   it("strips .yaml extension", () => {
-    expect(normalizeBundleItemSelector("commands/deploy.yaml")).toBe(
-      "commands/deploy",
-    );
+    // Given
+    const selector = "commands/deploy.yaml";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("commands/deploy");
   });
 
   it("strips .yml extension", () => {
-    expect(normalizeBundleItemSelector("commands/deploy.yml")).toBe(
-      "commands/deploy",
-    );
+    // Given
+    const selector = "commands/deploy.yml";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("commands/deploy");
   });
 
   it("strips .json extension", () => {
-    expect(normalizeBundleItemSelector("skills/config.json")).toBe(
-      "skills/config",
-    );
+    // Given
+    const selector = "skills/config.json";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("skills/config");
   });
 
   it("strips .agent.md extension before the generic .md rule", () => {
-    expect(normalizeBundleItemSelector("agents/reviewer.agent.md")).toBe(
-      "agents/reviewer",
-    );
+    // Given
+    const selector = "agents/reviewer.agent.md";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("agents/reviewer");
   });
 
   it("normalizes Windows backslashes to forward slashes", () => {
-    expect(normalizeBundleItemSelector("skills\\react")).toBe("skills/react");
+    // Given
+    const selector = "skills\\react";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("skills/react");
   });
 
   it("trims surrounding whitespace", () => {
-    expect(normalizeBundleItemSelector("  skills/react  ")).toBe(
-      "skills/react",
-    );
+    // Given
+    const selector = "  skills/react  ";
+
+    // When
+    const result = normalizeBundleItemSelector(selector);
+
+    // Then
+    expect(result).toBe("skills/react");
   });
 
   it("throws for a nested path with more than one segment after the target", () => {
-    expect(() => normalizeBundleItemSelector("skills/react/SKILL.md")).toThrow(
+    // Given
+    const selector = "skills/react/SKILL.md";
+
+    // When / Then
+    expect(() => normalizeBundleItemSelector(selector)).toThrow(
       "must target one top-level item",
     );
   });
 
   it("throws for an unrecognised target prefix", () => {
-    expect(() => normalizeBundleItemSelector("unknown/foo")).toThrow(
+    // Given
+    const selector = "unknown/foo";
+
+    // When / Then
+    expect(() => normalizeBundleItemSelector(selector)).toThrow(
       "must start with skills/, commands/, agents/",
     );
   });
 
   it("throws when the item name is absent after the target slash", () => {
-    expect(() => normalizeBundleItemSelector("skills/")).toThrow(
+    // Given
+    const selector = "skills/";
+
+    // When / Then
+    expect(() => normalizeBundleItemSelector(selector)).toThrow(
       "missing an item name",
     );
   });
 
   it("throws when the item name is a single dot", () => {
-    expect(() => normalizeBundleItemSelector("skills/.")).toThrow(
+    // Given
+    const selector = "skills/.";
+
+    // When / Then
+    expect(() => normalizeBundleItemSelector(selector)).toThrow(
       "missing an item name",
     );
   });
 
   it("throws when the item name is double-dot", () => {
-    expect(() => normalizeBundleItemSelector("skills/..")).toThrow(
+    // Given
+    const selector = "skills/..";
+
+    // When / Then
+    expect(() => normalizeBundleItemSelector(selector)).toThrow(
       "missing an item name",
     );
   });
@@ -161,25 +273,44 @@ describe("normalizeBundleItemSelector", () => {
 
 describe("normalizeBundleItemSelectors", () => {
   it("normalizes every entry in the list", () => {
-    expect(
-      normalizeBundleItemSelectors(["skills/react.md", "commands/review"]),
-    ).toEqual(["skills/react", "commands/review"]);
+    // Given
+    const selectors = ["skills/react.md", "commands/review"];
+
+    // When
+    const result = normalizeBundleItemSelectors(selectors);
+
+    // Then
+    expect(result).toEqual(["skills/react", "commands/review"]);
   });
 
   it("deduplicates selectors that normalize to the same value", () => {
-    expect(
-      normalizeBundleItemSelectors(["skills/react", "skills/react.md"]),
-    ).toEqual(["skills/react"]);
+    // Given
+    const selectors = ["skills/react", "skills/react.md"];
+
+    // When
+    const result = normalizeBundleItemSelectors(selectors);
+
+    // Then
+    expect(result).toEqual(["skills/react"]);
   });
 
   it("deduplicates root-instruction aliases", () => {
-    expect(
-      normalizeBundleItemSelectors(["CLAUDE.md", "root-instruction"]),
-    ).toEqual(["root-instruction"]);
+    // Given
+    const selectors = ["CLAUDE.md", "root-instruction"];
+
+    // When
+    const result = normalizeBundleItemSelectors(selectors);
+
+    // Then
+    expect(result).toEqual(["root-instruction"]);
   });
 
   it("returns an empty array for empty input", () => {
-    expect(normalizeBundleItemSelectors([])).toEqual([]);
+    // When
+    const result = normalizeBundleItemSelectors([]);
+
+    // Then
+    expect(result).toEqual([]);
   });
 });
 
@@ -189,21 +320,41 @@ describe("normalizeBundleItemSelectors", () => {
 
 describe("isRootInstructionItemSelected", () => {
   it("returns true when selectors is undefined (whole bundle selected)", () => {
-    expect(isRootInstructionItemSelected(undefined)).toBe(true);
+    // When
+    const result = isRootInstructionItemSelected(undefined);
+
+    // Then
+    expect(result).toBe(true);
   });
 
   it("returns true when selectors includes root-instruction", () => {
-    expect(
-      isRootInstructionItemSelected(["root-instruction", "skills/react"]),
-    ).toBe(true);
+    // Given
+    const selectors = ["root-instruction", "skills/react"];
+
+    // When
+    const result = isRootInstructionItemSelected(selectors);
+
+    // Then
+    expect(result).toBe(true);
   });
 
   it("returns false when selectors does not include root-instruction", () => {
-    expect(isRootInstructionItemSelected(["skills/react"])).toBe(false);
+    // Given
+    const selectors = ["skills/react"];
+
+    // When
+    const result = isRootInstructionItemSelected(selectors);
+
+    // Then
+    expect(result).toBe(false);
   });
 
   it("returns false for an empty selector list", () => {
-    expect(isRootInstructionItemSelected([])).toBe(false);
+    // When
+    const result = isRootInstructionItemSelected([]);
+
+    // Then
+    expect(result).toBe(false);
   });
 });
 
@@ -213,53 +364,75 @@ describe("isRootInstructionItemSelected", () => {
 
 describe("isDirectoryItemSelected", () => {
   it("returns true when selectors is undefined (whole bundle)", () => {
-    expect(
-      isDirectoryItemSelected({
-        selectors: undefined,
-        targetName: "skills",
-        entryName: "react",
-      }),
-    ).toBe(true);
+    // When
+    const result = isDirectoryItemSelected({
+      selectors: undefined,
+      targetName: "skills",
+      entryName: "react",
+    });
+
+    // Then
+    expect(result).toBe(true);
   });
 
   it("returns true when the selector list contains the normalised entry", () => {
-    expect(
-      isDirectoryItemSelected({
-        selectors: ["skills/react"],
-        targetName: "skills",
-        entryName: "react",
-      }),
-    ).toBe(true);
+    // Given
+    const selectors = ["skills/react"];
+
+    // When
+    const result = isDirectoryItemSelected({
+      selectors,
+      targetName: "skills",
+      entryName: "react",
+    });
+
+    // Then
+    expect(result).toBe(true);
   });
 
   it("strips a known extension from the entry name before matching", () => {
-    expect(
-      isDirectoryItemSelected({
-        selectors: ["skills/react"],
-        targetName: "skills",
-        entryName: "react.md",
-      }),
-    ).toBe(true);
+    // Given
+    const selectors = ["skills/react"];
+
+    // When
+    const result = isDirectoryItemSelected({
+      selectors,
+      targetName: "skills",
+      entryName: "react.md",
+    });
+
+    // Then
+    expect(result).toBe(true);
   });
 
   it("returns false when the entry is absent from the selector list", () => {
-    expect(
-      isDirectoryItemSelected({
-        selectors: ["skills/other"],
-        targetName: "skills",
-        entryName: "react",
-      }),
-    ).toBe(false);
+    // Given
+    const selectors = ["skills/other"];
+
+    // When
+    const result = isDirectoryItemSelected({
+      selectors,
+      targetName: "skills",
+      entryName: "react",
+    });
+
+    // Then
+    expect(result).toBe(false);
   });
 
   it("returns false when the selector targets a different target type", () => {
-    expect(
-      isDirectoryItemSelected({
-        selectors: ["commands/react"],
-        targetName: "skills",
-        entryName: "react",
-      }),
-    ).toBe(false);
+    // Given
+    const selectors = ["commands/react"];
+
+    // When
+    const result = isDirectoryItemSelected({
+      selectors,
+      targetName: "skills",
+      entryName: "react",
+    });
+
+    // Then
+    expect(result).toBe(false);
   });
 });
 
@@ -269,54 +442,61 @@ describe("isDirectoryItemSelected", () => {
 
 describe("listSelectableBundleItems", () => {
   it("adds root-instruction when the manifest declares a root_instruction target", () => {
+    // Given
     const bundleDir = createTempDir();
     writeFile(path.join(bundleDir, "CLAUDE.md"), "# instructions");
-
     const manifest: BundleManifest = {
       tools: { "claude-code": { root_instruction: { path: "CLAUDE.md" } } },
     };
 
+    // When
     const items = listSelectableBundleItems({ bundleDir, manifest });
+
+    // Then
     expect(items).toContain("root-instruction");
   });
 
   it("lists skills as directories only", () => {
+    // Given: a directory is a valid skill; a loose file under skills/ is not
     const bundleDir = createTempDir();
-    // A directory is a valid skill
     fs.mkdirSync(path.join(bundleDir, "skills", "react"), { recursive: true });
     writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react");
-    // A loose file directly under skills/ is not selectable
     writeFile(path.join(bundleDir, "skills", "loose.md"), "# loose");
-
     const manifest: BundleManifest = {
       tools: { "claude-code": { skills: { path: "skills" } } },
     };
 
+    // When
     const items = listSelectableBundleItems({ bundleDir, manifest });
+
+    // Then
     expect(items).toEqual(["skills/react"]);
     expect(items).not.toContain("skills/loose");
   });
 
   it("lists commands as files with extensions stripped", () => {
+    // Given
     const bundleDir = createTempDir();
     writeFile(path.join(bundleDir, "commands", "review.md"), "# review");
-
     const manifest: BundleManifest = {
       tools: { "claude-code": { commands: { path: "commands" } } },
     };
 
+    // When
     const items = listSelectableBundleItems({ bundleDir, manifest });
+
+    // Then
     expect(items).toContain("commands/review");
     expect(items).not.toContain("commands/review.md");
   });
 
   it("returns a sorted, deduplicated list when multiple tools share the same canonical path", () => {
+    // Given
     const bundleDir = createTempDir();
     fs.mkdirSync(path.join(bundleDir, "skills", "react"), { recursive: true });
     writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react");
     fs.mkdirSync(path.join(bundleDir, "skills", "vue"), { recursive: true });
     writeFile(path.join(bundleDir, "skills", "vue", "SKILL.md"), "# vue");
-
     const manifest: BundleManifest = {
       tools: {
         "claude-code": { skills: { path: "skills" } },
@@ -324,16 +504,19 @@ describe("listSelectableBundleItems", () => {
       },
     };
 
+    // When
     const items = listSelectableBundleItems({ bundleDir, manifest });
+
+    // Then: deduplicated and sorted
     expect(items).toEqual(["skills/react", "skills/vue"]);
   });
 
   it("filters to the specified tools when a tools array is provided", () => {
+    // Given
     const bundleDir = createTempDir();
     fs.mkdirSync(path.join(bundleDir, "skills", "react"), { recursive: true });
     writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react");
     writeFile(path.join(bundleDir, "commands", "review.md"), "# review");
-
     const manifest: BundleManifest = {
       tools: {
         "claude-code": {
@@ -344,22 +527,30 @@ describe("listSelectableBundleItems", () => {
       },
     };
 
-    // Ask only for cursor — it only has commands, not skills
+    // When: ask only for cursor, which has no skills target
     const items = listSelectableBundleItems({
       bundleDir,
       manifest,
       tools: ["cursor"],
     });
+
+    // Then
     expect(items).toContain("commands/review");
     expect(items).not.toContain("skills/react");
   });
 
   it("returns an empty list when the target directory does not exist", () => {
+    // Given
     const bundleDir = createTempDir();
     const manifest: BundleManifest = {
       tools: { "claude-code": { skills: { path: "skills" } } },
     };
-    expect(listSelectableBundleItems({ bundleDir, manifest })).toEqual([]);
+
+    // When
+    const items = listSelectableBundleItems({ bundleDir, manifest });
+
+    // Then
+    expect(items).toEqual([]);
   });
 });
 
@@ -369,47 +560,61 @@ describe("listSelectableBundleItems", () => {
 
 describe("assertBundleSupportsRequestedItems", () => {
   it("does not throw when all requested items are available", () => {
+    // Given
+    const requestedItems = ["skills/react", "root-instruction"];
+    const availableItems = [
+      "root-instruction",
+      "skills/react",
+      "commands/review",
+    ];
+
+    // When / Then
     expect(() =>
-      assertBundleSupportsRequestedItems({
-        requestedItems: ["skills/react", "root-instruction"],
-        availableItems: ["root-instruction", "skills/react", "commands/review"],
-      }),
+      assertBundleSupportsRequestedItems({ requestedItems, availableItems }),
     ).not.toThrow();
   });
 
   it("does not throw when requestedItems is empty", () => {
+    // Given
+    const requestedItems: string[] = [];
+    const availableItems = ["skills/react"];
+
+    // When / Then
     expect(() =>
-      assertBundleSupportsRequestedItems({
-        requestedItems: [],
-        availableItems: ["skills/react"],
-      }),
+      assertBundleSupportsRequestedItems({ requestedItems, availableItems }),
     ).not.toThrow();
   });
 
   it("throws and names the missing item", () => {
+    // Given
+    const requestedItems = ["skills/missing"];
+    const availableItems = ["skills/react"];
+
+    // When / Then
     expect(() =>
-      assertBundleSupportsRequestedItems({
-        requestedItems: ["skills/missing"],
-        availableItems: ["skills/react"],
-      }),
+      assertBundleSupportsRequestedItems({ requestedItems, availableItems }),
     ).toThrow("skills/missing");
   });
 
   it("includes the available items list in the error message", () => {
+    // Given
+    const requestedItems = ["skills/missing"];
+    const availableItems = ["skills/react"];
+
+    // When / Then
     expect(() =>
-      assertBundleSupportsRequestedItems({
-        requestedItems: ["skills/missing"],
-        availableItems: ["skills/react"],
-      }),
+      assertBundleSupportsRequestedItems({ requestedItems, availableItems }),
     ).toThrow("skills/react");
   });
 
   it("throws when multiple requested items are missing", () => {
+    // Given
+    const requestedItems = ["skills/a", "commands/b"];
+    const availableItems = ["skills/react"];
+
+    // When / Then
     expect(() =>
-      assertBundleSupportsRequestedItems({
-        requestedItems: ["skills/a", "commands/b"],
-        availableItems: ["skills/react"],
-      }),
+      assertBundleSupportsRequestedItems({ requestedItems, availableItems }),
     ).toThrow();
   });
 });
@@ -420,56 +625,83 @@ describe("assertBundleSupportsRequestedItems", () => {
 
 describe("mergeDesiredBundleItems", () => {
   it("returns undefined when requestedItems is undefined (whole bundle)", () => {
-    expect(
-      mergeDesiredBundleItems({
-        requestedItems: undefined,
-        existingItems: ["skills/react"],
-      }),
-    ).toBeUndefined();
+    // Given
+    const existingItems = ["skills/react"];
+
+    // When
+    const result = mergeDesiredBundleItems({
+      requestedItems: undefined,
+      existingItems,
+    });
+
+    // Then
+    expect(result).toBeUndefined();
   });
 
   it("replaces existing items when replace is true", () => {
-    expect(
-      mergeDesiredBundleItems({
-        existingItems: ["skills/react"],
-        requestedItems: ["commands/review"],
-        replace: true,
-      }),
-    ).toEqual(["commands/review"]);
+    // Given
+    const existingItems = ["skills/react"];
+    const requestedItems = ["commands/review"];
+
+    // When
+    const result = mergeDesiredBundleItems({
+      existingItems,
+      requestedItems,
+      replace: true,
+    });
+
+    // Then
+    expect(result).toEqual(["commands/review"]);
   });
 
   it("returns an empty array when replace is true and requestedItems is empty", () => {
-    expect(
-      mergeDesiredBundleItems({
-        existingItems: ["skills/react"],
-        requestedItems: [],
-        replace: true,
-      }),
-    ).toEqual([]);
+    // Given
+    const existingItems = ["skills/react"];
+
+    // When
+    const result = mergeDesiredBundleItems({
+      existingItems,
+      requestedItems: [],
+      replace: true,
+    });
+
+    // Then
+    expect(result).toEqual([]);
   });
 
   it("unions existing and requested items when replace is false", () => {
-    expect(
-      mergeDesiredBundleItems({
-        existingItems: ["skills/react"],
-        requestedItems: ["commands/review"],
-      }),
-    ).toEqual(["skills/react", "commands/review"]);
+    // Given
+    const existingItems = ["skills/react"];
+    const requestedItems = ["commands/review"];
+
+    // When
+    const result = mergeDesiredBundleItems({ existingItems, requestedItems });
+
+    // Then
+    expect(result).toEqual(["skills/react", "commands/review"]);
   });
 
   it("deduplicates items already present in existingItems", () => {
-    expect(
-      mergeDesiredBundleItems({
-        existingItems: ["skills/react"],
-        requestedItems: ["skills/react", "commands/review"],
-      }),
-    ).toEqual(["skills/react", "commands/review"]);
+    // Given
+    const existingItems = ["skills/react"];
+    const requestedItems = ["skills/react", "commands/review"];
+
+    // When
+    const result = mergeDesiredBundleItems({ existingItems, requestedItems });
+
+    // Then
+    expect(result).toEqual(["skills/react", "commands/review"]);
   });
 
   it("treats missing existingItems as an empty list", () => {
-    expect(
-      mergeDesiredBundleItems({ requestedItems: ["skills/react"] }),
-    ).toEqual(["skills/react"]);
+    // Given
+    const requestedItems = ["skills/react"];
+
+    // When
+    const result = mergeDesiredBundleItems({ requestedItems });
+
+    // Then
+    expect(result).toEqual(["skills/react"]);
   });
 });
 
@@ -479,51 +711,82 @@ describe("mergeDesiredBundleItems", () => {
 
 describe("bundleItemSelectionsEqual", () => {
   it("returns true when both are undefined", () => {
-    expect(bundleItemSelectionsEqual(undefined, undefined)).toBe(true);
+    // When
+    const result = bundleItemSelectionsEqual(undefined, undefined);
+
+    // Then
+    expect(result).toBe(true);
   });
 
   it("returns false when left is undefined and right is not", () => {
-    expect(bundleItemSelectionsEqual(undefined, ["skills/react"])).toBe(false);
+    // When
+    const result = bundleItemSelectionsEqual(undefined, ["skills/react"]);
+
+    // Then
+    expect(result).toBe(false);
   });
 
   it("returns false when right is undefined and left is not", () => {
-    expect(bundleItemSelectionsEqual(["skills/react"], undefined)).toBe(false);
+    // When
+    const result = bundleItemSelectionsEqual(["skills/react"], undefined);
+
+    // Then
+    expect(result).toBe(false);
   });
 
   it("returns true for two equal arrays in the same order", () => {
-    expect(
-      bundleItemSelectionsEqual(
-        ["skills/react", "commands/review"],
-        ["skills/react", "commands/review"],
-      ),
-    ).toBe(true);
+    // Given
+    const left = ["skills/react", "commands/review"];
+    const right = ["skills/react", "commands/review"];
+
+    // When
+    const result = bundleItemSelectionsEqual(left, right);
+
+    // Then
+    expect(result).toBe(true);
   });
 
   it("returns true for the same items in different order", () => {
-    expect(
-      bundleItemSelectionsEqual(
-        ["commands/review", "skills/react"],
-        ["skills/react", "commands/review"],
-      ),
-    ).toBe(true);
+    // Given
+    const left = ["commands/review", "skills/react"];
+    const right = ["skills/react", "commands/review"];
+
+    // When
+    const result = bundleItemSelectionsEqual(left, right);
+
+    // Then
+    expect(result).toBe(true);
   });
 
   it("returns false for arrays with different lengths", () => {
-    expect(
-      bundleItemSelectionsEqual(
-        ["skills/react"],
-        ["skills/react", "commands/review"],
-      ),
-    ).toBe(false);
+    // Given
+    const left = ["skills/react"];
+    const right = ["skills/react", "commands/review"];
+
+    // When
+    const result = bundleItemSelectionsEqual(left, right);
+
+    // Then
+    expect(result).toBe(false);
   });
 
   it("returns false for arrays with different items", () => {
-    expect(bundleItemSelectionsEqual(["skills/react"], ["skills/vue"])).toBe(
-      false,
-    );
+    // Given
+    const left = ["skills/react"];
+    const right = ["skills/vue"];
+
+    // When
+    const result = bundleItemSelectionsEqual(left, right);
+
+    // Then
+    expect(result).toBe(false);
   });
 
   it("returns true for two empty arrays", () => {
-    expect(bundleItemSelectionsEqual([], [])).toBe(true);
+    // When
+    const result = bundleItemSelectionsEqual([], []);
+
+    // Then
+    expect(result).toBe(true);
   });
 });
