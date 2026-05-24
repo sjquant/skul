@@ -293,6 +293,50 @@ describe("run --global", () => {
     ).toBe("# react\n");
   });
 
+  it("selects an active source-scoped global bundle from state when removing by source", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "github.com/user/ai-vault", "react-expert"], {
+      homeDir,
+    });
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+    });
+    fs.rmSync(path.join(homeDir, ".skul", "library", "github.com", "user"), {
+      recursive: true,
+      force: true,
+    });
+
+    // When
+    await expect(
+      run(["remove", "--global", "github.com/user/ai-vault"], {
+        homeDir,
+        prompts: createPromptStub({ selectBundle }),
+      }),
+    ).resolves.toBe("Removed global react-expert");
+
+    // Then
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(
+      pathExists(path.join(homeDir, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).global,
+    ).toBeUndefined();
+  });
+
   it("removes all globally managed files on reset --global", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -811,6 +855,65 @@ describe("run --global", () => {
       registry.global!.materialized_state.bundles["codex-only"]!.tools.codex!
         .items,
     ).toEqual(["skills/review"]);
+  });
+
+  it("offers only active bundle items when removing selected global items", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const selectBundleItems = vi.fn().mockResolvedValue(["skills/next-task"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "codex-only", {
+      name: "codex-only",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "codex-only",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "codex-only",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    await run(
+      [
+        "add",
+        "--global",
+        "codex-only",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/next-task",
+      ],
+      { homeDir },
+    );
+
+    // When
+    await expect(
+      run(["remove", "--global", "codex-only", "--select-items"], {
+        homeDir,
+        prompts: createPromptStub({ selectBundleItems }),
+      }),
+    ).resolves.toBe("Removed global codex-only");
+
+    // Then
+    expect(selectBundleItems).toHaveBeenCalledWith(
+      ["skills/next-task"],
+      [],
+      "remove",
+    );
+    expect(
+      pathExists(
+        path.join(homeDir, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).global,
+    ).toBeUndefined();
   });
 
   it("returns JSON global status when --json is passed", async () => {

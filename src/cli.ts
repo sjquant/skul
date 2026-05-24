@@ -122,6 +122,10 @@ export interface PromptClient {
     source?: string,
     requestedTools?: ToolName[],
   ): Promise<BundleSelection>;
+  selectBundleFromSelections?(
+    availableBundles: BundleSelection[],
+    source?: string,
+  ): Promise<BundleSelection>;
   selectBundleItems(
     availableItems: BundleItemSelector[],
     selectedItems: BundleItemSelector[],
@@ -226,6 +230,17 @@ export function createHeadlessPromptClient(): PromptClient {
         `Bundle name is required in headless mode.\nHint: run '${hint}' to specify the bundle explicitly`,
       );
     },
+    async selectBundleFromSelections(
+      _availableBundles: BundleSelection[],
+      source?: string,
+    ): Promise<BundleSelection> {
+      const hint = source
+        ? `skul remove ${source} <bundle>`
+        : "skul remove <bundle>";
+      throw new Error(
+        `Bundle name is required in headless mode.\nHint: run '${hint}' to specify the bundle explicitly`,
+      );
+    },
     async selectBundleItems(): Promise<BundleItemSelector[]> {
       throw new Error(
         "Bundle item selection requires an interactive terminal.\nHint: rerun with --include <item> instead of --select-items",
@@ -301,6 +316,15 @@ export function createPromptClientForSelections(
       }
 
       return choice;
+    },
+    async selectBundleFromSelections(
+      availableSelections: BundleSelection[],
+      source?: string,
+    ): Promise<BundleSelection> {
+      return createPromptClientForSelections(
+        availableSelections,
+        loadPrompts,
+      ).selectBundle(source);
     },
     async selectBundleItems(
       availableItems: BundleItemSelector[],

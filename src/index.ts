@@ -2785,25 +2785,105 @@ async function resolveRemoveBundleSelection(options: {
     options.requestedSource !== undefined &&
     options.inferredBundleFromSource
   ) {
-    const selection = await options.prompts.selectBundle(
-      options.requestedSource,
-    );
-
-    return {
-      bundle: selection.bundle,
-      source: selection.source ?? options.requestedSource,
-    };
+    return promptForActiveRemoveBundleSelection({
+      repoState: options.repoState,
+      worktreeState: options.worktreeState,
+      prompts: options.prompts,
+      source: options.requestedSource,
+    });
   }
 
   if (options.requestedBundle !== undefined) {
     return { bundle: options.requestedBundle };
   }
 
-  const selection = await options.prompts.selectBundle();
+  return promptForActiveRemoveBundleSelection({
+    repoState: options.repoState,
+    worktreeState: options.worktreeState,
+    prompts: options.prompts,
+  });
+}
+
+async function promptForActiveRemoveBundleSelection(options: {
+  repoState?: RepoState;
+  worktreeState?: WorktreeState;
+  prompts: PromptClient;
+  source?: string;
+}): Promise<{ bundle: string; source?: string }> {
+  const activeSelections = listActiveRemoveBundleSelections({
+    repoState: options.repoState,
+    worktreeState: options.worktreeState,
+    source: options.source,
+  });
+
+  if (activeSelections.length === 0) {
+    throw new Error(
+      options.source
+        ? `No active bundles found for ${options.source}. Run "skul add ${options.source} <bundle>" to add one first`
+        : 'No active bundles found. Run "skul add <bundle>" to add one first',
+    );
+  }
+
+  if (activeSelections.length === 1) {
+    return activeSelections[0]!;
+  }
+
+  const selection =
+    options.prompts.selectBundleFromSelections !== undefined
+      ? await options.prompts.selectBundleFromSelections(
+          activeSelections,
+          options.source,
+        )
+      : await createPromptClientForSelections(activeSelections).selectBundle(
+          options.source,
+        );
+
   return {
     bundle: selection.bundle,
     ...(selection.source !== undefined ? { source: selection.source } : {}),
   };
+}
+
+function listActiveRemoveBundleSelections(options: {
+  repoState?: RepoState;
+  worktreeState?: WorktreeState;
+  source?: string;
+}): BundleSelection[] {
+  const selections: BundleSelection[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of options.repoState?.desired_state ?? []) {
+    if (!matchesOptionalSource(entry.source, options.source)) continue;
+    addActiveRemoveBundleSelection(selections, seen, {
+      bundle: entry.bundle,
+      ...(entry.source !== undefined ? { source: entry.source } : {}),
+      protocol: entry.protocol,
+    });
+  }
+
+  for (const [bundle, state] of Object.entries(
+    options.worktreeState?.materialized_state.bundles ?? {},
+  )) {
+    if (!matchesOptionalSource(state.source, options.source)) continue;
+    addActiveRemoveBundleSelection(selections, seen, {
+      bundle,
+      ...(state.source !== undefined ? { source: state.source } : {}),
+    });
+  }
+
+  return selections.sort(compareBundleSelections);
+}
+
+function addActiveRemoveBundleSelection(
+  selections: BundleSelection[],
+  seen: Set<string>,
+  selection: BundleSelection,
+): void {
+  const key = `${selection.source ?? ""}\0${selection.bundle}`;
+  if (seen.has(key)) return;
+
+  seen.add(key);
+  selections.push(selection);
 }
 
 function isRemoveBundleActive(options: {
@@ -2887,6 +2967,7 @@ async function removeBundleItems(options: {
     manifest: cachedBundle.manifest,
     tools: selectedTools,
   });
+  const currentItems = options.desiredEntry.items ?? availableItems;
   const requestedItems = normalizeBundleItemSelectors(options.includeItems);
 
   assertBundleSupportsRequestedItems({
@@ -2894,15 +2975,23 @@ async function removeBundleItems(options: {
     availableItems,
   });
 
+  const inactiveRequestedItems = requestedItems.filter(
+    (item) => !currentItems.includes(item),
+  );
+  if (inactiveRequestedItems.length > 0) {
+    throw new Error(
+      `Bundle item(s) are not active in ${options.bundle}: ${inactiveRequestedItems.join(", ")}`,
+    );
+  }
+
   const selectedItems = options.selectItems
     ? await options.prompts.selectBundleItems(
-        availableItems,
+        currentItems,
         requestedItems,
         "remove",
       )
     : requestedItems;
   const normalizedSelectedItems = normalizeBundleItemSelectors(selectedItems);
-  const currentItems = options.desiredEntry.items ?? availableItems;
   const inactiveItems = normalizedSelectedItems.filter(
     (item) => !currentItems.includes(item),
   );
@@ -4882,25 +4971,88 @@ async function resolveRemoveGlobalBundleSelection(options: {
     options.requestedSource !== undefined &&
     options.inferredBundleFromSource
   ) {
-    const selection = await options.prompts.selectBundle(
-      options.requestedSource,
-    );
-
-    return {
-      bundle: selection.bundle,
-      source: selection.source ?? options.requestedSource,
-    };
+    return promptForActiveGlobalRemoveBundleSelection({
+      globalState: options.globalState,
+      prompts: options.prompts,
+      source: options.requestedSource,
+    });
   }
 
   if (options.requestedBundle !== undefined) {
     return { bundle: options.requestedBundle };
   }
 
-  const selection = await options.prompts.selectBundle();
+  return promptForActiveGlobalRemoveBundleSelection({
+    globalState: options.globalState,
+    prompts: options.prompts,
+  });
+}
+
+async function promptForActiveGlobalRemoveBundleSelection(options: {
+  globalState?: GlobalState;
+  prompts: PromptClient;
+  source?: string;
+}): Promise<{ bundle: string; source?: string }> {
+  const activeSelections = listActiveGlobalRemoveBundleSelections({
+    globalState: options.globalState,
+    source: options.source,
+  });
+
+  if (activeSelections.length === 0) {
+    throw new Error(
+      options.source
+        ? `No active global bundles found for ${options.source}. Run "skul add --global ${options.source} <bundle>" to add one first`
+        : 'No active global bundles found. Run "skul add --global <bundle>" to add one first',
+    );
+  }
+
+  if (activeSelections.length === 1) {
+    return activeSelections[0]!;
+  }
+
+  const selection =
+    options.prompts.selectBundleFromSelections !== undefined
+      ? await options.prompts.selectBundleFromSelections(
+          activeSelections,
+          options.source,
+        )
+      : await createPromptClientForSelections(activeSelections).selectBundle(
+          options.source,
+        );
+
   return {
     bundle: selection.bundle,
     ...(selection.source !== undefined ? { source: selection.source } : {}),
   };
+}
+
+function listActiveGlobalRemoveBundleSelections(options: {
+  globalState?: GlobalState;
+  source?: string;
+}): BundleSelection[] {
+  const selections: BundleSelection[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of options.globalState?.desired_state ?? []) {
+    if (!matchesOptionalSource(entry.source, options.source)) continue;
+    addActiveRemoveBundleSelection(selections, seen, {
+      bundle: entry.bundle,
+      ...(entry.source !== undefined ? { source: entry.source } : {}),
+      protocol: entry.protocol,
+    });
+  }
+
+  for (const [bundle, state] of Object.entries(
+    options.globalState?.materialized_state.bundles ?? {},
+  )) {
+    if (!matchesOptionalSource(state.source, options.source)) continue;
+    addActiveRemoveBundleSelection(selections, seen, {
+      bundle,
+      ...(state.source !== undefined ? { source: state.source } : {}),
+    });
+  }
+
+  return selections.sort(compareBundleSelections);
 }
 
 function isGlobalRemoveBundleActive(options: {
@@ -4978,6 +5130,7 @@ async function removeGlobalBundleItems(options: {
     manifest: cachedBundle.manifest,
     tools: selectedTools,
   });
+  const currentItems = options.desiredEntry.items ?? availableItems;
   const requestedItems = normalizeBundleItemSelectors(options.includeItems);
 
   assertBundleSupportsRequestedItems({
@@ -4985,15 +5138,23 @@ async function removeGlobalBundleItems(options: {
     availableItems,
   });
 
+  const inactiveRequestedItems = requestedItems.filter(
+    (item) => !currentItems.includes(item),
+  );
+  if (inactiveRequestedItems.length > 0) {
+    throw new Error(
+      `Bundle item(s) are not active in global ${options.bundle}: ${inactiveRequestedItems.join(", ")}`,
+    );
+  }
+
   const selectedItems = options.selectItems
     ? await options.prompts.selectBundleItems(
-        availableItems,
+        currentItems,
         requestedItems,
         "remove",
       )
     : requestedItems;
   const normalizedSelectedItems = normalizeBundleItemSelectors(selectedItems);
-  const currentItems = options.desiredEntry.items ?? availableItems;
   const inactiveItems = normalizedSelectedItems.filter(
     (item) => !currentItems.includes(item),
   );

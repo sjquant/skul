@@ -5611,7 +5611,7 @@ describe("run", () => {
     ).toEqual([]);
   });
 
-  it("selects an active source-scoped bundle when removing by source", async () => {
+  it("selects an active source-scoped bundle from state when removing by source", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -5635,6 +5635,10 @@ describe("run", () => {
       bundle: "core",
       source: "github.com/sjquant/ghosts",
     });
+    fs.rmSync(path.join(homeDir, ".skul", "library", "github.com", "sjquant"), {
+      recursive: true,
+      force: true,
+    });
 
     // When
     await expect(
@@ -5646,7 +5650,7 @@ describe("run", () => {
     ).resolves.toBe("Removed core");
 
     // Then
-    expect(selectBundle).toHaveBeenCalledWith("github.com/sjquant/ghosts");
+    expect(selectBundle).not.toHaveBeenCalled();
     expect(
       pathExists(path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md")),
     ).toBe(false);
@@ -5829,6 +5833,66 @@ describe("run", () => {
     expect(
       pathExists(
         path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+  });
+
+  it("offers only active bundle items when removing selected items", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectBundleItems = vi.fn().mockResolvedValue(["skills/next-task"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    await run(
+      [
+        "add",
+        "react-expert",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/next-task",
+      ],
+      {
+        homeDir,
+        cwd: repoRoot,
+      },
+    );
+
+    // When
+    await expect(
+      run(["remove", "react-expert", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundleItems }),
+      }),
+    ).resolves.toBe("Removed react-expert");
+
+    // Then
+    expect(selectBundleItems).toHaveBeenCalledWith(
+      ["skills/next-task"],
+      [],
+      "remove",
+    );
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
       ),
     ).toBe(false);
   });
