@@ -27,7 +27,7 @@ import {
 } from "./root-instruction-render";
 import {
   getToolDefinition,
-  resolveToolTargetPath,
+  resolveToolTargetPath as resolveProjectToolTargetPath,
   type ToolName,
   type ToolTargetName,
 } from "./tool-mapping";
@@ -35,6 +35,12 @@ import {
 export interface MaterializeBundleResult {
   byTool: Partial<Record<ToolName, { files: string[]; directories: string[] }>>;
 }
+
+type ToolTargetPathResolver = (
+  toolName: ToolName,
+  targetName: ToolTargetName,
+  repoRoot: string,
+) => string | null;
 
 /**
  * Predicts the initial repo-relative files a bundle targets before any
@@ -52,6 +58,7 @@ export function previewMaterializeBundleWriteTargets(options: {
   tools?: ToolName[];
   itemSelectors?: BundleItemSelector[];
   repoRelPathRemapper?: (toolName: string, relPath: string) => string;
+  resolveToolTargetPath?: ToolTargetPathResolver;
 }): string[] {
   const writeTargets = new Set<string>();
   const toolEntries =
@@ -93,10 +100,11 @@ export function previewMaterializeBundleWriteTargets(options: {
         )
       ) {
         const sourceDir = path.join(options.bundleDir, target.path);
-        const destinationDir = resolveToolTargetPath(
+        const destinationDir = resolveMaterializedToolTargetPath(
           toolName as ToolName,
           targetName as ToolTargetName,
           options.repoRoot,
+          options.resolveToolTargetPath,
         );
 
         if (!destinationDir) {
@@ -133,6 +141,7 @@ export function previewMaterializeBundleWriteTargets(options: {
         toolName: toolName as ToolName,
         targetName: targetName as ToolTargetName,
         itemSelectors: options.itemSelectors,
+        repoRelPathRemapper: options.repoRelPathRemapper,
       })) {
         writeTargets.add(repoRelativePath);
       }
@@ -169,6 +178,7 @@ export async function materializeBundle(options: {
     suggestedDestination: string,
   ) => Promise<FileConflictResolution>;
   repoRelPathRemapper?: (toolName: string, relPath: string) => string;
+  resolveToolTargetPath?: ToolTargetPathResolver;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const writtenSharedFileTargets = new Set<string>();
@@ -243,10 +253,11 @@ export async function materializeBundle(options: {
         // Native dotdir path: raw copy verbatim into the tool's target directory.
         const reservedDestinations = new Set<string>();
         const sourceDir = path.join(options.bundleDir, target.path);
-        const destinationDir = resolveToolTargetPath(
+        const destinationDir = resolveMaterializedToolTargetPath(
           toolName as ToolName,
           targetName as ToolTargetName,
           options.repoRoot,
+          options.resolveToolTargetPath,
         );
 
         if (!destinationDir) {
@@ -292,6 +303,7 @@ export async function materializeBundle(options: {
           assertSafeWriteTarget: options.assertSafeWriteTarget,
           resolveFileConflict: options.resolveFileConflict,
           itemSelectors: options.itemSelectors,
+          repoRelPathRemapper: options.repoRelPathRemapper,
         });
       }
     }
@@ -643,7 +655,7 @@ function isNativeSourcePath(
   const nativePath = getToolDefinition(toolName)?.targets[targetName]?.path;
   return (
     !!nativePath &&
-    (sourcePath === nativePath || sourcePath.startsWith(nativePath + "/"))
+    (sourcePath === nativePath || sourcePath.startsWith(`${nativePath}/`))
   );
 }
 
@@ -682,6 +694,7 @@ async function materializeCanonicalTarget(options: {
       ) => Promise<FileConflictResolution>)
     | undefined;
   itemSelectors?: BundleItemSelector[];
+  repoRelPathRemapper?: (toolName: string, relPath: string) => string;
 }): Promise<void> {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
@@ -743,7 +756,10 @@ async function materializeCanonicalTarget(options: {
       continue;
     }
 
-    for (const [repoRelPath, content] of Object.entries(translated)) {
+    for (const [origRelPath, content] of Object.entries(translated)) {
+      const repoRelPath =
+        options.repoRelPathRemapper?.(options.toolName, origRelPath) ??
+        origRelPath;
       await writeTranslatedFile({
         repoRelPath,
         content,
@@ -777,6 +793,7 @@ function previewCanonicalTargetWriteTargets(options: {
   toolName: ToolName;
   targetName: ToolTargetName;
   itemSelectors?: BundleItemSelector[];
+  repoRelPathRemapper?: (toolName: string, relPath: string) => string;
 }): string[] {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
@@ -838,10 +855,28 @@ function previewCanonicalTargetWriteTargets(options: {
       continue;
     }
 
-    writeTargets.push(...Object.keys(translated));
+    writeTargets.push(
+      ...Object.keys(translated).map(
+        (repoRelPath) =>
+          options.repoRelPathRemapper?.(options.toolName, repoRelPath) ??
+          repoRelPath,
+      ),
+    );
   }
 
   return writeTargets;
+}
+
+function resolveMaterializedToolTargetPath(
+  toolName: ToolName,
+  targetName: ToolTargetName,
+  repoRoot: string,
+  resolveToolTargetPath?: ToolTargetPathResolver,
+): string | null {
+  return (
+    resolveToolTargetPath?.(toolName, targetName, repoRoot) ??
+    resolveProjectToolTargetPath(toolName, targetName, repoRoot)
+  );
 }
 
 function previewRootInstructionWriteTargets(options: {

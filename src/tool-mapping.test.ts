@@ -8,6 +8,7 @@ import {
   getToolDefinition,
   globalCapableToolNames,
   listToolDefinitions,
+  resolveGlobalToolTargetPath,
   resolveToolTargetPath,
   type ToolTargetName,
 } from "./tool-mapping";
@@ -180,7 +181,11 @@ describe("globalCapableToolNames", () => {
     // Given / When / Then
     expect(globalCapableToolNames()).toEqual([
       "claude-code",
+      "cursor",
+      "opencode",
+      "codex",
       "copilot",
+      "kiro",
       "antigravity",
     ]);
   });
@@ -188,6 +193,56 @@ describe("globalCapableToolNames", () => {
 
 describe("getGlobalToolDefinition", () => {
   it.each([
+    [
+      "claude-code",
+      {
+        name: "claude-code",
+        targets: {
+          skills: { path: ".claude/skills", kind: "directory" },
+          commands: { path: ".claude/commands", kind: "directory" },
+          agents: { path: ".claude/agents", kind: "directory" },
+          root_instruction: { path: ".claude/CLAUDE.md", kind: "file" },
+        },
+      },
+    ],
+    [
+      "cursor",
+      {
+        name: "cursor",
+        targets: {
+          skills: { path: ".cursor/skills", kind: "directory" },
+          commands: { path: ".cursor/commands", kind: "directory" },
+          agents: { path: ".cursor/agents", kind: "directory" },
+          root_instruction: { path: "AGENTS.md", kind: "file" },
+        },
+      },
+    ],
+    [
+      "opencode",
+      {
+        name: "opencode",
+        targets: {
+          skills: { path: ".config/opencode/skills", kind: "directory" },
+          commands: { path: ".config/opencode/commands", kind: "directory" },
+          agents: { path: ".config/opencode/agents", kind: "directory" },
+          root_instruction: {
+            path: ".config/opencode/AGENTS.md",
+            kind: "file",
+          },
+        },
+      },
+    ],
+    [
+      "codex",
+      {
+        name: "codex",
+        targets: {
+          skills: { path: ".agents/skills", kind: "directory" },
+          agents: { path: ".codex/agents", kind: "directory" },
+          root_instruction: { path: ".codex/AGENTS.md", kind: "file" },
+        },
+      },
+    ],
     [
       "copilot",
       {
@@ -199,6 +254,17 @@ describe("getGlobalToolDefinition", () => {
             path: ".github/copilot-instructions.md",
             kind: "file",
           },
+        },
+      },
+    ],
+    [
+      "kiro",
+      {
+        name: "kiro",
+        targets: {
+          skills: { path: ".kiro/skills", kind: "directory" },
+          agents: { path: ".kiro/agents", kind: "directory" },
+          root_instruction: { path: ".kiro/steering/AGENTS.md", kind: "file" },
         },
       },
     ],
@@ -220,8 +286,30 @@ describe("getGlobalToolDefinition", () => {
 
   it("returns null for tools without global support", () => {
     // Given / When / Then
-    expect(getGlobalToolDefinition("cursor")).toBeNull();
-    expect(getGlobalToolDefinition("kiro")).toBeNull();
+    expect(getGlobalToolDefinition("unknown-tool")).toBeNull();
+  });
+});
+
+describe("resolveGlobalToolTargetPath", () => {
+  it.each([
+    ["cursor", "commands", path.join("/home", ".cursor/commands")],
+    ["opencode", "skills", path.join("/home", ".config/opencode/skills")],
+    ["codex", "root_instruction", path.join("/home", ".codex/AGENTS.md")],
+    ["kiro", "agents", path.join("/home", ".kiro/agents")],
+  ] satisfies Array<
+    [string, ToolTargetName, string]
+  >)("resolves global %s %s beneath the home directory", (toolName, targetName, expectedPath) => {
+    // Given / When / Then
+    expect(resolveGlobalToolTargetPath(toolName, targetName, "/home")).toBe(
+      expectedPath,
+    );
+  });
+
+  it("returns null when the global tool does not define the target", () => {
+    // Given / When / Then
+    expect(
+      resolveGlobalToolTargetPath("codex", "commands", "/home"),
+    ).toBeNull();
   });
 });
 
@@ -243,6 +331,20 @@ describe("buildGlobalRepoRelPathRemapper", () => {
     expect(remap("antigravity", "AGENTS.md")).toBe(".gemini/GEMINI.md");
   });
 
+  it("remaps opencode canonical paths to the global config directory", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("opencode", ".opencode/skills/review/SKILL.md")).toBe(
+      ".config/opencode/skills/review/SKILL.md",
+    );
+    expect(remap("opencode", "AGENTS.md")).toBe(".config/opencode/AGENTS.md");
+  });
+
+  it("remaps codex and kiro root instructions to their global locations", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+    expect(remap("codex", "AGENTS.md")).toBe(".codex/AGENTS.md");
+    expect(remap("kiro", "AGENTS.md")).toBe(".kiro/steering/AGENTS.md");
+  });
+
   it("does not cross-contaminate: copilot and antigravity remap to different global paths", () => {
     const remap = buildGlobalRepoRelPathRemapper();
     expect(remap("copilot", "AGENTS.md")).not.toBe(
@@ -250,10 +352,12 @@ describe("buildGlobalRepoRelPathRemapper", () => {
     );
   });
 
-  it("returns the path unchanged for tools with no global root instruction remapping", () => {
+  it("returns the path unchanged for tools with matching global paths", () => {
     const remap = buildGlobalRepoRelPathRemapper();
     expect(remap("cursor", "AGENTS.md")).toBe("AGENTS.md");
-    expect(remap("codex", "AGENTS.md")).toBe("AGENTS.md");
+    expect(remap("codex", ".agents/skills/review/SKILL.md")).toBe(
+      ".agents/skills/review/SKILL.md",
+    );
   });
 
   it("returns the path unchanged for non-root-instruction paths", () => {

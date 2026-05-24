@@ -87,8 +87,6 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
-// Skills/commands/agents paths are identical between project and global mode;
-// only root_instruction paths differ to match each tool's global config convention.
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "claude-code",
@@ -100,6 +98,32 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: "cursor",
+    targets: {
+      skills: { path: ".cursor/skills", kind: "directory" },
+      commands: { path: ".cursor/commands", kind: "directory" },
+      agents: { path: ".cursor/agents", kind: "directory" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
+    },
+  },
+  {
+    name: "opencode",
+    targets: {
+      skills: { path: ".config/opencode/skills", kind: "directory" },
+      commands: { path: ".config/opencode/commands", kind: "directory" },
+      agents: { path: ".config/opencode/agents", kind: "directory" },
+      root_instruction: { path: ".config/opencode/AGENTS.md", kind: "file" },
+    },
+  },
+  {
+    name: "codex",
+    targets: {
+      skills: { path: ".agents/skills", kind: "directory" },
+      agents: { path: ".codex/agents", kind: "directory" },
+      root_instruction: { path: ".codex/AGENTS.md", kind: "file" },
+    },
+  },
+  {
     name: "copilot",
     targets: {
       skills: { path: ".github/skills", kind: "directory" },
@@ -108,6 +132,14 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
         path: ".github/copilot-instructions.md",
         kind: "file",
       },
+    },
+  },
+  {
+    name: "kiro",
+    targets: {
+      skills: { path: ".kiro/skills", kind: "directory" },
+      agents: { path: ".kiro/agents", kind: "directory" },
+      root_instruction: { path: ".kiro/steering/AGENTS.md", kind: "file" },
     },
   },
   {
@@ -125,7 +157,7 @@ export function listToolDefinitions(): ToolDefinition[] {
   return TOOL_DEFINITIONS.map(cloneToolDefinition);
 }
 
-/** Returns all tool definitions for global (~/) materialization. Only claude-code supported. */
+/** Returns all tool definitions for global (~/) materialization. */
 export function listGlobalToolDefinitions(): ToolDefinition[] {
   return GLOBAL_TOOL_DEFINITIONS.map(cloneToolDefinition);
 }
@@ -143,19 +175,27 @@ export function globalCapableToolNames(): ToolName[] {
 }
 
 // Computed once at module load: maps each globally-capable tool name to its
-// project→global root-instruction path pair. Keyed by tool name (not project
-// path) to avoid collisions when multiple tools share the same project path
-// (e.g. copilot and antigravity both use AGENTS.md at project level).
+// project→global target path pairs. Keyed by tool name (not project path) to
+// avoid collisions when multiple tools share the same project path (e.g.
+// copilot and antigravity both use AGENTS.md at project level).
 const GLOBAL_REPO_REL_PATH_REMAP = (() => {
-  const map = new Map<string, { from: string; to: string }>();
+  const map = new Map<string, Array<{ from: string; to: string }>>();
   for (const projDef of TOOL_DEFINITIONS) {
     const globalDef = GLOBAL_TOOL_DEFINITIONS.find(
       (g) => g.name === projDef.name,
     );
-    const projPath = projDef.targets.root_instruction?.path;
-    const globalPath = globalDef?.targets.root_instruction?.path;
-    if (projPath && globalPath && projPath !== globalPath) {
-      map.set(projDef.name, { from: projPath, to: globalPath });
+
+    if (!globalDef) {
+      continue;
+    }
+
+    for (const [targetName, projTarget] of Object.entries(projDef.targets)) {
+      const globalPath = globalDef.targets[targetName as ToolTargetName]?.path;
+      if (projTarget.path && globalPath && projTarget.path !== globalPath) {
+        const entries = map.get(projDef.name) ?? [];
+        entries.push({ from: projTarget.path, to: globalPath });
+        map.set(projDef.name, entries);
+      }
     }
   }
   return map;
@@ -168,8 +208,18 @@ export function buildGlobalRepoRelPathRemapper(): (
   p: string,
 ) => string {
   return (toolName, p) => {
-    const entry = GLOBAL_REPO_REL_PATH_REMAP.get(toolName);
-    return entry && p === entry.from ? entry.to : p;
+    const entries = GLOBAL_REPO_REL_PATH_REMAP.get(toolName) ?? [];
+    const entry = entries.find(
+      (candidate) => p === candidate.from || p.startsWith(`${candidate.from}/`),
+    );
+
+    if (!entry) {
+      return p;
+    }
+
+    return p === entry.from
+      ? entry.to
+      : `${entry.to}/${p.slice(entry.from.length + 1)}`;
   };
 }
 
@@ -189,6 +239,17 @@ export function resolveToolTargetPath(
   const target = getToolDefinition(toolName)?.targets[targetName];
 
   return target ? path.join(repoRoot, target.path) : null;
+}
+
+/** Resolves the absolute target root path for one global tool target under a home directory. */
+export function resolveGlobalToolTargetPath(
+  toolName: string,
+  targetName: ToolTargetName,
+  homeDir: string,
+): string | null {
+  const target = getGlobalToolDefinition(toolName)?.targets[targetName];
+
+  return target ? path.join(homeDir, target.path) : null;
 }
 
 function cloneToolDefinition(definition: ToolDefinition): ToolDefinition {

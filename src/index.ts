@@ -93,6 +93,7 @@ import {
   buildGlobalRepoRelPathRemapper,
   getToolDefinition,
   globalCapableToolNames,
+  resolveGlobalToolTargetPath,
   type ToolName,
 } from "./tool-mapping";
 
@@ -3990,6 +3991,7 @@ async function applyBundleGlobal(options: {
     manifest: preparedBundle.cachedBundle.manifest,
     tools: availableGlobalTools,
     repoRelPathRemapper,
+    resolveToolTargetPath: resolveGlobalToolTargetPath,
   });
 
   const plannedRootInstructionTargets = new Set(
@@ -4081,6 +4083,7 @@ async function applyBundleGlobal(options: {
     rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
     repoRelPathRemapper,
+    resolveToolTargetPath: resolveGlobalToolTargetPath,
   });
 
   const newBundleState = buildMaterializedBundleState({
