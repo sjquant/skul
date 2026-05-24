@@ -95,7 +95,15 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "remove";
-      options: { bundle: string; dryRun: boolean; global: boolean };
+      options: {
+        bundle?: string;
+        source?: string;
+        includeItems?: BundleItemSelector[];
+        selectItems?: boolean;
+        dryRun: boolean;
+        inferredBundleFromSource?: true;
+        global: boolean;
+      };
     };
 
 export type FileConflictResolution =
@@ -117,6 +125,7 @@ export interface PromptClient {
   selectBundleItems(
     availableItems: BundleItemSelector[],
     selectedItems: BundleItemSelector[],
+    purpose?: "install" | "remove",
   ): Promise<BundleItemSelector[]>;
   selectAgents(availableAgents: ToolName[]): Promise<ToolName[]>;
   resolveFileConflict(
@@ -296,6 +305,7 @@ export function createPromptClientForSelections(
     async selectBundleItems(
       availableItems: BundleItemSelector[],
       selectedItems: BundleItemSelector[],
+      purpose: "install" | "remove" = "install",
     ): Promise<BundleItemSelector[]> {
       if (availableItems.length === 0) {
         throw new Error("This bundle has no selectable items");
@@ -303,8 +313,7 @@ export function createPromptClientForSelections(
 
       const { isCancel, multiselect } = await loadPrompts();
       const choice = await multiselect({
-        message:
-          "Choose bundle items to install (Space toggles choices; Enter confirms)",
+        message: `Choose bundle items to ${purpose} (Space toggles choices; Enter confirms)`,
         options: availableItems.map((item) => ({
           value: item,
           label: item,
@@ -925,23 +934,92 @@ function createProgram(
     .description(
       "Remove a bundle from the active set and recompose or restore any root instructions it owns",
     )
-    .argument("<bundle>", "Bundle name to remove")
+    .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
+    .argument("[bundle]", "Bundle name to remove")
+    .option(
+      "--include <item>",
+      "Remove only a bundle item such as skills/name, agents/name, commands/name, or root-instruction (repeatable)",
+      collectBundleItemOption,
+      [] as BundleItemSelector[],
+    )
+    .option(
+      "--select-items",
+      "Choose bundle items interactively before removing",
+    )
     .option(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
     .option("-g, --global", "Remove from globally managed tool config")
-    .action((bundle: string, opts: { dryRun?: boolean; global?: boolean }) => {
-      context.result = {
-        kind: "command",
-        command: "remove",
-        options: {
-          bundle,
-          dryRun: opts.dryRun ?? false,
-          global: opts.global ?? false,
+    .action(
+      (
+        source: string | undefined,
+        bundle: string | undefined,
+        opts: {
+          include: BundleItemSelector[];
+          selectItems?: boolean;
+          dryRun?: boolean;
+          global?: boolean;
         },
-      };
-    });
+      ) => {
+        const includeItems = opts.include;
+        const selectItems = opts.selectItems ?? false;
+        const dryRun = opts.dryRun ?? false;
+        const global = opts.global ?? false;
+
+        if (!source && !bundle) {
+          throw new Error(
+            "Command remove requires a source or bundle name\nHint: run 'skul remove <source>' to select a bundle from that source, or 'skul remove <bundle>' for an active bundle",
+          );
+        }
+
+        if (source && !bundle) {
+          try {
+            const normalizedSource = normalizeBundleSource(source);
+            const repoSlug = normalizedSource.split("/").at(-1)!;
+            context.result = {
+              kind: "command",
+              command: "remove",
+              options: {
+                source: normalizedSource,
+                bundle: repoSlug,
+                ...(includeItems.length > 0 ? { includeItems } : {}),
+                ...(selectItems ? { selectItems } : {}),
+                dryRun,
+                inferredBundleFromSource: true,
+                global,
+              },
+            };
+          } catch {
+            context.result = {
+              kind: "command",
+              command: "remove",
+              options: {
+                bundle: source,
+                ...(includeItems.length > 0 ? { includeItems } : {}),
+                ...(selectItems ? { selectItems } : {}),
+                dryRun,
+                global,
+              },
+            };
+          }
+          return;
+        }
+
+        context.result = {
+          kind: "command",
+          command: "remove",
+          options: {
+            source: normalizeBundleSource(source!),
+            bundle: bundle!,
+            ...(includeItems.length > 0 ? { includeItems } : {}),
+            ...(selectItems ? { selectItems } : {}),
+            dryRun,
+            global,
+          },
+        };
+      },
+    );
 
   program
     .command("clear-cache")
@@ -998,7 +1076,7 @@ function normalizeParseError(error: unknown, command: string): Error {
     }
 
     if (command === "remove") {
-      return new Error("Command remove accepts exactly 1 positional argument");
+      return new Error("Command remove accepts at most 2 positional arguments");
     }
 
     if (command === "clear-cache") {

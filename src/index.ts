@@ -68,10 +68,13 @@ import {
   type MaterializedToolState,
   readRegistryFile,
   removeWorktreeState,
+  type Registry,
+  type RepoState,
   type ShadowedFileState,
   upsertGlobalState,
   upsertRepoState,
   upsertWorktreeState,
+  type WorktreeState,
   writeRegistryFile,
 } from "./registry";
 import { collectComposedRootInstructionContents } from "./root-instruction-content";
@@ -235,7 +238,11 @@ export async function run(
           registryFile: stateLayout.registryFile,
           libraryDir: stateLayout.libraryDir,
           bundle: parsed.options.bundle,
+          source: parsed.options.source,
+          includeItems: parsed.options.includeItems ?? [],
+          selectItems: parsed.options.selectItems ?? false,
           dryRun: parsed.options.dryRun,
+          inferredBundleFromSource: parsed.options.inferredBundleFromSource,
         });
       }
       return removeBundle({
@@ -244,7 +251,11 @@ export async function run(
         registryFile: stateLayout.registryFile,
         libraryDir: stateLayout.libraryDir,
         bundle: parsed.options.bundle,
+        source: parsed.options.source,
+        includeItems: parsed.options.includeItems ?? [],
+        selectItems: parsed.options.selectItems ?? false,
         dryRun: parsed.options.dryRun,
+        inferredBundleFromSource: parsed.options.inferredBundleFromSource,
       });
     case "clear-cache":
       return clearBundleCache({
@@ -2461,32 +2472,78 @@ async function removeBundle(options: {
   prompts: PromptClient;
   registryFile: string;
   libraryDir: string;
-  bundle: string;
+  bundle?: string;
+  source?: string;
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
   dryRun: boolean;
+  inferredBundleFromSource?: true;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "remove");
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
   const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const selection = await resolveRemoveBundleSelection({
+    requestedBundle: options.bundle,
+    requestedSource: options.source,
+    inferredBundleFromSource: options.inferredBundleFromSource,
+    repoState,
+    worktreeState,
+    prompts: options.prompts,
+  });
+  const bundle = selection.bundle;
+  const source = selection.source;
 
   const isInDesiredState =
-    repoState?.desired_state.some((e) => e.bundle === options.bundle) ?? false;
-  const bundleMaterializedState =
-    worktreeState?.materialized_state.bundles[options.bundle];
+    repoState?.desired_state.some(
+      (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
+    ) ?? false;
+  const desiredEntry = repoState?.desired_state.find(
+    (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
+  );
+  const bundleMaterializedState = findMaterializedBundleState({
+    worktreeState,
+    bundle,
+    source,
+  });
   const shadowedFilesForBundle = Object.entries(
     worktreeState?.shadowed_files ?? {},
-  ).filter(([, shadowedFile]) => shadowedFile.bundle === options.bundle);
+  ).filter(([, shadowedFile]) => shadowedFile.bundle === bundle);
 
   if (!isInDesiredState && !bundleMaterializedState) {
-    const configured = repoState?.desired_state.map((e) => e.bundle) ?? [];
+    const configured =
+      repoState?.desired_state
+        .filter((entry) => matchesOptionalSource(entry.source, source))
+        .map((e) => e.bundle) ?? [];
     const hint =
       configured.length > 0
         ? `Configured bundles: ${configured.join(", ")}`
         : `No bundles are configured yet. Run "skul add <bundle>" to add one`;
-    throw new Error(
-      `Bundle not found in active set: ${options.bundle}. ${hint}`,
-    );
+    throw new Error(`Bundle not found in active set: ${bundle}. ${hint}`);
+  }
+
+  if (options.includeItems.length > 0 || options.selectItems) {
+    const itemRemoval = await removeBundleItems({
+      cwd: options.cwd,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      gitContext,
+      registry,
+      repoState,
+      worktreeState,
+      desiredEntry,
+      bundle,
+      source,
+      includeItems: options.includeItems,
+      selectItems: options.selectItems,
+      dryRun: options.dryRun,
+    });
+
+    if (itemRemoval.kind === "completed") {
+      return itemRemoval.output;
+    }
   }
 
   if (options.dryRun) {
@@ -2497,7 +2554,7 @@ async function removeBundle(options: {
           )
         : [];
       const lines = [
-        `${pc.yellow("DRY RUN:")} Would remove ${options.bundle} (${files.length + shadowedFilesForBundle.length} file(s))`,
+        `${pc.yellow("DRY RUN:")} Would remove ${bundle} (${files.length + shadowedFilesForBundle.length} file(s))`,
       ];
       for (const file of files) {
         lines.push(`  ${file}`);
@@ -2508,7 +2565,7 @@ async function removeBundle(options: {
       return lines.join("\n");
     }
 
-    return `${pc.yellow("DRY RUN:")} Would remove ${options.bundle} from desired state (not yet materialized in this worktree)`;
+    return `${pc.yellow("DRY RUN:")} Would remove ${bundle} from desired state (not yet materialized in this worktree)`;
   }
 
   let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
@@ -2523,9 +2580,9 @@ async function removeBundle(options: {
       bundlePaths.files.filter((filePath) => isRootInstructionPath(filePath)),
     );
     const remainingBundles = { ...worktreeState!.materialized_state.bundles };
-    delete remainingBundles[options.bundle];
+    delete remainingBundles[bundle];
     const remainingDesiredState =
-      repoState?.desired_state.filter((e) => e.bundle !== options.bundle) ?? [];
+      repoState?.desired_state.filter((e) => e.bundle !== bundle) ?? [];
     const rewrittenRootInstructionPaths = new Set(
       Array.from(collectManagedRootInstructionTargets(remainingBundles)).filter(
         (filePath) => removedRootInstructionPaths.has(filePath),
@@ -2650,7 +2707,7 @@ async function removeBundle(options: {
 
   if (isInDesiredState && repoState) {
     const newDesiredState = repoState.desired_state.filter(
-      (e) => e.bundle !== options.bundle,
+      (e) => e.bundle !== bundle,
     );
     registry = upsertRepoState(registry, gitContext.repoFingerprint, {
       ...repoState,
@@ -2661,7 +2718,227 @@ async function removeBundle(options: {
 
   writeRegistryFile(options.registryFile, registry);
 
-  return pc.green(`Removed ${options.bundle}`);
+  return pc.green(`Removed ${bundle}`);
+}
+
+async function resolveRemoveBundleSelection(options: {
+  requestedBundle?: string;
+  requestedSource?: string;
+  inferredBundleFromSource?: true;
+  repoState?: RepoState;
+  worktreeState?: WorktreeState;
+  prompts: PromptClient;
+}): Promise<{ bundle: string; source?: string }> {
+  if (
+    options.requestedBundle &&
+    isRemoveBundleActive({
+      repoState: options.repoState,
+      worktreeState: options.worktreeState,
+      bundle: options.requestedBundle,
+      source: options.requestedSource,
+    })
+  ) {
+    return {
+      bundle: options.requestedBundle,
+      ...(options.requestedSource !== undefined
+        ? { source: options.requestedSource }
+        : {}),
+    };
+  }
+
+  if (options.requestedBundle && !options.inferredBundleFromSource) {
+    return {
+      bundle: options.requestedBundle,
+      ...(options.requestedSource !== undefined
+        ? { source: options.requestedSource }
+        : {}),
+    };
+  }
+
+  if (
+    options.requestedSource !== undefined &&
+    options.inferredBundleFromSource
+  ) {
+    const selection = await options.prompts.selectBundle(
+      options.requestedSource,
+    );
+
+    return {
+      bundle: selection.bundle,
+      source: selection.source ?? options.requestedSource,
+    };
+  }
+
+  if (options.requestedBundle !== undefined) {
+    return { bundle: options.requestedBundle };
+  }
+
+  const selection = await options.prompts.selectBundle();
+  return {
+    bundle: selection.bundle,
+    ...(selection.source !== undefined ? { source: selection.source } : {}),
+  };
+}
+
+function isRemoveBundleActive(options: {
+  repoState?: RepoState;
+  worktreeState?: WorktreeState;
+  bundle: string;
+  source?: string;
+}): boolean {
+  return (
+    (options.repoState?.desired_state.some(
+      (entry) =>
+        entry.bundle === options.bundle &&
+        matchesOptionalSource(entry.source, options.source),
+    ) ??
+      false) ||
+    findMaterializedBundleState({
+      worktreeState: options.worktreeState,
+      bundle: options.bundle,
+      source: options.source,
+    }) !== undefined
+  );
+}
+
+function matchesOptionalSource(
+  candidateSource: string | undefined,
+  requestedSource: string | undefined,
+): boolean {
+  return requestedSource === undefined || candidateSource === requestedSource;
+}
+
+function findMaterializedBundleState(options: {
+  worktreeState?: WorktreeState;
+  bundle: string;
+  source?: string;
+}): MaterializedBundleState | undefined {
+  const bundleState =
+    options.worktreeState?.materialized_state.bundles[options.bundle];
+
+  if (
+    !bundleState ||
+    !matchesOptionalSource(bundleState.source, options.source)
+  ) {
+    return undefined;
+  }
+
+  return bundleState;
+}
+
+async function removeBundleItems(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  gitContext: ReturnType<typeof requireGitContext>;
+  registry: Registry;
+  repoState?: RepoState;
+  worktreeState?: WorktreeState;
+  desiredEntry?: DesiredBundleEntry;
+  bundle: string;
+  source?: string;
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
+  dryRun: boolean;
+}): Promise<{ kind: "completed"; output: string } | { kind: "remove-bundle" }> {
+  if (!options.repoState || !options.desiredEntry) {
+    throw new Error(
+      `Cannot remove selected items from ${options.bundle} because it is not in desired state`,
+    );
+  }
+
+  const cachedBundle = findCachedBundleWithGuidance({
+    libraryDir: options.libraryDir,
+    bundle: options.bundle,
+    source: options.desiredEntry.source ?? options.source,
+  });
+  const selectedTools =
+    options.desiredEntry.tools ??
+    (Object.keys(cachedBundle.manifest.tools) as ToolName[]);
+  const availableItems = listSelectableBundleItems({
+    bundleDir: path.dirname(cachedBundle.manifestFile),
+    manifest: cachedBundle.manifest,
+    tools: selectedTools,
+  });
+  const requestedItems = normalizeBundleItemSelectors(options.includeItems);
+
+  assertBundleSupportsRequestedItems({
+    requestedItems,
+    availableItems,
+  });
+
+  const selectedItems = options.selectItems
+    ? await options.prompts.selectBundleItems(
+        availableItems,
+        requestedItems,
+        "remove",
+      )
+    : requestedItems;
+  const normalizedSelectedItems = normalizeBundleItemSelectors(selectedItems);
+  const currentItems = options.desiredEntry.items ?? availableItems;
+  const inactiveItems = normalizedSelectedItems.filter(
+    (item) => !currentItems.includes(item),
+  );
+
+  if (inactiveItems.length > 0) {
+    throw new Error(
+      `Bundle item(s) are not active in ${options.bundle}: ${inactiveItems.join(", ")}`,
+    );
+  }
+
+  const selectedItemSet = new Set(normalizedSelectedItems);
+  const remainingItems = currentItems.filter(
+    (item) => !selectedItemSet.has(item),
+  );
+
+  if (remainingItems.length === 0) {
+    return { kind: "remove-bundle" };
+  }
+
+  if (options.dryRun) {
+    return {
+      kind: "completed",
+      output: `${pc.yellow("DRY RUN:")} Would remove ${normalizedSelectedItems.join(", ")} from ${options.bundle}`,
+    };
+  }
+
+  const nextRegistry = upsertRepoState(
+    options.registry,
+    options.gitContext.repoFingerprint,
+    {
+      ...options.repoState,
+      repo_root: options.gitContext.repoRoot,
+      desired_state: options.repoState.desired_state.map((entry) =>
+        entry.bundle === options.bundle &&
+        matchesOptionalSource(entry.source, options.source)
+          ? { ...entry, items: remainingItems }
+          : entry,
+      ),
+    },
+  );
+
+  writeRegistryFile(options.registryFile, nextRegistry);
+
+  try {
+    await applyWorktree({
+      cwd: options.cwd,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      dryRun: false,
+    });
+  } catch (error) {
+    writeRegistryFile(options.registryFile, options.registry);
+    throw error;
+  }
+
+  return {
+    kind: "completed",
+    output: pc.green(
+      `Removed ${normalizedSelectedItems.join(", ")} from ${options.bundle}`,
+    ),
+  };
 }
 
 async function applyWorktree(options: {
@@ -4341,41 +4618,85 @@ async function removeGlobalBundle(options: {
   prompts: PromptClient;
   registryFile: string;
   libraryDir: string;
-  bundle: string;
+  bundle?: string;
+  source?: string;
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
   dryRun: boolean;
+  inferredBundleFromSource?: true;
 }): Promise<string> {
   const repoRelPathRemapper =
     GLOBAL_TOOL_MATERIALIZATION_LAYOUT.remapRepoRelPath;
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
+  const selection = await resolveRemoveGlobalBundleSelection({
+    requestedBundle: options.bundle,
+    requestedSource: options.source,
+    inferredBundleFromSource: options.inferredBundleFromSource,
+    globalState,
+    prompts: options.prompts,
+  });
+  const bundle = selection.bundle;
+  const source = selection.source;
   const isInDesiredState =
-    globalState?.desired_state.some((e) => e.bundle === options.bundle) ??
-    false;
-  const bundleMaterializedState =
-    globalState?.materialized_state.bundles[options.bundle];
+    globalState?.desired_state.some(
+      (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
+    ) ?? false;
+  const desiredEntry = globalState?.desired_state.find(
+    (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
+  );
+  const bundleMaterializedState = findGlobalMaterializedBundleState({
+    globalState,
+    bundle,
+    source,
+  });
 
   if (!isInDesiredState && !bundleMaterializedState) {
-    const configured = globalState?.desired_state.map((e) => e.bundle) ?? [];
+    const configured =
+      globalState?.desired_state
+        .filter((entry) => matchesOptionalSource(entry.source, source))
+        .map((e) => e.bundle) ?? [];
     const hint =
       configured.length > 0
         ? `Configured global bundles: ${configured.join(", ")}`
         : `No global bundles configured. Run "skul add --global <bundle>" to add one`;
     throw new Error(
-      `Bundle not found in global active set: ${options.bundle}. ${hint}`,
+      `Bundle not found in global active set: ${bundle}. ${hint}`,
     );
+  }
+
+  if (options.includeItems.length > 0 || options.selectItems) {
+    const itemRemoval = await removeGlobalBundleItems({
+      homeDir: options.homeDir,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      registry,
+      globalState,
+      desiredEntry,
+      bundle,
+      source,
+      includeItems: options.includeItems,
+      selectItems: options.selectItems,
+      dryRun: options.dryRun,
+    });
+
+    if (itemRemoval.kind === "completed") {
+      return itemRemoval.output;
+    }
   }
 
   if (options.dryRun) {
     if (bundleMaterializedState) {
       const { files } = flattenBundleState(bundleMaterializedState);
       const lines = [
-        `${pc.yellow("DRY RUN:")} Would remove global ${options.bundle} (${files.length} file(s))`,
+        `${pc.yellow("DRY RUN:")} Would remove global ${bundle} (${files.length} file(s))`,
       ];
       for (const file of files) lines.push(`  ${file}`);
       return lines.join("\n");
     }
-    return `${pc.yellow("DRY RUN:")} Would remove ${options.bundle} from global desired state`;
+    return `${pc.yellow("DRY RUN:")} Would remove ${bundle} from global desired state`;
   }
 
   if (bundleMaterializedState) {
@@ -4386,10 +4707,9 @@ async function removeGlobalBundle(options: {
       bundlePaths.files.filter((p) => isRootInstructionPath(p)),
     );
     const remainingBundles = { ...globalState!.materialized_state.bundles };
-    delete remainingBundles[options.bundle];
+    delete remainingBundles[bundle];
     const remainingDesiredState =
-      globalState?.desired_state.filter((e) => e.bundle !== options.bundle) ??
-      [];
+      globalState?.desired_state.filter((e) => e.bundle !== bundle) ?? [];
     const rewrittenRootInstructionPaths = new Set(
       Array.from(collectManagedRootInstructionTargets(remainingBundles)).filter(
         (p) => removedRootInstructionPaths.has(p),
@@ -4481,7 +4801,7 @@ async function removeGlobalBundle(options: {
     }
   } else if (isInDesiredState && globalState) {
     const newDesiredState = globalState.desired_state.filter(
-      (e) => e.bundle !== options.bundle,
+      (e) => e.bundle !== bundle,
     );
     if (
       newDesiredState.length > 0 ||
@@ -4497,7 +4817,214 @@ async function removeGlobalBundle(options: {
   }
 
   writeRegistryFile(options.registryFile, registry);
-  return pc.green(`Removed global ${options.bundle}`);
+  return pc.green(`Removed global ${bundle}`);
+}
+
+async function resolveRemoveGlobalBundleSelection(options: {
+  requestedBundle?: string;
+  requestedSource?: string;
+  inferredBundleFromSource?: true;
+  globalState?: GlobalState;
+  prompts: PromptClient;
+}): Promise<{ bundle: string; source?: string }> {
+  if (
+    options.requestedBundle &&
+    isGlobalRemoveBundleActive({
+      globalState: options.globalState,
+      bundle: options.requestedBundle,
+      source: options.requestedSource,
+    })
+  ) {
+    return {
+      bundle: options.requestedBundle,
+      ...(options.requestedSource !== undefined
+        ? { source: options.requestedSource }
+        : {}),
+    };
+  }
+
+  if (options.requestedBundle && !options.inferredBundleFromSource) {
+    return {
+      bundle: options.requestedBundle,
+      ...(options.requestedSource !== undefined
+        ? { source: options.requestedSource }
+        : {}),
+    };
+  }
+
+  if (
+    options.requestedSource !== undefined &&
+    options.inferredBundleFromSource
+  ) {
+    const selection = await options.prompts.selectBundle(
+      options.requestedSource,
+    );
+
+    return {
+      bundle: selection.bundle,
+      source: selection.source ?? options.requestedSource,
+    };
+  }
+
+  if (options.requestedBundle !== undefined) {
+    return { bundle: options.requestedBundle };
+  }
+
+  const selection = await options.prompts.selectBundle();
+  return {
+    bundle: selection.bundle,
+    ...(selection.source !== undefined ? { source: selection.source } : {}),
+  };
+}
+
+function isGlobalRemoveBundleActive(options: {
+  globalState?: GlobalState;
+  bundle: string;
+  source?: string;
+}): boolean {
+  const desiredMatch =
+    options.globalState?.desired_state.some(
+      (entry) =>
+        entry.bundle === options.bundle &&
+        matchesOptionalSource(entry.source, options.source),
+    ) ?? false;
+
+  return (
+    desiredMatch ||
+    findGlobalMaterializedBundleState({
+      globalState: options.globalState,
+      bundle: options.bundle,
+      source: options.source,
+    }) !== undefined
+  );
+}
+
+function findGlobalMaterializedBundleState(options: {
+  globalState?: GlobalState;
+  bundle: string;
+  source?: string;
+}): MaterializedBundleState | undefined {
+  const bundleState =
+    options.globalState?.materialized_state.bundles[options.bundle];
+
+  if (
+    !bundleState ||
+    !matchesOptionalSource(bundleState.source, options.source)
+  ) {
+    return undefined;
+  }
+
+  return bundleState;
+}
+
+async function removeGlobalBundleItems(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  registry: Registry;
+  globalState?: GlobalState;
+  desiredEntry?: DesiredBundleEntry;
+  bundle: string;
+  source?: string;
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
+  dryRun: boolean;
+}): Promise<{ kind: "completed"; output: string } | { kind: "remove-bundle" }> {
+  if (!options.globalState || !options.desiredEntry) {
+    throw new Error(
+      `Cannot remove selected items from global ${options.bundle} because it is not in desired state`,
+    );
+  }
+
+  const cachedBundle = findCachedBundleWithGuidance({
+    libraryDir: options.libraryDir,
+    bundle: options.bundle,
+    source: options.desiredEntry.source ?? options.source,
+  });
+  const selectedTools =
+    options.desiredEntry.tools ??
+    (Object.keys(cachedBundle.manifest.tools).filter((toolName) =>
+      globalCapableToolNames().includes(toolName as ToolName),
+    ) as ToolName[]);
+  const availableItems = listSelectableBundleItems({
+    bundleDir: path.dirname(cachedBundle.manifestFile),
+    manifest: cachedBundle.manifest,
+    tools: selectedTools,
+  });
+  const requestedItems = normalizeBundleItemSelectors(options.includeItems);
+
+  assertBundleSupportsRequestedItems({
+    requestedItems,
+    availableItems,
+  });
+
+  const selectedItems = options.selectItems
+    ? await options.prompts.selectBundleItems(
+        availableItems,
+        requestedItems,
+        "remove",
+      )
+    : requestedItems;
+  const normalizedSelectedItems = normalizeBundleItemSelectors(selectedItems);
+  const currentItems = options.desiredEntry.items ?? availableItems;
+  const inactiveItems = normalizedSelectedItems.filter(
+    (item) => !currentItems.includes(item),
+  );
+
+  if (inactiveItems.length > 0) {
+    throw new Error(
+      `Bundle item(s) are not active in global ${options.bundle}: ${inactiveItems.join(", ")}`,
+    );
+  }
+
+  const selectedItemSet = new Set(normalizedSelectedItems);
+  const remainingItems = currentItems.filter(
+    (item) => !selectedItemSet.has(item),
+  );
+
+  if (remainingItems.length === 0) {
+    return { kind: "remove-bundle" };
+  }
+
+  if (options.dryRun) {
+    return {
+      kind: "completed",
+      output: `${pc.yellow("DRY RUN:")} Would remove ${normalizedSelectedItems.join(", ")} from global ${options.bundle}`,
+    };
+  }
+
+  const nextRegistry = upsertGlobalState(options.registry, {
+    ...options.globalState,
+    desired_state: options.globalState.desired_state.map((entry) =>
+      entry.bundle === options.bundle &&
+      matchesOptionalSource(entry.source, options.source)
+        ? { ...entry, items: remainingItems }
+        : entry,
+    ),
+  });
+
+  writeRegistryFile(options.registryFile, nextRegistry);
+
+  try {
+    await applyGlobal({
+      homeDir: options.homeDir,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      dryRun: false,
+    });
+  } catch (error) {
+    writeRegistryFile(options.registryFile, options.registry);
+    throw error;
+  }
+
+  return {
+    kind: "completed",
+    output: pc.green(
+      `Removed ${normalizedSelectedItems.join(", ")} from global ${options.bundle}`,
+    ),
+  };
 }
 
 async function resetGlobal(options: {

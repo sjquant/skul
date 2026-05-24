@@ -255,6 +255,44 @@ describe("run --global", () => {
     expect(registry.global).toBeUndefined();
   });
 
+  it("does not remove a same-named global bundle from a different explicit source", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "github.com/user/ai-vault", "react-expert"], {
+      homeDir,
+    });
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "react-expert",
+      source: "github.com/other/ai-vault",
+    });
+
+    // When / Then
+    await expect(
+      run(["remove", "--global", "github.com/other/ai-vault", "react-expert"], {
+        homeDir,
+        prompts: createPromptStub({ selectBundle }),
+      }),
+    ).rejects.toThrowError(/Bundle not found in global active set/);
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react\n");
+  });
+
   it("removes all globally managed files on reset --global", async () => {
     // Given
     const homeDir = createHomeDir();
