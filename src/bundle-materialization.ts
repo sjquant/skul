@@ -26,8 +26,8 @@ import {
   wrapRootInstructionBundleContent,
 } from "./root-instruction-render";
 import {
-  PROJECT_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
+  PROJECT_TOOL_MATERIALIZATION_LAYOUT,
   type ToolMaterializationLayout,
   type ToolName,
   type ToolTargetName,
