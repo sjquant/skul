@@ -90,10 +90,9 @@ import {
 } from "./root-instruction-state";
 import { resolveGlobalStateLayout } from "./state-layout";
 import {
-  buildGlobalRepoRelPathRemapper,
+  GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
   globalCapableToolNames,
-  resolveGlobalToolTargetPath,
   type ToolName,
 } from "./tool-mapping";
 
@@ -3923,7 +3922,8 @@ async function applyBundleGlobal(options: {
     }
   }
 
-  const repoRelPathRemapper = buildGlobalRepoRelPathRemapper();
+  const repoRelPathRemapper =
+    GLOBAL_TOOL_MATERIALIZATION_LAYOUT.remapRepoRelPath;
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingGlobal = registry.global;
@@ -3994,8 +3994,7 @@ async function applyBundleGlobal(options: {
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
     tools: availableGlobalTools,
-    repoRelPathRemapper,
-    resolveToolTargetPath: resolveGlobalToolTargetPath,
+    pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
   });
 
@@ -4087,8 +4086,7 @@ async function applyBundleGlobal(options: {
       collectManagedRootInstructionTargets(existingBundles),
     rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
-    repoRelPathRemapper,
-    resolveToolTargetPath: resolveGlobalToolTargetPath,
+    pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
   });
 
@@ -4252,7 +4250,8 @@ async function removeGlobalBundle(options: {
   bundle: string;
   dryRun: boolean;
 }): Promise<string> {
-  const repoRelPathRemapper = buildGlobalRepoRelPathRemapper();
+  const repoRelPathRemapper =
+    GLOBAL_TOOL_MATERIALIZATION_LAYOUT.remapRepoRelPath;
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;

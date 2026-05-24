@@ -631,6 +631,90 @@ describe("run --global", () => {
     ).toContain("# OpenCode guidance");
   });
 
+  it("keeps remapped global canonical conflict resolution inside the target root", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const resolveFileConflict = vi.fn().mockResolvedValue({
+      action: "prefix",
+      prefix: "p",
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "opencode-canonical", {
+      name: "opencode-canonical",
+      tools: { opencode: { skills: { path: "skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "opencode-canonical",
+      "skills/review/SKILL.md",
+      "---\nname: review\ndescription: Review code\n---\nReview carefully.\n",
+    );
+    fs.mkdirSync(
+      path.join(homeDir, ".config", "opencode", "skills", "review"),
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(homeDir, ".config", "opencode", "skills", "review", "SKILL.md"),
+      "user file\n",
+    );
+
+    // When
+    const output = await run(
+      ["add", "--global", "opencode-canonical", "--agent", "opencode"],
+      {
+        homeDir,
+        prompts: createPromptStub({ resolveFileConflict }),
+      },
+    );
+
+    // Then
+    expect(output).toContain(
+      "Applied opencode-canonical globally for opencode",
+    );
+    expect(resolveFileConflict).toHaveBeenCalledWith(
+      "review/SKILL.md",
+      "p-review/SKILL.md",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "skills",
+          "review",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    ).toBe("user file\n");
+    expect(
+      fs.readFileSync(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "skills",
+          "p-review",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    ).toContain("Review carefully.");
+    expect(
+      pathExists(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "p-skills",
+          "review",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(false);
+  });
+
   it("applies only selected bundle items in global mode", async () => {
     // Given
     const homeDir = createHomeDir();

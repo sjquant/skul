@@ -25,6 +25,15 @@ export interface ToolDefinition {
   targets: Partial<Record<ToolTargetName, ToolTargetDefinition>>;
 }
 
+export interface ToolMaterializationLayout {
+  remapRepoRelPath(toolName: string, repoRelPath: string): string;
+  resolveToolTargetPath(
+    toolName: string,
+    targetName: ToolTargetName,
+    rootDir: string,
+  ): string | null;
+}
+
 const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "claude-code",
@@ -251,6 +260,16 @@ export function resolveGlobalToolTargetPath(
 
   return target ? path.join(homeDir, target.path) : null;
 }
+
+export const PROJECT_TOOL_MATERIALIZATION_LAYOUT: ToolMaterializationLayout = {
+  remapRepoRelPath: (_toolName, repoRelPath) => repoRelPath,
+  resolveToolTargetPath,
+};
+
+export const GLOBAL_TOOL_MATERIALIZATION_LAYOUT: ToolMaterializationLayout = {
+  remapRepoRelPath: buildGlobalRepoRelPathRemapper(),
+  resolveToolTargetPath: resolveGlobalToolTargetPath,
+};
 
 function cloneToolDefinition(definition: ToolDefinition): ToolDefinition {
   return {
