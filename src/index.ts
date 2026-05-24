@@ -690,13 +690,25 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
 
   const promptClient = createPromptClientForSelections([]);
   return {
-    async selectBundle(source?: string): Promise<BundleSelection> {
+    async selectBundle(
+      source?: string,
+      requestedTools?: ToolName[],
+    ): Promise<BundleSelection> {
       const availableBundles = listCachedBundles({ libraryDir })
-        .filter((bundle) => source === undefined || bundle.source === source)
+        .filter((bundle) =>
+          isBundleSelectionCandidate({ bundle, source, requestedTools }),
+        )
         .map((bundle) =>
           buildBundleSelection(bundle.source, bundle.bundle, libraryDir),
         )
         .sort(compareBundleSelections);
+
+      if (availableBundles.length === 0 && requestedTools?.length) {
+        throw new Error(
+          `No bundles cached${source ? ` for ${source}` : ""} support selected agent(s): ${requestedTools.join(", ")}`,
+        );
+      }
+
       return createPromptClientForSelections(availableBundles).selectBundle(
         source,
       );
@@ -706,6 +718,28 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
   };
+}
+
+function isBundleSelectionCandidate(options: {
+  bundle: CachedBundle;
+  source?: string;
+  requestedTools?: ToolName[];
+}): boolean {
+  if (
+    options.source !== undefined &&
+    options.bundle.source !== options.source
+  ) {
+    return false;
+  }
+
+  if (!options.requestedTools?.length) {
+    return true;
+  }
+
+  const availableTools = Object.keys(options.bundle.manifest.tools);
+  return options.requestedTools.every((toolName) =>
+    availableTools.includes(toolName),
+  );
 }
 
 function buildBundleSelection(
@@ -1981,6 +2015,7 @@ async function prepareApplyBundle(options: {
   ref?: string;
   inferredBundleFromSource?: true;
   existingDesiredState: DesiredBundleEntry[];
+  preBundlePrompts?: PromptClient;
 }): Promise<{
   cloneLines: string[];
   cachedBundle: CachedBundle;
@@ -1996,6 +2031,7 @@ async function prepareApplyBundle(options: {
   const cloneLines = fetchBundleSourceForApply(options);
   let cachedBundle: CachedBundle;
   let bundleSource: string | undefined;
+  let selectedToolsBeforeBundle: ToolName[] | undefined;
 
   try {
     cachedBundle = findCachedBundleWithGuidance({
@@ -2016,7 +2052,21 @@ async function prepareApplyBundle(options: {
       throw error;
     }
 
-    const selection = await options.prompts.selectBundle(options.source);
+    selectedToolsBeforeBundle = await selectToolsBeforeBundle({
+      libraryDir: options.libraryDir,
+      source: options.source,
+      requestedTools: options.requestedTools,
+      prompts: options.preBundlePrompts ?? options.prompts,
+    });
+    const toolsForBundleSelection =
+      selectedToolsBeforeBundle ??
+      (options.requestedTools.length > 0 ? options.requestedTools : undefined);
+    const selection = toolsForBundleSelection
+      ? await options.prompts.selectBundle(
+          options.source,
+          toolsForBundleSelection,
+        )
+      : await options.prompts.selectBundle(options.source);
     cachedBundle = findCachedBundleWithGuidance({
       libraryDir: options.libraryDir,
       bundle: selection.bundle,
@@ -2048,16 +2098,18 @@ async function prepareApplyBundle(options: {
   const availableTools = Object.keys(cachedBundle.manifest.tools) as ToolName[];
   const wasExplicitlyRequested = options.requestedTools.length > 0;
 
-  if (wasExplicitlyRequested) {
-    assertBundleSupportsRequestedTools(options.requestedTools, availableTools);
+  const toolsToAssert = selectedToolsBeforeBundle ?? options.requestedTools;
+  if (toolsToAssert.length > 0) {
+    assertBundleSupportsRequestedTools(toolsToAssert, availableTools);
   }
 
   const selectedRequestedTools =
-    wasExplicitlyRequested || availableTools.length <= 1
+    selectedToolsBeforeBundle ??
+    (wasExplicitlyRequested || availableTools.length <= 1
       ? wasExplicitlyRequested
         ? options.requestedTools
         : availableTools
-      : await options.prompts.selectAgents(availableTools);
+      : await options.prompts.selectAgents(availableTools));
   const hasToolSelection =
     wasExplicitlyRequested ||
     selectedRequestedTools.length < availableTools.length;
@@ -2087,6 +2139,47 @@ async function prepareApplyBundle(options: {
     hasToolSelection,
     replacesItemSelection: options.selectItems,
   };
+}
+
+async function selectToolsBeforeBundle(options: {
+  libraryDir: string;
+  source?: string;
+  requestedTools: ToolName[];
+  prompts: PromptClient;
+}): Promise<ToolName[] | undefined> {
+  if (!options.source || options.requestedTools.length > 0) {
+    return undefined;
+  }
+
+  const availableTools = listSelectableToolsForSource({
+    libraryDir: options.libraryDir,
+    source: options.source,
+  });
+
+  if (availableTools.length <= 1) {
+    return undefined;
+  }
+
+  return options.prompts.selectAgents(availableTools);
+}
+
+function listSelectableToolsForSource(options: {
+  libraryDir: string;
+  source: string;
+}): ToolName[] {
+  const toolNames = new Set<ToolName>();
+
+  for (const bundle of listCachedBundles({ libraryDir: options.libraryDir })) {
+    if (bundle.source !== options.source) {
+      continue;
+    }
+
+    for (const toolName of Object.keys(bundle.manifest.tools) as ToolName[]) {
+      toolNames.add(toolName);
+    }
+  }
+
+  return Array.from(toolNames).sort((left, right) => left.localeCompare(right));
 }
 
 async function resolveSelectedBundleItems(options: {
@@ -3952,6 +4045,7 @@ async function applyBundleGlobal(options: {
     ref: options.ref,
     prompts:
       options.agents.length > 0 ? options.prompts : globalAutoSelectPrompts,
+    preBundlePrompts: options.prompts,
     inferredBundleFromSource: options.inferredBundleFromSource,
   });
 

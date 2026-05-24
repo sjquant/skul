@@ -979,6 +979,75 @@ describe("run --global", () => {
     expect(copilotPath).not.toBe(antigravityPath);
   });
 
+  it("selects agents before opening a global source-scoped bundle picker", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const promptOrder: string[] = [];
+    const selectAgents = vi.fn().mockImplementation(async () => {
+      promptOrder.push("agents");
+      return ["codex"];
+    });
+    const selectBundle = vi.fn().mockImplementation(async () => {
+      promptOrder.push("bundle");
+      return {
+        bundle: "core",
+        source: "github.com/sjquant/ghosts",
+      };
+    });
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: {
+        "claude-code": { skills: { path: ".claude/skills" } },
+        codex: { skills: { path: ".agents/skills" } },
+      },
+    });
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: {
+        "claude-code": { skills: { path: ".claude/skills" } },
+        codex: { skills: { path: ".agents/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".claude/skills/wdd/SKILL.md",
+      "# claude wdd\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# codex wdd\n",
+    );
+
+    // When
+    await expect(
+      run(["add", "--global", "sjquant/ghosts"], {
+        homeDir,
+        prompts: createPromptStub({ selectAgents, selectBundle }),
+      }),
+    ).resolves.toBe("Applied core globally for codex");
+
+    // Then
+    expect(promptOrder).toEqual(["agents", "bundle"]);
+    expect(selectAgents).toHaveBeenCalledWith(["claude-code", "codex"]);
+    expect(selectBundle).toHaveBeenCalledWith("github.com/sjquant/ghosts", [
+      "codex",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "wdd", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# codex wdd\n");
+    expect(
+      pathExists(path.join(homeDir, ".claude", "skills", "wdd", "SKILL.md")),
+    ).toBe(false);
+  });
+
   it("replaces desired tools (not unions) when re-applying without --agent after an explicit --agent install", async () => {
     // Given: first install explicitly selects only claude-code
     const homeDir = createHomeDir();

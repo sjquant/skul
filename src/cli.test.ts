@@ -6,7 +6,12 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createHelpText, type PromptClient, parseCliArgs } from "./cli";
+import {
+  createHelpText,
+  createPromptClientForSelections,
+  type PromptClient,
+  parseCliArgs,
+} from "./cli";
 import { detectGitContext } from "./git-context";
 import { assertTrackedRootInstructionShadowSafety, run } from "./index";
 import {
@@ -2060,6 +2065,40 @@ describe("run", () => {
     expect(loadPrompts).not.toHaveBeenCalled();
   });
 
+  it("explains Space and Enter roles in multiselect prompts", async () => {
+    // Given
+    const multiselect = vi
+      .fn()
+      .mockResolvedValueOnce(["skills/review"])
+      .mockResolvedValueOnce(["codex"]);
+    const loadPrompts = async () =>
+      ({
+        isCancel: () => false,
+        multiselect,
+      }) as unknown as typeof import("@clack/prompts");
+    const prompts = createPromptClientForSelections([], loadPrompts);
+
+    // When
+    await expect(
+      prompts.selectBundleItems(["skills/review"], []),
+    ).resolves.toEqual(["skills/review"]);
+    await expect(prompts.selectAgents(["codex"])).resolves.toEqual(["codex"]);
+
+    // Then
+    expect(multiselect).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        message: expect.stringMatching(/Space toggles choices; Enter confirms/),
+      }),
+    );
+    expect(multiselect).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        message: expect.stringMatching(/Space toggles choices; Enter confirms/),
+      }),
+    );
+  });
+
   it("activates headless mode via SKUL_NO_TUI environment variable", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -2144,6 +2183,117 @@ describe("run", () => {
         "utf8",
       ),
     ).toBe("# wdd\n");
+  });
+
+  it("selects agents before opening a source-scoped bundle picker", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const promptOrder: string[] = [];
+    const selectAgents = vi.fn().mockImplementation(async () => {
+      promptOrder.push("agents");
+      return ["codex"];
+    });
+    const selectBundle = vi.fn().mockImplementation(async () => {
+      promptOrder.push("bundle");
+      return {
+        bundle: "core",
+        source: "github.com/sjquant/ghosts",
+      };
+    });
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".cursor/skills/wdd/SKILL.md",
+      "# cursor wdd\n",
+    );
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectAgents, selectBundle }),
+      }),
+    ).resolves.toBe("Applied core for codex");
+
+    // Then
+    expect(promptOrder).toEqual(["agents", "bundle"]);
+    expect(selectAgents).toHaveBeenCalledWith(["codex", "cursor"]);
+    expect(selectBundle).toHaveBeenCalledWith("github.com/sjquant/ghosts", [
+      "codex",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# wdd\n");
+    expect(
+      pathExists(path.join(repoRoot, ".cursor", "skills", "wdd", "SKILL.md")),
+    ).toBe(false);
+  });
+
+  it("uses an explicit agent to narrow source-scoped bundle selection", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectAgents = vi.fn();
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "core",
+      source: "github.com/sjquant/ghosts",
+    });
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts", "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectAgents, selectBundle }),
+      }),
+    ).resolves.toBe("Applied core for codex");
+
+    // Then
+    expect(selectAgents).not.toHaveBeenCalled();
+    expect(selectBundle).toHaveBeenCalledWith("github.com/sjquant/ghosts", [
+      "codex",
+    ]);
   });
 
   it("keeps the selected source-scoped bundle when a ref selector is requested", async () => {

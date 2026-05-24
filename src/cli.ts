@@ -110,7 +110,10 @@ export interface BundleSelection {
 }
 
 export interface PromptClient {
-  selectBundle(source?: string): Promise<BundleSelection>;
+  selectBundle(
+    source?: string,
+    requestedTools?: ToolName[],
+  ): Promise<BundleSelection>;
   selectBundleItems(
     availableItems: BundleItemSelector[],
     selectedItems: BundleItemSelector[],
@@ -300,7 +303,8 @@ export function createPromptClientForSelections(
 
       const { isCancel, multiselect } = await loadPrompts();
       const choice = await multiselect({
-        message: "Select bundle items to install",
+        message:
+          "Choose bundle items to install (Space toggles choices; Enter confirms)",
         options: availableItems.map((item) => ({
           value: item,
           label: item,
@@ -322,7 +326,8 @@ export function createPromptClientForSelections(
 
       const { isCancel, multiselect } = await loadPrompts();
       const selected = await multiselect<ToolName>({
-        message: "Select agents to install for",
+        message:
+          "Choose agents to install for (Space toggles choices; Enter confirms)",
         options: availableAgents.map((agent) => ({
           value: agent,
           label: agent,
