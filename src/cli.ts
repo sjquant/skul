@@ -146,7 +146,7 @@ const COMMAND_ALIASES: Record<string, CommandName> = {
 const PROGRAM_HELP_DETAILS = [
   "",
   "Root instructions:",
-  "  cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, copilot targets .github/copilot-instructions.md and antigravity targets .gemini/GEMINI.md; claude-code targets CLAUDE.md.",
+  "  cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, codex targets .codex/AGENTS.md, opencode targets .config/opencode/AGENTS.md, kiro targets .kiro/steering/AGENTS.md, copilot targets .github/copilot-instructions.md, and antigravity targets .gemini/GEMINI.md; claude-code targets CLAUDE.md.",
   "  Untracked root instructions are composed locally and hidden through .git/info/exclude.",
   "  Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
   "",
@@ -667,7 +667,7 @@ function createProgram(
       "Preview what would be written without making any changes",
     )
     .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
-    .option("-g, --global", "Install to ~/.claude/ (global Claude Code config)")
+    .option("-g, --global", "Install to global tool config under ~/")
     .addHelpText("after", ADD_HELP_DETAILS)
     .action(
       async (
@@ -790,7 +790,7 @@ function createProgram(
       "Show desired state, current worktree materialization, and tracked root-instruction shadow health",
     )
     .option("-j, --json", "Output as JSON (for scripting and agent use)")
-    .option("-g, --global", "Show ~/.claude/ state (global Claude Code config)")
+    .option("-g, --global", "Show global tool config state")
     .action((opts: { json?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
@@ -888,7 +888,7 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be written without making any changes",
     )
-    .option("-g, --global", "Apply global desired-state bundles to ~/.claude/")
+    .option("-g, --global", "Apply global desired-state bundles")
     .action((opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
@@ -906,7 +906,7 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
-    .option("-g, --global", "Reset ~/.claude/ (global Claude Code config)")
+    .option("-g, --global", "Reset globally managed tool config")
     .action((opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",
@@ -925,10 +925,7 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
-    .option(
-      "-g, --global",
-      "Remove from ~/.claude/ (global Claude Code config)",
-    )
+    .option("-g, --global", "Remove from globally managed tool config")
     .action((bundle: string, opts: { dryRun?: boolean; global?: boolean }) => {
       context.result = {
         kind: "command",

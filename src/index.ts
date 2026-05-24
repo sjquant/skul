@@ -90,7 +90,7 @@ import {
 } from "./root-instruction-state";
 import { resolveGlobalStateLayout } from "./state-layout";
 import {
-  buildGlobalRepoRelPathRemapper,
+  GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
   globalCapableToolNames,
   type ToolName,
@@ -140,6 +140,8 @@ export async function run(
           source: parsed.options.source,
           protocol: parsed.options.protocol,
           agents: parsed.options.agents,
+          includeItems: parsed.options.includeItems ?? [],
+          selectItems: parsed.options.selectItems ?? false,
           dryRun: parsed.options.dryRun,
           ref: parsed.options.ref,
           inferredBundleFromSource: parsed.options.inferredBundleFromSource,
@@ -3901,6 +3903,8 @@ async function applyBundleGlobal(options: {
   source?: string;
   protocol: "https" | "ssh";
   agents: ToolName[];
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
   dryRun: boolean;
   ref?: string;
   inferredBundleFromSource?: true;
@@ -3918,7 +3922,8 @@ async function applyBundleGlobal(options: {
     }
   }
 
-  const repoRelPathRemapper = buildGlobalRepoRelPathRemapper();
+  const repoRelPathRemapper =
+    GLOBAL_TOOL_MATERIALIZATION_LAYOUT.remapRepoRelPath;
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingGlobal = registry.global;
@@ -3940,8 +3945,8 @@ async function applyBundleGlobal(options: {
       options.agents.length > 0
         ? options.agents.filter((t) => supportedTools.includes(t))
         : [],
-    requestedItems: [],
-    selectItems: false,
+    requestedItems: options.includeItems,
+    selectItems: options.selectItems,
     existingDesiredState: existingGlobal?.desired_state ?? [],
     libraryDir: options.libraryDir,
     ref: options.ref,
@@ -3989,7 +3994,8 @@ async function applyBundleGlobal(options: {
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
     tools: availableGlobalTools,
-    repoRelPathRemapper,
+    pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
+    itemSelectors: preparedBundle.selectedItems,
   });
 
   const plannedRootInstructionTargets = new Set(
@@ -4080,7 +4086,8 @@ async function applyBundleGlobal(options: {
       collectManagedRootInstructionTargets(existingBundles),
     rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
-    repoRelPathRemapper,
+    pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
+    itemSelectors: preparedBundle.selectedItems,
   });
 
   const newBundleState = buildMaterializedBundleState({
@@ -4090,6 +4097,7 @@ async function applyBundleGlobal(options: {
     source: preparedBundle.bundleSource,
     resolvedCommit: preparedBundle.sourceRevision?.currentCommit,
     selectedTools: availableGlobalTools,
+    selectedItems: preparedBundle.selectedItems,
   });
 
   const newDesiredEntry = buildDesiredEntryForAppliedBundle({
@@ -4100,6 +4108,8 @@ async function applyBundleGlobal(options: {
     requestedRef: options.ref,
     requestedTools: availableGlobalTools,
     replaceRequestedTools: options.agents.length === 0,
+    requestedItems: preparedBundle.selectedItems,
+    replaceRequestedItems: preparedBundle.replacesItemSelection,
     sourceRevision: preparedBundle.sourceRevision,
   });
 
@@ -4240,7 +4250,8 @@ async function removeGlobalBundle(options: {
   bundle: string;
   dryRun: boolean;
 }): Promise<string> {
-  const repoRelPathRemapper = buildGlobalRepoRelPathRemapper();
+  const repoRelPathRemapper =
+    GLOBAL_TOOL_MATERIALIZATION_LAYOUT.remapRepoRelPath;
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
@@ -4520,6 +4531,8 @@ async function applyGlobal(options: {
         source: entry.source,
         protocol: entry.protocol,
         agents: entry.tools ?? [],
+        includeItems: entry.items ?? [],
+        selectItems: false,
         dryRun: false,
         ref: entry.ref,
       });

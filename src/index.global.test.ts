@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PromptClient } from "./cli";
 import { run } from "./index";
@@ -539,7 +539,7 @@ describe("run --global", () => {
     ).resolves.toContain("Reset");
   });
 
-  it("throws when the bundle has no globally installable tools", async () => {
+  it("installs a codex-only bundle globally", async () => {
     // Given
     const homeDir = createHomeDir();
     writeManifest(homeDir, "github.com/user/ai-vault", "codex-only", {
@@ -554,10 +554,225 @@ describe("run --global", () => {
       "# task\n",
     );
 
-    // When / Then: fails because codex is not a globally-capable tool
-    await expect(
-      run(["add", "--global", "codex-only"], { homeDir }),
-    ).rejects.toThrowError(/no globally installable tools/i);
+    // When
+    const output = await run(["add", "--global", "codex-only"], { homeDir });
+
+    // Then
+    expect(output).toContain("Applied codex-only globally for codex");
+    expect(
+      pathExists(path.join(homeDir, ".agents", "skills", "task", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("installs opencode content to its global config directory", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "opencode-only", {
+      name: "opencode-only",
+      tools: {
+        opencode: {
+          skills: { path: ".opencode/skills" },
+          commands: { path: ".opencode/commands" },
+          root_instruction: { path: "AGENTS.md" },
+        },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "opencode-only",
+      ".opencode/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "opencode-only",
+      ".opencode/commands/check.md",
+      "# check\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "opencode-only",
+      "AGENTS.md",
+      "# OpenCode guidance\n",
+    );
+
+    // When
+    const output = await run(["add", "--global", "opencode-only"], {
+      homeDir,
+    });
+
+    // Then
+    expect(output).toContain("Applied opencode-only globally for opencode");
+    expect(
+      pathExists(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "skills",
+          "review",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      pathExists(
+        path.join(homeDir, ".config", "opencode", "commands", "check.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".config", "opencode", "AGENTS.md"),
+        "utf8",
+      ),
+    ).toContain("# OpenCode guidance");
+  });
+
+  it("keeps remapped global canonical conflict resolution inside the target root", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const resolveFileConflict = vi.fn().mockResolvedValue({
+      action: "prefix",
+      prefix: "p",
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "opencode-canonical", {
+      name: "opencode-canonical",
+      tools: { opencode: { skills: { path: "skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "opencode-canonical",
+      "skills/review/SKILL.md",
+      "---\nname: review\ndescription: Review code\n---\nReview carefully.\n",
+    );
+    fs.mkdirSync(
+      path.join(homeDir, ".config", "opencode", "skills", "review"),
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(homeDir, ".config", "opencode", "skills", "review", "SKILL.md"),
+      "user file\n",
+    );
+
+    // When
+    const output = await run(
+      ["add", "--global", "opencode-canonical", "--agent", "opencode"],
+      {
+        homeDir,
+        prompts: createPromptStub({ resolveFileConflict }),
+      },
+    );
+
+    // Then
+    expect(output).toContain(
+      "Applied opencode-canonical globally for opencode",
+    );
+    expect(resolveFileConflict).toHaveBeenCalledWith(
+      "review/SKILL.md",
+      "p-review/SKILL.md",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "skills",
+          "review",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    ).toBe("user file\n");
+    expect(
+      fs.readFileSync(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "skills",
+          "p-review",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    ).toContain("Review carefully.");
+    expect(
+      pathExists(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "p-skills",
+          "review",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("applies only selected bundle items in global mode", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const selectBundleItems = vi.fn().mockResolvedValue(["skills/review"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "codex-only", {
+      name: "codex-only",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "codex-only",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "codex-only",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+
+    // When
+    const output = await run(
+      ["add", "--global", "codex-only", "--agent", "codex", "--select-items"],
+      {
+        homeDir,
+        prompts: createPromptStub({ selectBundleItems }),
+      },
+    );
+
+    // Then
+    expect(output).toContain("Applied codex-only globally for codex");
+    expect(selectBundleItems).toHaveBeenCalledWith(
+      ["skills/next-task", "skills/review"],
+      [],
+    );
+    expect(
+      pathExists(
+        path.join(homeDir, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registry.global!.desired_state[0]!.items).toEqual(["skills/review"]);
+    expect(
+      registry.global!.materialized_state.bundles["codex-only"]!.tools.codex!
+        .items,
+    ).toEqual(["skills/review"]);
   });
 
   it("returns JSON global status when --json is passed", async () => {
@@ -804,17 +1019,25 @@ describe("run --global", () => {
     await run(["add", "--global", "team-guide"], { homeDir });
 
     // Then: desired tools is REPLACED (not unioned) with the auto-selected set.
-    // The bundle supports all globally-capable tools (claude-code, copilot, antigravity)
+    // The bundle supports all globally-capable tools through root-instruction translation
     // so desired_state.tools is updated to reflect the current auto-selected set rather
     // than keeping the old explicit claude-code-only selection merged in.
     const registry = readRegistryFile(
       path.join(homeDir, ".skul", "registry.json"),
     );
     expect(registry.global!.desired_state[0]!.tools).toEqual(
-      expect.arrayContaining(["claude-code", "copilot", "antigravity"]),
+      expect.arrayContaining([
+        "claude-code",
+        "cursor",
+        "opencode",
+        "codex",
+        "copilot",
+        "kiro",
+        "antigravity",
+      ]),
     );
     // Crucially, the tools list is the REPLACED set (all auto-selected), not claude-code alone
-    expect(registry.global!.desired_state[0]!.tools).toHaveLength(3);
+    expect(registry.global!.desired_state[0]!.tools).toHaveLength(7);
   });
 
   it("unions desired tools when re-applying with an explicit --agent flag", async () => {
@@ -866,8 +1089,8 @@ describe("run --global", () => {
     );
   });
 
-  it("emits a warning when bundle tools include non-global tools that are skipped", async () => {
-    // Given: bundle supports both claude-code (global) and kiro (not global)
+  it("installs newly global-capable tools without skipping them", async () => {
+    // Given
     const homeDir = createHomeDir();
     writeManifest(homeDir, "github.com/user/ai-vault", "mixed-bundle", {
       name: "mixed-bundle",
@@ -894,10 +1117,15 @@ describe("run --global", () => {
     // When
     const output = await run(["add", "--global", "mixed-bundle"], { homeDir });
 
-    // Then: install succeeds for claude-code but warns about kiro
-    expect(output).toContain("Applied mixed-bundle globally for claude-code");
+    // Then
+    expect(output).toContain(
+      "Applied mixed-bundle globally for claude-code, kiro",
+    );
     expect(output).toContain("kiro");
-    expect(output).toContain("skipped");
+    expect(output).not.toContain("skipped");
+    expect(
+      pathExists(path.join(homeDir, ".kiro", "skills", "react", "SKILL.md")),
+    ).toBe(true);
   });
 
   it("removes a bundle that is in desired_state but not materialized", async () => {
