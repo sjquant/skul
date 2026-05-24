@@ -2565,6 +2565,57 @@ describe("run", () => {
     });
   });
 
+  it("refreshes a cached remote source before source-scoped add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# initial\n",
+      },
+    });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# refreshed\n",
+      },
+    );
+
+    // When
+    await expect(
+      run(["add", remoteSource.source, remoteSource.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# refreshed\n");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "https",
+      resolved_ref: "main",
+      resolved_commit: updatedCommit,
+    });
+  });
+
   it("preserves cached source protocol when a cached bundle is added by name", async () => {
     // Given
     const homeDir = createHomeDir();

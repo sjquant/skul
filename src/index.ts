@@ -2039,7 +2039,8 @@ async function prepareApplyBundle(options: {
   hasToolSelection: boolean;
   replacesItemSelection: boolean;
 }> {
-  const cloneLines = fetchBundleSourceForApply(options);
+  const refreshedSources = new Set<string>();
+  const cloneLines = refreshBundleSourceForApply(options, refreshedSources);
   let cachedBundle: CachedBundle;
   let bundleSource: string | undefined;
   let selectedToolsBeforeBundle: ToolName[] | undefined;
@@ -2086,13 +2087,21 @@ async function prepareApplyBundle(options: {
     bundleSource = selection.source ?? options.source ?? cachedBundle.source;
   }
 
-  if (bundleSource && options.ref) {
-    updateCachedRemoteSource({
-      source: bundleSource,
-      libraryDir: options.libraryDir,
-      ...(options.source !== undefined ? { protocol: options.protocol } : {}),
-      ref: options.ref,
-    });
+  if (
+    bundleSource &&
+    (options.source !== undefined || options.ref !== undefined)
+  ) {
+    cloneLines.push(
+      ...refreshBundleSourceForApply(
+        {
+          source: bundleSource,
+          libraryDir: options.libraryDir,
+          protocol: options.protocol,
+          ref: options.ref,
+        },
+        refreshedSources,
+      ),
+    );
     cachedBundle = findCachedBundleWithGuidance({
       libraryDir: options.libraryDir,
       bundle: cachedBundle.bundle,
@@ -2249,22 +2258,39 @@ function shouldPromptForInferredBundle(options: {
   );
 }
 
-function fetchBundleSourceForApply(options: {
-  source?: string;
-  protocol: "https" | "ssh";
-  libraryDir: string;
-}): string[] {
-  if (!options.source) {
+function refreshBundleSourceForApply(
+  options: {
+    source?: string;
+    protocol: "https" | "ssh";
+    libraryDir: string;
+    ref?: string;
+  },
+  refreshedSources: Set<string>,
+): string[] {
+  if (!options.source || refreshedSources.has(options.source)) {
     return [];
   }
 
-  const { cloned } = fetchRemoteSource({
+  refreshedSources.add(options.source);
+
+  const initialRevision = readCachedSourceRevision({
     source: options.source,
     libraryDir: options.libraryDir,
     protocol: options.protocol,
   });
 
-  return cloned ? [pc.dim(`Cloned ${options.source}`)] : [];
+  if (initialRevision.cached && initialRevision.remoteUrl === undefined) {
+    return [];
+  }
+
+  updateCachedRemoteSource({
+    source: options.source,
+    libraryDir: options.libraryDir,
+    protocol: options.protocol,
+    ref: options.ref,
+  });
+
+  return initialRevision.cached ? [] : [pc.dim(`Cloned ${options.source}`)];
 }
 
 function assertBundleSupportsRequestedTools(
