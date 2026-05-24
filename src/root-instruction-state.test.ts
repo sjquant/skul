@@ -174,10 +174,7 @@ describe("syncManagedRootInstructionFiles", () => {
     });
 
     expect(written).toEqual(new Set(["CLAUDE.md"]));
-    const content = fs.readFileSync(
-      path.join(repoRoot, "CLAUDE.md"),
-      "utf8",
-    );
+    const content = fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
     expect(content).toBe(
       formatExpectedRootInstructionDocument(
         formatRootInstructionBundleBlock(
@@ -218,10 +215,7 @@ describe("syncManagedRootInstructionFiles", () => {
     });
 
     expect(written).toContain("CLAUDE.md");
-    const content = fs.readFileSync(
-      path.join(repoRoot, "CLAUDE.md"),
-      "utf8",
-    );
+    const content = fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
     expect(content).toBe(
       formatExpectedRootInstructionDocument(
         "# My personal rules\n",
@@ -265,9 +259,9 @@ describe("syncManagedRootInstructionFiles", () => {
     });
 
     expect(written).toContain(".claude/CLAUDE.md");
-    expect(
-      fs.existsSync(path.join(repoRoot, ".claude", "CLAUDE.md")),
-    ).toBe(true);
+    expect(fs.existsSync(path.join(repoRoot, ".claude", "CLAUDE.md"))).toBe(
+      true,
+    );
   });
 
   it("skips a bundle with no materialized state", () => {
@@ -311,9 +305,9 @@ describe("restoreRootInstructionBaseContents", () => {
     });
 
     expect(restored).toEqual(new Set(["CLAUDE.md"]));
-    expect(
-      fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8"),
-    ).toBe("# My personal rules\n");
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      "# My personal rules\n",
+    );
   });
 
   it("returns an empty set when baseContents is undefined", () => {
@@ -404,7 +398,9 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
 
     const expectedHash = sha256(content);
     expect(
-      result["my-bundle"]!.tools["claude-code"]!.file_fingerprints!["CLAUDE.md"],
+      result["my-bundle"]!.tools["claude-code"]!.file_fingerprints![
+        "CLAUDE.md"
+      ],
     ).toBe(expectedHash);
   });
 
@@ -430,7 +426,9 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
     );
 
     expect(
-      result["my-bundle"]!.tools["claude-code"]!.file_fingerprints!["CLAUDE.md"],
+      result["my-bundle"]!.tools["claude-code"]!.file_fingerprints![
+        "CLAUDE.md"
+      ],
     ).toBe("");
   });
 });
@@ -444,7 +442,9 @@ describe("collectManagedRootInstructionTargets", () => {
     const bundles: MaterializedState["bundles"] = {
       "bundle-a": {
         tools: {
-          "claude-code": { files: ["CLAUDE.md", ".claude/skills/react/SKILL.md"] },
+          "claude-code": {
+            files: ["CLAUDE.md", ".claude/skills/react/SKILL.md"],
+          },
         },
       },
       "bundle-b": {
@@ -494,7 +494,9 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
       desiredState: [makeDesiredEntry("my-bundle")],
       materializedBundles: {
         "my-bundle": {
-          tools: { "claude-code": { files: [".claude/skills/react/SKILL.md"] } },
+          tools: {
+            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+          },
         },
       },
       targetPaths: new Set(["CLAUDE.md"]),

@@ -59,9 +59,9 @@ describe("normalizeBundleItemSelector", () => {
   });
 
   it("normalizes .github/copilot-instructions.md alias to root-instruction", () => {
-    expect(
-      normalizeBundleItemSelector(".github/copilot-instructions.md"),
-    ).toBe("root-instruction");
+    expect(normalizeBundleItemSelector(".github/copilot-instructions.md")).toBe(
+      "root-instruction",
+    );
   });
 
   it("accepts a plain skills selector with no extension", () => {
@@ -119,13 +119,15 @@ describe("normalizeBundleItemSelector", () => {
   });
 
   it("trims surrounding whitespace", () => {
-    expect(normalizeBundleItemSelector("  skills/react  ")).toBe("skills/react");
+    expect(normalizeBundleItemSelector("  skills/react  ")).toBe(
+      "skills/react",
+    );
   });
 
   it("throws for a nested path with more than one segment after the target", () => {
-    expect(() =>
-      normalizeBundleItemSelector("skills/react/SKILL.md"),
-    ).toThrow("must target one top-level item");
+    expect(() => normalizeBundleItemSelector("skills/react/SKILL.md")).toThrow(
+      "must target one top-level item",
+    );
   });
 
   it("throws for an unrecognised target prefix", () => {
@@ -282,10 +284,7 @@ describe("listSelectableBundleItems", () => {
     const bundleDir = createTempDir();
     // A directory is a valid skill
     fs.mkdirSync(path.join(bundleDir, "skills", "react"), { recursive: true });
-    writeFile(
-      path.join(bundleDir, "skills", "react", "SKILL.md"),
-      "# react",
-    );
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react");
     // A loose file directly under skills/ is not selectable
     writeFile(path.join(bundleDir, "skills", "loose.md"), "# loose");
 
@@ -314,10 +313,7 @@ describe("listSelectableBundleItems", () => {
   it("returns a sorted, deduplicated list when multiple tools share the same canonical path", () => {
     const bundleDir = createTempDir();
     fs.mkdirSync(path.join(bundleDir, "skills", "react"), { recursive: true });
-    writeFile(
-      path.join(bundleDir, "skills", "react", "SKILL.md"),
-      "# react",
-    );
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react");
     fs.mkdirSync(path.join(bundleDir, "skills", "vue"), { recursive: true });
     writeFile(path.join(bundleDir, "skills", "vue", "SKILL.md"), "# vue");
 
@@ -335,10 +331,7 @@ describe("listSelectableBundleItems", () => {
   it("filters to the specified tools when a tools array is provided", () => {
     const bundleDir = createTempDir();
     fs.mkdirSync(path.join(bundleDir, "skills", "react"), { recursive: true });
-    writeFile(
-      path.join(bundleDir, "skills", "react", "SKILL.md"),
-      "# react",
-    );
+    writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react");
     writeFile(path.join(bundleDir, "commands", "review.md"), "# review");
 
     const manifest: BundleManifest = {
@@ -525,9 +518,9 @@ describe("bundleItemSelectionsEqual", () => {
   });
 
   it("returns false for arrays with different items", () => {
-    expect(
-      bundleItemSelectionsEqual(["skills/react"], ["skills/vue"]),
-    ).toBe(false);
+    expect(bundleItemSelectionsEqual(["skills/react"], ["skills/vue"])).toBe(
+      false,
+    );
   });
 
   it("returns true for two empty arrays", () => {
