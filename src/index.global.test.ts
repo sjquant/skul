@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PromptClient } from "./cli";
 import { run } from "./index";
@@ -629,6 +629,66 @@ describe("run --global", () => {
         "utf8",
       ),
     ).toContain("# OpenCode guidance");
+  });
+
+  it("applies only selected bundle items in global mode", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const selectBundleItems = vi.fn().mockResolvedValue(["skills/review"]);
+    writeManifest(homeDir, "github.com/user/ai-vault", "codex-only", {
+      name: "codex-only",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "codex-only",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "codex-only",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+
+    // When
+    const output = await run(
+      ["add", "--global", "codex-only", "--agent", "codex", "--select-items"],
+      {
+        homeDir,
+        prompts: createPromptStub({ selectBundleItems }),
+      },
+    );
+
+    // Then
+    expect(output).toContain("Applied codex-only globally for codex");
+    expect(selectBundleItems).toHaveBeenCalledWith(
+      ["skills/next-task", "skills/review"],
+      [],
+    );
+    expect(
+      pathExists(
+        path.join(homeDir, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(registry.global!.desired_state[0]!.items).toEqual(["skills/review"]);
+    expect(
+      registry.global!.materialized_state.bundles["codex-only"]!.tools.codex!
+        .items,
+    ).toEqual(["skills/review"]);
   });
 
   it("returns JSON global status when --json is passed", async () => {
