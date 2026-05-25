@@ -4059,7 +4059,7 @@ async function applyBundleGlobal(options: {
     if (!cached) {
       const toolsLabel =
         options.agents.length > 0
-          ? options.agents.filter((t) => supportedTools.includes(t)).join(", ")
+          ? options.agents.join(", ")
           : "globally supported tools";
       return [
         pc.dim(`(would clone ${options.source})`),

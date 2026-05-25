@@ -548,7 +548,12 @@ describe("materializeBundle", () => {
       manifest: {
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
-      resolveFileConflict: async () => resolutions[callCount++],
+      resolveFileConflict: async () => {
+        if (callCount >= resolutions.length) {
+          throw new Error(`callback called more times than expected (call ${callCount + 1})`);
+        }
+        return resolutions[callCount++];
+      },
     });
 
     // Then

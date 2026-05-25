@@ -1541,7 +1541,7 @@ describe("YAML frontmatter parser", () => {
     });
   });
 
-  it("does not throw on list fields in frontmatter", () => {
+  it("does not throw on list fields in frontmatter and preserves scalar fields", () => {
     // Given — list fields are not used by any model parser but must not crash
     const files = {
       "SKILL.md": [
@@ -1558,10 +1558,20 @@ describe("YAML frontmatter parser", () => {
       ].join("\n"),
     };
 
-    // When / Then
-    expect(() =>
-      translateSkill({ sourceTool: "claude", targetTool: "cursor", files }),
-    ).not.toThrow();
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then — name and description survive the round-trip regardless of the list field
+    expect(translated[".cursor/skills/my-skill/SKILL.md"]).toContain(
+      "name: my-skill",
+    );
+    expect(translated[".cursor/skills/my-skill/SKILL.md"]).toContain(
+      "description: My description",
+    );
   });
 });
 
