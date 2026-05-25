@@ -42,6 +42,9 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["codex"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["copilot"]).toEqual({ skills: { path: "skills" } });
     expect(manifest.tools["kiro"]).toEqual({ skills: { path: "skills" } });
+    expect(manifest.tools["antigravity"]).toEqual({
+      skills: { path: "skills" },
+    });
   });
 
   it("infers commands only for tools that support commands", () => {
@@ -65,6 +68,9 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["codex"]).toBeUndefined(); // no commands target
     expect(manifest.tools["copilot"]).toBeUndefined(); // no commands target
     expect(manifest.tools["kiro"]).toBeUndefined(); // no commands target
+    expect(manifest.tools["antigravity"]).toEqual({
+      commands: { path: "commands" },
+    });
   });
 
   it("infers agents for all tools that support agents when an agents/ directory is present", () => {
@@ -84,6 +90,7 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["codex"]).toEqual({ agents: { path: "agents" } });
     expect(manifest.tools["copilot"]).toEqual({ agents: { path: "agents" } });
     expect(manifest.tools["kiro"]).toEqual({ agents: { path: "agents" } });
+    expect(manifest.tools["antigravity"]).toBeUndefined(); // no agents target
   });
 
   it("infers a CLAUDE.md root instruction for all root-instruction tools", () => {
@@ -113,6 +120,9 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["kiro"]).toEqual({
       root_instruction: { path: "CLAUDE.md" },
     });
+    expect(manifest.tools["antigravity"]).toEqual({
+      root_instruction: { path: "CLAUDE.md" },
+    });
   });
 
   it("infers an AGENTS.md root instruction for all root-instruction tools", () => {
@@ -140,6 +150,9 @@ describe("inferBundleManifest", () => {
       root_instruction: { path: "AGENTS.md" },
     });
     expect(manifest.tools["kiro"]).toEqual({
+      root_instruction: { path: "AGENTS.md" },
+    });
+    expect(manifest.tools["antigravity"]).toEqual({
       root_instruction: { path: "AGENTS.md" },
     });
   });
@@ -238,6 +251,10 @@ describe("inferBundleManifest", () => {
       root_instruction: { path: "CLAUDE.md" },
     });
     expect(manifest.tools["kiro"]).toEqual({
+      skills: { path: "skills" },
+      root_instruction: { path: "CLAUDE.md" },
+    });
+    expect(manifest.tools["antigravity"]).toEqual({
       skills: { path: "skills" },
       root_instruction: { path: "CLAUDE.md" },
     });
@@ -597,6 +614,18 @@ describe("materializeBundle: native dotdir passthrough", () => {
     ],
     ["codex", ".agents/skills", "react/SKILL.md", "# raw codex skill\n"],
     ["codex", ".codex/agents", "reviewer.toml", 'name = "reviewer"\n'],
+    [
+      "antigravity",
+      ".agent/skills",
+      "react/SKILL.md",
+      "# raw antigravity skill\n",
+    ],
+    [
+      "antigravity",
+      ".agent/workflows",
+      "deploy.md",
+      "# raw antigravity workflow\n",
+    ],
   ];
 
   it.each(
@@ -940,6 +969,138 @@ describe("inferBundleManifest: copilot and kiro native paths", () => {
     expect(manifest.tools["copilot"]).toEqual({
       root_instruction: { path: "AGENTS.md" },
     });
+  });
+});
+
+describe("inferBundleManifest: antigravity native paths", () => {
+  it("detects a native Antigravity skills directory", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".agent", "skills", "react", "SKILL.md"),
+      "# skill\n",
+    );
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["antigravity"]).toEqual({
+      skills: { path: ".agent/skills" },
+    });
+    expect(manifest.tools["claude-code"]).toBeUndefined();
+  });
+
+  it("detects a native Antigravity workflows directory", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".agent", "workflows", "deploy.md"),
+      "# workflow\n",
+    );
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools["antigravity"]).toEqual({
+      commands: { path: ".agent/workflows" },
+    });
+    expect(manifest.tools["claude-code"]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// materializeBundle — antigravity
+// ---------------------------------------------------------------------------
+
+describe("materializeBundle: antigravity", () => {
+  it("materializes a canonical skill into the Antigravity skills directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React expert",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { antigravity: { skills: { path: "skills" } } } },
+    });
+
+    // Then
+    expect(result.byTool["antigravity"]!.files).toContain(
+      ".agent/skills/react/SKILL.md",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agent/skills/react/SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("name: react");
+  });
+
+  it("materializes a canonical command into the Antigravity workflows directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "commands", "deploy.md"),
+      "---\ndescription: Deploy the app\n---\nRun the deployment pipeline.\n",
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { antigravity: { commands: { path: "commands" } } } },
+    });
+
+    // Then
+    expect(result.byTool["antigravity"]!.files).toEqual([
+      ".agent/workflows/deploy.md",
+    ]);
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".agent/workflows/deploy.md"),
+      "utf8",
+    );
+    expect(content).toContain("description: Deploy the app");
+    expect(content).toContain("Run the deployment pipeline.");
+  });
+
+  it("materializes a root instruction into AGENTS.md for antigravity", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "# Coding standards\n");
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { antigravity: { root_instruction: { path: "CLAUDE.md" } } },
+      },
+    });
+
+    // Then
+    expect(result.byTool["antigravity"]!.files).toEqual(["AGENTS.md"]);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock("bundle", "# Coding standards\n"),
+      ),
+    );
   });
 });
 
