@@ -904,7 +904,13 @@ describe("run --global", () => {
   it("offers only active bundle items when removing selected global items", async () => {
     // Given
     const homeDir = createHomeDir();
-    const selectBundleItems = vi.fn().mockResolvedValue(["skills/next-task"]);
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string }>) =>
+        choices.map((choice) => choice.value),
+    );
+    const selectBundleFromSelections = vi.fn(async () => {
+      throw new Error("selectBundleFromSelections should not be called");
+    });
     writeManifest(homeDir, "github.com/user/ai-vault", "codex-only", {
       name: "codex-only",
       tools: { codex: { skills: { path: ".agents/skills" } } },
@@ -940,13 +946,21 @@ describe("run --global", () => {
     await expect(
       run(["remove", "--global", "codex-only", "--select-items"], {
         homeDir,
-        prompts: createPromptStub({ selectBundleItems }),
+        prompts: createPromptStub({
+          selectBundleFromSelections,
+          selectBundleItemChoices,
+        }),
       }),
-    ).resolves.toBe("Removed global codex-only");
+    ).resolves.toBe("Removed codex-only: skills/next-task from global bundles");
 
     // Then
-    expect(selectBundleItems).toHaveBeenCalledWith(
-      ["skills/next-task"],
+    expect(selectBundleFromSelections).not.toHaveBeenCalled();
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / codex-only: skills/next-task",
+        }),
+      ],
       [],
       "remove",
     );

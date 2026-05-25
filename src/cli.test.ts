@@ -6220,7 +6220,17 @@ describe("run", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    const selectBundleItems = vi.fn().mockResolvedValue(["skills/review"]);
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) =>
+        choices
+          .filter((choice) =>
+            choice.label.endsWith("react-expert: skills/review"),
+          )
+          .map((choice) => choice.value),
+    );
+    const selectBundleFromSelections = vi.fn(async () => {
+      throw new Error("selectBundleFromSelections should not be called");
+    });
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
       tools: { codex: { skills: { path: ".agents/skills" } } },
@@ -6257,15 +6267,26 @@ describe("run", () => {
         {
           homeDir,
           cwd: repoRoot,
-          prompts: createPromptClientStub({ selectBundleItems }),
+          prompts: createPromptClientStub({
+            selectBundleFromSelections,
+            selectBundleItemChoices,
+          }),
         },
       ),
-    ).resolves.toBe("Removed skills/review from react-expert");
+    ).resolves.toBe("Removed react-expert: skills/review");
 
     // Then
-    expect(selectBundleItems).toHaveBeenCalledWith(
-      ["skills/next-task", "skills/review"],
-      ["skills/next-task"],
+    expect(selectBundleFromSelections).not.toHaveBeenCalled();
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / react-expert: skills/next-task",
+        }),
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / react-expert: skills/review",
+        }),
+      ],
+      [expect.any(String)],
       "remove",
     );
     expect(
@@ -6285,7 +6306,10 @@ describe("run", () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    const selectBundleItems = vi.fn().mockResolvedValue(["skills/next-task"]);
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string }>) =>
+        choices.map((choice) => choice.value),
+    );
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
       tools: { codex: { skills: { path: ".agents/skills" } } },
@@ -6324,13 +6348,17 @@ describe("run", () => {
       run(["remove", "react-expert", "--select-items"], {
         homeDir,
         cwd: repoRoot,
-        prompts: createPromptClientStub({ selectBundleItems }),
+        prompts: createPromptClientStub({ selectBundleItemChoices }),
       }),
-    ).resolves.toBe("Removed react-expert");
+    ).resolves.toBe("Removed react-expert: skills/next-task");
 
     // Then
-    expect(selectBundleItems).toHaveBeenCalledWith(
-      ["skills/next-task"],
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / react-expert: skills/next-task",
+        }),
+      ],
       [],
       "remove",
     );

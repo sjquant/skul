@@ -2522,6 +2522,7 @@ async function removeBundle(options: {
       libraryDir: options.libraryDir,
       repoState,
       source: options.source,
+      bundle: options.inferredBundleFromSource ? undefined : options.bundle,
       includeItems: options.includeItems,
       selectItems: options.selectItems,
       dryRun: options.dryRun,
@@ -2774,8 +2775,10 @@ function shouldRemoveItemsAcrossBundles(options: {
   inferredBundleFromSource?: true;
 }): boolean {
   return (
-    (options.selectItems || options.includeItems.length > 0) &&
-    (options.bundle === undefined || options.inferredBundleFromSource === true)
+    options.selectItems ||
+    (options.includeItems.length > 0 &&
+      (options.bundle === undefined ||
+        options.inferredBundleFromSource === true))
   );
 }
 
@@ -2786,6 +2789,7 @@ async function removeBundleItemsAcrossActiveBundles(options: {
   libraryDir: string;
   repoState?: RepoState;
   source?: string;
+  bundle?: string;
   includeItems: BundleItemSelector[];
   selectItems: boolean;
   dryRun: boolean;
@@ -2802,6 +2806,7 @@ async function removeBundleItemsAcrossActiveBundles(options: {
     libraryDir: options.libraryDir,
     desiredState: options.repoState.desired_state,
     source: options.source,
+    bundle: options.bundle,
   });
   const requestedItems = normalizeBundleItemSelectors(options.includeItems);
   const selectedValues = options.selectItems
@@ -2875,9 +2880,13 @@ function listActiveBundleItemRemovalChoices(options: {
   libraryDir: string;
   desiredState: DesiredBundleEntry[];
   source?: string;
+  bundle?: string;
 }): BundleItemRemovalChoice[] {
   const choices = options.desiredState.flatMap((entry) => {
     if (!matchesOptionalSource(entry.source, options.source)) return [];
+    if (options.bundle !== undefined && entry.bundle !== options.bundle) {
+      return [];
+    }
 
     return listDesiredBundleItemRemovalChoices({
       libraryDir: options.libraryDir,
@@ -5088,6 +5097,7 @@ async function removeGlobalBundle(options: {
       libraryDir: options.libraryDir,
       globalState,
       source: options.source,
+      bundle: options.inferredBundleFromSource ? undefined : options.bundle,
       includeItems: options.includeItems,
       selectItems: options.selectItems,
       dryRun: options.dryRun,
@@ -5293,6 +5303,7 @@ async function removeGlobalBundleItemsAcrossActiveBundles(options: {
   libraryDir: string;
   globalState?: GlobalState;
   source?: string;
+  bundle?: string;
   includeItems: BundleItemSelector[];
   selectItems: boolean;
   dryRun: boolean;
@@ -5309,6 +5320,7 @@ async function removeGlobalBundleItemsAcrossActiveBundles(options: {
     libraryDir: options.libraryDir,
     desiredState: options.globalState.desired_state,
     source: options.source,
+    bundle: options.bundle,
   });
   const requestedItems = normalizeBundleItemSelectors(options.includeItems);
   const selectedValues = options.selectItems
@@ -5356,9 +5368,13 @@ function listActiveGlobalBundleItemRemovalChoices(options: {
   libraryDir: string;
   desiredState: DesiredBundleEntry[];
   source?: string;
+  bundle?: string;
 }): BundleItemRemovalChoice[] {
   const choices = options.desiredState.flatMap((entry) => {
     if (!matchesOptionalSource(entry.source, options.source)) return [];
+    if (options.bundle !== undefined && entry.bundle !== options.bundle) {
+      return [];
+    }
 
     return listDesiredGlobalBundleItemRemovalChoices({
       libraryDir: options.libraryDir,
