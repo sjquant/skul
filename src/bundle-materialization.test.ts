@@ -420,6 +420,144 @@ describe("materializeBundle", () => {
     );
   });
 
+  it("passes the relative conflict path and the suggested prefix destination to the callback", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "user file\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    let capturedConflictPath: string | undefined;
+    let capturedSuggestion: string | undefined;
+
+    // When
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      resolveFileConflict: async (conflictPath, suggestedDestination) => {
+        capturedConflictPath = conflictPath;
+        capturedSuggestion = suggestedDestination;
+        return { action: "skip" };
+      },
+    });
+
+    // Then — path is relative to the tool target root; suggestion applies the default prefix
+    expect(capturedConflictPath).toBe("react/SKILL.md");
+    expect(capturedSuggestion).toBe("p-react/SKILL.md");
+  });
+
+  it("prefixes the filename when the conflicting file sits directly in the target root", async () => {
+    // Given — no subdirectory under skills; prefix goes on the filename itself
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(repoRoot, ".claude", "skills", "hook.md"),
+      "user file\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "hook.md"),
+      "# hook\n",
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
+    });
+
+    // Then
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/skills/p-hook.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "p-hook.md"),
+        "utf8",
+      ),
+    ).toBe("# hook\n");
+  });
+
+  it("throws when the rename destination escapes the tool target root", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "user file\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+
+    // When / Then
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+        },
+        resolveFileConflict: async () => ({
+          action: "rename",
+          destination: "../../../escape.md",
+        }),
+      }),
+    ).rejects.toThrowError(/conflict destination must stay inside the tool target/i);
+  });
+
+  it("re-prompts when the rename destination collides with a file already on disk", async () => {
+    // Given — original and the first rename target both already exist on disk
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "bundle\n",
+    );
+    writeFile(
+      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      "original\n",
+    );
+    writeFile(
+      path.join(repoRoot, ".claude", "skills", "p-react", "SKILL.md"),
+      "also taken\n",
+    );
+
+    const resolutions = [
+      { action: "rename" as const, destination: "p-react/SKILL.md" }, // filesystem conflict → re-prompt
+      { action: "rename" as const, destination: "safe/SKILL.md" }, // free → accepted
+    ];
+    let callCount = 0;
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      resolveFileConflict: async () => resolutions[callCount++],
+    });
+
+    // Then
+    expect(callCount).toBe(2);
+    expect(result.byTool["claude-code"]!.files).toContain(
+      ".claude/skills/safe/SKILL.md",
+    );
+  });
+
   it("throws on conflict when no resolveFileConflict callback is provided", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");

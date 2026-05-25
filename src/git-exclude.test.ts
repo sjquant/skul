@@ -109,6 +109,44 @@ describe("removeSkulExcludeBlock", () => {
       ["node_modules", "", ".env.local", ""].join("\n"),
     );
   });
+
+  it("returns false when the exclude file does not exist", () => {
+    // Given
+    const gitDir = createGitDir();
+    // No exclude file written
+
+    // When / Then
+    expect(removeSkulExcludeBlock({ gitDir })).toBe(false);
+  });
+
+  it("returns false and leaves the file unchanged when no Skul block is present", () => {
+    // Given
+    const gitDir = createGitDir();
+    writeExcludeFile(gitDir, "node_modules\n.env\n");
+
+    // When
+    const removed = removeSkulExcludeBlock({ gitDir });
+
+    // Then
+    expect(removed).toBe(false);
+    expect(readExcludeFile(gitDir)).toBe("node_modules\n.env\n");
+  });
+
+  it("leaves an empty file when the Skul block is the entire content", () => {
+    // Given
+    const gitDir = createGitDir();
+    configureSkulExcludeBlock({
+      gitDir,
+      files: [".claude/skills/react/SKILL.md"],
+    });
+
+    // When
+    const removed = removeSkulExcludeBlock({ gitDir });
+
+    // Then
+    expect(removed).toBe(true);
+    expect(readExcludeFile(gitDir)).toBe("");
+  });
 });
 
 describe("hasSkulExcludeBlock", () => {
@@ -125,6 +163,14 @@ describe("hasSkulExcludeBlock", () => {
     });
     expect(hasSkulExcludeBlock({ gitDir })).toBe(true);
     removeSkulExcludeBlock({ gitDir });
+    expect(hasSkulExcludeBlock({ gitDir })).toBe(false);
+  });
+
+  it("returns false when the exclude file does not exist", () => {
+    // Given — fresh gitDir has no exclude file
+    const gitDir = createGitDir();
+
+    // When / Then
     expect(hasSkulExcludeBlock({ gitDir })).toBe(false);
   });
 });
