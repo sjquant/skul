@@ -1438,6 +1438,133 @@ describe("kiro skill translation", () => {
   });
 });
 
+describe("YAML frontmatter parser", () => {
+  it("strips double quotes from scalar values", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        'name: "my-skill"',
+        'description: "Handle the next queued task"',
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".cursor/skills/my-skill/SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Handle the next queued task",
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("strips single quotes from scalar values", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: 'my-skill'",
+        "description: 'Handle the next queued task'",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".cursor/skills/my-skill/SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Handle the next queued task",
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("preserves colons inside values", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Task: handle the next queued task",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".cursor/skills/my-skill/SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Task: handle the next queued task",
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("does not throw on list fields in frontmatter", () => {
+    // Given — list fields are not used by any model parser but must not crash
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: My description",
+        "tags:",
+        "  - tag1",
+        "  - tag2",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When / Then
+    expect(() =>
+      translateSkill({ sourceTool: "claude", targetTool: "cursor", files }),
+    ).not.toThrow();
+  });
+});
+
 describe("translateRootInstruction", () => {
   it("writes content to AGENTS.md for antigravity", () => {
     // Given / When / Then
