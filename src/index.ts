@@ -725,6 +725,7 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
       );
     },
     selectBundleItems: promptClient.selectBundleItems,
+    selectBundleFromSelections: promptClient.selectBundleFromSelections,
     selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
@@ -2608,7 +2609,9 @@ async function removeBundle(options: {
     const remainingBundles = { ...worktreeState!.materialized_state.bundles };
     delete remainingBundles[bundle];
     const remainingDesiredState =
-      repoState?.desired_state.filter((e) => e.bundle !== bundle) ?? [];
+      repoState?.desired_state.filter(
+        (entry) => !matchesBundleIdentity(entry, bundle, source),
+      ) ?? [];
     const rewrittenRootInstructionPaths = new Set(
       Array.from(collectManagedRootInstructionTargets(remainingBundles)).filter(
         (filePath) => removedRootInstructionPaths.has(filePath),
@@ -2733,7 +2736,7 @@ async function removeBundle(options: {
 
   if (isInDesiredState && repoState) {
     const newDesiredState = repoState.desired_state.filter(
-      (e) => e.bundle !== bundle,
+      (entry) => !matchesBundleIdentity(entry, bundle, source),
     );
     registry = upsertRepoState(registry, gitContext.repoFingerprint, {
       ...repoState,
@@ -2828,15 +2831,10 @@ async function promptForActiveRemoveBundleSelection(options: {
     return activeSelections[0]!;
   }
 
-  const selection =
-    options.prompts.selectBundleFromSelections !== undefined
-      ? await options.prompts.selectBundleFromSelections(
-          activeSelections,
-          options.source,
-        )
-      : await createPromptClientForSelections(activeSelections).selectBundle(
-          options.source,
-        );
+  const selection = await options.prompts.selectBundleFromSelections(
+    activeSelections,
+    options.source,
+  );
 
   return {
     bundle: selection.bundle,
@@ -2912,6 +2910,14 @@ function matchesOptionalSource(
   requestedSource: string | undefined,
 ): boolean {
   return requestedSource === undefined || candidateSource === requestedSource;
+}
+
+function matchesBundleIdentity(
+  entry: { bundle: string; source?: string },
+  bundle: string,
+  source: string | undefined,
+): boolean {
+  return entry.bundle === bundle && matchesOptionalSource(entry.source, source);
 }
 
 function findMaterializedBundleState(options: {
@@ -4824,7 +4830,9 @@ async function removeGlobalBundle(options: {
     const remainingBundles = { ...globalState!.materialized_state.bundles };
     delete remainingBundles[bundle];
     const remainingDesiredState =
-      globalState?.desired_state.filter((e) => e.bundle !== bundle) ?? [];
+      globalState?.desired_state.filter(
+        (entry) => !matchesBundleIdentity(entry, bundle, source),
+      ) ?? [];
     const rewrittenRootInstructionPaths = new Set(
       Array.from(collectManagedRootInstructionTargets(remainingBundles)).filter(
         (p) => removedRootInstructionPaths.has(p),
@@ -4916,7 +4924,7 @@ async function removeGlobalBundle(options: {
     }
   } else if (isInDesiredState && globalState) {
     const newDesiredState = globalState.desired_state.filter(
-      (e) => e.bundle !== bundle,
+      (entry) => !matchesBundleIdentity(entry, bundle, source),
     );
     if (
       newDesiredState.length > 0 ||
@@ -5010,15 +5018,10 @@ async function promptForActiveGlobalRemoveBundleSelection(options: {
     return activeSelections[0]!;
   }
 
-  const selection =
-    options.prompts.selectBundleFromSelections !== undefined
-      ? await options.prompts.selectBundleFromSelections(
-          activeSelections,
-          options.source,
-        )
-      : await createPromptClientForSelections(activeSelections).selectBundle(
-          options.source,
-        );
+  const selection = await options.prompts.selectBundleFromSelections(
+    activeSelections,
+    options.source,
+  );
 
   return {
     bundle: selection.bundle,

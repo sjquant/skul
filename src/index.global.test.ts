@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PromptClient } from "./cli";
 import { run } from "./index";
-import { readRegistryFile } from "./registry";
+import { readRegistryFile, writeRegistryFile } from "./registry";
 import {
   formatExpectedRootInstructionDocument,
   formatRootInstructionBundleBlock,
@@ -335,6 +335,50 @@ describe("run --global", () => {
     expect(
       readRegistryFile(path.join(homeDir, ".skul", "registry.json")).global,
     ).toBeUndefined();
+  });
+
+  it("keeps same-named global desired bundles from other sources during source-scoped remove", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "github.com/user/ai-vault", "react-expert"], {
+      homeDir,
+    });
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const registry = readRegistryFile(registryFile);
+    registry.global!.desired_state.push({
+      bundle: "react-expert",
+      source: "github.com/other/ai-vault",
+      protocol: "https",
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // When
+    await expect(
+      run(["remove", "--global", "github.com/user/ai-vault", "react-expert"], {
+        homeDir,
+        prompts: createPromptStub(),
+      }),
+    ).resolves.toBe("Removed global react-expert");
+
+    // Then
+    expect(readRegistryFile(registryFile).global?.desired_state).toEqual([
+      {
+        bundle: "react-expert",
+        source: "github.com/other/ai-vault",
+        protocol: "https",
+      },
+    ]);
   });
 
   it("removes all globally managed files on reset --global", async () => {
@@ -1427,6 +1471,13 @@ function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
   return {
     selectBundle: async () => {
       throw new Error("selectBundle should not be called in this test");
+    },
+    selectBundleFromSelections: async (availableBundles) => {
+      if (availableBundles.length === 0) {
+        throw new Error("selectBundleFromSelections received no bundles");
+      }
+
+      return availableBundles[0]!;
     },
     selectBundleItems: async (_available, selected) => selected,
     selectAgents: async (agents) => agents,

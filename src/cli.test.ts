@@ -5703,6 +5703,59 @@ describe("run", () => {
     ).toBe("# wdd\n");
   });
 
+  it("keeps same-named desired bundles from other sources during source-scoped remove", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    await run(["add", "github.com/sjquant/ghosts", "core"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    const registry = readRegistryFile(registryFile);
+    registry.repos[repoFingerprint]!.desired_state.push({
+      bundle: "core",
+      source: "github.com/other/ghosts",
+      protocol: "https",
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // When
+    await expect(
+      run(["remove", "github.com/sjquant/ghosts", "core"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).resolves.toBe("Removed core");
+
+    // Then
+    expect(
+      readRegistryFile(registryFile).repos[repoFingerprint]?.desired_state,
+    ).toEqual([
+      {
+        bundle: "core",
+        source: "github.com/other/ghosts",
+        protocol: "https",
+      },
+    ]);
+  });
+
   it("removes included bundle items while keeping the remaining items active", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -8654,6 +8707,13 @@ function createPromptClientStub(
 ): PromptClient {
   return {
     selectBundle: async () => ({ bundle: "react-expert" }),
+    selectBundleFromSelections: async (availableBundles) => {
+      if (availableBundles.length === 0) {
+        throw new Error("selectBundleFromSelections received no bundles");
+      }
+
+      return availableBundles[0]!;
+    },
     selectBundleItems: async (_availableItems, selectedItems) => selectedItems,
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),

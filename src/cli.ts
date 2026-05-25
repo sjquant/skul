@@ -122,7 +122,7 @@ export interface PromptClient {
     source?: string,
     requestedTools?: ToolName[],
   ): Promise<BundleSelection>;
-  selectBundleFromSelections?(
+  selectBundleFromSelections(
     availableBundles: BundleSelection[],
     source?: string,
   ): Promise<BundleSelection>;
@@ -511,6 +511,8 @@ export function createHelpText(command?: CommandName): string {
   const output: string[] = [];
   const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
+    selectBundleFromSelections: async (availableBundles) =>
+      availableBundles[0] ?? { bundle: "" },
     selectBundleItems: async () => [],
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({
