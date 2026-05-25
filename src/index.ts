@@ -40,6 +40,7 @@ import {
   previewMaterializeBundleWriteTargets,
 } from "./bundle-materialization";
 import {
+  type BundleItemChoice,
   type BundleSelection,
   createHeadlessPromptClient,
   createHelpText,
@@ -725,6 +726,7 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
       );
     },
     selectBundleItems: promptClient.selectBundleItems,
+    selectBundleItemChoices: promptClient.selectBundleItemChoices,
     selectBundleFromSelections: promptClient.selectBundleFromSelections,
     selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
@@ -2511,6 +2513,21 @@ async function removeBundle(options: {
   let registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
   const worktreeState = registry.worktrees[gitContext.worktreeId];
+
+  if (shouldRemoveItemsAcrossBundles(options)) {
+    return removeBundleItemsAcrossActiveBundles({
+      cwd: options.cwd,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      repoState,
+      source: options.source,
+      includeItems: options.includeItems,
+      selectItems: options.selectItems,
+      dryRun: options.dryRun,
+    });
+  }
+
   const selection = await resolveRemoveBundleSelection({
     requestedBundle: options.bundle,
     requestedSource: options.source,
@@ -2748,6 +2765,317 @@ async function removeBundle(options: {
   writeRegistryFile(options.registryFile, registry);
 
   return pc.green(`Removed ${bundle}`);
+}
+
+function shouldRemoveItemsAcrossBundles(options: {
+  bundle?: string;
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
+  inferredBundleFromSource?: true;
+}): boolean {
+  return (
+    (options.selectItems || options.includeItems.length > 0) &&
+    (options.bundle === undefined || options.inferredBundleFromSource === true)
+  );
+}
+
+async function removeBundleItemsAcrossActiveBundles(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  repoState?: RepoState;
+  source?: string;
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
+  dryRun: boolean;
+}): Promise<string> {
+  if (!options.repoState || options.repoState.desired_state.length === 0) {
+    throw new Error(
+      options.source
+        ? `No active bundles found for ${options.source}. Run "skul add ${options.source} <bundle>" to add one first`
+        : 'No active bundles found. Run "skul add <bundle>" to add one first',
+    );
+  }
+
+  const choices = listActiveBundleItemRemovalChoices({
+    libraryDir: options.libraryDir,
+    desiredState: options.repoState.desired_state,
+    source: options.source,
+  });
+  const requestedItems = normalizeBundleItemSelectors(options.includeItems);
+  const selectedValues = options.selectItems
+    ? await promptForBundleItemRemovalChoices({
+        prompts: options.prompts,
+        choices,
+        requestedItems,
+      })
+    : selectRequestedBundleItemRemovalChoices({
+        choices,
+        requestedItems,
+      });
+  const removalPlan = planBundleItemRemovals({
+    desiredState: options.repoState.desired_state,
+    choices,
+    selectedValues,
+  });
+
+  if (options.dryRun) {
+    return `${pc.yellow("DRY RUN:")} Would remove ${formatBundleItemRemovalSummary(removalPlan.removedItems)}`;
+  }
+
+  for (const target of groupBundleItemRemovalTargets(
+    removalPlan.removedItems,
+  )) {
+    await removeBundle({
+      cwd: options.cwd,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      bundle: target.bundle,
+      source: target.source,
+      includeItems: target.items,
+      selectItems: false,
+      dryRun: false,
+    });
+  }
+
+  return pc.green(
+    `Removed ${formatBundleItemRemovalSummary(removalPlan.removedItems)}`,
+  );
+}
+
+function groupBundleItemRemovalTargets(
+  removedItems: BundleItemRemovalTarget[],
+): Array<{
+  bundle: string;
+  source?: string;
+  items: BundleItemSelector[];
+}> {
+  const groupsByBundle = new Map<
+    string,
+    { bundle: string; source?: string; items: BundleItemSelector[] }
+  >();
+
+  for (const item of removedItems) {
+    const key = encodeBundleIdentity(item);
+    const group = groupsByBundle.get(key) ?? {
+      bundle: item.bundle,
+      source: item.source,
+      items: [],
+    };
+    group.items.push(item.item);
+    groupsByBundle.set(key, group);
+  }
+
+  return Array.from(groupsByBundle.values());
+}
+
+function listActiveBundleItemRemovalChoices(options: {
+  libraryDir: string;
+  desiredState: DesiredBundleEntry[];
+  source?: string;
+}): BundleItemRemovalChoice[] {
+  const choices = options.desiredState.flatMap((entry) => {
+    if (!matchesOptionalSource(entry.source, options.source)) return [];
+
+    return listDesiredBundleItemRemovalChoices({
+      libraryDir: options.libraryDir,
+      desiredEntry: entry,
+    });
+  });
+
+  if (choices.length === 0) {
+    throw new Error(
+      options.source
+        ? `No active bundle items found for ${options.source}`
+        : "No active bundle items found",
+    );
+  }
+
+  return choices;
+}
+
+function listDesiredBundleItemRemovalChoices(options: {
+  libraryDir: string;
+  desiredEntry: DesiredBundleEntry;
+}): BundleItemRemovalChoice[] {
+  const cachedBundle = findCachedBundleWithGuidance({
+    libraryDir: options.libraryDir,
+    bundle: options.desiredEntry.bundle,
+    source: options.desiredEntry.source,
+  });
+  const selectedTools =
+    options.desiredEntry.tools ??
+    (Object.keys(cachedBundle.manifest.tools) as ToolName[]);
+  const availableItems = listSelectableBundleItems({
+    bundleDir: path.dirname(cachedBundle.manifestFile),
+    manifest: cachedBundle.manifest,
+    tools: selectedTools,
+  });
+  const activeItems = options.desiredEntry.items ?? availableItems;
+
+  return activeItems.map((item) => ({
+    value: encodeBundleItemRemovalChoice({
+      bundle: options.desiredEntry.bundle,
+      source: options.desiredEntry.source,
+      item,
+    }),
+    label: formatBundleItemRemovalChoiceLabel({
+      bundle: options.desiredEntry.bundle,
+      source: options.desiredEntry.source,
+      item,
+    }),
+    bundle: options.desiredEntry.bundle,
+    source: options.desiredEntry.source,
+    item,
+    activeItems,
+  }));
+}
+
+async function promptForBundleItemRemovalChoices(options: {
+  prompts: PromptClient;
+  choices: BundleItemRemovalChoice[];
+  requestedItems: BundleItemSelector[];
+}): Promise<string[]> {
+  const selectedValues = selectRequestedBundleItemRemovalChoices({
+    choices: options.choices,
+    requestedItems: options.requestedItems,
+    allowEmptySelection: true,
+  });
+
+  const selections = await options.prompts.selectBundleItemChoices(
+    options.choices,
+    selectedValues,
+    "remove",
+  );
+
+  if (selections.length === 0) {
+    throw new Error("No bundle items selected for removal");
+  }
+
+  return selections;
+}
+
+function selectRequestedBundleItemRemovalChoices(options: {
+  choices: BundleItemRemovalChoice[];
+  requestedItems: BundleItemSelector[];
+  allowEmptySelection?: boolean;
+}): string[] {
+  if (options.requestedItems.length === 0 && !options.allowEmptySelection) {
+    throw new Error("No bundle items selected for removal");
+  }
+
+  const requestedItemSet = new Set(options.requestedItems);
+  const selectedValues = options.choices
+    .filter((choice) => requestedItemSet.has(choice.item))
+    .map((choice) => choice.value);
+  const missingItems = options.requestedItems.filter(
+    (item) => !options.choices.some((choice) => choice.item === item),
+  );
+
+  if (missingItems.length > 0) {
+    throw new Error(
+      `Bundle item(s) are not active: ${missingItems.join(", ")}`,
+    );
+  }
+
+  if (selectedValues.length === 0 && !options.allowEmptySelection) {
+    throw new Error("No bundle items selected for removal");
+  }
+
+  return selectedValues;
+}
+
+function planBundleItemRemovals(options: {
+  desiredState: DesiredBundleEntry[];
+  choices: BundleItemRemovalChoice[];
+  selectedValues: string[];
+}): {
+  removedItems: BundleItemRemovalTarget[];
+} {
+  const selectedChoices = options.selectedValues.map((value) => {
+    const choice = options.choices.find(
+      (candidate) => candidate.value === value,
+    );
+    if (!choice) {
+      throw new Error(`Selected bundle item is not active: ${value}`);
+    }
+
+    return choice;
+  });
+  const selectedItemsByBundle = new Map<string, Set<BundleItemSelector>>();
+
+  for (const choice of selectedChoices) {
+    const key = encodeBundleIdentity(choice);
+    const items =
+      selectedItemsByBundle.get(key) ?? new Set<BundleItemSelector>();
+    items.add(choice.item);
+    selectedItemsByBundle.set(key, items);
+  }
+
+  for (const entry of options.desiredState) {
+    const selectedItems = selectedItemsByBundle.get(
+      encodeBundleIdentity(entry),
+    );
+    if (!selectedItems) continue;
+    const activeItems = options.choices.find(
+      (choice) => encodeBundleIdentity(choice) === encodeBundleIdentity(entry),
+    )?.activeItems;
+    const inactiveSelectedItems = Array.from(selectedItems).filter(
+      (item) => !(activeItems ?? entry.items ?? []).includes(item),
+    );
+    if (inactiveSelectedItems.length > 0) {
+      throw new Error(
+        `Bundle item(s) are not active: ${inactiveSelectedItems.join(", ")}`,
+      );
+    }
+  }
+
+  return {
+    removedItems: selectedChoices.map((choice) => ({
+      bundle: choice.bundle,
+      source: choice.source,
+      item: choice.item,
+    })),
+  };
+}
+
+interface BundleItemRemovalChoice extends BundleItemChoice {
+  bundle: string;
+  source?: string;
+  item: BundleItemSelector;
+  activeItems: BundleItemSelector[];
+}
+
+interface BundleItemRemovalTarget {
+  bundle: string;
+  source?: string;
+  item: BundleItemSelector;
+}
+
+function encodeBundleItemRemovalChoice(
+  choice: BundleItemRemovalTarget,
+): string {
+  return JSON.stringify([choice.source ?? null, choice.bundle, choice.item]);
+}
+
+function encodeBundleIdentity(choice: { bundle: string; source?: string }) {
+  return JSON.stringify([choice.source ?? null, choice.bundle]);
+}
+
+function formatBundleItemRemovalChoiceLabel(
+  choice: BundleItemRemovalTarget,
+): string {
+  return choice.source
+    ? `${choice.source} / ${choice.bundle}: ${choice.item}`
+    : `${choice.bundle}: ${choice.item}`;
+}
+
+function formatBundleItemRemovalSummary(
+  removedItems: BundleItemRemovalTarget[],
+): string {
+  return removedItems.map((item) => `${item.bundle}: ${item.item}`).join(", ");
 }
 
 async function resolveRemoveBundleSelection(options: {
@@ -4751,6 +5079,21 @@ async function removeGlobalBundle(options: {
 
   let registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
+
+  if (shouldRemoveItemsAcrossBundles(options)) {
+    return removeGlobalBundleItemsAcrossActiveBundles({
+      homeDir: options.homeDir,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      globalState,
+      source: options.source,
+      includeItems: options.includeItems,
+      selectItems: options.selectItems,
+      dryRun: options.dryRun,
+    });
+  }
+
   const selection = await resolveRemoveGlobalBundleSelection({
     requestedBundle: options.bundle,
     requestedSource: options.source,
@@ -4941,6 +5284,136 @@ async function removeGlobalBundle(options: {
 
   writeRegistryFile(options.registryFile, registry);
   return pc.green(`Removed global ${bundle}`);
+}
+
+async function removeGlobalBundleItemsAcrossActiveBundles(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  globalState?: GlobalState;
+  source?: string;
+  includeItems: BundleItemSelector[];
+  selectItems: boolean;
+  dryRun: boolean;
+}): Promise<string> {
+  if (!options.globalState || options.globalState.desired_state.length === 0) {
+    throw new Error(
+      options.source
+        ? `No active global bundles found for ${options.source}. Run "skul add --global ${options.source} <bundle>" to add one first`
+        : 'No active global bundles found. Run "skul add --global <bundle>" to add one first',
+    );
+  }
+
+  const choices = listActiveGlobalBundleItemRemovalChoices({
+    libraryDir: options.libraryDir,
+    desiredState: options.globalState.desired_state,
+    source: options.source,
+  });
+  const requestedItems = normalizeBundleItemSelectors(options.includeItems);
+  const selectedValues = options.selectItems
+    ? await promptForBundleItemRemovalChoices({
+        prompts: options.prompts,
+        choices,
+        requestedItems,
+      })
+    : selectRequestedBundleItemRemovalChoices({
+        choices,
+        requestedItems,
+      });
+  const removalPlan = planBundleItemRemovals({
+    desiredState: options.globalState.desired_state,
+    choices,
+    selectedValues,
+  });
+
+  if (options.dryRun) {
+    return `${pc.yellow("DRY RUN:")} Would remove ${formatBundleItemRemovalSummary(removalPlan.removedItems)} from global bundles`;
+  }
+
+  for (const target of groupBundleItemRemovalTargets(
+    removalPlan.removedItems,
+  )) {
+    await removeGlobalBundle({
+      homeDir: options.homeDir,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      bundle: target.bundle,
+      source: target.source,
+      includeItems: target.items,
+      selectItems: false,
+      dryRun: false,
+    });
+  }
+
+  return pc.green(
+    `Removed ${formatBundleItemRemovalSummary(removalPlan.removedItems)} from global bundles`,
+  );
+}
+
+function listActiveGlobalBundleItemRemovalChoices(options: {
+  libraryDir: string;
+  desiredState: DesiredBundleEntry[];
+  source?: string;
+}): BundleItemRemovalChoice[] {
+  const choices = options.desiredState.flatMap((entry) => {
+    if (!matchesOptionalSource(entry.source, options.source)) return [];
+
+    return listDesiredGlobalBundleItemRemovalChoices({
+      libraryDir: options.libraryDir,
+      desiredEntry: entry,
+    });
+  });
+
+  if (choices.length === 0) {
+    throw new Error(
+      options.source
+        ? `No active global bundle items found for ${options.source}`
+        : "No active global bundle items found",
+    );
+  }
+
+  return choices;
+}
+
+function listDesiredGlobalBundleItemRemovalChoices(options: {
+  libraryDir: string;
+  desiredEntry: DesiredBundleEntry;
+}): BundleItemRemovalChoice[] {
+  const cachedBundle = findCachedBundleWithGuidance({
+    libraryDir: options.libraryDir,
+    bundle: options.desiredEntry.bundle,
+    source: options.desiredEntry.source,
+  });
+  const selectedTools =
+    options.desiredEntry.tools ??
+    (Object.keys(cachedBundle.manifest.tools).filter((toolName) =>
+      globalCapableToolNames().includes(toolName as ToolName),
+    ) as ToolName[]);
+  const availableItems = listSelectableBundleItems({
+    bundleDir: path.dirname(cachedBundle.manifestFile),
+    manifest: cachedBundle.manifest,
+    tools: selectedTools,
+  });
+  const activeItems = options.desiredEntry.items ?? availableItems;
+
+  return activeItems.map((item) => ({
+    value: encodeBundleItemRemovalChoice({
+      bundle: options.desiredEntry.bundle,
+      source: options.desiredEntry.source,
+      item,
+    }),
+    label: formatBundleItemRemovalChoiceLabel({
+      bundle: options.desiredEntry.bundle,
+      source: options.desiredEntry.source,
+      item,
+    }),
+    bundle: options.desiredEntry.bundle,
+    source: options.desiredEntry.source,
+    item,
+    activeItems,
+  }));
 }
 
 async function resolveRemoveGlobalBundleSelection(options: {

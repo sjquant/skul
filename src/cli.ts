@@ -117,6 +117,11 @@ export interface BundleSelection {
   protocol?: "https" | "ssh";
 }
 
+export interface BundleItemChoice {
+  value: string;
+  label: string;
+}
+
 export interface PromptClient {
   selectBundle(
     source?: string,
@@ -131,6 +136,11 @@ export interface PromptClient {
     selectedItems: BundleItemSelector[],
     purpose?: "install" | "remove",
   ): Promise<BundleItemSelector[]>;
+  selectBundleItemChoices(
+    availableItems: BundleItemChoice[],
+    selectedItems: string[],
+    purpose?: "install" | "remove",
+  ): Promise<string[]>;
   selectAgents(availableAgents: ToolName[]): Promise<ToolName[]>;
   resolveFileConflict(
     conflictPath: string,
@@ -246,6 +256,11 @@ export function createHeadlessPromptClient(): PromptClient {
         "Bundle item selection requires an interactive terminal.\nHint: rerun with --include <item> instead of --select-items",
       );
     },
+    async selectBundleItemChoices(): Promise<string[]> {
+      throw new Error(
+        "Bundle item selection requires an interactive terminal.\nHint: rerun with --include <item> instead of --select-items",
+      );
+    },
     async selectAgents(availableAgents: ToolName[]): Promise<ToolName[]> {
       throw new Error(
         `Agent selection is required in headless mode.\nHint: run 'skul add --agent <name>' to specify agents explicitly. Available: ${availableAgents.join(", ")}`,
@@ -331,26 +346,24 @@ export function createPromptClientForSelections(
       selectedItems: BundleItemSelector[],
       purpose: "install" | "remove" = "install",
     ): Promise<BundleItemSelector[]> {
-      if (availableItems.length === 0) {
-        throw new Error("This bundle has no selectable items");
-      }
-
-      const { isCancel, multiselect } = await loadPrompts();
-      const choice = await multiselect({
-        message: `Choose bundle items to ${purpose} (Space toggles choices; Enter confirms)`,
-        options: availableItems.map((item) => ({
-          value: item,
-          label: item,
-        })),
-        initialValues: selectedItems,
-        required: true,
-      });
-
-      if (isCancel(choice)) {
-        throw new Error("Interactive bundle item selection was cancelled");
-      }
-
-      return choice;
+      return promptForBundleItemChoices(
+        availableItems.map((item) => ({ value: item, label: item })),
+        selectedItems,
+        purpose,
+        loadPrompts,
+      );
+    },
+    async selectBundleItemChoices(
+      availableItems: BundleItemChoice[],
+      selectedItems: string[],
+      purpose: "install" | "remove" = "install",
+    ): Promise<string[]> {
+      return promptForBundleItemChoices(
+        availableItems,
+        selectedItems,
+        purpose,
+        loadPrompts,
+      );
     },
     async selectAgents(availableAgents: ToolName[]): Promise<ToolName[]> {
       if (availableAgents.length === 0) {
@@ -489,6 +502,31 @@ export function createPromptClientForSelections(
   };
 }
 
+async function promptForBundleItemChoices(
+  availableItems: BundleItemChoice[],
+  selectedItems: string[],
+  purpose: "install" | "remove",
+  loadPrompts: () => Promise<typeof import("@clack/prompts")>,
+): Promise<string[]> {
+  if (availableItems.length === 0) {
+    throw new Error("This bundle has no selectable items");
+  }
+
+  const { isCancel, multiselect } = await loadPrompts();
+  const choice = await multiselect({
+    message: `Choose bundle items to ${purpose} (Space toggles choices; Enter confirms)`,
+    options: availableItems,
+    initialValues: selectedItems,
+    required: true,
+  });
+
+  if (isCancel(choice)) {
+    throw new Error("Interactive bundle item selection was cancelled");
+  }
+
+  return choice;
+}
+
 const ROOT_INSTRUCTION_CONFLICT_PATHS = new Set(
   listToolDefinitions()
     .map((t) => t.targets.root_instruction?.path)
@@ -514,6 +552,7 @@ export function createHelpText(command?: CommandName): string {
     selectBundleFromSelections: async (availableBundles) =>
       availableBundles[0] ?? { bundle: "" },
     selectBundleItems: async () => [],
+    selectBundleItemChoices: async () => [],
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({
       action: "prefix",
@@ -994,6 +1033,20 @@ function createProgram(
         const global = opts.global ?? false;
 
         if (!source && !bundle) {
+          if (selectItems || includeItems.length > 0) {
+            context.result = {
+              kind: "command",
+              command: "remove",
+              options: {
+                ...(includeItems.length > 0 ? { includeItems } : {}),
+                ...(selectItems ? { selectItems } : {}),
+                dryRun,
+                global,
+              },
+            };
+            return;
+          }
+
           throw new Error(
             "Command remove requires a source or bundle name\nHint: run 'skul remove <source>' to select a bundle from that source, or 'skul remove <bundle>' for an active bundle",
           );

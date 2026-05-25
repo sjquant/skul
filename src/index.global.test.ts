@@ -960,6 +960,391 @@ describe("run --global", () => {
     ).toBeUndefined();
   });
 
+  it("selects removable items across global bundles without selecting a bundle first", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const selectBundleFromSelections = vi.fn(async () => {
+      throw new Error("selectBundleFromSelections should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) =>
+        choices
+          .filter(
+            (choice) =>
+              choice.label.endsWith("core: skills/review") ||
+              choice.label.endsWith("extras: skills/audit"),
+          )
+          .map((choice) => choice.value),
+    );
+    writeManifest(homeDir, "github.com/user/ai-vault", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "core",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeManifest(homeDir, "github.com/user/ai-vault", "extras", {
+      name: "extras",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "extras",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "extras",
+      ".agents/skills/plan/SKILL.md",
+      "# plan\n",
+    );
+    await run(
+      [
+        "add",
+        "--global",
+        "github.com/user/ai-vault",
+        "core",
+        "--agent",
+        "codex",
+      ],
+      {
+        homeDir,
+        prompts: createPromptStub(),
+      },
+    );
+    await run(
+      [
+        "add",
+        "--global",
+        "github.com/user/ai-vault",
+        "extras",
+        "--agent",
+        "codex",
+      ],
+      {
+        homeDir,
+        prompts: createPromptStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(["remove", "--global", "--select-items"], {
+        homeDir,
+        prompts: createPromptStub({
+          selectBundleFromSelections,
+          selectBundleItemChoices,
+        }),
+      }),
+    ).resolves.toBe(
+      "Removed core: skills/review, extras: skills/audit from global bundles",
+    );
+
+    // Then
+    expect(selectBundleFromSelections).not.toHaveBeenCalled();
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / core: skills/next-task",
+        }),
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / core: skills/review",
+        }),
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / extras: skills/audit",
+        }),
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / extras: skills/plan",
+        }),
+      ],
+      [],
+      "remove",
+    );
+    expect(
+      pathExists(path.join(homeDir, ".agents", "skills", "review", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      pathExists(path.join(homeDir, ".agents", "skills", "audit", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "plan", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# plan\n");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).global!
+        .desired_state,
+    ).toEqual([
+      {
+        bundle: "core",
+        source: "github.com/user/ai-vault",
+        tools: ["codex"],
+        items: ["skills/next-task"],
+        protocol: "https",
+      },
+      {
+        bundle: "extras",
+        source: "github.com/user/ai-vault",
+        tools: ["codex"],
+        items: ["skills/plan"],
+        protocol: "https",
+      },
+    ]);
+  });
+
+  it("removes included items across global bundles without selecting a bundle first", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const selectBundleFromSelections = vi.fn(async () => {
+      throw new Error("selectBundleFromSelections should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(async () => {
+      throw new Error("selectBundleItemChoices should not be called");
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "core",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeManifest(homeDir, "github.com/user/ai-vault", "extras", {
+      name: "extras",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "extras",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "extras",
+      ".agents/skills/plan/SKILL.md",
+      "# plan\n",
+    );
+    await run(
+      [
+        "add",
+        "--global",
+        "github.com/user/ai-vault",
+        "core",
+        "--agent",
+        "codex",
+      ],
+      {
+        homeDir,
+        prompts: createPromptStub(),
+      },
+    );
+    await run(
+      [
+        "add",
+        "--global",
+        "github.com/user/ai-vault",
+        "extras",
+        "--agent",
+        "codex",
+      ],
+      {
+        homeDir,
+        prompts: createPromptStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "remove",
+          "--global",
+          "--include",
+          "skills/review",
+          "--include",
+          "skills/audit",
+        ],
+        {
+          homeDir,
+          prompts: createPromptStub({
+            selectBundleFromSelections,
+            selectBundleItemChoices,
+          }),
+        },
+      ),
+    ).resolves.toBe(
+      "Removed core: skills/review, extras: skills/audit from global bundles",
+    );
+
+    // Then
+    expect(selectBundleFromSelections).not.toHaveBeenCalled();
+    expect(selectBundleItemChoices).not.toHaveBeenCalled();
+    expect(
+      pathExists(path.join(homeDir, ".agents", "skills", "review", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      pathExists(path.join(homeDir, ".agents", "skills", "audit", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "plan", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# plan\n");
+  });
+
+  it("cleans up global bundles fully removed by included items", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeManifest(homeDir, "github.com/user/ai-vault", "extras", {
+      name: "extras",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "extras",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "extras",
+      ".agents/skills/plan/SKILL.md",
+      "# plan\n",
+    );
+    await run(
+      [
+        "add",
+        "--global",
+        "github.com/user/ai-vault",
+        "core",
+        "--agent",
+        "codex",
+      ],
+      {
+        homeDir,
+        prompts: createPromptStub(),
+      },
+    );
+    await run(
+      [
+        "add",
+        "--global",
+        "github.com/user/ai-vault",
+        "extras",
+        "--agent",
+        "codex",
+      ],
+      {
+        homeDir,
+        prompts: createPromptStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "remove",
+          "--global",
+          "--include",
+          "skills/review",
+          "--include",
+          "skills/audit",
+        ],
+        {
+          homeDir,
+          prompts: createPromptStub(),
+        },
+      ),
+    ).resolves.toBe(
+      "Removed core: skills/review, extras: skills/audit from global bundles",
+    );
+
+    // Then
+    expect(
+      pathExists(path.join(homeDir, ".agents", "skills", "review", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      pathExists(path.join(homeDir, ".agents", "skills", "audit", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "plan", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# plan\n");
+    const globalState = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    ).global!;
+    expect(globalState.desired_state).toEqual([
+      {
+        bundle: "extras",
+        source: "github.com/user/ai-vault",
+        tools: ["codex"],
+        items: ["skills/plan"],
+        protocol: "https",
+      },
+    ]);
+    expect(globalState.materialized_state.bundles.core).toBeUndefined();
+    expect(
+      globalState.materialized_state.bundles.extras?.tools.codex?.items,
+    ).toEqual(["skills/plan"]);
+  });
+
   it("returns JSON global status when --json is passed", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -1480,6 +1865,7 @@ function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
       return availableBundles[0]!;
     },
     selectBundleItems: async (_available, selected) => selected,
+    selectBundleItemChoices: async (_available, selected) => selected,
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
     confirmManagedFileRemoval: async () => true,
