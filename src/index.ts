@@ -1750,6 +1750,7 @@ async function applyBundle(options: {
   ref?: string;
   inferredBundleFromSource?: true;
   replaceItems?: boolean;
+  refreshedSources?: Set<string>;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
   const registryBeforePrepare = readRegistryWithGuidance(options.registryFile);
@@ -1787,6 +1788,7 @@ async function applyBundle(options: {
     existingDesiredState:
       registryBeforePrepare.repos[gitContext.repoFingerprint]?.desired_state ??
       [],
+    refreshedSources: options.refreshedSources,
   });
 
   if (options.dryRun) {
@@ -2073,7 +2075,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
     },
     refreshedSources,
   );
-  const targets = await selectSourceBundleItemApplyTargets({
+  const selection = await selectSourceBundleItemApplyTargets({
     libraryDir: options.libraryDir,
     source: options.source,
     requestedTools: options.agents,
@@ -2083,7 +2085,23 @@ async function applySelectedItemsAcrossSourceBundles(options: {
   });
   const outputLines: string[] = [];
 
-  for (const target of targets) {
+  for (const target of selection.removeTargets) {
+    outputLines.push(
+      await removeBundle({
+        cwd: options.cwd,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        bundle: target.bundle,
+        source: target.source,
+        includeItems: [],
+        selectItems: false,
+        dryRun: options.dryRun,
+      }),
+    );
+  }
+
+  for (const target of selection.applyTargets) {
     outputLines.push(
       await applyBundle({
         cwd: options.cwd,
@@ -2099,6 +2117,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
         replaceItems: true,
         dryRun: options.dryRun,
         ref: options.ref,
+        refreshedSources,
       }),
     );
   }
@@ -2114,14 +2133,7 @@ async function selectSourceBundleItemApplyTargets(options: {
   prompts: PromptClient;
   existingDesiredState: DesiredBundleEntry[];
   global?: boolean;
-}): Promise<
-  Array<{
-    bundle: string;
-    source: string;
-    tools: ToolName[];
-    items: BundleItemSelector[];
-  }>
-> {
+}): Promise<BundleItemApplySelection> {
   const selectedTools = await selectToolsForSourceBundleItems(options);
   const choices = listSourceBundleItemApplyChoices({
     libraryDir: options.libraryDir,
@@ -2145,11 +2157,23 @@ async function selectSourceBundleItemApplyTargets(options: {
     "install",
   );
 
-  if (selections.length === 0) {
+  const removeTargets = listDeselectedSourceBundleApplyTargets({
+    choices,
+    selectedValues: selections,
+    existingDesiredState: options.existingDesiredState,
+  });
+
+  if (selections.length === 0 && removeTargets.length === 0) {
     throw new Error("No bundle items selected for install");
   }
 
-  return groupBundleItemApplyTargets({ choices, selectedValues: selections });
+  return {
+    applyTargets: groupBundleItemApplyTargets({
+      choices,
+      selectedValues: selections,
+    }),
+    removeTargets,
+  };
 }
 
 async function selectToolsForSourceBundleItems(options: {
@@ -2238,6 +2262,7 @@ function listSourceBundleItemApplyChoices(options: {
         bundle: bundle.bundle,
         item,
         tools: bundleTools,
+        availableTools: Object.keys(bundle.manifest.tools) as ToolName[],
       }));
     });
 }
@@ -2260,7 +2285,15 @@ function selectInitialSourceBundleItemApplyValues(options: {
       (entry) =>
         entry.bundle === choice.bundle && entry.source === choice.source,
     );
-    if (existingEntry?.items?.includes(choice.item)) {
+    if (
+      existingEntry &&
+      bundleItemApplyChoiceMatchesDesiredTools({
+        choice,
+        desiredEntry: existingEntry,
+      }) &&
+      (existingEntry.items === undefined ||
+        existingEntry.items.includes(choice.item))
+    ) {
       selectedValues.add(choice.value);
     }
   }
@@ -2276,6 +2309,115 @@ function selectInitialSourceBundleItemApplyValues(options: {
   }
 
   return Array.from(selectedValues);
+}
+
+function listDeselectedSourceBundleApplyTargets(options: {
+  choices: BundleItemApplyChoice[];
+  selectedValues: string[];
+  existingDesiredState: DesiredBundleEntry[];
+}): BundleItemApplyRemoveTarget[] {
+  const selectedBundleKeys = new Set(
+    options.selectedValues.map((value) => {
+      const choice = options.choices.find(
+        (candidate) => candidate.value === value,
+      );
+      if (!choice) {
+        throw new Error(`Selected bundle item is not available: ${value}`);
+      }
+
+      return encodeBundleIdentity(choice);
+    }),
+  );
+  const choicesByBundle = groupBundleItemApplyChoices(options.choices);
+  const targets: BundleItemApplyRemoveTarget[] = [];
+
+  for (const entry of options.existingDesiredState) {
+    const key = encodeBundleIdentity(entry);
+    if (selectedBundleKeys.has(key)) {
+      continue;
+    }
+
+    const bundleChoices = choicesByBundle.get(key);
+    if (!bundleChoices) {
+      continue;
+    }
+
+    if (
+      !bundleItemApplyChoiceCoversDesiredTools({
+        choice: bundleChoices[0]!,
+        desiredEntry: entry,
+      })
+    ) {
+      continue;
+    }
+
+    const activeChoices = bundleChoices.filter((choice) =>
+      bundleItemApplyChoiceMatchesDesiredState({
+        choice,
+        desiredEntry: entry,
+      }),
+    );
+    if (activeChoices.length === 0) {
+      continue;
+    }
+
+    targets.push({
+      bundle: entry.bundle,
+      source: entry.source ?? activeChoices[0]!.source,
+    });
+  }
+
+  return targets;
+}
+
+function groupBundleItemApplyChoices(
+  choices: BundleItemApplyChoice[],
+): Map<string, BundleItemApplyChoice[]> {
+  const choicesByBundle = new Map<string, BundleItemApplyChoice[]>();
+
+  for (const choice of choices) {
+    const key = encodeBundleIdentity(choice);
+    const bundleChoices = choicesByBundle.get(key) ?? [];
+    bundleChoices.push(choice);
+    choicesByBundle.set(key, bundleChoices);
+  }
+
+  return choicesByBundle;
+}
+
+function bundleItemApplyChoiceMatchesDesiredState(options: {
+  choice: BundleItemApplyChoice;
+  desiredEntry: DesiredBundleEntry;
+}): boolean {
+  return (
+    bundleItemApplyChoiceMatchesDesiredTools(options) &&
+    (options.desiredEntry.items === undefined ||
+      options.desiredEntry.items.includes(options.choice.item))
+  );
+}
+
+function bundleItemApplyChoiceMatchesDesiredTools(options: {
+  choice: BundleItemApplyChoice;
+  desiredEntry: DesiredBundleEntry;
+}): boolean {
+  return (
+    options.desiredEntry.tools === undefined ||
+    options.choice.tools.some((toolName) =>
+      options.desiredEntry.tools?.includes(toolName),
+    )
+  );
+}
+
+function bundleItemApplyChoiceCoversDesiredTools(options: {
+  choice: BundleItemApplyChoice;
+  desiredEntry: DesiredBundleEntry;
+}): boolean {
+  const desiredTools =
+    options.desiredEntry.tools ?? options.choice.availableTools;
+
+  return desiredTools.every((toolName) =>
+    options.choice.tools.includes(toolName),
+  );
 }
 
 function groupBundleItemApplyTargets(options: {
@@ -2324,6 +2466,22 @@ interface BundleItemApplyChoice extends BundleItemChoice {
   bundle: string;
   item: BundleItemSelector;
   tools: ToolName[];
+  availableTools: ToolName[];
+}
+
+interface BundleItemApplySelection {
+  applyTargets: Array<{
+    bundle: string;
+    source: string;
+    tools: ToolName[];
+    items: BundleItemSelector[];
+  }>;
+  removeTargets: BundleItemApplyRemoveTarget[];
+}
+
+interface BundleItemApplyRemoveTarget {
+  bundle: string;
+  source: string;
 }
 
 function encodeBundleItemApplyChoice(choice: {
@@ -2348,6 +2506,7 @@ async function prepareApplyBundle(options: {
   inferredBundleFromSource?: true;
   existingDesiredState: DesiredBundleEntry[];
   preBundlePrompts?: PromptClient;
+  refreshedSources?: Set<string>;
 }): Promise<{
   cloneLines: string[];
   cachedBundle: CachedBundle;
@@ -2360,7 +2519,7 @@ async function prepareApplyBundle(options: {
   hasToolSelection: boolean;
   replacesItemSelection: boolean;
 }> {
-  const refreshedSources = new Set<string>();
+  const refreshedSources = options.refreshedSources ?? new Set<string>();
   const cloneLines = refreshBundleSourceForApply(options, refreshedSources);
   let cachedBundle: CachedBundle;
   let bundleSource: string | undefined;
@@ -5058,6 +5217,7 @@ async function applyBundleGlobal(options: {
   ref?: string;
   inferredBundleFromSource?: true;
   replaceItems?: boolean;
+  refreshedSources?: Set<string>;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
 
@@ -5126,6 +5286,7 @@ async function applyBundleGlobal(options: {
       options.agents.length > 0 ? options.prompts : globalAutoSelectPrompts,
     preBundlePrompts: options.prompts,
     inferredBundleFromSource: options.inferredBundleFromSource,
+    refreshedSources: options.refreshedSources,
   });
 
   const availableGlobalTools = preparedBundle.nextToolNames.filter((t) =>
@@ -5366,7 +5527,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
     },
     refreshedSources,
   );
-  const targets = await selectSourceBundleItemApplyTargets({
+  const selection = await selectSourceBundleItemApplyTargets({
     libraryDir: options.libraryDir,
     source: options.source,
     requestedTools: options.agents,
@@ -5377,7 +5538,23 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
   });
   const outputLines: string[] = [];
 
-  for (const target of targets) {
+  for (const target of selection.removeTargets) {
+    outputLines.push(
+      await removeGlobalBundle({
+        homeDir: options.homeDir,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        bundle: target.bundle,
+        source: target.source,
+        includeItems: [],
+        selectItems: false,
+        dryRun: options.dryRun,
+      }),
+    );
+  }
+
+  for (const target of selection.applyTargets) {
     outputLines.push(
       await applyBundleGlobal({
         homeDir: options.homeDir,
@@ -5393,6 +5570,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
         replaceItems: true,
         dryRun: options.dryRun,
         ref: options.ref,
+        refreshedSources,
       }),
     );
   }
