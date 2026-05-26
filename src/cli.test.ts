@@ -2528,6 +2528,246 @@ describe("run", () => {
     ]);
   });
 
+  it("removes an existing source-scoped bundle when all of its items are deselected", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    let initiallySelectedLabels: string[] = [];
+    const selectBundle = vi.fn(async () => {
+      throw new Error("selectBundle should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (
+        choices: Array<{ value: string; label: string }>,
+        selectedValues: string[],
+      ) => {
+        initiallySelectedLabels = choices
+          .filter((choice) => selectedValues.includes(choice.value))
+          .map((choice) => choice.label);
+
+        return choices
+          .filter((choice) => choice.label === "sandbox: skills/review")
+          .map((choice) => choice.value);
+      },
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "sandbox",
+      ".agents/skills/review/SKILL.md",
+      "# sandbox review\n",
+    );
+    await run(
+      [
+        "add",
+        "github.com/sjquant/ghosts",
+        "core",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/review",
+        "--include",
+        "skills/wdd",
+      ],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          selectBundle,
+          selectBundleItemChoices,
+        }),
+      }),
+    ).resolves.toBe("Removed core\nApplied sandbox for codex");
+
+    // Then
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(initiallySelectedLabels).toEqual([
+      "core: skills/review",
+      "core: skills/wdd",
+    ]);
+    expect(
+      pathExists(path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# sandbox review\n");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      {
+        bundle: "sandbox",
+        source: "github.com/sjquant/ghosts",
+        tools: ["codex"],
+        items: ["skills/review"],
+        protocol: "https",
+      },
+    ]);
+  });
+
+  it("keeps other agents when a partial-agent source-scoped item selection deselects a bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectAgents = vi.fn().mockResolvedValue(["codex"]);
+    const selectBundle = vi.fn(async () => {
+      throw new Error("selectBundle should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) =>
+        choices
+          .filter((choice) => choice.label === "sandbox: skills/audit")
+          .map((choice) => choice.value),
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# codex review\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".cursor/skills/review/SKILL.md",
+      "# cursor review\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "sandbox",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    await run(
+      [
+        "add",
+        "github.com/sjquant/ghosts",
+        "core",
+        "--agent",
+        "codex",
+        "--agent",
+        "cursor",
+        "--include",
+        "skills/review",
+      ],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          selectAgents,
+          selectBundle,
+          selectBundleItemChoices,
+        }),
+      }),
+    ).resolves.toBe("Applied sandbox for codex");
+
+    // Then
+    expect(selectAgents).toHaveBeenCalledWith(["codex", "cursor"]);
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# codex review\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".cursor", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# cursor review\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "audit", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# audit\n");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      {
+        bundle: "core",
+        source: "github.com/sjquant/ghosts",
+        tools: ["codex", "cursor"],
+        items: ["skills/review"],
+        protocol: "https",
+      },
+      {
+        bundle: "sandbox",
+        source: "github.com/sjquant/ghosts",
+        tools: ["codex"],
+        items: ["skills/audit"],
+        protocol: "https",
+      },
+    ]);
+  });
+
   it("uses an explicit agent to narrow source-scoped bundle selection", async () => {
     // Given
     const homeDir = createHomeDir();
