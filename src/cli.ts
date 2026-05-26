@@ -90,7 +90,15 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "remove";
-      options: { bundle: string; dryRun: boolean; global: boolean };
+      options: {
+        bundle?: string;
+        source?: string;
+        includeItems?: BundleItemSelector[];
+        selectItems?: boolean;
+        dryRun: boolean;
+        inferredBundleFromSource?: true;
+        global: boolean;
+      };
     };
 
 export type FileConflictResolution = { action: "overwrite" };
@@ -101,15 +109,30 @@ export interface BundleSelection {
   protocol?: "https" | "ssh";
 }
 
+export interface BundleItemChoice {
+  value: string;
+  label: string;
+}
+
 export interface PromptClient {
   selectBundle(
     source?: string,
     requestedTools?: ToolName[],
   ): Promise<BundleSelection>;
+  selectBundleFromSelections(
+    availableBundles: BundleSelection[],
+    source?: string,
+  ): Promise<BundleSelection>;
   selectBundleItems(
     availableItems: BundleItemSelector[],
     selectedItems: BundleItemSelector[],
+    purpose?: "install" | "remove",
   ): Promise<BundleItemSelector[]>;
+  selectBundleItemChoices(
+    availableItems: BundleItemChoice[],
+    selectedItems: string[],
+    purpose?: "install" | "remove",
+  ): Promise<string[]>;
   selectAgents(availableAgents: ToolName[]): Promise<ToolName[]>;
   resolveFileConflict(conflictPath: string): Promise<FileConflictResolution>;
   confirmManagedFileRemoval(
@@ -206,7 +229,23 @@ export function createHeadlessPromptClient(): PromptClient {
         `Bundle name is required in headless mode.\nHint: run '${hint}' to specify the bundle explicitly`,
       );
     },
+    async selectBundleFromSelections(
+      _availableBundles: BundleSelection[],
+      source?: string,
+    ): Promise<BundleSelection> {
+      const hint = source
+        ? `skul remove ${source} <bundle>`
+        : "skul remove <bundle>";
+      throw new Error(
+        `Bundle name is required in headless mode.\nHint: run '${hint}' to specify the bundle explicitly`,
+      );
+    },
     async selectBundleItems(): Promise<BundleItemSelector[]> {
+      throw new Error(
+        "Bundle item selection requires an interactive terminal.\nHint: rerun with --include <item> instead of --select-items",
+      );
+    },
+    async selectBundleItemChoices(): Promise<string[]> {
       throw new Error(
         "Bundle item selection requires an interactive terminal.\nHint: rerun with --include <item> instead of --select-items",
       );
@@ -272,31 +311,38 @@ export function createPromptClientForSelections(
 
       return choice;
     },
+    async selectBundleFromSelections(
+      availableSelections: BundleSelection[],
+      source?: string,
+    ): Promise<BundleSelection> {
+      return createPromptClientForSelections(
+        availableSelections,
+        loadPrompts,
+      ).selectBundle(source);
+    },
     async selectBundleItems(
       availableItems: BundleItemSelector[],
       selectedItems: BundleItemSelector[],
+      purpose: "install" | "remove" = "install",
     ): Promise<BundleItemSelector[]> {
-      if (availableItems.length === 0) {
-        throw new Error("This bundle has no selectable items");
-      }
-
-      const { isCancel, multiselect } = await loadPrompts();
-      const choice = await multiselect({
-        message:
-          "Choose bundle items to install (Space toggles choices; Enter confirms)",
-        options: availableItems.map((item) => ({
-          value: item,
-          label: item,
-        })),
-        initialValues: selectedItems,
-        required: true,
-      });
-
-      if (isCancel(choice)) {
-        throw new Error("Interactive bundle item selection was cancelled");
-      }
-
-      return choice;
+      return promptForBundleItemChoices(
+        availableItems.map((item) => ({ value: item, label: item })),
+        selectedItems,
+        purpose,
+        loadPrompts,
+      );
+    },
+    async selectBundleItemChoices(
+      availableItems: BundleItemChoice[],
+      selectedItems: string[],
+      purpose: "install" | "remove" = "install",
+    ): Promise<string[]> {
+      return promptForBundleItemChoices(
+        availableItems,
+        selectedItems,
+        purpose,
+        loadPrompts,
+      );
     },
     async selectAgents(availableAgents: ToolName[]): Promise<ToolName[]> {
       if (availableAgents.length === 0) {
@@ -358,6 +404,32 @@ export function createPromptClientForSelections(
   };
 }
 
+async function promptForBundleItemChoices(
+  availableItems: BundleItemChoice[],
+  selectedItems: string[],
+  purpose: "install" | "remove",
+  loadPrompts: () => Promise<typeof import("@clack/prompts")>,
+): Promise<string[]> {
+  if (availableItems.length === 0) {
+    throw new Error("This bundle has no selectable items");
+  }
+
+  const { isCancel, multiselect } = await loadPrompts();
+  const choice = await multiselect({
+    message: `Choose bundle items to ${purpose} (Space toggles choices; Enter confirms)`,
+    options: availableItems,
+    initialValues: selectedItems,
+    required: true,
+  });
+
+  if (isCancel(choice)) {
+    throw new Error("Interactive bundle item selection was cancelled");
+  }
+
+  return choice;
+}
+
+
 function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
   clackPromptsModulePromise ??= loadEsmModule("@clack/prompts") as Promise<
     typeof import("@clack/prompts")
@@ -370,7 +442,10 @@ export function createHelpText(command?: CommandName): string {
   const output: string[] = [];
   const program = createProgram({
     selectBundle: async () => ({ bundle: "" }),
+    selectBundleFromSelections: async (availableBundles) =>
+      availableBundles[0] ?? { bundle: "" },
     selectBundleItems: async () => [],
+    selectBundleItemChoices: async () => [],
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
@@ -814,23 +889,106 @@ function createProgram(
     .description(
       "Remove a bundle from the active set and recompose or restore any root instructions it owns",
     )
-    .argument("<bundle>", "Bundle name to remove")
+    .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
+    .argument("[bundle]", "Bundle name to remove")
+    .option(
+      "--include <item>",
+      "Remove only a bundle item such as skills/name, agents/name, commands/name, or root-instruction (repeatable)",
+      collectBundleItemOption,
+      [] as BundleItemSelector[],
+    )
+    .option(
+      "--select-items",
+      "Choose bundle items interactively before removing",
+    )
     .option(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
     .option("-g, --global", "Remove from globally managed tool config")
-    .action((bundle: string, opts: { dryRun?: boolean; global?: boolean }) => {
-      context.result = {
-        kind: "command",
-        command: "remove",
-        options: {
-          bundle,
-          dryRun: opts.dryRun ?? false,
-          global: opts.global ?? false,
+    .action(
+      (
+        source: string | undefined,
+        bundle: string | undefined,
+        opts: {
+          include: BundleItemSelector[];
+          selectItems?: boolean;
+          dryRun?: boolean;
+          global?: boolean;
         },
-      };
-    });
+      ) => {
+        const includeItems = opts.include;
+        const selectItems = opts.selectItems ?? false;
+        const dryRun = opts.dryRun ?? false;
+        const global = opts.global ?? false;
+
+        if (!source && !bundle) {
+          if (selectItems || includeItems.length > 0) {
+            context.result = {
+              kind: "command",
+              command: "remove",
+              options: {
+                ...(includeItems.length > 0 ? { includeItems } : {}),
+                ...(selectItems ? { selectItems } : {}),
+                dryRun,
+                global,
+              },
+            };
+            return;
+          }
+
+          throw new Error(
+            "Command remove requires a source or bundle name\nHint: run 'skul remove <source>' to select a bundle from that source, or 'skul remove <bundle>' for an active bundle",
+          );
+        }
+
+        if (source && !bundle) {
+          try {
+            const normalizedSource = normalizeBundleSource(source);
+            const repoSlug = normalizedSource.split("/").at(-1)!;
+            context.result = {
+              kind: "command",
+              command: "remove",
+              options: {
+                source: normalizedSource,
+                bundle: repoSlug,
+                ...(includeItems.length > 0 ? { includeItems } : {}),
+                ...(selectItems ? { selectItems } : {}),
+                dryRun,
+                inferredBundleFromSource: true,
+                global,
+              },
+            };
+          } catch {
+            context.result = {
+              kind: "command",
+              command: "remove",
+              options: {
+                bundle: source,
+                ...(includeItems.length > 0 ? { includeItems } : {}),
+                ...(selectItems ? { selectItems } : {}),
+                dryRun,
+                global,
+              },
+            };
+          }
+          return;
+        }
+
+        context.result = {
+          kind: "command",
+          command: "remove",
+          options: {
+            source: normalizeBundleSource(source!),
+            bundle: bundle!,
+            ...(includeItems.length > 0 ? { includeItems } : {}),
+            ...(selectItems ? { selectItems } : {}),
+            dryRun,
+            global,
+          },
+        };
+      },
+    );
 
   program
     .command("clear-cache")
@@ -887,7 +1045,7 @@ function normalizeParseError(error: unknown, command: string): Error {
     }
 
     if (command === "remove") {
-      return new Error("Command remove accepts exactly 1 positional argument");
+      return new Error("Command remove accepts at most 2 positional arguments");
     }
 
     if (command === "clear-cache") {
