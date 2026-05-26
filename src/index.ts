@@ -1738,8 +1738,10 @@ async function applyBundle(options: {
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
-  // Skip cloning in dry-run: if the source isn't cached yet, return early so
-  // no network I/O or filesystem writes occur.
+  // Skip cloning in dry-run: when a remote source is specified and not yet
+  // cached, return a preview message immediately so no network I/O occurs.
+  // (When source is omitted, fetchBundleSourceForApply is a no-op, so the
+  // dryRun guard at the end of this function is sufficient for that case.)
   if (options.dryRun && options.source) {
     const { cached } = readCachedSourceRevision({
       source: options.source,
@@ -4049,7 +4051,8 @@ async function applyBundleGlobal(options: {
       availableAgents.filter((t) => supportedTools.includes(t)),
   };
 
-  // Skip cloning in dry-run: if the source isn't cached yet, return early.
+  // Skip cloning in dry-run: when a remote source is specified and not yet
+  // cached, return a preview message immediately so no network I/O occurs.
   if (options.dryRun && options.source) {
     const { cached } = readCachedSourceRevision({
       source: options.source,

@@ -1541,6 +1541,38 @@ describe("YAML frontmatter parser", () => {
     });
   });
 
+  it("does not corrupt a scalar value when a bare list item appears at column 0 after a root-level key", () => {
+    // Given — malformed YAML: `- item` with no leading spaces after a root-level key.
+    // Without the lastKeyIndent guard this would silently replace `name` with an array.
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: my-skill",
+        "- stray",
+        "description: My description",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then — name is the original scalar; the stray list item is ignored
+    expect(translated[".cursor/skills/my-skill/SKILL.md"]).toContain(
+      "name: my-skill",
+    );
+    expect(translated[".cursor/skills/my-skill/SKILL.md"]).toContain(
+      "description: My description",
+    );
+  });
+
   it("does not throw on list fields in frontmatter and preserves scalar fields", () => {
     // Given — list fields are not used by any model parser but must not crash
     const files = {

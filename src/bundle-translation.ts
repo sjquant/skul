@@ -418,9 +418,12 @@ function renderMarkdownDocument(document: MarkdownDocument): string {
 
 function parseYamlMap(source: string): MetadataMap {
   const root: MetadataMap = {};
-  const stack: Array<{ indent: number; map: MetadataMap; lastKey?: string }> = [
-    { indent: -1, map: root },
-  ];
+  const stack: Array<{
+    indent: number;
+    map: MetadataMap;
+    lastKey?: string;
+    lastKeyIndent?: number;
+  }> = [{ indent: -1, map: root }];
 
   for (const rawLine of source.split("\n")) {
     if (rawLine.trim() === "") {
@@ -431,10 +434,16 @@ function parseYamlMap(source: string): MetadataMap {
     if (listMatch) {
       const listIndent = listMatch[1].length;
       const item = String(parseScalarValue(listMatch[2].trim()));
-      // Walk back to the deepest frame whose lastKey sits at a lesser indent.
+      // Walk back to the deepest frame whose key was set at a lesser indent
+      // than the list item (so a bare `- item` at column 0 never attaches to
+      // a key that also lives at column 0).
       for (let i = stack.length - 1; i >= 0; i--) {
         const frame = stack[i];
-        if (frame.lastKey !== undefined && frame.indent < listIndent) {
+        if (
+          frame.lastKey !== undefined &&
+          frame.lastKeyIndent !== undefined &&
+          frame.lastKeyIndent < listIndent
+        ) {
           const existing = frame.map[frame.lastKey];
           if (Array.isArray(existing)) {
             existing.push(item);
@@ -465,6 +474,7 @@ function parseYamlMap(source: string): MetadataMap {
 
     const frame = stack.at(-1)!;
     frame.lastKey = key;
+    frame.lastKeyIndent = indent;
 
     if (rawValue === "") {
       const child: MetadataMap = {};
