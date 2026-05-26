@@ -429,7 +429,6 @@ async function promptForBundleItemChoices(
   return choice;
 }
 
-
 function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
   clackPromptsModulePromise ??= loadEsmModule("@clack/prompts") as Promise<
     typeof import("@clack/prompts")
