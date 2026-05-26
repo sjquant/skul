@@ -181,7 +181,7 @@ describe("materializeBundle", () => {
     ).toBe("# reviewer\n");
   });
 
-  it("renames an incoming file when the destination already exists", async () => {
+  it("overwrites the existing file when the user confirms", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -201,96 +201,19 @@ describe("materializeBundle", () => {
       manifest: {
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
-      resolveFileConflict: async () => ({
-        action: "rename",
-        destination: "custom-react/SKILL.md",
-      }),
+      resolveFileConflict: async () => ({ action: "overwrite" }),
     });
 
     // Then
     expect(result.byTool["claude-code"]!.files).toEqual([
-      ".claude/skills/custom-react/SKILL.md",
+      ".claude/skills/react/SKILL.md",
     ]);
     expect(
       fs.readFileSync(
         path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
         "utf8",
       ),
-    ).toBe("user file\n");
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "custom-react", "SKILL.md"),
-        "utf8",
-      ),
     ).toBe("# react\n");
-  });
-
-  it("applies the suggested prefix when a file conflict is resolved with prefix", async () => {
-    // Given
-    const repoRoot = createTempDir("skul-repo-");
-    const bundleDir = createTempDir("skul-bundle-");
-    writeFile(
-      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-      "user file\n",
-    );
-    writeFile(
-      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
-      "# react\n",
-    );
-
-    // When
-    const result = await materializeBundle({
-      repoRoot,
-      bundleDir,
-      manifest: {
-        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-      },
-      resolveFileConflict: async () => ({ action: "prefix", prefix: "bundle" }),
-    });
-
-    // Then
-    expect(result.byTool["claude-code"]!.files).toEqual([
-      ".claude/skills/bundle-react/SKILL.md",
-    ]);
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "bundle-react", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe("# react\n");
-  });
-
-  it("skips an incoming file when the user chooses skip", async () => {
-    // Given
-    const repoRoot = createTempDir("skul-repo-");
-    const bundleDir = createTempDir("skul-bundle-");
-    writeFile(
-      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-      "user file\n",
-    );
-    writeFile(
-      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
-      "# react\n",
-    );
-
-    // When
-    const result = await materializeBundle({
-      repoRoot,
-      bundleDir,
-      manifest: {
-        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-      },
-      resolveFileConflict: async () => ({ action: "skip" }),
-    });
-
-    // Then
-    expect(result.byTool["claude-code"]!.files).toEqual([]);
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe("user file\n");
   });
 
   it("appends codex root instructions onto an existing AGENTS.md file", async () => {
@@ -388,39 +311,7 @@ describe("materializeBundle", () => {
     await expect(materialize).rejects.toThrowError(expectedMessage);
   });
 
-  it("re-prompts when a rename destination is already reserved by a prior file in the same run", async () => {
-    // Given: two bundle files; the second conflicts and user first tries to rename it to the
-    // first file's destination (already reserved), then renames to a free path.
-    const repoRoot = createTempDir("skul-repo-");
-    const bundleDir = createTempDir("skul-bundle-");
-    writeFile(path.join(bundleDir, ".claude", "skills", "a.md"), "# a\n");
-    writeFile(path.join(bundleDir, ".claude", "skills", "b.md"), "# b\n");
-    writeFile(path.join(repoRoot, ".claude", "skills", "b.md"), "user file\n");
-
-    const resolutions = [
-      { action: "rename" as const, destination: "a.md" }, // reserved — triggers re-prompt
-      { action: "rename" as const, destination: "b-new.md" }, // free — accepted
-    ];
-    let callCount = 0;
-
-    // When
-    const result = await materializeBundle({
-      repoRoot,
-      bundleDir,
-      manifest: {
-        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-      },
-      resolveFileConflict: async () => resolutions[callCount++],
-    });
-
-    // Then
-    expect(callCount).toBe(2);
-    expect(result.byTool["claude-code"]!.files).toContain(
-      ".claude/skills/b-new.md",
-    );
-  });
-
-  it("passes the relative conflict path and the suggested prefix destination to the callback", async () => {
+  it("passes the relative conflict path to the callback", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -433,7 +324,6 @@ describe("materializeBundle", () => {
       "# react\n",
     );
     let capturedConflictPath: string | undefined;
-    let capturedSuggestion: string | undefined;
 
     // When
     await materializeBundle({
@@ -442,103 +332,29 @@ describe("materializeBundle", () => {
       manifest: {
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
-      resolveFileConflict: async (conflictPath, suggestedDestination) => {
+      resolveFileConflict: async (conflictPath) => {
         capturedConflictPath = conflictPath;
-        capturedSuggestion = suggestedDestination;
-        return { action: "skip" };
+        return { action: "overwrite" };
       },
     });
 
-    // Then — path is relative to the tool target root; suggestion applies the default prefix
+    // Then — path is relative to the tool target root
     expect(capturedConflictPath).toBe("react/SKILL.md");
-    expect(capturedSuggestion).toBe("p-react/SKILL.md");
   });
 
-  it("prefixes the filename when the conflicting file sits directly in the target root", async () => {
-    // Given — no subdirectory under skills; prefix goes on the filename itself
+  it("throws without calling the callback when the destination is already reserved by a prior file in the same run", async () => {
+    // Given — the resolveFileConflict callback writes to a path that's already claimed
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, ".claude", "skills", "a.md"), "# a\n");
+    writeFile(path.join(bundleDir, ".claude", "skills", "b.md"), "# b\n");
+    // b.md conflicts with user file; the resolveFileConflict callback overwrites it.
+    // Ensure the callback is only called once — a.md is free, b.md triggers the callback.
     writeFile(
-      path.join(repoRoot, ".claude", "skills", "hook.md"),
-      "user file\n",
-    );
-    writeFile(
-      path.join(bundleDir, ".claude", "skills", "hook.md"),
-      "# hook\n",
-    );
-
-    // When
-    const result = await materializeBundle({
-      repoRoot,
-      bundleDir,
-      manifest: {
-        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-      },
-      resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
-    });
-
-    // Then
-    expect(result.byTool["claude-code"]!.files).toEqual([
-      ".claude/skills/p-hook.md",
-    ]);
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "p-hook.md"),
-        "utf8",
-      ),
-    ).toBe("# hook\n");
-  });
-
-  it("throws when the rename destination escapes the tool target root", async () => {
-    // Given
-    const repoRoot = createTempDir("skul-repo-");
-    const bundleDir = createTempDir("skul-bundle-");
-    writeFile(
-      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-      "user file\n",
-    );
-    writeFile(
-      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
-      "# react\n",
+      path.join(repoRoot, ".claude", "skills", "b.md"),
+      "user b\n",
     );
 
-    // When / Then
-    await expect(
-      materializeBundle({
-        repoRoot,
-        bundleDir,
-        manifest: {
-          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-        },
-        resolveFileConflict: async () => ({
-          action: "rename",
-          destination: "../../../escape.md",
-        }),
-      }),
-    ).rejects.toThrowError(/conflict destination must stay inside the tool target/i);
-  });
-
-  it("re-prompts when the rename destination collides with a file already on disk", async () => {
-    // Given — original and the first rename target both already exist on disk
-    const repoRoot = createTempDir("skul-repo-");
-    const bundleDir = createTempDir("skul-bundle-");
-    writeFile(
-      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
-      "bundle\n",
-    );
-    writeFile(
-      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-      "original\n",
-    );
-    writeFile(
-      path.join(repoRoot, ".claude", "skills", "p-react", "SKILL.md"),
-      "also taken\n",
-    );
-
-    const resolutions = [
-      { action: "rename" as const, destination: "p-react/SKILL.md" }, // filesystem conflict → re-prompt
-      { action: "rename" as const, destination: "safe/SKILL.md" }, // free → accepted
-    ];
     let callCount = 0;
 
     // When
@@ -549,18 +365,15 @@ describe("materializeBundle", () => {
         tools: { "claude-code": { skills: { path: ".claude/skills" } } },
       },
       resolveFileConflict: async () => {
-        if (callCount >= resolutions.length) {
-          throw new Error(`callback called more times than expected (call ${callCount + 1})`);
-        }
-        return resolutions[callCount++];
+        callCount++;
+        return { action: "overwrite" };
       },
     });
 
-    // Then
-    expect(callCount).toBe(2);
-    expect(result.byTool["claude-code"]!.files).toContain(
-      ".claude/skills/safe/SKILL.md",
-    );
+    // Then — callback called exactly once (for b.md); a.md has no conflict
+    expect(callCount).toBe(1);
+    expect(result.byTool["claude-code"]!.files).toContain(".claude/skills/a.md");
+    expect(result.byTool["claude-code"]!.files).toContain(".claude/skills/b.md");
   });
 
   it("throws on conflict when no resolveFileConflict callback is provided", async () => {
