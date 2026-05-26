@@ -865,7 +865,7 @@ async function writeTranslatedFile(options: {
     | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined;
   targetRoot?: string;
-}): Promise<boolean> {
+}): Promise<void> {
   // Conflict resolution paths are expressed relative to the target root. Directory-based
   // targets use the two-segment tool root (e.g. ".cursor/skills"); repo-root files use "".
   const targetRoot =
