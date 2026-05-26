@@ -5,7 +5,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { BundleManifest } from "./bundle-manifest";
-import { materializeBundle } from "./bundle-materialization";
+import {
+  materializeBundle,
+  previewMaterializeBundleWriteTargets,
+} from "./bundle-materialization";
 import type { ToolName } from "./tool-mapping";
 import {
   formatExpectedRootInstructionDocument,
@@ -595,6 +598,481 @@ describe("materializeBundle", () => {
         },
       }),
     ).rejects.toThrowError(/symlink/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical-path materialization — exercises materializeCanonicalTarget, which
+// translates content from the canonical `skills/`, `commands/`, `agents/`
+// directories into tool-specific output files.  All tests above use native
+// dotdir paths and bypass this translation path entirely.
+// ---------------------------------------------------------------------------
+
+describe("materializeBundle – canonical skill source", () => {
+  it("translates a canonical skill to claude-code format", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React development patterns",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: "skills" } } },
+      },
+    });
+
+    // Then — canonical source `skills/` → `.claude/skills/<name>/SKILL.md`
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/skills/react/SKILL.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe(
+      [
+        "---",
+        "name: react",
+        "description: React development patterns",
+        "---",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("translates a canonical skill to cursor format", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React development patterns",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { cursor: { skills: { path: "skills" } } },
+      },
+    });
+
+    // Then — canonical `skills/` → `.cursor/skills/<name>/SKILL.md`
+    expect(result.byTool.cursor!.files).toEqual([
+      ".cursor/skills/react/SKILL.md",
+    ]);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(true);
+  });
+
+  it("translates a canonical skill to codex format including policy file", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "next-task", "SKILL.md"),
+      [
+        "---",
+        "name: next-task",
+        "description: Handle next queued task",
+        "disable-model-invocation: true",
+        "---",
+        "",
+        "Follow TASKS.md.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { codex: { skills: { path: "skills" } } },
+      },
+    });
+
+    // Then — manual-only skill → policy file is included
+    expect(result.byTool.codex!.files).toEqual([
+      ".agents/skills/next-task/SKILL.md",
+      ".agents/skills/next-task/agents/openai.yaml",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          ".agents",
+          "skills",
+          "next-task",
+          "agents",
+          "openai.yaml",
+        ),
+        "utf8",
+      ),
+    ).toMatch(/allow_implicit_invocation:\s*false/);
+  });
+
+  it("translates a canonical skill to opencode as a skill file", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React development patterns",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { opencode: { skills: { path: "skills" } } },
+      },
+    });
+
+    // Then — non-manual skill → opencode skill (not command)
+    expect(result.byTool.opencode!.files).toEqual([
+      ".opencode/skills/react/SKILL.md",
+    ]);
+  });
+
+  it("materializes canonical skills for multiple tools at once", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React development patterns",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: "skills" } },
+          cursor: { skills: { path: "skills" } },
+          codex: { skills: { path: "skills" } },
+        },
+      },
+    });
+
+    // Then — each tool gets its own translated output
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/skills/react/SKILL.md",
+    ]);
+    expect(result.byTool.cursor!.files).toEqual([
+      ".cursor/skills/react/SKILL.md",
+    ]);
+    expect(result.byTool.codex!.files).toContain(
+      ".agents/skills/react/SKILL.md",
+    );
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".agents", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("materializeBundle – canonical command source", () => {
+  it("translates a canonical command to claude-code format", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "commands", "review.md"),
+      [
+        "---",
+        "description: Review staged changes",
+        "---",
+        "",
+        "Review the staged changes.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { commands: { path: "commands" } } },
+      },
+    });
+
+    // Then — canonical `commands/` → `.claude/commands/<name>.md`
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/commands/review.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "commands", "review.md"),
+        "utf8",
+      ),
+    ).toContain("Review the staged changes.");
+  });
+
+  it("translates a canonical command to cursor format (strips frontmatter)", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "commands", "review.md"),
+      [
+        "---",
+        "description: Review staged changes",
+        "---",
+        "",
+        "Review the staged changes.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { cursor: { commands: { path: "commands" } } },
+      },
+    });
+
+    // Then — Cursor commands have no frontmatter (raw body only)
+    const content = fs.readFileSync(
+      path.join(repoRoot, ".cursor", "commands", "review.md"),
+      "utf8",
+    );
+    expect(content).not.toContain("---");
+    expect(content).toContain("Review the staged changes.");
+  });
+});
+
+describe("materializeBundle – canonical agent source", () => {
+  it("translates a canonical agent to claude-code format", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "agents", "reviewer.md"),
+      [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for correctness",
+        "---",
+        "",
+        "Review the diff.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { agents: { path: "agents" } } },
+      },
+    });
+
+    // Then — canonical `agents/` → `.claude/agents/<name>.md`
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/agents/code-reviewer.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "agents", "code-reviewer.md"),
+        "utf8",
+      ),
+    ).toContain("name: code-reviewer");
+  });
+
+  it("translates a canonical agent to codex TOML format", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "agents", "reviewer.md"),
+      [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for correctness",
+        "---",
+        "",
+        "Review the diff.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { codex: { agents: { path: "agents" } } },
+      },
+    });
+
+    // Then — canonical `agents/` → `.codex/agents/<name>.toml`
+    expect(result.byTool.codex!.files).toEqual([
+      ".codex/agents/code-reviewer.toml",
+    ]);
+    const tomlContent = fs.readFileSync(
+      path.join(repoRoot, ".codex", "agents", "code-reviewer.toml"),
+      "utf8",
+    );
+    expect(tomlContent).toContain('name = "code-reviewer"');
+    expect(tomlContent).toContain('developer_instructions = """');
+  });
+});
+
+describe("previewMaterializeBundleWriteTargets", () => {
+  it("returns sorted repo-relative paths for a native-path skill bundle", () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "vue", "SKILL.md"),
+      "# vue\n",
+    );
+
+    // When
+    const targets = previewMaterializeBundleWriteTargets({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+    });
+
+    // Then
+    expect(targets).toEqual([
+      ".claude/skills/react/SKILL.md",
+      ".claude/skills/vue/SKILL.md",
+    ]);
+  });
+
+  it("returns translated paths for a canonical skill bundle", () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Use React.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const targets = previewMaterializeBundleWriteTargets({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: "skills" } },
+          cursor: { skills: { path: "skills" } },
+        },
+      },
+    });
+
+    // Then — both tools' translated paths appear
+    expect(targets).toContain(".claude/skills/react/SKILL.md");
+    expect(targets).toContain(".cursor/skills/react/SKILL.md");
+  });
+
+  it("respects the tools filter", () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+
+    // When
+    const targets = previewMaterializeBundleWriteTargets({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: ".claude/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
+        },
+      },
+      tools: ["claude-code"],
+    });
+
+    // Then — only claude-code paths returned
+    expect(targets).toEqual([".claude/skills/react/SKILL.md"]);
   });
 });
 
