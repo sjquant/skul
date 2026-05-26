@@ -473,6 +473,74 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses source-scoped remove with item selection flags", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs([
+        "remove",
+        "sjquant/ghosts",
+        "core",
+        "--include",
+        "skills/review.md",
+        "--select-items",
+      ]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "remove",
+      options: {
+        source: "github.com/sjquant/ghosts",
+        bundle: "core",
+        includeItems: ["skills/review"],
+        selectItems: true,
+        dryRun: false,
+        global: false,
+      },
+    });
+  });
+
+  it("parses a single remove source as an inferred bundle selection", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["remove", "sjquant/ghosts"])).resolves.toEqual({
+      kind: "command",
+      command: "remove",
+      options: {
+        source: "github.com/sjquant/ghosts",
+        bundle: "ghosts",
+        dryRun: false,
+        inferredBundleFromSource: true,
+        global: false,
+      },
+    });
+  });
+
+  it("parses item-selected remove without requiring a bundle", async () => {
+    // Given / When / Then
+    await expect(parseCliArgs(["remove", "--select-items"])).resolves.toEqual({
+      kind: "command",
+      command: "remove",
+      options: {
+        selectItems: true,
+        dryRun: false,
+        global: false,
+      },
+    });
+  });
+
+  it("parses included-item remove without requiring a bundle", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs(["remove", "--include", "skills/review.md"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "remove",
+      options: {
+        includeItems: ["skills/review"],
+        dryRun: false,
+        global: false,
+      },
+    });
+  });
+
   it("parses --json flag on list and status", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["list", "--json"])).resolves.toEqual({
@@ -738,8 +806,8 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["add", "a", "b", "c"])).rejects.toThrowError(
       /Command add accepts at most 2 positional arguments/,
     );
-    await expect(parseCliArgs(["remove", "a", "b"])).rejects.toThrowError(
-      /Command remove accepts exactly 1 positional argument/,
+    await expect(parseCliArgs(["remove", "a", "b", "c"])).rejects.toThrowError(
+      /Command remove accepts at most 2 positional arguments/,
     );
     await expect(parseCliArgs(["check", "a", "b"])).rejects.toThrowError(
       /Command check accepts at most 1 positional argument/,
@@ -751,7 +819,7 @@ describe("parseCliArgs", () => {
       /Command clear-cache accepts at most 1 positional argument/,
     );
     await expect(parseCliArgs(["remove"])).rejects.toThrowError(
-      /missing required argument 'bundle'/,
+      /Command remove requires a source or bundle name/,
     );
     await expect(parseCliArgs(["clear-cache"])).rejects.toThrowError(
       /Command clear-cache requires a source or --all/,
@@ -2256,6 +2324,210 @@ describe("run", () => {
     ).toBe(false);
   });
 
+  it("selects items across source-scoped bundles without selecting a bundle first", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const promptOrder: string[] = [];
+    const selectAgents = vi.fn().mockImplementation(async () => {
+      promptOrder.push("agents");
+      return ["codex"];
+    });
+    const selectBundle = vi.fn(async () => {
+      throw new Error("selectBundle should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) => {
+        promptOrder.push("items");
+        return choices
+          .filter(
+            (choice) =>
+              choice.label.endsWith("core: skills/wdd") ||
+              choice.label.endsWith("sandbox: skills/audit"),
+          )
+          .map((choice) => choice.value);
+      },
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".cursor/skills/wdd/SKILL.md",
+      "# cursor wdd\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "sandbox",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "sandbox",
+      ".cursor/skills/audit/SKILL.md",
+      "# cursor audit\n",
+    );
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          selectAgents,
+          selectBundle,
+          selectBundleItemChoices,
+        }),
+      }),
+    ).resolves.toBe("Applied core for codex\nApplied sandbox for codex");
+
+    // Then
+    expect(promptOrder).toEqual(["agents", "items"]);
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(selectAgents).toHaveBeenCalledWith(["codex", "cursor"]);
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "core: skills/wdd",
+        }),
+        expect.objectContaining({
+          label: "sandbox: skills/audit",
+        }),
+      ],
+      [],
+      "install",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# wdd\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "audit", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# audit\n");
+  });
+
+  it("replaces existing items when selecting source-scoped bundle items", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectBundle = vi.fn(async () => {
+      throw new Error("selectBundle should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) =>
+        choices
+          .filter((choice) => choice.label.endsWith("core: skills/review"))
+          .map((choice) => choice.value),
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    await run(
+      [
+        "add",
+        "github.com/sjquant/ghosts",
+        "core",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/review",
+        "--include",
+        "skills/wdd",
+      ],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          selectBundle,
+          selectBundleItemChoices,
+        }),
+      }),
+    ).resolves.toBe("Applied core for codex");
+
+    // Then
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+    expect(
+      pathExists(path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md")),
+    ).toBe(false);
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      {
+        bundle: "core",
+        source: "github.com/sjquant/ghosts",
+        tools: ["codex"],
+        items: ["skills/review"],
+        protocol: "https",
+      },
+    ]);
+  });
+
   it("uses an explicit agent to narrow source-scoped bundle selection", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -2522,6 +2794,57 @@ describe("run", () => {
       protocol: "https",
       resolved_ref: "main",
       resolved_commit: remoteSource.initialCommit,
+    });
+  });
+
+  it("refreshes a cached remote source before source-scoped add", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# initial\n",
+      },
+    });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# refreshed\n",
+      },
+    );
+
+    // When
+    await expect(
+      run(["add", remoteSource.source, remoteSource.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code");
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# refreshed\n");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual({
+      bundle: "react-expert",
+      source: remoteSource.source,
+      protocol: "https",
+      resolved_ref: "main",
+      resolved_commit: updatedCommit,
     });
   });
 
@@ -5520,6 +5843,736 @@ describe("run", () => {
     ).toEqual([]);
   });
 
+  it("selects an active source-scoped bundle from state when removing by source", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    await run(["add", "github.com/sjquant/ghosts", "core"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "core",
+      source: "github.com/sjquant/ghosts",
+    });
+    fs.rmSync(path.join(homeDir, ".skul", "library", "github.com", "sjquant"), {
+      recursive: true,
+      force: true,
+    });
+
+    // When
+    await expect(
+      run(["remove", "sjquant/ghosts"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundle }),
+      }),
+    ).resolves.toBe("Removed core");
+
+    // Then
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(
+      pathExists(path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toEqual([]);
+  });
+
+  it("does not reselect when an explicit source-scoped remove misses the active bundle", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    await run(["add", "github.com/sjquant/ghosts", "core"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const selectBundle = vi.fn().mockResolvedValue({
+      bundle: "core",
+      source: "github.com/sjquant/ghosts",
+    });
+
+    // When / Then
+    await expect(
+      run(["remove", "sjquant/ghosts", "missing"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundle }),
+      }),
+    ).rejects.toThrowError(/Bundle not found in active set: missing/);
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# wdd\n");
+  });
+
+  it("keeps same-named desired bundles from other sources during source-scoped remove", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    await run(["add", "github.com/sjquant/ghosts", "core"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    const registry = readRegistryFile(registryFile);
+    registry.repos[repoFingerprint]!.desired_state.push({
+      bundle: "core",
+      source: "github.com/other/ghosts",
+      protocol: "https",
+    });
+    writeRegistryFile(registryFile, registry);
+
+    // When
+    await expect(
+      run(["remove", "github.com/sjquant/ghosts", "core"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).resolves.toBe("Removed core");
+
+    // Then
+    expect(
+      readRegistryFile(registryFile).repos[repoFingerprint]?.desired_state,
+    ).toEqual([
+      {
+        bundle: "core",
+        source: "github.com/other/ghosts",
+        protocol: "https",
+      },
+    ]);
+  });
+
+  it("selects removable items across source-scoped bundles without selecting a bundle first", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectBundleFromSelections = vi.fn(async () => {
+      throw new Error("selectBundleFromSelections should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) =>
+        choices
+          .filter(
+            (choice) =>
+              choice.label.endsWith("core: skills/review") ||
+              choice.label.endsWith("extras: skills/audit"),
+          )
+          .map((choice) => choice.value),
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "extras", {
+      name: "extras",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "extras",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "extras",
+      ".agents/skills/plan/SKILL.md",
+      "# plan\n",
+    );
+    await run(
+      ["add", "github.com/sjquant/ghosts", "core", "--agent", "codex"],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+    await run(
+      ["add", "github.com/sjquant/ghosts", "extras", "--agent", "codex"],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(["remove", "sjquant/ghosts", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          selectBundleFromSelections,
+          selectBundleItemChoices,
+        }),
+      }),
+    ).resolves.toBe("Removed core: skills/review, extras: skills/audit");
+
+    // Then
+    expect(selectBundleFromSelections).not.toHaveBeenCalled();
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "github.com/sjquant/ghosts / core: skills/next-task",
+        }),
+        expect.objectContaining({
+          label: "github.com/sjquant/ghosts / core: skills/review",
+        }),
+        expect.objectContaining({
+          label: "github.com/sjquant/ghosts / extras: skills/audit",
+        }),
+        expect.objectContaining({
+          label: "github.com/sjquant/ghosts / extras: skills/plan",
+        }),
+      ],
+      [],
+      "remove",
+    );
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".agents", "skills", "audit", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "plan", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# plan\n");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      {
+        bundle: "core",
+        source: "github.com/sjquant/ghosts",
+        tools: ["codex"],
+        items: ["skills/next-task"],
+        protocol: "https",
+      },
+      {
+        bundle: "extras",
+        source: "github.com/sjquant/ghosts",
+        tools: ["codex"],
+        items: ["skills/plan"],
+        protocol: "https",
+      },
+    ]);
+  });
+
+  it("removes included items across source-scoped bundles without selecting a bundle first", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectBundleFromSelections = vi.fn(async () => {
+      throw new Error("selectBundleFromSelections should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(async () => {
+      throw new Error("selectBundleItemChoices should not be called");
+    });
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "extras", {
+      name: "extras",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "extras",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "extras",
+      ".agents/skills/plan/SKILL.md",
+      "# plan\n",
+    );
+    await run(
+      ["add", "github.com/sjquant/ghosts", "core", "--agent", "codex"],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+    await run(
+      ["add", "github.com/sjquant/ghosts", "extras", "--agent", "codex"],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "remove",
+          "sjquant/ghosts",
+          "--include",
+          "skills/review",
+          "--include",
+          "skills/audit",
+        ],
+        {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub({
+            selectBundleFromSelections,
+            selectBundleItemChoices,
+          }),
+        },
+      ),
+    ).resolves.toBe("Removed core: skills/review, extras: skills/audit");
+
+    // Then
+    expect(selectBundleFromSelections).not.toHaveBeenCalled();
+    expect(selectBundleItemChoices).not.toHaveBeenCalled();
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".agents", "skills", "audit", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "plan", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# plan\n");
+  });
+
+  it("cleans up source-scoped bundles fully removed by included items", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "extras", {
+      name: "extras",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "extras",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "extras",
+      ".agents/skills/plan/SKILL.md",
+      "# plan\n",
+    );
+    await run(
+      ["add", "github.com/sjquant/ghosts", "core", "--agent", "codex"],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+    await run(
+      ["add", "github.com/sjquant/ghosts", "extras", "--agent", "codex"],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "remove",
+          "sjquant/ghosts",
+          "--include",
+          "skills/review",
+          "--include",
+          "skills/audit",
+        ],
+        {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub(),
+        },
+      ),
+    ).resolves.toBe("Removed core: skills/review, extras: skills/audit");
+
+    // Then
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      pathExists(path.join(repoRoot, ".agents", "skills", "audit", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "plan", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# plan\n");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    expect(registry.repos[gitContext.repoFingerprint]?.desired_state).toEqual([
+      {
+        bundle: "extras",
+        source: "github.com/sjquant/ghosts",
+        tools: ["codex"],
+        items: ["skills/plan"],
+        protocol: "https",
+      },
+    ]);
+    expect(
+      registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles
+        .core,
+    ).toBeUndefined();
+    expect(
+      registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles
+        .extras?.tools.codex?.items,
+    ).toEqual(["skills/plan"]);
+  });
+
+  it("removes included bundle items while keeping the remaining items active", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    await run(["add", "react-expert", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+
+    // When
+    await expect(
+      run(["remove", "react-expert", "--include", "skills/review"], {
+        homeDir,
+        cwd: repoRoot,
+      }),
+    ).resolves.toBe("Removed skills/review from react-expert");
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      {
+        bundle: "react-expert",
+        source: "github.com/user/ai-vault",
+        tools: ["codex"],
+        items: ["skills/next-task"],
+        protocol: "https",
+      },
+    ]);
+    expect(
+      registry.worktrees[Object.keys(registry.worktrees)[0]!]!
+        .materialized_state.bundles["react-expert"]!.tools.codex!.items,
+    ).toEqual(["skills/next-task"]);
+  });
+
+  it("opens the bundle item selector before removing selected items", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) =>
+        choices
+          .filter((choice) =>
+            choice.label.endsWith("react-expert: skills/review"),
+          )
+          .map((choice) => choice.value),
+    );
+    const selectBundleFromSelections = vi.fn(async () => {
+      throw new Error("selectBundleFromSelections should not be called");
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    await run(["add", "react-expert", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+
+    // When
+    await expect(
+      run(
+        [
+          "remove",
+          "react-expert",
+          "--include",
+          "skills/next-task",
+          "--select-items",
+        ],
+        {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub({
+            selectBundleFromSelections,
+            selectBundleItemChoices,
+          }),
+        },
+      ),
+    ).resolves.toBe("Removed react-expert: skills/review");
+
+    // Then
+    expect(selectBundleFromSelections).not.toHaveBeenCalled();
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / react-expert: skills/next-task",
+        }),
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / react-expert: skills/review",
+        }),
+      ],
+      [expect.any(String)],
+      "remove",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+      ),
+    ).toBe(false);
+  });
+
+  it("offers only active bundle items when removing selected items", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string }>) =>
+        choices.map((choice) => choice.value),
+    );
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    await run(
+      [
+        "add",
+        "react-expert",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/next-task",
+      ],
+      {
+        homeDir,
+        cwd: repoRoot,
+      },
+    );
+
+    // When
+    await expect(
+      run(["remove", "react-expert", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundleItemChoices }),
+      }),
+    ).resolves.toBe("Removed react-expert: skills/next-task");
+
+    // Then
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "github.com/user/ai-vault / react-expert: skills/next-task",
+        }),
+      ],
+      [],
+      "remove",
+    );
+    expect(
+      pathExists(
+        path.join(repoRoot, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
+  });
+
   it("removes a specific bundle without disturbing other materialized bundles", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -8277,7 +9330,16 @@ function createPromptClientStub(
 ): PromptClient {
   return {
     selectBundle: async () => ({ bundle: "react-expert" }),
+    selectBundleFromSelections: async (availableBundles) => {
+      if (availableBundles.length === 0) {
+        throw new Error("selectBundleFromSelections received no bundles");
+      }
+
+      return availableBundles[0]!;
+    },
     selectBundleItems: async (_availableItems, selectedItems) => selectedItems,
+    selectBundleItemChoices: async (_availableItems, selectedItems) =>
+      selectedItems,
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
     confirmManagedFileRemoval: async () => true,
