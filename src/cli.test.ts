@@ -2324,6 +2324,210 @@ describe("run", () => {
     ).toBe(false);
   });
 
+  it("selects items across source-scoped bundles without selecting a bundle first", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const promptOrder: string[] = [];
+    const selectAgents = vi.fn().mockImplementation(async () => {
+      promptOrder.push("agents");
+      return ["codex"];
+    });
+    const selectBundle = vi.fn(async () => {
+      throw new Error("selectBundle should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) => {
+        promptOrder.push("items");
+        return choices
+          .filter(
+            (choice) =>
+              choice.label.endsWith("core: skills/wdd") ||
+              choice.label.endsWith("sandbox: skills/audit"),
+          )
+          .map((choice) => choice.value);
+      },
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".cursor/skills/wdd/SKILL.md",
+      "# cursor wdd\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: {
+        codex: { skills: { path: ".agents/skills" } },
+        cursor: { skills: { path: ".cursor/skills" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "sandbox",
+      ".agents/skills/audit/SKILL.md",
+      "# audit\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "sandbox",
+      ".cursor/skills/audit/SKILL.md",
+      "# cursor audit\n",
+    );
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          selectAgents,
+          selectBundle,
+          selectBundleItemChoices,
+        }),
+      }),
+    ).resolves.toBe("Applied core for codex\nApplied sandbox for codex");
+
+    // Then
+    expect(promptOrder).toEqual(["agents", "items"]);
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(selectAgents).toHaveBeenCalledWith(["codex", "cursor"]);
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "core: skills/wdd",
+        }),
+        expect.objectContaining({
+          label: "sandbox: skills/audit",
+        }),
+      ],
+      [],
+      "install",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# wdd\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "audit", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# audit\n");
+  });
+
+  it("replaces existing items when selecting source-scoped bundle items", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const selectBundle = vi.fn(async () => {
+      throw new Error("selectBundle should not be called");
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string; label: string }>) =>
+        choices
+          .filter((choice) => choice.label.endsWith("core: skills/review"))
+          .map((choice) => choice.value),
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/review/SKILL.md",
+      "# review\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "sandbox", {
+      name: "sandbox",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    await run(
+      [
+        "add",
+        "github.com/sjquant/ghosts",
+        "core",
+        "--agent",
+        "codex",
+        "--include",
+        "skills/review",
+        "--include",
+        "skills/wdd",
+      ],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // When
+    await expect(
+      run(["add", "sjquant/ghosts", "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          selectBundle,
+          selectBundleItemChoices,
+        }),
+      }),
+    ).resolves.toBe("Applied core for codex");
+
+    // Then
+    expect(selectBundle).not.toHaveBeenCalled();
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+    expect(
+      pathExists(path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md")),
+    ).toBe(false);
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]?.desired_state).toEqual([
+      {
+        bundle: "core",
+        source: "github.com/sjquant/ghosts",
+        tools: ["codex"],
+        items: ["skills/review"],
+        protocol: "https",
+      },
+    ]);
+  });
+
   it("uses an explicit agent to narrow source-scoped bundle selection", async () => {
     // Given
     const homeDir = createHomeDir();

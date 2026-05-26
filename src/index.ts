@@ -1749,9 +1749,29 @@ async function applyBundle(options: {
   dryRun: boolean;
   ref?: string;
   inferredBundleFromSource?: true;
+  replaceItems?: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
   const registryBeforePrepare = readRegistryWithGuidance(options.registryFile);
+
+  if (shouldApplySelectedItemsAcrossSourceBundles(options)) {
+    return applySelectedItemsAcrossSourceBundles({
+      cwd: options.cwd,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      source: options.source!,
+      protocol: options.protocol,
+      agents: options.agents,
+      includeItems: options.includeItems,
+      dryRun: options.dryRun,
+      ref: options.ref,
+      existingDesiredState:
+        registryBeforePrepare.repos[gitContext.repoFingerprint]
+          ?.desired_state ?? [],
+    });
+  }
+
   const preparedBundle = await prepareApplyBundle({
     bundle: options.bundle,
     source: options.source,
@@ -1759,6 +1779,7 @@ async function applyBundle(options: {
     requestedTools: options.agents,
     requestedItems: options.includeItems,
     selectItems: options.selectItems,
+    replaceItems: options.replaceItems,
     prompts: options.prompts,
     libraryDir: options.libraryDir,
     ref: options.ref,
@@ -2017,6 +2038,302 @@ async function applyBundle(options: {
   ].join("\n");
 }
 
+function shouldApplySelectedItemsAcrossSourceBundles(options: {
+  source?: string;
+  selectItems: boolean;
+  inferredBundleFromSource?: true;
+}): boolean {
+  return (
+    options.selectItems &&
+    options.source !== undefined &&
+    options.inferredBundleFromSource === true
+  );
+}
+
+async function applySelectedItemsAcrossSourceBundles(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  source: string;
+  protocol: "https" | "ssh";
+  agents: ToolName[];
+  includeItems: BundleItemSelector[];
+  dryRun: boolean;
+  ref?: string;
+  existingDesiredState: DesiredBundleEntry[];
+}): Promise<string> {
+  const refreshedSources = new Set<string>();
+  const cloneLines = refreshBundleSourceForApply(
+    {
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+      ref: options.ref,
+    },
+    refreshedSources,
+  );
+  const targets = await selectSourceBundleItemApplyTargets({
+    libraryDir: options.libraryDir,
+    source: options.source,
+    requestedTools: options.agents,
+    requestedItems: options.includeItems,
+    prompts: options.prompts,
+    existingDesiredState: options.existingDesiredState,
+  });
+  const outputLines: string[] = [];
+
+  for (const target of targets) {
+    outputLines.push(
+      await applyBundle({
+        cwd: options.cwd,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        bundle: target.bundle,
+        source: target.source,
+        protocol: options.protocol,
+        agents: target.tools,
+        includeItems: target.items,
+        selectItems: false,
+        replaceItems: true,
+        dryRun: options.dryRun,
+        ref: options.ref,
+      }),
+    );
+  }
+
+  return [...cloneLines, ...outputLines].filter(Boolean).join("\n");
+}
+
+async function selectSourceBundleItemApplyTargets(options: {
+  libraryDir: string;
+  source: string;
+  requestedTools: ToolName[];
+  requestedItems: BundleItemSelector[];
+  prompts: PromptClient;
+  existingDesiredState: DesiredBundleEntry[];
+  global?: boolean;
+}): Promise<
+  Array<{
+    bundle: string;
+    source: string;
+    tools: ToolName[];
+    items: BundleItemSelector[];
+  }>
+> {
+  const selectedTools = await selectToolsForSourceBundleItems(options);
+  const choices = listSourceBundleItemApplyChoices({
+    libraryDir: options.libraryDir,
+    source: options.source,
+    tools: selectedTools,
+  });
+
+  if (choices.length === 0) {
+    throw new Error(`No selectable bundle items found for ${options.source}`);
+  }
+
+  const requestedItems = normalizeBundleItemSelectors(options.requestedItems);
+  const selectedValues = selectInitialSourceBundleItemApplyValues({
+    choices,
+    requestedItems,
+    existingDesiredState: options.existingDesiredState,
+  });
+  const selections = await options.prompts.selectBundleItemChoices(
+    choices,
+    selectedValues,
+    "install",
+  );
+
+  if (selections.length === 0) {
+    throw new Error("No bundle items selected for install");
+  }
+
+  return groupBundleItemApplyTargets({ choices, selectedValues: selections });
+}
+
+async function selectToolsForSourceBundleItems(options: {
+  libraryDir: string;
+  source: string;
+  requestedTools: ToolName[];
+  prompts: PromptClient;
+  global?: boolean;
+}): Promise<ToolName[]> {
+  const availableTools = listSelectableToolsForSource({
+    libraryDir: options.libraryDir,
+    source: options.source,
+  }).filter(
+    (toolName) =>
+      options.global !== true || globalCapableToolNames().includes(toolName),
+  );
+
+  if (options.requestedTools.length > 0) {
+    assertRequestedToolsAreSelectableForSource({
+      requestedTools: options.requestedTools,
+      availableTools,
+      source: options.source,
+    });
+    return options.requestedTools;
+  }
+
+  if (availableTools.length === 0) {
+    throw new Error(`No selectable agents found for ${options.source}`);
+  }
+
+  if (availableTools.length === 1) {
+    return availableTools;
+  }
+
+  return options.prompts.selectAgents(availableTools);
+}
+
+function assertRequestedToolsAreSelectableForSource(options: {
+  requestedTools: ToolName[];
+  availableTools: ToolName[];
+  source: string;
+}): void {
+  const unsupportedTools = options.requestedTools.filter(
+    (toolName) => !options.availableTools.includes(toolName),
+  );
+
+  if (unsupportedTools.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `Source ${options.source} does not support agent(s): ${unsupportedTools.join(", ")}\nSupported agents: ${options.availableTools.join(", ")}`,
+  );
+}
+
+function listSourceBundleItemApplyChoices(options: {
+  libraryDir: string;
+  source: string;
+  tools: ToolName[];
+}): BundleItemApplyChoice[] {
+  return listCachedBundles({ libraryDir: options.libraryDir })
+    .filter((bundle) => bundle.source === options.source)
+    .flatMap((bundle) => {
+      const bundleTools = options.tools.filter((toolName) =>
+        Object.keys(bundle.manifest.tools).includes(toolName),
+      );
+
+      if (bundleTools.length === 0) {
+        return [];
+      }
+
+      const availableItems = listSelectableBundleItems({
+        bundleDir: path.dirname(bundle.manifestFile),
+        manifest: bundle.manifest,
+        tools: bundleTools,
+      });
+
+      return availableItems.map((item) => ({
+        value: encodeBundleItemApplyChoice({
+          source: bundle.source,
+          bundle: bundle.bundle,
+          item,
+        }),
+        label: `${bundle.bundle}: ${item}`,
+        source: bundle.source,
+        bundle: bundle.bundle,
+        item,
+        tools: bundleTools,
+      }));
+    });
+}
+
+function selectInitialSourceBundleItemApplyValues(options: {
+  choices: BundleItemApplyChoice[];
+  requestedItems: BundleItemSelector[];
+  existingDesiredState: DesiredBundleEntry[];
+}): string[] {
+  const selectedValues = new Set<string>();
+  const requestedItemSet = new Set(options.requestedItems);
+
+  for (const choice of options.choices) {
+    if (requestedItemSet.has(choice.item)) {
+      selectedValues.add(choice.value);
+      continue;
+    }
+
+    const existingEntry = options.existingDesiredState.find(
+      (entry) =>
+        entry.bundle === choice.bundle && entry.source === choice.source,
+    );
+    if (existingEntry?.items?.includes(choice.item)) {
+      selectedValues.add(choice.value);
+    }
+  }
+
+  const missingItems = options.requestedItems.filter(
+    (item) => !options.choices.some((choice) => choice.item === item),
+  );
+
+  if (missingItems.length > 0) {
+    throw new Error(
+      `Bundle item(s) are not available: ${missingItems.join(", ")}`,
+    );
+  }
+
+  return Array.from(selectedValues);
+}
+
+function groupBundleItemApplyTargets(options: {
+  choices: BundleItemApplyChoice[];
+  selectedValues: string[];
+}): Array<{
+  bundle: string;
+  source: string;
+  tools: ToolName[];
+  items: BundleItemSelector[];
+}> {
+  const groupsByBundle = new Map<
+    string,
+    {
+      bundle: string;
+      source: string;
+      tools: ToolName[];
+      items: BundleItemSelector[];
+    }
+  >();
+
+  for (const value of options.selectedValues) {
+    const choice = options.choices.find(
+      (candidate) => candidate.value === value,
+    );
+    if (!choice) {
+      throw new Error(`Selected bundle item is not available: ${value}`);
+    }
+
+    const key = encodeBundleIdentity(choice);
+    const group = groupsByBundle.get(key) ?? {
+      bundle: choice.bundle,
+      source: choice.source,
+      tools: choice.tools,
+      items: [],
+    };
+    group.items.push(choice.item);
+    groupsByBundle.set(key, group);
+  }
+
+  return Array.from(groupsByBundle.values());
+}
+
+interface BundleItemApplyChoice extends BundleItemChoice {
+  source: string;
+  bundle: string;
+  item: BundleItemSelector;
+  tools: ToolName[];
+}
+
+function encodeBundleItemApplyChoice(choice: {
+  source: string;
+  bundle: string;
+  item: BundleItemSelector;
+}): string {
+  return JSON.stringify([choice.source, choice.bundle, choice.item]);
+}
+
 async function prepareApplyBundle(options: {
   bundle: string;
   source?: string;
@@ -2024,6 +2341,7 @@ async function prepareApplyBundle(options: {
   requestedTools: ToolName[];
   requestedItems: BundleItemSelector[];
   selectItems: boolean;
+  replaceItems?: boolean;
   prompts: PromptClient;
   libraryDir: string;
   ref?: string;
@@ -2146,6 +2464,7 @@ async function prepareApplyBundle(options: {
     tools: nextToolNames,
     requestedItems: options.requestedItems,
     selectItems: options.selectItems,
+    replaceItems: options.replaceItems,
     prompts: options.prompts,
     existingItems: existingDesiredEntry?.items,
   });
@@ -2160,7 +2479,7 @@ async function prepareApplyBundle(options: {
     nextToolNames,
     toolLabel: nextToolNames.join(", "),
     hasToolSelection,
-    replacesItemSelection: options.selectItems,
+    replacesItemSelection: options.selectItems || options.replaceItems === true,
   };
 }
 
@@ -2211,6 +2530,7 @@ async function resolveSelectedBundleItems(options: {
   tools: ToolName[];
   requestedItems: BundleItemSelector[];
   selectItems: boolean;
+  replaceItems?: boolean;
   prompts: PromptClient;
   existingItems?: BundleItemSelector[];
 }): Promise<BundleItemSelector[] | undefined> {
@@ -2230,6 +2550,7 @@ async function resolveSelectedBundleItems(options: {
   const mergedItems = mergeDesiredBundleItems({
     existingItems: options.existingItems,
     requestedItems: normalizeBundleItemSelectors(options.requestedItems),
+    replace: options.replaceItems === true,
   });
 
   if (!options.selectItems) {
@@ -4736,6 +5057,7 @@ async function applyBundleGlobal(options: {
   dryRun: boolean;
   ref?: string;
   inferredBundleFromSource?: true;
+  replaceItems?: boolean;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
 
@@ -4756,6 +5078,27 @@ async function applyBundleGlobal(options: {
   let registry = readRegistryWithGuidance(options.registryFile);
   const existingGlobal = registry.global;
 
+  if (shouldApplySelectedItemsAcrossSourceBundles(options)) {
+    return applySelectedItemsAcrossGlobalSourceBundles({
+      homeDir: options.homeDir,
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      source: options.source!,
+      protocol: options.protocol,
+      agents:
+        options.agents.length > 0
+          ? options.agents.filter((toolName) =>
+              supportedTools.includes(toolName),
+            )
+          : [],
+      includeItems: options.includeItems,
+      dryRun: options.dryRun,
+      ref: options.ref,
+      existingDesiredState: existingGlobal?.desired_state ?? [],
+    });
+  }
+
   // When no --agent is specified, auto-select all globally-capable tools that
   // the bundle actually supports, rather than requesting all supported tools
   // upfront (which would fail validation for bundles that don't cover every tool).
@@ -4775,6 +5118,7 @@ async function applyBundleGlobal(options: {
         : [],
     requestedItems: options.includeItems,
     selectItems: options.selectItems,
+    replaceItems: options.replaceItems,
     existingDesiredState: existingGlobal?.desired_state ?? [],
     libraryDir: options.libraryDir,
     ref: options.ref,
@@ -4997,6 +5341,63 @@ async function applyBundleGlobal(options: {
   }
 
   return lines.join("\n");
+}
+
+async function applySelectedItemsAcrossGlobalSourceBundles(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  source: string;
+  protocol: "https" | "ssh";
+  agents: ToolName[];
+  includeItems: BundleItemSelector[];
+  dryRun: boolean;
+  ref?: string;
+  existingDesiredState: DesiredBundleEntry[];
+}): Promise<string> {
+  const refreshedSources = new Set<string>();
+  const cloneLines = refreshBundleSourceForApply(
+    {
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+      ref: options.ref,
+    },
+    refreshedSources,
+  );
+  const targets = await selectSourceBundleItemApplyTargets({
+    libraryDir: options.libraryDir,
+    source: options.source,
+    requestedTools: options.agents,
+    requestedItems: options.includeItems,
+    prompts: options.prompts,
+    existingDesiredState: options.existingDesiredState,
+    global: true,
+  });
+  const outputLines: string[] = [];
+
+  for (const target of targets) {
+    outputLines.push(
+      await applyBundleGlobal({
+        homeDir: options.homeDir,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        bundle: target.bundle,
+        source: target.source,
+        protocol: options.protocol,
+        agents: target.tools,
+        includeItems: target.items,
+        selectItems: false,
+        replaceItems: true,
+        dryRun: options.dryRun,
+        ref: options.ref,
+      }),
+    );
+  }
+
+  return [...cloneLines, ...outputLines].filter(Boolean).join("\n");
 }
 
 function renderGlobalStatus(options: {
