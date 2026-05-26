@@ -2402,7 +2402,9 @@ describe("run", () => {
           selectBundleItemChoices,
         }),
       }),
-    ).resolves.toBe("Applied core for codex\nApplied sandbox for codex");
+    ).resolves.toBe(
+      "Applied core for codex: skills/wdd\nApplied sandbox for codex: skills/audit",
+    );
 
     // Then
     expect(promptOrder).toEqual(["agents", "items"]);
@@ -2498,7 +2500,7 @@ describe("run", () => {
           selectBundleItemChoices,
         }),
       }),
-    ).resolves.toBe("Applied core for codex");
+    ).resolves.toBe("Applied core for codex: skills/review");
 
     // Then
     expect(selectBundle).not.toHaveBeenCalled();
@@ -2608,7 +2610,7 @@ describe("run", () => {
           selectBundleItemChoices,
         }),
       }),
-    ).resolves.toBe("Removed core\nApplied sandbox for codex");
+    ).resolves.toBe("Removed core\nApplied sandbox for codex: skills/review");
 
     // Then
     expect(selectBundle).not.toHaveBeenCalled();
@@ -2721,7 +2723,7 @@ describe("run", () => {
           selectBundleItemChoices,
         }),
       }),
-    ).resolves.toBe("Applied sandbox for codex");
+    ).resolves.toBe("Applied sandbox for codex: skills/audit");
 
     // Then
     expect(selectAgents).toHaveBeenCalledWith(["codex", "cursor"]);
@@ -5417,7 +5419,7 @@ describe("run", () => {
           prompts: createPromptClientStub({ selectBundleItems }),
         },
       ),
-    ).resolves.toBe("Applied react-expert for codex");
+    ).resolves.toBe("Applied react-expert for codex: skills/review");
 
     // Then
     expect(selectBundleItems).toHaveBeenCalledWith(

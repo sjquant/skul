@@ -874,7 +874,9 @@ describe("run --global", () => {
     );
 
     // Then
-    expect(output).toContain("Applied codex-only globally for codex");
+    expect(output).toContain(
+      "Applied codex-only globally for codex: skills/review",
+    );
     expect(selectBundleItems).toHaveBeenCalledWith(
       ["skills/next-task", "skills/review"],
       [],
@@ -1709,7 +1711,7 @@ describe("run --global", () => {
         }),
       }),
     ).resolves.toBe(
-      "Applied core globally for codex\nApplied sandbox globally for codex",
+      "Applied core globally for codex: skills/wdd\nApplied sandbox globally for codex: skills/audit",
     );
 
     // Then
@@ -1807,7 +1809,7 @@ describe("run --global", () => {
           selectBundleItemChoices,
         }),
       }),
-    ).resolves.toBe("Applied core globally for codex");
+    ).resolves.toBe("Applied core globally for codex: skills/review");
 
     // Then
     expect(selectBundle).not.toHaveBeenCalled();
@@ -1912,7 +1914,9 @@ describe("run --global", () => {
           selectBundleItemChoices,
         }),
       }),
-    ).resolves.toBe("Removed global core\nApplied sandbox globally for codex");
+    ).resolves.toBe(
+      "Removed global core\nApplied sandbox globally for codex: skills/review",
+    );
 
     // Then
     expect(selectBundle).not.toHaveBeenCalled();
@@ -2020,7 +2024,7 @@ describe("run --global", () => {
           selectBundleItemChoices,
         }),
       }),
-    ).resolves.toBe("Applied sandbox globally for codex");
+    ).resolves.toBe("Applied sandbox globally for codex: skills/audit");
 
     // Then
     expect(selectAgents).toHaveBeenCalledWith(["claude-code", "codex"]);
