@@ -1794,7 +1794,13 @@ async function applyBundle(options: {
   if (options.dryRun) {
     return [
       ...preparedBundle.cloneLines,
-      `${pc.yellow("DRY RUN:")} Would apply ${preparedBundle.cachedBundle.bundle} for ${preparedBundle.toolLabel}`,
+      `${pc.yellow("DRY RUN:")} Would ${formatApplyBundleMessage({
+        bundle: preparedBundle.cachedBundle.bundle,
+        toolLabel: preparedBundle.toolLabel,
+        items: preparedBundle.replacesItemSelection
+          ? preparedBundle.selectedItems
+          : undefined,
+      })}`,
     ].join("\n");
   }
 
@@ -2035,9 +2041,42 @@ async function applyBundle(options: {
   return [
     ...preparedBundle.cloneLines,
     pc.green(
-      `Applied ${preparedBundle.cachedBundle.bundle} for ${preparedBundle.toolLabel}`,
+      formatAppliedBundleMessage({
+        bundle: preparedBundle.cachedBundle.bundle,
+        toolLabel: preparedBundle.toolLabel,
+        items: preparedBundle.replacesItemSelection
+          ? preparedBundle.selectedItems
+          : undefined,
+      }),
     ),
   ].join("\n");
+}
+
+function formatAppliedBundleMessage(options: {
+  bundle: string;
+  toolLabel: string;
+  items?: BundleItemSelector[];
+}): string {
+  return formatApplyBundleMessage({
+    bundle: options.bundle,
+    toolLabel: options.toolLabel,
+    items: options.items,
+    action: "Applied",
+  });
+}
+
+function formatApplyBundleMessage(options: {
+  bundle: string;
+  toolLabel: string;
+  items?: BundleItemSelector[];
+  action?: "Applied";
+}): string {
+  const itemLabel =
+    options.items !== undefined && options.items.length > 0
+      ? `: ${options.items.join(", ")}`
+      : "";
+
+  return `${options.action ?? "apply"} ${options.bundle} for ${options.toolLabel}${itemLabel}`;
 }
 
 function shouldApplySelectedItemsAcrossSourceBundles(options: {
@@ -5312,7 +5351,13 @@ async function applyBundleGlobal(options: {
   if (options.dryRun) {
     return [
       ...preparedBundle.cloneLines,
-      `${pc.yellow("DRY RUN:")} Would apply ${preparedBundle.cachedBundle.bundle} globally for ${availableGlobalTools.join(", ")}`,
+      `${pc.yellow("DRY RUN:")} Would ${formatApplyGlobalBundleMessage({
+        bundle: preparedBundle.cachedBundle.bundle,
+        toolLabel: availableGlobalTools.join(", "),
+        items: preparedBundle.replacesItemSelection
+          ? preparedBundle.selectedItems
+          : undefined,
+      })}`,
     ].join("\n");
   }
 
@@ -5489,7 +5534,13 @@ async function applyBundleGlobal(options: {
   const lines = [
     ...preparedBundle.cloneLines,
     pc.green(
-      `Applied ${preparedBundle.cachedBundle.bundle} globally for ${availableGlobalTools.join(", ")}`,
+      formatAppliedGlobalBundleMessage({
+        bundle: preparedBundle.cachedBundle.bundle,
+        toolLabel: availableGlobalTools.join(", "),
+        items: preparedBundle.replacesItemSelection
+          ? preparedBundle.selectedItems
+          : undefined,
+      }),
     ),
   ];
 
@@ -5502,6 +5553,33 @@ async function applyBundleGlobal(options: {
   }
 
   return lines.join("\n");
+}
+
+function formatAppliedGlobalBundleMessage(options: {
+  bundle: string;
+  toolLabel: string;
+  items?: BundleItemSelector[];
+}): string {
+  return formatApplyGlobalBundleMessage({
+    bundle: options.bundle,
+    toolLabel: options.toolLabel,
+    items: options.items,
+    action: "Applied",
+  });
+}
+
+function formatApplyGlobalBundleMessage(options: {
+  bundle: string;
+  toolLabel: string;
+  items?: BundleItemSelector[];
+  action?: "Applied";
+}): string {
+  const itemLabel =
+    options.items !== undefined && options.items.length > 0
+      ? `: ${options.items.join(", ")}`
+      : "";
+
+  return `${options.action ?? "apply"} ${options.bundle} globally for ${options.toolLabel}${itemLabel}`;
 }
 
 async function applySelectedItemsAcrossGlobalSourceBundles(options: {
