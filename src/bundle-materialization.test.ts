@@ -828,6 +828,43 @@ describe("materializeBundle – canonical skill source", () => {
       ),
     ).toBe(true);
   });
+
+  it("translates a canonical skill to kiro format", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React development patterns",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { kiro: { skills: { path: "skills" } } },
+      },
+    });
+
+    // Then — canonical `skills/` → `.kiro/skills/<name>/SKILL.md`
+    expect(result.byTool.kiro!.files).toEqual([
+      ".kiro/skills/react/SKILL.md",
+    ]);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".kiro", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("materializeBundle – canonical command source", () => {
