@@ -631,9 +631,7 @@ describe("materializeBundle – canonical skill source", () => {
     const result = await materializeBundle({
       repoRoot,
       bundleDir,
-      manifest: {
-        tools: { "claude-code": { skills: { path: "skills" } } },
-      },
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
     });
 
     // Then — canonical source `skills/` → `.claude/skills/<name>/SKILL.md`
@@ -678,9 +676,7 @@ describe("materializeBundle – canonical skill source", () => {
     const result = await materializeBundle({
       repoRoot,
       bundleDir,
-      manifest: {
-        tools: { cursor: { skills: { path: "skills" } } },
-      },
+      manifest: { tools: { cursor: { skills: { path: "skills" } } } },
     });
 
     // Then — canonical `skills/` → `.cursor/skills/<name>/SKILL.md`
@@ -716,9 +712,7 @@ describe("materializeBundle – canonical skill source", () => {
     const result = await materializeBundle({
       repoRoot,
       bundleDir,
-      manifest: {
-        tools: { codex: { skills: { path: "skills" } } },
-      },
+      manifest: { tools: { codex: { skills: { path: "skills" } } } },
     });
 
     // Then — manual-only skill → policy file is included
@@ -762,9 +756,7 @@ describe("materializeBundle – canonical skill source", () => {
     const result = await materializeBundle({
       repoRoot,
       bundleDir,
-      manifest: {
-        tools: { opencode: { skills: { path: "skills" } } },
-      },
+      manifest: { tools: { opencode: { skills: { path: "skills" } } } },
     });
 
     // Then — non-manual skill → opencode skill (not command)
@@ -851,9 +843,7 @@ describe("materializeBundle – canonical skill source", () => {
     const result = await materializeBundle({
       repoRoot,
       bundleDir,
-      manifest: {
-        tools: { kiro: { skills: { path: "skills" } } },
-      },
+      manifest: { tools: { kiro: { skills: { path: "skills" } } } },
     });
 
     // Then — canonical `skills/` → `.kiro/skills/<name>/SKILL.md`
@@ -926,9 +916,7 @@ describe("materializeBundle – canonical command source", () => {
     await materializeBundle({
       repoRoot,
       bundleDir,
-      manifest: {
-        tools: { cursor: { commands: { path: "commands" } } },
-      },
+      manifest: { tools: { cursor: { commands: { path: "commands" } } } },
     });
 
     // Then — Cursor commands have no frontmatter (raw body only)
@@ -963,9 +951,7 @@ describe("materializeBundle – canonical agent source", () => {
     const result = await materializeBundle({
       repoRoot,
       bundleDir,
-      manifest: {
-        tools: { "claude-code": { agents: { path: "agents" } } },
-      },
+      manifest: { tools: { "claude-code": { agents: { path: "agents" } } } },
     });
 
     // Then — canonical `agents/` → `.claude/agents/<name>.md`
@@ -1001,9 +987,7 @@ describe("materializeBundle – canonical agent source", () => {
     const result = await materializeBundle({
       repoRoot,
       bundleDir,
-      manifest: {
-        tools: { codex: { agents: { path: "agents" } } },
-      },
+      manifest: { tools: { codex: { agents: { path: "agents" } } } },
     });
 
     // Then — canonical `agents/` → `.codex/agents/<name>.toml`
