@@ -1765,7 +1765,9 @@ async function applyBundle(options: {
     });
     if (!cached) {
       const toolsLabel =
-        options.agents.length > 0 ? options.agents.join(", ") : "available tools";
+        options.agents.length > 0
+          ? options.agents.join(", ")
+          : "available tools";
       return [
         pc.dim(`(would clone ${options.source})`),
         `${pc.yellow("DRY RUN:")} Would apply ${options.bundle} for ${toolsLabel}`,

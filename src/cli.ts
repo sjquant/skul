@@ -255,7 +255,9 @@ export function createHeadlessPromptClient(): PromptClient {
         `Agent selection is required in headless mode.\nHint: run 'skul add --agent <name>' to specify agents explicitly. Available: ${availableAgents.join(", ")}`,
       );
     },
-    async resolveFileConflict(conflictPath: string): Promise<FileConflictResolution> {
+    async resolveFileConflict(
+      conflictPath: string,
+    ): Promise<FileConflictResolution> {
       throw new Error(
         `Conflict on ${conflictPath}: file already exists (headless mode)\nHint: run interactively to confirm overwrite`,
       );
@@ -366,7 +368,9 @@ export function createPromptClientForSelections(
 
       return selected;
     },
-    async resolveFileConflict(conflictPath: string): Promise<FileConflictResolution> {
+    async resolveFileConflict(
+      conflictPath: string,
+    ): Promise<FileConflictResolution> {
       const { isCancel, confirm } = await loadPrompts();
 
       const shouldOverwrite = await confirm({

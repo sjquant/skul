@@ -162,7 +162,9 @@ export async function materializeBundle(options: {
   allowFileOverwriteTargets?: Set<string>;
   deferredWriteTargets?: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
-  resolveFileConflict?: (conflictPath: string) => Promise<FileConflictResolution>;
+  resolveFileConflict?: (
+    conflictPath: string,
+  ) => Promise<FileConflictResolution>;
   pathLayout?: ToolMaterializationLayout;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};

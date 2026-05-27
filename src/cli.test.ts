@@ -2112,28 +2112,42 @@ describe("run", () => {
   it("returns overwrite when the user confirms the interactive conflict prompt", async () => {
     // Given
     const confirm = vi.fn().mockResolvedValue(true);
-    const loadPrompts = vi.fn().mockResolvedValue({ isCancel: () => false, confirm });
+    const loadPrompts = vi.fn().mockResolvedValue({
+      isCancel: () => false,
+      confirm,
+    });
     const { createPromptClientForSelections } = await import("./cli");
 
     // When
-    const resolution = await createPromptClientForSelections([], loadPrompts).resolveFileConflict("CLAUDE.md");
+    const resolution = await createPromptClientForSelections(
+      [],
+      loadPrompts,
+    ).resolveFileConflict("CLAUDE.md");
 
     // Then
     expect(resolution).toEqual({ action: "overwrite" });
     expect(confirm).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining("CLAUDE.md") }),
+      expect.objectContaining({
+        message: expect.stringContaining("CLAUDE.md"),
+      }),
     );
   });
 
   it("throws when the user declines the interactive conflict prompt", async () => {
     // Given
     const confirm = vi.fn().mockResolvedValue(false);
-    const loadPrompts = vi.fn().mockResolvedValue({ isCancel: () => false, confirm });
+    const loadPrompts = vi.fn().mockResolvedValue({
+      isCancel: () => false,
+      confirm,
+    });
     const { createPromptClientForSelections } = await import("./cli");
 
     // When / Then
     await expect(
-      createPromptClientForSelections([], loadPrompts).resolveFileConflict("CLAUDE.md"),
+      createPromptClientForSelections(
+        [],
+        loadPrompts,
+      ).resolveFileConflict("CLAUDE.md"),
     ).rejects.toThrowError(/conflict not resolved/i);
   });
 
