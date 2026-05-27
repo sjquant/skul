@@ -4084,7 +4084,9 @@ describe("run", () => {
         cwd: repoRoot,
         prompts: createPromptClientStub({
           resolveFileConflict: async () => {
-            throw new Error("Conflict not resolved: react/SKILL.md already exists");
+            throw new Error(
+              "Conflict not resolved: react/SKILL.md already exists",
+            );
           },
         }),
       }),

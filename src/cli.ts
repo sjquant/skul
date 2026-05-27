@@ -378,7 +378,9 @@ export function createPromptClientForSelections(
       });
 
       if (isCancel(shouldOverwrite) || !shouldOverwrite) {
-        throw new Error(`Conflict not resolved: ${conflictPath} already exists`);
+        throw new Error(
+          `Conflict not resolved: ${conflictPath} already exists`,
+        );
       }
 
       return { action: "overwrite" };
