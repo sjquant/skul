@@ -7176,7 +7176,7 @@ describe("run", () => {
         },
         "next-expert": {
           tools: {
-            "claude-code": { files: [".claude/skills/next-react/SKILL.md"] },
+            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
           },
         },
       },
