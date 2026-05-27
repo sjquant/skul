@@ -353,10 +353,7 @@ describe("materializeBundle", () => {
     writeFile(path.join(bundleDir, ".claude", "skills", "b.md"), "# b\n");
     // b.md conflicts with user file; the resolveFileConflict callback overwrites it.
     // Ensure the callback is only called once — a.md is free, b.md triggers the callback.
-    writeFile(
-      path.join(repoRoot, ".claude", "skills", "b.md"),
-      "user b\n",
-    );
+    writeFile(path.join(repoRoot, ".claude", "skills", "b.md"), "user b\n");
 
     let callCount = 0;
 

@@ -2144,10 +2144,9 @@ describe("run", () => {
 
     // When / Then
     await expect(
-      createPromptClientForSelections(
-        [],
-        loadPrompts,
-      ).resolveFileConflict("CLAUDE.md"),
+      createPromptClientForSelections([], loadPrompts).resolveFileConflict(
+        "CLAUDE.md",
+      ),
     ).rejects.toThrowError(/conflict not resolved/i);
   });
 
