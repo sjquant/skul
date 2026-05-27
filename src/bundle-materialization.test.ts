@@ -372,12 +372,8 @@ describe("materializeBundle", () => {
 
     // Then — callback called exactly once (for b.md); a.md has no conflict
     expect(callCount).toBe(1);
-    expect(result.byTool["claude-code"]!.files).toContain(
-      ".claude/skills/a.md",
-    );
-    expect(result.byTool["claude-code"]!.files).toContain(
-      ".claude/skills/b.md",
-    );
+    expect(result.byTool["claude-code"]!.files).toContain(".claude/skills/a.md");
+    expect(result.byTool["claude-code"]!.files).toContain(".claude/skills/b.md");
   });
 
   it("throws on conflict when no resolveFileConflict callback is provided", async () => {
@@ -847,9 +843,7 @@ describe("materializeBundle – canonical skill source", () => {
     });
 
     // Then — canonical `skills/` → `.kiro/skills/<name>/SKILL.md`
-    expect(result.byTool.kiro!.files).toEqual([
-      ".kiro/skills/react/SKILL.md",
-    ]);
+    expect(result.byTool.kiro!.files).toEqual([".kiro/skills/react/SKILL.md"]);
     expect(
       fs.existsSync(
         path.join(repoRoot, ".kiro", "skills", "react", "SKILL.md"),
