@@ -1438,6 +1438,175 @@ describe("kiro skill translation", () => {
   });
 });
 
+describe("YAML frontmatter parser", () => {
+  it("strips double quotes from scalar values", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        'name: "my-skill"',
+        'description: "Handle the next queued task"',
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".cursor/skills/my-skill/SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Handle the next queued task",
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("strips single quotes from scalar values", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: 'my-skill'",
+        "description: 'Handle the next queued task'",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".cursor/skills/my-skill/SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Handle the next queued task",
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("preserves colons inside values", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Task: handle the next queued task",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".cursor/skills/my-skill/SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Task: handle the next queued task",
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("does not corrupt a scalar value when a bare list item appears at column 0 after a root-level key", () => {
+    // Given — malformed YAML: `- item` with no leading spaces after a root-level key.
+    // Without the lastKeyIndent guard this would silently replace `name` with an array.
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: my-skill",
+        "- stray",
+        "description: My description",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then — name is the original scalar; the stray list item is ignored
+    expect(translated[".cursor/skills/my-skill/SKILL.md"]).toContain(
+      "name: my-skill",
+    );
+    expect(translated[".cursor/skills/my-skill/SKILL.md"]).toContain(
+      "description: My description",
+    );
+  });
+
+  it("does not throw on list fields in frontmatter and preserves scalar fields", () => {
+    // Given — list fields are not used by any model parser but must not crash
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: My description",
+        "tags:",
+        "  - tag1",
+        "  - tag2",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then — name and description survive the round-trip regardless of the list field
+    expect(translated[".cursor/skills/my-skill/SKILL.md"]).toContain(
+      "name: my-skill",
+    );
+    expect(translated[".cursor/skills/my-skill/SKILL.md"]).toContain(
+      "description: My description",
+    );
+  });
+});
+
 describe("translateRootInstruction", () => {
   it("writes content to AGENTS.md for antigravity", () => {
     // Given / When / Then

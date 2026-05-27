@@ -7,11 +7,6 @@ import {
   type BundleItemSelector,
   normalizeBundleItemSelector,
 } from "./bundle-items";
-import {
-  DEFAULT_CONFLICT_PREFIX,
-  normalizeConflictDestination,
-  normalizeConflictPrefix,
-} from "./conflict-resolution";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
 
 const VALID_TOOL_NAMES = new Set<string>(
@@ -106,10 +101,7 @@ export type CliParseResult =
       };
     };
 
-export type FileConflictResolution =
-  | { action: "rename"; destination: string }
-  | { action: "prefix"; prefix: string }
-  | { action: "skip" };
+export type FileConflictResolution = { action: "overwrite" };
 
 export interface BundleSelection {
   bundle: string;
@@ -142,10 +134,7 @@ export interface PromptClient {
     purpose?: "install" | "remove",
   ): Promise<string[]>;
   selectAgents(availableAgents: ToolName[]): Promise<ToolName[]>;
-  resolveFileConflict(
-    conflictPath: string,
-    suggestedDestination: string,
-  ): Promise<FileConflictResolution>;
+  resolveFileConflict(conflictPath: string): Promise<FileConflictResolution>;
   confirmManagedFileRemoval(
     conflictPath: string,
     operation: "reset" | "replace" | "remove",
@@ -268,18 +257,10 @@ export function createHeadlessPromptClient(): PromptClient {
     },
     async resolveFileConflict(
       conflictPath: string,
-      suggestedDestination: string,
     ): Promise<FileConflictResolution> {
-      if (isRootInstructionConflictPath(conflictPath)) {
-        throw new Error(
-          `Unexpected root instruction conflict prompt for ${conflictPath}: root instructions should be appended, not renamed or skipped`,
-        );
-      }
-
-      process.stderr.write(
-        `skul: conflict on ${conflictPath} — auto-prefixing with "${DEFAULT_CONFLICT_PREFIX}" (headless mode)\n`,
+      throw new Error(
+        `Conflict on ${conflictPath}: file already exists (headless mode)\nHint: run interactively to confirm overwrite`,
       );
-      return { action: "prefix", prefix: DEFAULT_CONFLICT_PREFIX };
     },
     async confirmManagedFileRemoval(
       conflictPath: string,
@@ -389,93 +370,20 @@ export function createPromptClientForSelections(
     },
     async resolveFileConflict(
       conflictPath: string,
-      suggestedDestination: string,
     ): Promise<FileConflictResolution> {
-      if (isRootInstructionConflictPath(conflictPath)) {
+      const { isCancel, confirm } = await loadPrompts();
+
+      const shouldOverwrite = await confirm({
+        message: `${conflictPath} already exists — overwrite it?`,
+      });
+
+      if (isCancel(shouldOverwrite) || !shouldOverwrite) {
         throw new Error(
-          `Unexpected root instruction conflict prompt for ${conflictPath}: root instructions should be appended, not renamed or skipped`,
+          `Conflict not resolved: ${conflictPath} already exists`,
         );
       }
 
-      const { isCancel, select, text } = await loadPrompts();
-
-      const action = await select({
-        message: `Conflict: ${conflictPath} already exists`,
-        options: [
-          { value: "rename", label: "Save with a different name (you choose)" },
-          {
-            value: "prefix",
-            label: `Add a prefix to avoid the conflict (saves as ${suggestedDestination})`,
-          },
-          { value: "skip", label: "Skip this file (won't be written)" },
-        ],
-      });
-
-      if (isCancel(action)) {
-        throw new Error("Conflict resolution was cancelled");
-      }
-
-      if (action === "rename") {
-        const destination = await text({
-          message: "Enter a new destination relative to the tool target",
-          defaultValue: suggestedDestination,
-          placeholder: suggestedDestination,
-          validate(value) {
-            if (typeof value !== "string" || value.trim() === "") {
-              return "A destination is required";
-            }
-
-            const normalizedValue = normalizeConflictDestination(value);
-
-            if (!normalizedValue) {
-              return "Destination must stay inside the tool target";
-            }
-
-            return undefined;
-          },
-        });
-
-        if (isCancel(destination)) {
-          throw new Error("Conflict resolution was cancelled");
-        }
-
-        return {
-          action: "rename",
-          destination: normalizeConflictDestination(destination)!,
-        };
-      }
-
-      if (action === "prefix") {
-        const prefix = await text({
-          message: "Enter a prefix for the incoming file name",
-          defaultValue: DEFAULT_CONFLICT_PREFIX,
-          placeholder: DEFAULT_CONFLICT_PREFIX,
-          validate(value) {
-            if (typeof value !== "string" || value.trim() === "") {
-              return "A prefix is required";
-            }
-
-            const normalizedValue = normalizeConflictPrefix(value);
-
-            if (!normalizedValue) {
-              return "Prefix must be a single filename-safe segment";
-            }
-
-            return undefined;
-          },
-        });
-
-        if (isCancel(prefix)) {
-          throw new Error("Conflict resolution was cancelled");
-        }
-
-        return {
-          action: "prefix",
-          prefix: normalizeConflictPrefix(prefix)!,
-        };
-      }
-
-      return { action };
+      return { action: "overwrite" };
     },
     async confirmManagedFileRemoval(
       conflictPath: string,
@@ -527,16 +435,6 @@ async function promptForBundleItemChoices(
   return choice;
 }
 
-const ROOT_INSTRUCTION_CONFLICT_PATHS = new Set(
-  listToolDefinitions()
-    .map((t) => t.targets.root_instruction?.path)
-    .filter((p): p is string => p !== undefined),
-);
-
-function isRootInstructionConflictPath(conflictPath: string): boolean {
-  return ROOT_INSTRUCTION_CONFLICT_PATHS.has(conflictPath);
-}
-
 function loadClackPromptsModule(): Promise<typeof import("@clack/prompts")> {
   clackPromptsModulePromise ??= loadEsmModule("@clack/prompts") as Promise<
     typeof import("@clack/prompts")
@@ -554,10 +452,7 @@ export function createHelpText(command?: CommandName): string {
     selectBundleItems: async () => [],
     selectBundleItemChoices: async () => [],
     selectAgents: async (agents) => agents,
-    resolveFileConflict: async () => ({
-      action: "prefix",
-      prefix: DEFAULT_CONFLICT_PREFIX,
-    }),
+    resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
   });
   const writeOutput = (chunk: string) => {

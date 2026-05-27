@@ -2099,38 +2099,55 @@ describe("run", () => {
     );
   });
 
-  it("treats root instruction conflict prompts as unreachable in headless mode", async () => {
+  it("throws in headless mode when a file conflict is encountered", async () => {
     // Given
     const { createHeadlessPromptClient } = await import("./cli");
 
     // When / Then
     await expect(
-      createHeadlessPromptClient().resolveFileConflict(
-        "AGENTS.md",
-        "p-AGENTS.md",
-      ),
-    ).rejects.toThrowError(
-      /root instructions should be appended, not renamed or skipped/i,
+      createHeadlessPromptClient().resolveFileConflict("AGENTS.md"),
+    ).rejects.toThrowError(/file already exists \(headless mode\)/i);
+  });
+
+  it("returns overwrite when the user confirms the interactive conflict prompt", async () => {
+    // Given
+    const confirm = vi.fn().mockResolvedValue(true);
+    const loadPrompts = vi.fn().mockResolvedValue({
+      isCancel: () => false,
+      confirm,
+    });
+    const { createPromptClientForSelections } = await import("./cli");
+
+    // When
+    const resolution = await createPromptClientForSelections(
+      [],
+      loadPrompts,
+    ).resolveFileConflict("CLAUDE.md");
+
+    // Then
+    expect(resolution).toEqual({ action: "overwrite" });
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("CLAUDE.md"),
+      }),
     );
   });
 
-  it("treats interactive root instruction conflict prompts as unreachable", async () => {
+  it("throws when the user declines the interactive conflict prompt", async () => {
     // Given
-    const loadPrompts = vi.fn();
-
-    // When
+    const confirm = vi.fn().mockResolvedValue(false);
+    const loadPrompts = vi.fn().mockResolvedValue({
+      isCancel: () => false,
+      confirm,
+    });
     const { createPromptClientForSelections } = await import("./cli");
 
-    // Then
+    // When / Then
     await expect(
       createPromptClientForSelections([], loadPrompts).resolveFileConflict(
         "CLAUDE.md",
-        "p-CLAUDE.md",
       ),
-    ).rejects.toThrowError(
-      /root instructions should be appended, not renamed or skipped/i,
-    );
-    expect(loadPrompts).not.toHaveBeenCalled();
+    ).rejects.toThrowError(/conflict not resolved/i);
   });
 
   it("explains Space and Enter roles in multiselect prompts", async () => {
@@ -4235,7 +4252,7 @@ describe("run", () => {
     );
   });
 
-  it("applies the chosen conflict strategy when a destination file already exists", async () => {
+  it("overwrites the existing file when the user confirms the conflict prompt", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -4264,30 +4281,21 @@ describe("run", () => {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
-          resolveFileConflict: async () => ({
-            action: "prefix",
-            prefix: "team",
-          }),
+          resolveFileConflict: async () => ({ action: "overwrite" }),
         }),
       }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
-    // Then
+    // Then — bundle content overwrites the user's file
     expect(
       fs.readFileSync(
         path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe("user file\n");
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "team-react", "SKILL.md"),
         "utf8",
       ),
     ).toBe("# react\n");
   });
 
-  it("renames the incoming file when the conflict strategy chooses rename", async () => {
+  it("fails when the user declines to overwrite a conflicting file", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -4310,81 +4318,28 @@ describe("run", () => {
       "user file\n",
     );
 
-    // When
+    // When / Then — declining the overwrite propagates as an error
     await expect(
       run(["add", "react-expert"], {
         homeDir,
         cwd: repoRoot,
         prompts: createPromptClientStub({
-          resolveFileConflict: async () => ({
-            action: "rename",
-            destination: "custom-react/SKILL.md",
-          }),
+          resolveFileConflict: async () => {
+            throw new Error(
+              "Conflict not resolved: react/SKILL.md already exists",
+            );
+          },
         }),
       }),
-    ).resolves.toBe("Applied react-expert for claude-code");
+    ).rejects.toThrowError(/conflict not resolved/i);
 
-    // Then
+    // Then — user's file is untouched
     expect(
       fs.readFileSync(
         path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
         "utf8",
       ),
     ).toBe("user file\n");
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "custom-react", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe("# react\n");
-  });
-
-  it("skips the incoming file when the conflict strategy chooses skip", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "react-expert",
-      ".claude/skills/react/SKILL.md",
-      "# react\n",
-    );
-    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "react"), {
-      recursive: true,
-    });
-    fs.writeFileSync(
-      path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-      "user file\n",
-    );
-
-    // When
-    await expect(
-      run(["add", "react-expert"], {
-        homeDir,
-        cwd: repoRoot,
-        prompts: createPromptClientStub({
-          resolveFileConflict: async () => ({ action: "skip" }),
-        }),
-      }),
-    ).resolves.toBe("Applied react-expert for claude-code");
-
-    // Then
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe("user file\n");
-    expect(
-      pathExists(
-        path.join(repoRoot, ".claude", "skills", "p-react", "SKILL.md"),
-      ),
-    ).toBe(false);
   });
 
   it("renders repository desired state, worktree files, and exclude status", async () => {
@@ -7427,7 +7382,7 @@ describe("run", () => {
 
     const resolveFileConflict = vi
       .fn()
-      .mockResolvedValue({ action: "prefix", prefix: "next" });
+      .mockResolvedValue({ action: "overwrite" });
 
     // When: add next-expert whose file conflicts with react-expert's managed file
     await expect(
@@ -7438,24 +7393,13 @@ describe("run", () => {
       }),
     ).resolves.toBe("Applied next-expert for claude-code");
 
-    // Then: conflict callback was invoked for the conflicting path
-    expect(resolveFileConflict).toHaveBeenCalledWith(
-      "react/SKILL.md",
-      expect.any(String),
-    );
+    // Then: conflict callback was invoked with the relative conflict path
+    expect(resolveFileConflict).toHaveBeenCalledWith("react/SKILL.md");
 
-    // Then: react-expert's original file is preserved unchanged
+    // Then: next-expert's file overwrites react-expert's managed file
     expect(
       fs.readFileSync(
         path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe("# react\n");
-
-    // Then: next-expert's file is written at the prefixed location
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "next-react", "SKILL.md"),
         "utf8",
       ),
     ).toBe("# next react\n");
@@ -7474,7 +7418,7 @@ describe("run", () => {
         },
         "next-expert": {
           tools: {
-            "claude-code": { files: [".claude/skills/next-react/SKILL.md"] },
+            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
           },
         },
       },
@@ -9583,7 +9527,7 @@ function createPromptClientStub(
     selectBundleItemChoices: async (_availableItems, selectedItems) =>
       selectedItems,
     selectAgents: async (agents) => agents,
-    resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
+    resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
     ...overrides,
   };

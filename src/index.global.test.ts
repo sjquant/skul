@@ -757,12 +757,11 @@ describe("run --global", () => {
     ).toContain("# OpenCode guidance");
   });
 
-  it("keeps remapped global canonical conflict resolution inside the target root", async () => {
+  it("passes the relative conflict path to the callback for remapped global canonical targets", async () => {
     // Given
     const homeDir = createHomeDir();
     const resolveFileConflict = vi.fn().mockResolvedValue({
-      action: "prefix",
-      prefix: "p",
+      action: "overwrite",
     });
     writeManifest(homeDir, "github.com/user/ai-vault", "opencode-canonical", {
       name: "opencode-canonical",
@@ -797,10 +796,9 @@ describe("run --global", () => {
     expect(output).toContain(
       "Applied opencode-canonical globally for opencode",
     );
-    expect(resolveFileConflict).toHaveBeenCalledWith(
-      "review/SKILL.md",
-      "p-review/SKILL.md",
-    );
+    // Then: callback is called with the path relative to the tool target root (not the remapped abs path)
+    expect(resolveFileConflict).toHaveBeenCalledWith("review/SKILL.md");
+    // Then: bundle file overwrites the user's file at the same location
     expect(
       fs.readFileSync(
         path.join(
@@ -809,19 +807,6 @@ describe("run --global", () => {
           "opencode",
           "skills",
           "review",
-          "SKILL.md",
-        ),
-        "utf8",
-      ),
-    ).toBe("user file\n");
-    expect(
-      fs.readFileSync(
-        path.join(
-          homeDir,
-          ".config",
-          "opencode",
-          "skills",
-          "p-review",
           "SKILL.md",
         ),
         "utf8",
@@ -2317,7 +2302,7 @@ function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
     selectBundleItems: async (_available, selected) => selected,
     selectBundleItemChoices: async (_available, selected) => selected,
     selectAgents: async (agents) => agents,
-    resolveFileConflict: async () => ({ action: "prefix", prefix: "p" }),
+    resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
     ...overrides,
   };

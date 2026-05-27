@@ -1753,6 +1753,29 @@ async function applyBundle(options: {
   refreshedSources?: Set<string>;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
+
+  // Skip cloning in dry-run: when a remote source is specified and not yet
+  // cached, return a preview message immediately so no network I/O occurs.
+  // (When source is omitted, fetchBundleSourceForApply is a no-op, so the
+  // dryRun guard at the end of this function is sufficient for that case.)
+  if (options.dryRun && options.source) {
+    const { cached } = readCachedSourceRevision({
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+    });
+    if (!cached) {
+      const toolsLabel =
+        options.agents.length > 0
+          ? options.agents.join(", ")
+          : "available tools";
+      return [
+        pc.dim(`(would clone ${options.source})`),
+        `${pc.yellow("DRY RUN:")} Would apply ${options.bundle} for ${toolsLabel}`,
+      ].join("\n");
+    }
+  }
+
   const registryBeforePrepare = readRegistryWithGuidance(options.registryFile);
 
   if (shouldApplySelectedItemsAcrossSourceBundles(options)) {
@@ -5306,6 +5329,26 @@ async function applyBundleGlobal(options: {
     selectAgents: async (availableAgents) =>
       availableAgents.filter((t) => supportedTools.includes(t)),
   };
+
+  // Skip cloning in dry-run: when a remote source is specified and not yet
+  // cached, return a preview message immediately so no network I/O occurs.
+  if (options.dryRun && options.source) {
+    const { cached } = readCachedSourceRevision({
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+    });
+    if (!cached) {
+      const toolsLabel =
+        options.agents.length > 0
+          ? options.agents.join(", ")
+          : "globally supported tools";
+      return [
+        pc.dim(`(would clone ${options.source})`),
+        `${pc.yellow("DRY RUN:")} Would apply ${options.bundle} globally for ${toolsLabel}`,
+      ].join("\n");
+    }
+  }
 
   const preparedBundle = await prepareApplyBundle({
     bundle: options.bundle,

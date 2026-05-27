@@ -14,11 +14,6 @@ import {
   translateSkill,
 } from "./bundle-translation";
 import type { FileConflictResolution } from "./cli";
-import {
-  DEFAULT_CONFLICT_PREFIX,
-  normalizeConflictDestination,
-  suggestPrefixedDestination,
-} from "./conflict-resolution";
 import { pathDepth } from "./fs-utils";
 import { collectComposedRootInstructionContents } from "./root-instruction-content";
 import {
@@ -39,7 +34,7 @@ export interface MaterializeBundleResult {
 
 /**
  * Predicts the initial repo-relative files a bundle targets before any
- * conflict-resolution redirects or skips are applied.
+ * conflict-resolution overwrites are applied.
  *
  * This is a side-effect-free preview used by higher-level safety checks such as
  * root-instruction shadow protection, where Skul needs to know the exact
@@ -152,7 +147,7 @@ export function previewMaterializeBundleWriteTargets(options: {
  * directories that became owned by each tool.
  *
  * Callers may optionally provide `assertSafeWriteTarget` to veto individual
- * writes before they happen and `resolveFileConflict` to redirect or skip
+ * writes before they happen and `resolveFileConflict` to overwrite or abort
  * colliding outputs.
  */
 export async function materializeBundle(options: {
@@ -169,7 +164,6 @@ export async function materializeBundle(options: {
   rootInstructionBaseContents?: Record<string, string>;
   resolveFileConflict?: (
     conflictPath: string,
-    suggestedDestination: string,
   ) => Promise<FileConflictResolution>;
   pathLayout?: ToolMaterializationLayout;
 }): Promise<MaterializeBundleResult> {
@@ -339,10 +333,7 @@ async function materializeRootInstructionTarget(options: {
   bundleName: string;
   bundleSource?: string;
   resolveFileConflict:
-    | ((
-        conflictPath: string,
-        suggestedDestination: string,
-      ) => Promise<FileConflictResolution>)
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined;
   pathLayout: ToolMaterializationLayout;
 }): Promise<void> {
@@ -373,7 +364,7 @@ async function materializeRootInstructionTarget(options: {
       continue;
     }
 
-    const wasWritten = await writeTranslatedFile({
+    await writeTranslatedFile({
       repoRelPath,
       content: renderRootInstructionDocument({
         repoRoot: options.repoRoot,
@@ -394,9 +385,7 @@ async function materializeRootInstructionTarget(options: {
       targetRoot: "",
     });
 
-    if (wasWritten) {
-      options.writtenSharedFileTargets.add(repoRelPath);
-    }
+    options.writtenSharedFileTargets.add(repoRelPath);
   }
 }
 
@@ -448,10 +437,7 @@ async function copyDirectory(
   repoRoot: string,
   assertSafeWriteTarget: ((repoRelativePath: string) => void) | undefined,
   resolveFileConflict:
-    | ((
-        conflictPath: string,
-        suggestedDestination: string,
-      ) => Promise<FileConflictResolution>)
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined,
   itemFilter?: {
     targetName: ToolTargetName;
@@ -506,10 +492,6 @@ async function copyDirectory(
         resolveFileConflict,
       });
 
-      if (!finalDestinationPath) {
-        continue;
-      }
-
       ensureOwnedParentDirectories(
         path.dirname(finalDestinationPath),
         targetRoot,
@@ -534,57 +516,28 @@ async function resolveDestinationPath(options: {
   targetRoot: string;
   reservedDestinations: Set<string>;
   resolveFileConflict:
-    | ((
-        conflictPath: string,
-        suggestedDestination: string,
-      ) => Promise<FileConflictResolution>)
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined;
-}): Promise<string | null> {
-  let destinationPath = options.destinationPath;
+}): Promise<string> {
+  const relativePath = path
+    .relative(options.targetRoot, options.destinationPath)
+    .split(path.sep)
+    .join("/");
 
-  while (true) {
-    const relativePath = path
-      .relative(options.targetRoot, destinationPath)
-      .split(path.sep)
-      .join("/");
-    const hasReservedConflict = options.reservedDestinations.has(relativePath);
-    const hasFilesystemConflict = fs.existsSync(destinationPath);
-
-    if (!hasReservedConflict && !hasFilesystemConflict) {
-      return destinationPath;
-    }
-
-    if (!options.resolveFileConflict) {
-      throw new Error(`Conflict detected: ${relativePath}`);
-    }
-
-    const suggestedDestination = suggestPrefixedDestination(
-      relativePath,
-      DEFAULT_CONFLICT_PREFIX,
-    );
-    const resolution = await options.resolveFileConflict(
-      relativePath,
-      suggestedDestination,
-    );
-
-    if (resolution.action === "skip") {
-      return null;
-    }
-
-    const nextRelativePath =
-      resolution.action === "prefix"
-        ? suggestPrefixedDestination(relativePath, resolution.prefix)
-        : normalizeConflictDestination(resolution.destination);
-
-    if (!nextRelativePath) {
-      throw new Error("Conflict destination must stay inside the tool target");
-    }
-
-    destinationPath = path.join(
-      options.targetRoot,
-      ...nextRelativePath.split("/"),
-    );
+  if (options.reservedDestinations.has(relativePath)) {
+    throw new Error(`Conflict detected: ${relativePath}`);
   }
+
+  if (!fs.existsSync(options.destinationPath)) {
+    return options.destinationPath;
+  }
+
+  if (!options.resolveFileConflict) {
+    throw new Error(`Conflict detected: ${relativePath}`);
+  }
+
+  await options.resolveFileConflict(relativePath);
+  return options.destinationPath;
 }
 
 function ensureOwnedParentDirectories(
@@ -682,10 +635,7 @@ async function materializeCanonicalTarget(options: {
   ownedDirectories: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   resolveFileConflict:
-    | ((
-        conflictPath: string,
-        suggestedDestination: string,
-      ) => Promise<FileConflictResolution>)
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined;
   itemSelectors?: BundleItemSelector[];
   pathLayout: ToolMaterializationLayout;
@@ -914,13 +864,10 @@ async function writeTranslatedFile(options: {
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   allowExistingFileOverwrite?: boolean;
   resolveFileConflict:
-    | ((
-        conflictPath: string,
-        suggestedDestination: string,
-      ) => Promise<FileConflictResolution>)
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined;
   targetRoot?: string;
-}): Promise<boolean> {
+}): Promise<void> {
   // Conflict resolution paths are expressed relative to the target root. Directory-based
   // targets use the two-segment tool root (e.g. ".cursor/skills"); repo-root files use "".
   const targetRoot =
@@ -937,16 +884,14 @@ async function writeTranslatedFile(options: {
     ...currentRepoRelPath.split("/"),
   );
 
-  while (true) {
-    const hasReserved = options.reservedDestinations.has(currentRepoRelPath);
-    const hasFilesystem = fs.existsSync(currentAbsPath);
+  const hasReserved = options.reservedDestinations.has(currentRepoRelPath);
+  const hasFilesystem = fs.existsSync(currentAbsPath);
 
-    if (options.allowExistingFileOverwrite && !hasReserved && hasFilesystem) {
-      break;
-    }
+  if (hasReserved) {
+    throw new Error(`Conflict detected: ${currentRepoRelPath}`);
+  }
 
-    if (!hasReserved && !hasFilesystem) break;
-
+  if (hasFilesystem && !options.allowExistingFileOverwrite) {
     if (!options.resolveFileConflict) {
       throw new Error(`Conflict detected: ${currentRepoRelPath}`);
     }
@@ -955,41 +900,8 @@ async function writeTranslatedFile(options: {
       targetRoot === ""
         ? currentRepoRelPath
         : currentRepoRelPath.substring(targetRoot.length + 1);
-    const suggestedRelWithinTarget = suggestPrefixedDestination(
-      relWithinTarget,
-      DEFAULT_CONFLICT_PREFIX,
-    );
 
-    const resolution = await options.resolveFileConflict(
-      relWithinTarget,
-      suggestedRelWithinTarget,
-    );
-
-    if (resolution.action === "skip") return false;
-
-    if (targetRoot === "") {
-      throw new Error(
-        `Root instruction conflicts cannot be renamed: ${currentRepoRelPath}`,
-      );
-    }
-
-    const newRelWithinTarget =
-      resolution.action === "prefix"
-        ? suggestPrefixedDestination(relWithinTarget, resolution.prefix)
-        : normalizeConflictDestination(resolution.destination);
-
-    if (!newRelWithinTarget) {
-      throw new Error("Conflict destination must stay inside the tool target");
-    }
-
-    currentRepoRelPath =
-      targetRoot === ""
-        ? newRelWithinTarget
-        : `${targetRoot}/${newRelWithinTarget}`;
-    currentAbsPath = path.join(
-      options.repoRoot,
-      ...currentRepoRelPath.split("/"),
-    );
+    await options.resolveFileConflict(relWithinTarget);
   }
 
   const parentAbsDir = path.dirname(currentAbsPath);
@@ -1017,7 +929,6 @@ async function writeTranslatedFile(options: {
   fs.writeFileSync(currentAbsPath, options.content);
   options.reservedDestinations.add(currentRepoRelPath);
   options.writtenFiles.push(currentRepoRelPath);
-  return true;
 }
 
 function assertBundleTargetDirectory(

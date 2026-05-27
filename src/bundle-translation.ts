@@ -6,7 +6,7 @@ import {
 } from "./tool-mapping";
 
 type ScalarValue = string | boolean;
-type MetadataValue = ScalarValue | MetadataMap;
+type MetadataValue = ScalarValue | MetadataMap | string[];
 
 interface MetadataMap {
   [key: string]: MetadataValue;
@@ -418,12 +418,43 @@ function renderMarkdownDocument(document: MarkdownDocument): string {
 
 function parseYamlMap(source: string): MetadataMap {
   const root: MetadataMap = {};
-  const stack: Array<{ indent: number; value: MetadataMap }> = [
-    { indent: -1, value: root },
-  ];
+  const stack: Array<{
+    indent: number;
+    map: MetadataMap;
+    lastKey?: string;
+    lastKeyIndent?: number;
+  }> = [{ indent: -1, map: root }];
 
   for (const rawLine of source.split("\n")) {
     if (rawLine.trim() === "") {
+      continue;
+    }
+
+    const listMatch = rawLine.match(/^(\s*)- (.+)$/);
+    if (listMatch) {
+      const listIndent = listMatch[1].length;
+      const item = String(parseScalarValue(listMatch[2].trim()));
+      // Walk back to the deepest frame whose key was set at a lesser indent
+      // than the list item (so a bare `- item` at column 0 never attaches to
+      // a key that also lives at column 0).
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const frame = stack[i];
+        if (
+          frame.lastKey !== undefined &&
+          frame.lastKeyIndent !== undefined &&
+          frame.lastKeyIndent < listIndent
+        ) {
+          const existing = frame.map[frame.lastKey];
+          if (Array.isArray(existing)) {
+            existing.push(item);
+          } else {
+            frame.map[frame.lastKey] = [item];
+            // Drop the MetadataMap placeholder pushed for this key.
+            while (stack.length > i + 1) stack.pop();
+          }
+          break;
+        }
+      }
       continue;
     }
 
@@ -441,16 +472,18 @@ function parseYamlMap(source: string): MetadataMap {
       stack.pop();
     }
 
-    const parent = stack.at(-1)!.value;
+    const frame = stack.at(-1)!;
+    frame.lastKey = key;
+    frame.lastKeyIndent = indent;
 
     if (rawValue === "") {
       const child: MetadataMap = {};
-      parent[key] = child;
-      stack.push({ indent, value: child });
+      frame.map[key] = child;
+      stack.push({ indent, map: child });
       continue;
     }
 
-    parent[key] = parseScalarValue(rawValue);
+    frame.map[key] = parseScalarValue(rawValue);
   }
 
   return root;
@@ -465,6 +498,13 @@ function renderYamlMap(map: MetadataMap, indent = 0): string {
         return `${prefix}\n${renderYamlMap(value, indent + 2)}`;
       }
 
+      if (Array.isArray(value)) {
+        const items = value
+          .map((item) => `${" ".repeat(indent + 2)}- ${item}`)
+          .join("\n");
+        return `${prefix}\n${items}`;
+      }
+
       return `${prefix} ${String(value)}`;
     })
     .join("\n");
@@ -477,6 +517,14 @@ function parseScalarValue(value: string): ScalarValue {
 
   if (value === "false") {
     return false;
+  }
+
+  if (
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
+  ) {
+    return value.slice(1, -1);
   }
 
   return value;
@@ -678,5 +726,5 @@ function requireOption(value: string | undefined, label: string): string {
 }
 
 function isMetadataMap(value: MetadataValue): value is MetadataMap {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
