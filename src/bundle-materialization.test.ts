@@ -854,6 +854,154 @@ describe("materializeBundle – canonical skill source", () => {
       ),
     ).toBe(true);
   });
+
+  it("materializes extra skill files from canonical source alongside SKILL.md", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React development patterns",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+    writeFile(
+      path.join(bundleDir, "skills", "react", "assets", "context.md"),
+      "context\n",
+    );
+    writeFile(
+      path.join(bundleDir, "skills", "react", "templates", "component.tsx"),
+      "export default () => <div />;\n",
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+    });
+
+    // Then — extra files land in the skill directory alongside SKILL.md
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/skills/react/SKILL.md",
+      ".claude/skills/react/assets/context.md",
+      ".claude/skills/react/templates/component.tsx",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          ".claude",
+          "skills",
+          "react",
+          "assets",
+          "context.md",
+        ),
+        "utf8",
+      ),
+    ).toBe("context\n");
+    expect(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          ".claude",
+          "skills",
+          "react",
+          "templates",
+          "component.tsx",
+        ),
+        "utf8",
+      ),
+    ).toBe("export default () => <div />;\n");
+  });
+
+  it("materializes extra skill files for all target tools from canonical source", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "react", "SKILL.md"),
+      [
+        "---",
+        "name: react",
+        "description: React development patterns",
+        "---",
+        "",
+        "Use React best practices.",
+        "",
+      ].join("\n"),
+    );
+    writeFile(
+      path.join(bundleDir, "skills", "react", "assets", "context.md"),
+      "context\n",
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: {
+          "claude-code": { skills: { path: "skills" } },
+          cursor: { skills: { path: "skills" } },
+          codex: { skills: { path: "skills" } },
+        },
+      },
+    });
+
+    // Then — each tool gets the extra file in its own skill directory
+    expect(result.byTool["claude-code"]!.files).toContain(
+      ".claude/skills/react/assets/context.md",
+    );
+    expect(result.byTool.cursor!.files).toContain(
+      ".cursor/skills/react/assets/context.md",
+    );
+    expect(result.byTool.codex!.files).toContain(
+      ".agents/skills/react/assets/context.md",
+    );
+    expect(
+      fs.existsSync(
+        path.join(
+          repoRoot,
+          ".claude",
+          "skills",
+          "react",
+          "assets",
+          "context.md",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          repoRoot,
+          ".cursor",
+          "skills",
+          "react",
+          "assets",
+          "context.md",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          repoRoot,
+          ".agents",
+          "skills",
+          "react",
+          "assets",
+          "context.md",
+        ),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("materializeBundle – canonical command source", () => {

@@ -455,6 +455,249 @@ describe("translateSkill", () => {
       ].join("\n"),
     );
   });
+
+  it("applies name and description overrides from options", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "claude",
+      files,
+      options: { name: "react-v2", description: "Updated React patterns" },
+    });
+
+    // Then — overridden name used for directory path and metadata
+    expect(Object.keys(translated)).toEqual([
+      ".claude/skills/react-v2/SKILL.md",
+    ]);
+    expect(translated[".claude/skills/react-v2/SKILL.md"]).toContain(
+      "name: react-v2",
+    );
+    expect(translated[".claude/skills/react-v2/SKILL.md"]).toContain(
+      "description: Updated React patterns",
+    );
+  });
+
+  it("applies name override for codex target", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "codex",
+      files,
+      options: { name: "react-v2" },
+    });
+
+    // Then — overridden name used for skill directory path
+    expect(translated[".agents/skills/react-v2/SKILL.md"]).toBeDefined();
+    expect(translated[".agents/skills/react-v2/SKILL.md"]).toContain(
+      "name: react-v2",
+    );
+  });
+
+  it("passes through extra files to the target skill directory", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "assets/context.md": "Additional context\n",
+      "templates/example.ts": "const x = 1;\n",
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "claude",
+      files,
+    });
+
+    // Then
+    expect(translated[".claude/skills/react/assets/context.md"]).toBe(
+      "Additional context\n",
+    );
+    expect(translated[".claude/skills/react/templates/example.ts"]).toBe(
+      "const x = 1;\n",
+    );
+  });
+
+  it("passes through extra files when translating across tools", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "assets/context.md": "Additional context\n",
+    };
+
+    // When / Then
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "cursor", files })[
+        ".cursor/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "codex", files })[
+        ".agents/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "copilot", files })[
+        ".github/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "kiro", files })[
+        ".kiro/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({
+        sourceTool: "claude",
+        targetTool: "antigravity",
+        files,
+      })[".agent/skills/react/assets/context.md"],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "opencode", files })[
+        ".opencode/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+  });
+
+  it("strips the installed-path prefix from extra files during translation", () => {
+    // Given — files keyed by their installed Claude Code paths
+    const files = {
+      ".claude/skills/react/SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      ".claude/skills/react/assets/context.md": "Additional context\n",
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then — prefix is stripped; file lands at the cursor skill path
+    expect(translated[".cursor/skills/react/assets/context.md"]).toBe(
+      "Additional context\n",
+    );
+  });
+
+  it("excludes agents/openai.yaml from passthrough to non-codex targets", () => {
+    // Given — source includes Codex policy file
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "agents/openai.yaml": "policy:\n  allow_implicit_invocation: false\n",
+      "assets/context.md": "Additional context\n",
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "codex",
+      targetTool: "claude",
+      files,
+    });
+
+    // Then — policy file is not copied; extra file is preserved
+    expect(
+      translated[".claude/skills/react/agents/openai.yaml"],
+    ).toBeUndefined();
+    expect(translated[".claude/skills/react/assets/context.md"]).toBe(
+      "Additional context\n",
+    );
+  });
+
+  it("does not pass through extra files for manual-only opencode skills (command output)", () => {
+    // Given — manual-only skills render to a single .opencode/commands file
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: deploy",
+        "description: Deploy the app",
+        "disable-model-invocation: true",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "assets/context.md": "Additional context\n",
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "opencode",
+      files,
+    });
+
+    // Then — single command file only; extra files are not included
+    expect(Object.keys(translated)).toEqual([".opencode/commands/deploy.md"]);
+  });
+
+  it("throws when multiple SKILL.md files exist in the input", () => {
+    const files = {
+      "a/SKILL.md": "---\nname: foo\ndescription: Foo\n---\nBody.\n",
+      "b/SKILL.md": "---\nname: bar\ndescription: Bar\n---\nBody.\n",
+    };
+
+    expect(() =>
+      translateSkill({ sourceTool: "claude", targetTool: "cursor", files }),
+    ).toThrow("Expected exactly one SKILL.md file");
+  });
 });
 
 describe("translateCommand", () => {
@@ -1015,6 +1258,61 @@ describe("translateAgent", () => {
       ].join("\n"),
     });
   });
+
+  it("preserves sandbox_mode when round-tripping a Codex agent", () => {
+    const source = [
+      'name = "code-reviewer"',
+      'description = "Review code for bugs and risks"',
+      'model = "gpt-5"',
+      'sandbox_mode = "code-interpreter"',
+      'developer_instructions = """',
+      "Review the diff for correctness and missing tests.",
+      '"""',
+      "",
+    ].join("\n");
+
+    const translated = translateAgent({
+      sourceTool: "codex",
+      targetTool: "codex",
+      source,
+    });
+
+    expect(translated[".codex/agents/code-reviewer.toml"]).toContain(
+      'sandbox_mode = "code-interpreter"',
+    );
+  });
+
+  it("throws when a Codex agent TOML is missing required fields", () => {
+    const missingName = [
+      'description = "Review code for bugs and risks"',
+      'developer_instructions = """',
+      "Review the diff.",
+      '"""',
+      "",
+    ].join("\n");
+
+    const missingInstructions = [
+      'name = "code-reviewer"',
+      'description = "Review code for bugs and risks"',
+      "",
+    ].join("\n");
+
+    expect(() =>
+      translateAgent({
+        sourceTool: "codex",
+        targetTool: "claude",
+        source: missingName,
+      }),
+    ).toThrow("name is required");
+
+    expect(() =>
+      translateAgent({
+        sourceTool: "codex",
+        targetTool: "claude",
+        source: missingInstructions,
+      }),
+    ).toThrow("developer_instructions is required");
+  });
 });
 
 describe("copilot agent translation", () => {
@@ -1539,6 +1837,16 @@ describe("YAML frontmatter parser", () => {
         "",
       ].join("\n"),
     });
+  });
+
+  it("throws when SKILL.md has an unclosed frontmatter block", () => {
+    const files = {
+      "SKILL.md": "---\nname: broken\ndescription: Missing close marker\n",
+    };
+
+    expect(() =>
+      translateSkill({ sourceTool: "claude", targetTool: "cursor", files }),
+    ).toThrow("Document must contain a closing YAML frontmatter marker");
   });
 
   it("does not corrupt a scalar value when a bare list item appears at column 0 after a root-level key", () => {
