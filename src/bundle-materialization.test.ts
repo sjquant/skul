@@ -895,7 +895,14 @@ describe("materializeBundle – canonical skill source", () => {
     ]);
     expect(
       fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "react", "assets", "context.md"),
+        path.join(
+          repoRoot,
+          ".claude",
+          "skills",
+          "react",
+          "assets",
+          "context.md",
+        ),
         "utf8",
       ),
     ).toBe("context\n");
@@ -960,12 +967,26 @@ describe("materializeBundle – canonical skill source", () => {
     );
     expect(
       fs.existsSync(
-        path.join(repoRoot, ".claude", "skills", "react", "assets", "context.md"),
+        path.join(
+          repoRoot,
+          ".claude",
+          "skills",
+          "react",
+          "assets",
+          "context.md",
+        ),
       ),
     ).toBe(true);
     expect(
       fs.existsSync(
-        path.join(repoRoot, ".cursor", "skills", "react", "assets", "context.md"),
+        path.join(
+          repoRoot,
+          ".cursor",
+          "skills",
+          "react",
+          "assets",
+          "context.md",
+        ),
       ),
     ).toBe(true);
     expect(

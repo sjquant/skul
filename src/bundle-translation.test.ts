@@ -479,7 +479,9 @@ describe("translateSkill", () => {
     });
 
     // Then — overridden name used for directory path and metadata
-    expect(Object.keys(translated)).toEqual([".claude/skills/react-v2/SKILL.md"]);
+    expect(Object.keys(translated)).toEqual([
+      ".claude/skills/react-v2/SKILL.md",
+    ]);
     expect(translated[".claude/skills/react-v2/SKILL.md"]).toContain(
       "name: react-v2",
     );
@@ -586,9 +588,11 @@ describe("translateSkill", () => {
       ],
     ).toBe("Additional context\n");
     expect(
-      translateSkill({ sourceTool: "claude", targetTool: "antigravity", files })[
-        ".agent/skills/react/assets/context.md"
-      ],
+      translateSkill({
+        sourceTool: "claude",
+        targetTool: "antigravity",
+        files,
+      })[".agent/skills/react/assets/context.md"],
     ).toBe("Additional context\n");
     expect(
       translateSkill({ sourceTool: "claude", targetTool: "opencode", files })[
@@ -681,9 +685,7 @@ describe("translateSkill", () => {
     });
 
     // Then — single command file only; extra files are not included
-    expect(Object.keys(translated)).toEqual([
-      ".opencode/commands/deploy.md",
-    ]);
+    expect(Object.keys(translated)).toEqual([".opencode/commands/deploy.md"]);
   });
 });
 

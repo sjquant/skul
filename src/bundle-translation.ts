@@ -254,10 +254,9 @@ function passthroughSkillFiles(
   const prefix =
     "SKILL.md" in files
       ? ""
-      : (entries.find(([k]) => k.endsWith("/SKILL.md"))?.[0].slice(
-          0,
-          -"SKILL.md".length,
-        ) ?? "");
+      : (entries
+          .find(([k]) => k.endsWith("/SKILL.md"))?.[0]
+          .slice(0, -"SKILL.md".length) ?? "");
 
   const result: Record<string, string> = {};
 
