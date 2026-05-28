@@ -2,6 +2,8 @@
 
 Skul is a TypeScript CLI for managing project-scoped AI configuration bundles across multiple tools (Claude Code, Cursor, Codex, OpenCode). It handles bundle discovery, materialization, registry tracking, stealth mode, and cross-tool translation.
 
+Note: This CLI has not been shipped yet.
+
 ## Commands
 
 Run `pnpm install` first — this installs dependencies and sets up the prek pre-commit hooks.
