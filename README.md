@@ -2,6 +2,8 @@
 
 Apply reusable AI bundles — skills, slash commands, agents, and root instructions — into tool-native directories without committing them to Git. Skul fetches bundles from a GitHub repository, writes files where each tool expects them, and hides everything via `.git/info/exclude`.
 
+Including `AGENTS.md` and `CLAUDE.md`: Skul can layer your personal instructions on top of a team-committed `AGENTS.md` (or `CLAUDE.md`) without dirtying the working tree, and can materialize the equivalent file for every supported tool from a single bundle source.
+
 [![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
 [![License: ISC](https://img.shields.io/badge/License-ISC-lightgrey)](LICENSE)
@@ -16,6 +18,10 @@ skul add github.com/sjquant/ai-bundles react-expert
 
 # GitHub is the default registry — owner/repo shorthand works too
 skul add acme/shared-bundles core --agent codex
+
+# Overlay your personal AGENTS.md / CLAUDE.md on top of the repo's tracked
+# version — without showing up in git status
+skul add acme/personal-instructions --agent codex
 
 # Re-apply from cache, no network needed
 skul add react-expert
