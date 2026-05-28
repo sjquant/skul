@@ -11,69 +11,26 @@ Apply reusable AI bundles — skills, slash commands, agents, and root instructi
 ## Quick Start
 
 ```bash
-# Fetch from a GitHub registry and apply (first use clones the repo)
+# Fetch from a GitHub registry and materialize a bundle (first use clones the repo)
 skul add github.com/sjquant/ai-bundles react-expert
 
-# GitHub is also the default registry for owner/repo shorthand
+# GitHub is the default registry — owner/repo shorthand works too
 skul add acme/shared-bundles core --agent codex
 
-# Track a specific branch or tag
-skul add github.com/sjquant/ai-bundles react-expert --ref stable
-
-# Pin a bundle to an exact commit
-skul add github.com/sjquant/ai-bundles react-expert --pin 2813b88
-
-# Clone via SSH instead of HTTPS
-skul add --ssh github.com/sjquant/ai-bundles react-expert
-
-# git@ URLs are auto-detected as SSH
-skul add git@github.com:sjquant/ai-bundles react-expert
-
-# Re-apply from cache — no network needed
+# Re-apply from cache, no network needed
 skul add react-expert
-
-# Install only selected bundle items
-skul add react-expert --agent codex --include skills/diagnose
-skul add react-expert --agent codex --include agents/reviewer
-skul add react-expert --agent codex --include root-instruction
-
-# Choose bundle items interactively
-skul add react-expert --agent codex --select-items
 
 # See what's cached
 skul list
 
-# Limit the cache view to one source
-skul list --source github.com/sjquant/ai-bundles
-
 # Check materialization state
 skul status
 
-# Suspend tracked root-instruction shadows before a manual git update
-skul shadow --suspend
-git pull --ff-only
-skul shadow --refresh
+# Remove a bundle and its managed files
+skul remove react-expert
 
-# Or let Skul wrap the fast-forward pull for tracked root instructions
-skul sync
-
-# See whether remote-backed bundles have updates
-skul check
-
-# Update remote-backed bundles to the latest upstream revision
-skul update
-
-# Remove all Skul-managed files
-skul reset
-
-# Clear a stale cached remote source so the next add reclones it
-skul clear-cache acme/shared-bundles
-
-# Clear all cached remote sources
-skul clear-cache --all
-
-# Remove stale registry entries for deleted worktrees or repos
-skul prune
+# Re-materialize all desired bundles (e.g. after cloning a fresh worktree)
+skul apply
 ```
 
 ---
@@ -82,28 +39,16 @@ skul prune
 
 | Command | Description |
 |---|---|
+| `skul add <source> [bundle]` | Fetch (when needed) and materialize a bundle from a source |
 | `skul add <bundle>` | Materialize a uniquely named cached bundle |
-| `skul add <source>` | Fetch source when needed and select one of its bundles |
-| `skul add <source> <bundle>` | Fetch source when needed and materialize a specific bundle |
-| `skul remove <bundle>` | Remove a bundle and delete its managed files |
-| `skul apply` | Re-materialize all desired bundles in the current worktree |
 | `skul list` | List cached bundles |
 | `skul status` | Show desired state and materialization status |
-| `skul check [bundle]` | Check remote-backed bundles for upstream updates |
-| `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
-| `skul prune` | Remove stale registry entries for deleted worktrees and orphaned repos |
-| `skul shadow --suspend \| --refresh` | Restore or rebuild tracked root-instruction shadows |
-| `skul sync` | Run `git pull --ff-only` with tracked root-instruction shadow suspend/refresh |
-| `skul reset` | Remove all Skul-managed files from the current worktree |
-| `skul clear-cache [source] --all` | Remove one cached source or all cached remote sources from the global library |
+| `skul remove <bundle>` | Remove a bundle and delete its managed files |
+| `skul apply` | Re-materialize all desired bundles in the current worktree |
 
-All mutating commands accept `--dry-run`. `skul list`, `skul status`, and `skul check` accept `--json`.
+All mutating commands accept `--dry-run`. `skul list` and `skul status` accept `--json`. Bare `owner/repo` sources default to `github.com/owner/repo`. For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
 
-`skul add` accepts `--ssh` to clone via SSH. `git@host:owner/repo` URLs are auto-detected as SSH. Bare `owner/repo` sources default to `github.com/owner/repo`. Use `--ref` to follow a non-default branch or tag, or `--pin` to lock a bundle to one commit. The chosen protocol is persisted in the registry and reused by `skul apply`.
-
-`skul add` accepts `--include <item>` to install only specific bundle items. Repeat it to include multiple items. Supported selectors are `skills/<name>`, `commands/<name>`, `agents/<name>`, and `root-instruction`; `AGENTS.md` and `CLAUDE.md` are accepted aliases for `root-instruction`. Use `--select-items` to open an interactive bundle-item picker. If `--include` and `--select-items` are used together, the included items are preselected in the picker.
-
-For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
+See [docs/advanced.md](docs/advanced.md) for maintenance, recovery, and cleanup commands (`check`, `update`, `sync`, `shadow`, `reset`, `clear-cache`, `prune`) and `add` power flags (`--ref`, `--pin`, `--ssh`, `--include`, `--select-items`).
 
 ---
 
@@ -229,66 +174,7 @@ skul add github.com/sjquant/ai-bundles claude-standards --agent claude-code
 # - recorded in the worktree registry as a shadowed file
 ```
 
-### Git Update Workflow
-
-Tracked root-instruction shadows need an explicit suspend/refresh cycle around Git updates, because `skip-worktree` does not make upstream changes disappear.
-
-Use `skul shadow --suspend` when you want to run your own Git command:
-
-```bash
-skul shadow --suspend
-git pull --ff-only
-skul shadow --refresh
-```
-
-- `skul shadow --suspend` restores tracked root instruction files from `HEAD` and clears `skip-worktree`.
-- `skul shadow --refresh` rebuilds the effective files from the latest `HEAD` content plus the stored overlay and then re-enables `skip-worktree`.
-- The manual suspend/refresh flow assumes the root instruction file is still tracked after your Git update. If upstream removed the target file, plain `skul shadow --refresh` will fail because there is no longer any `HEAD` content to rebuild from. For `git pull --ff-only`, prefer `skul sync`, because it can retire shadow entries automatically when upstream stops tracking the file. Manual suspend/pull/refresh does not currently provide the same retirement path.
-
-Use `skul sync` when `git pull --ff-only` is the update you want:
-
-```bash
-skul sync
-```
-
-- `skul sync` runs the same suspend/refresh lifecycle automatically around `git pull --ff-only`.
-- If the pull fails, Skul restores the tracked shadows before returning the error.
-- If upstream stops tracking a shadowed root instruction file, Skul retires that shadow and removes the local generated file.
-
-### Safety Limits And Recovery
-
-- Skul refuses to create or refresh a tracked shadow if the target root instruction file has staged changes, unstaged changes, unmerged index entries, or incompatible index flags such as `assume-unchanged`.
-- Skul treats tracked shadow output as disposable generated content. Manual edits inside the effective file are not source of truth, and today they are a real safety limitation: follow-up commands such as `skul shadow --refresh`, `skul update`, `skul remove`, or `skul reset` may intentionally refuse to proceed once the rendered file no longer matches Skul's recorded fingerprint.
-- `skul reset` is the cleanup command for intact Skul-managed state. For tracked root instructions whose local shadow file still exists and still matches Skul's recorded render, it restores the committed `HEAD` version and clears `skip-worktree`. For untracked shared root instructions it restores the preserved local base content.
-- `skul status` is the inspection command. When it reports stale base or overlay state or missing `skip-worktree`, use `skul shadow --suspend` before your Git update and `skul shadow --refresh` after it, as long as the root instruction file still exists in `HEAD`. When a fast-forward pull might stop tracking the file upstream, prefer `skul sync`, because it can retire the shadow automatically. Treat `Manual edits: suspected` as a limitation warning, not as a supported suspend/refresh recovery workflow.
-
-### Cloning: HTTPS vs SSH
-
-By default Skul clones bundle sources over HTTPS. To use SSH, either pass `--ssh` or supply a `git@` URL — both are equivalent:
-
-```bash
-skul add --ssh github.com/sjquant/ai-bundles react-expert
-skul add git@github.com:sjquant/ai-bundles react-expert
-```
-
-The protocol choice is stored in the registry alongside the bundle entry. When `skul apply` re-clones a source in a new worktree it uses the same protocol automatically — no need to repeat `--ssh`.
-
-If SSH authentication fails (missing key, wrong host, etc.) Skul prints a hint pointing to the HTTPS equivalent command.
-
-### Clearing a Cached Source
-
-If a cached remote source becomes stale or corrupted, remove it from `~/.skul/library` and let the next `skul add` re-clone it:
-
-```bash
-skul clear-cache acme/shared-bundles
-skul add acme/shared-bundles core --agent codex
-```
-
-To wipe the entire cache:
-
-```bash
-skul clear-cache --all
-```
+For tracked shadow lifecycle (`shadow --suspend`/`--refresh`, `sync`), safety limits, recovery flows, SSH cloning, and cache management, see [docs/advanced.md](docs/advanced.md).
 
 ---
 
@@ -328,17 +214,8 @@ Two options: (1) create a GitHub repo with one subdirectory per bundle, each con
 **What happens if I edit a Skul-managed file?**
 Skul fingerprints files on write. Edited files require explicit confirmation before removal, or fail fast with `SKUL_NO_TUI=1`.
 
-**What happens if I edit a tracked shadowed root instruction directly?**
-Skul treats tracked root-instruction shadows as generated output. `skul status` will usually report `Manual edits: suspected`, and follow-up commands may refuse to refresh, remove, or reset that shadowed file once the rendered output no longer matches Skul's recorded fingerprint. This is a current limitation of tracked shadow mode, so the safe practice is to avoid manual edits to shadowed root instruction files.
-
-**When should I use `skul shadow --suspend`, `skul shadow --refresh`, or `skul sync`?**
-Use `skul shadow --suspend` before a manual Git update that touches tracked root instruction files. Use `skul shadow --refresh` after that update only when the root instruction file is still tracked in the new `HEAD` and the local shadow state is still intact. Use `skul sync` when a fast-forward pull is all you need, because it wraps both steps around `git pull --ff-only` and can retire shadows automatically if upstream stops tracking the file.
-
-**Can I use SSH to clone bundle sources?**
-Yes. Pass `--ssh` to `skul add`, or use a `git@host:owner/repo` URL — Skul auto-detects it as SSH. The protocol is saved in the registry and reused by `skul apply`. If SSH auth fails, Skul shows a hint with the HTTPS equivalent.
-
-**What happens to files after `git worktree remove`?**
-Run `skul reset` before removing a worktree. If removed externally, the registry entry persists until cleared manually.
+**How do I keep bundles up to date, customize cloning, or clean up?**
+See [docs/advanced.md](docs/advanced.md) for `check`/`update`, tracked-shadow lifecycle (`shadow`, `sync`), SSH cloning, and cleanup commands (`reset`, `clear-cache`, `prune`).
 
 ---
 

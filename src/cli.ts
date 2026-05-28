@@ -160,6 +160,10 @@ const COMMAND_ALIASES: Record<string, CommandName> = {
 };
 const PROGRAM_HELP_DETAILS = [
   "",
+  "Advanced commands (run 'skul <command> --help' for details):",
+  "  check, update, sync, shadow, reset, clear-cache, prune",
+  "  See docs/advanced.md for maintenance, recovery, and cleanup flows.",
+  "",
   "Root instructions:",
   "  cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, codex targets .codex/AGENTS.md, opencode targets .config/opencode/AGENTS.md, kiro targets .kiro/steering/AGENTS.md, copilot targets .github/copilot-instructions.md, and antigravity targets .gemini/GEMINI.md; claude-code targets CLAUDE.md.",
   "  Untracked root instructions are composed locally and hidden through .git/info/exclude.",
@@ -774,7 +778,7 @@ function createProgram(
     });
 
   program
-    .command("check")
+    .command("check", { hidden: true })
     .description("Check remote-backed bundles for upstream updates")
     .argument("[bundle]", "Bundle name to check")
     .option("-j, --json", "Output as JSON (for scripting and agent use)")
@@ -790,7 +794,7 @@ function createProgram(
     });
 
   program
-    .command("update")
+    .command("update", { hidden: true })
     .description("Update remote-backed bundles to the latest upstream revision")
     .argument("[bundle]", "Bundle name to update")
     .option(
@@ -809,7 +813,7 @@ function createProgram(
     });
 
   program
-    .command("prune")
+    .command("prune", { hidden: true })
     .alias("gc")
     .description(
       "Remove stale registry entries for deleted worktrees and orphaned repositories",
@@ -818,7 +822,7 @@ function createProgram(
       context.result = { kind: "command", command: "prune", options: {} };
     });
   const shadowCommand = program
-    .command("shadow")
+    .command("shadow", { hidden: true })
     .description("Suspend or refresh tracked root instruction shadows")
     .option(
       "--suspend",
@@ -844,7 +848,7 @@ function createProgram(
     });
 
   const syncCommand = program
-    .command("sync")
+    .command("sync", { hidden: true })
     .description(
       "Safely pull git updates around tracked root instruction shadows",
     )
@@ -872,7 +876,7 @@ function createProgram(
     });
 
   program
-    .command("reset")
+    .command("reset", { hidden: true })
     .description(
       "Remove all Skul-managed files and restore tracked root instructions in the current worktree",
     )
@@ -996,7 +1000,7 @@ function createProgram(
     );
 
   program
-    .command("clear-cache")
+    .command("clear-cache", { hidden: true })
     .description("Remove a cached remote source from the global library")
     .argument("[source]", "Cached bundle source (e.g. github.com/user/repo)")
     .option(
