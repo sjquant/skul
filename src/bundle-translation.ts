@@ -170,20 +170,31 @@ function parseSkill(
   };
 }
 
+// Tool-specific sidecar files that must not be passed through verbatim to other
+// tools. SKILL.md is handled separately (it is translated, not copied). The
+// agents/openai.yaml file is a Codex-specific policy file that renderSkill
+// re-synthesises from model.manualOnly; copying it to non-Codex targets would
+// be wrong. Add entries here when a new tool introduces its own sidecar format.
+const SKILL_TOOL_SIDECARS = ["SKILL.md", "agents/openai.yaml"] as const;
+
+function isSkillSidecar(filePath: string, sidecar: string): boolean {
+  return filePath === sidecar || filePath.endsWith(`/${sidecar}`);
+}
+
 function renderSkill(
   targetTool: SkillTool,
   model: SkillModel,
   options: BundleTranslationOptions = {},
   files: Record<string, string> = {},
 ): Record<string, string> {
+  const name = options.name ?? model.name;
+  const description = options.description ?? model.description;
+
   if (targetTool === "codex") {
-    const skillBasePath = skillDirectoryPath("codex", model.name);
+    const skillBasePath = skillDirectoryPath("codex", name);
     const result: Record<string, string> = {
       [`${skillBasePath}/SKILL.md`]: renderMarkdownDocument({
-        metadata: {
-          name: model.name,
-          description: model.description,
-        },
+        metadata: { name, description },
         body: model.body,
       }),
     };
@@ -199,23 +210,17 @@ function renderSkill(
   if (targetTool === "opencode") {
     if (model.manualOnly) {
       return {
-        [commandFilePath("opencode", model.name)]: renderMarkdownDocument({
-          metadata: {
-            description: model.description,
-          },
+        [commandFilePath("opencode", name)]: renderMarkdownDocument({
+          metadata: { description },
           body: model.body,
         }),
       };
     }
 
-    const skillBasePath = skillDirectoryPath("opencode", model.name);
+    const skillBasePath = skillDirectoryPath("opencode", name);
     return {
-      [skillFilePath("opencode", model.name)]: renderMarkdownDocument({
-        metadata: {
-          name: model.name,
-          description: model.description,
-          compatibility: "opencode",
-        },
+      [skillFilePath("opencode", name)]: renderMarkdownDocument({
+        metadata: { name, description, compatibility: "opencode" },
         body: model.body,
       }),
       ...passthroughSkillFiles(files, skillBasePath),
@@ -223,18 +228,15 @@ function renderSkill(
   }
 
   // claude, cursor, copilot, kiro, antigravity — all use the same SKILL.md format
-  const metadata: MetadataMap = {
-    name: model.name,
-    description: model.description,
-  };
+  const metadata: MetadataMap = { name, description };
 
   if (model.manualOnly) {
     metadata["disable-model-invocation"] = true;
   }
 
-  const skillBasePath = skillDirectoryPath(targetTool, model.name);
+  const skillBasePath = skillDirectoryPath(targetTool, name);
   return {
-    [skillFilePath(targetTool, model.name)]: renderMarkdownDocument({
+    [skillFilePath(targetTool, name)]: renderMarkdownDocument({
       metadata,
       body: model.body,
     }),
@@ -242,26 +244,25 @@ function renderSkill(
   };
 }
 
-function skillFilePrefix(files: Record<string, string>): string {
-  if ("SKILL.md" in files) return "";
-  const key = Object.keys(files).find((k) => k.endsWith("/SKILL.md"));
-  return key ? key.slice(0, -"SKILL.md".length) : "";
-}
-
 function passthroughSkillFiles(
   files: Record<string, string>,
   targetSkillBasePath: string,
 ): Record<string, string> {
-  const prefix = skillFilePrefix(files);
+  const entries = Object.entries(files);
+
+  // Derive the installed-path prefix from the SKILL.md entry in one pass.
+  const prefix =
+    "SKILL.md" in files
+      ? ""
+      : (entries.find(([k]) => k.endsWith("/SKILL.md"))?.[0].slice(
+          0,
+          -"SKILL.md".length,
+        ) ?? "");
+
   const result: Record<string, string> = {};
 
-  for (const [filePath, content] of Object.entries(files)) {
-    if (filePath === "SKILL.md" || filePath.endsWith("/SKILL.md")) continue;
-    if (
-      filePath === "agents/openai.yaml" ||
-      filePath.endsWith("/agents/openai.yaml")
-    )
-      continue;
+  for (const [filePath, content] of entries) {
+    if (SKILL_TOOL_SIDECARS.some((s) => isSkillSidecar(filePath, s))) continue;
     const relPath = prefix ? filePath.slice(prefix.length) : filePath;
     result[`${targetSkillBasePath}/${relPath}`] = content;
   }

@@ -456,6 +456,67 @@ describe("translateSkill", () => {
     );
   });
 
+  it("applies name and description overrides from options", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "claude",
+      files,
+      options: { name: "react-v2", description: "Updated React patterns" },
+    });
+
+    // Then — overridden name used for directory path and metadata
+    expect(Object.keys(translated)).toEqual([".claude/skills/react-v2/SKILL.md"]);
+    expect(translated[".claude/skills/react-v2/SKILL.md"]).toContain(
+      "name: react-v2",
+    );
+    expect(translated[".claude/skills/react-v2/SKILL.md"]).toContain(
+      "description: Updated React patterns",
+    );
+  });
+
+  it("applies name override for codex target", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "codex",
+      files,
+      options: { name: "react-v2" },
+    });
+
+    // Then — overridden name used for skill directory path
+    expect(translated[".agents/skills/react-v2/SKILL.md"]).toBeDefined();
+    expect(translated[".agents/skills/react-v2/SKILL.md"]).toContain(
+      "name: react-v2",
+    );
+  });
+
   it("passes through extra files to the target skill directory", () => {
     // Given
     const files = {
