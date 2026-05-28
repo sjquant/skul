@@ -87,7 +87,7 @@ export function translateSkill(options: {
   options?: BundleTranslationOptions;
 }): Record<string, string> {
   const model = parseSkill(options.sourceTool, options.files);
-  return renderSkill(options.targetTool, model, options.options);
+  return renderSkill(options.targetTool, model, options.options, options.files);
 }
 
 /** Translates a canonical command document into one target tool's command layout. */
@@ -174,10 +174,11 @@ function renderSkill(
   targetTool: SkillTool,
   model: SkillModel,
   options: BundleTranslationOptions = {},
+  files: Record<string, string> = {},
 ): Record<string, string> {
   if (targetTool === "codex") {
     const skillBasePath = skillDirectoryPath("codex", model.name);
-    const files: Record<string, string> = {
+    const result: Record<string, string> = {
       [`${skillBasePath}/SKILL.md`]: renderMarkdownDocument({
         metadata: {
           name: model.name,
@@ -188,11 +189,11 @@ function renderSkill(
     };
 
     if (model.manualOnly) {
-      files[`${skillBasePath}/agents/openai.yaml`] =
+      result[`${skillBasePath}/agents/openai.yaml`] =
         renderCodexSkillPolicy(false);
     }
 
-    return files;
+    return { ...result, ...passthroughSkillFiles(files, skillBasePath) };
   }
 
   if (targetTool === "opencode") {
@@ -207,6 +208,7 @@ function renderSkill(
       };
     }
 
+    const skillBasePath = skillDirectoryPath("opencode", model.name);
     return {
       [skillFilePath("opencode", model.name)]: renderMarkdownDocument({
         metadata: {
@@ -216,6 +218,7 @@ function renderSkill(
         },
         body: model.body,
       }),
+      ...passthroughSkillFiles(files, skillBasePath),
     };
   }
 
@@ -229,12 +232,41 @@ function renderSkill(
     metadata["disable-model-invocation"] = true;
   }
 
+  const skillBasePath = skillDirectoryPath(targetTool, model.name);
   return {
     [skillFilePath(targetTool, model.name)]: renderMarkdownDocument({
       metadata,
       body: model.body,
     }),
+    ...passthroughSkillFiles(files, skillBasePath),
   };
+}
+
+function skillFilePrefix(files: Record<string, string>): string {
+  if ("SKILL.md" in files) return "";
+  const key = Object.keys(files).find((k) => k.endsWith("/SKILL.md"));
+  return key ? key.slice(0, -"SKILL.md".length) : "";
+}
+
+function passthroughSkillFiles(
+  files: Record<string, string>,
+  targetSkillBasePath: string,
+): Record<string, string> {
+  const prefix = skillFilePrefix(files);
+  const result: Record<string, string> = {};
+
+  for (const [filePath, content] of Object.entries(files)) {
+    if (filePath === "SKILL.md" || filePath.endsWith("/SKILL.md")) continue;
+    if (
+      filePath === "agents/openai.yaml" ||
+      filePath.endsWith("/agents/openai.yaml")
+    )
+      continue;
+    const relPath = prefix ? filePath.slice(prefix.length) : filePath;
+    result[`${targetSkillBasePath}/${relPath}`] = content;
+  }
+
+  return result;
 }
 
 function parseCommand(sourceTool: CommandTool, source: string): CommandModel {

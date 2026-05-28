@@ -455,6 +455,175 @@ describe("translateSkill", () => {
       ].join("\n"),
     );
   });
+
+  it("passes through extra files to the target skill directory", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "assets/context.md": "Additional context\n",
+      "templates/example.ts": "const x = 1;\n",
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "claude",
+      files,
+    });
+
+    // Then
+    expect(translated[".claude/skills/react/assets/context.md"]).toBe(
+      "Additional context\n",
+    );
+    expect(translated[".claude/skills/react/templates/example.ts"]).toBe(
+      "const x = 1;\n",
+    );
+  });
+
+  it("passes through extra files when translating across tools", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "assets/context.md": "Additional context\n",
+    };
+
+    // When / Then
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "cursor", files })[
+        ".cursor/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "codex", files })[
+        ".agents/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "copilot", files })[
+        ".github/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "kiro", files })[
+        ".kiro/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "antigravity", files })[
+        ".agent/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+    expect(
+      translateSkill({ sourceTool: "claude", targetTool: "opencode", files })[
+        ".opencode/skills/react/assets/context.md"
+      ],
+    ).toBe("Additional context\n");
+  });
+
+  it("strips the installed-path prefix from extra files during translation", () => {
+    // Given — files keyed by their installed Claude Code paths
+    const files = {
+      ".claude/skills/react/SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      ".claude/skills/react/assets/context.md": "Additional context\n",
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then — prefix is stripped; file lands at the cursor skill path
+    expect(translated[".cursor/skills/react/assets/context.md"]).toBe(
+      "Additional context\n",
+    );
+  });
+
+  it("excludes agents/openai.yaml from passthrough to non-codex targets", () => {
+    // Given — source includes Codex policy file
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: react",
+        "description: React patterns",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "agents/openai.yaml": "policy:\n  allow_implicit_invocation: false\n",
+      "assets/context.md": "Additional context\n",
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "codex",
+      targetTool: "claude",
+      files,
+    });
+
+    // Then — policy file is not copied; extra file is preserved
+    expect(
+      translated[".claude/skills/react/agents/openai.yaml"],
+    ).toBeUndefined();
+    expect(translated[".claude/skills/react/assets/context.md"]).toBe(
+      "Additional context\n",
+    );
+  });
+
+  it("does not pass through extra files for manual-only opencode skills (command output)", () => {
+    // Given — manual-only skills render to a single .opencode/commands file
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: deploy",
+        "description: Deploy the app",
+        "disable-model-invocation: true",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+      "assets/context.md": "Additional context\n",
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "opencode",
+      files,
+    });
+
+    // Then — single command file only; extra files are not included
+    expect(Object.keys(translated)).toEqual([
+      ".opencode/commands/deploy.md",
+    ]);
+  });
 });
 
 describe("translateCommand", () => {
