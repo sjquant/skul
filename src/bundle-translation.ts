@@ -64,6 +64,7 @@ interface AgentModel {
   body: string;
   model?: string;
   mode?: string;
+  sandboxMode?: string;
 }
 
 interface CodexAgentDocument {
@@ -369,6 +370,7 @@ function parseAgent(sourceTool: AgentTool, source: string): AgentModel {
       description: agent.description,
       body: agent.developerInstructions,
       model: agent.model,
+      sandboxMode: agent.sandboxMode,
     };
   }
 
@@ -396,6 +398,7 @@ function renderAgent(
         description: model.description,
         developerInstructions: model.body,
         model: model.model,
+        sandboxMode: model.sandboxMode,
       }),
     };
   }

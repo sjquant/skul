@@ -687,6 +687,17 @@ describe("translateSkill", () => {
     // Then — single command file only; extra files are not included
     expect(Object.keys(translated)).toEqual([".opencode/commands/deploy.md"]);
   });
+
+  it("throws when multiple SKILL.md files exist in the input", () => {
+    const files = {
+      "a/SKILL.md": "---\nname: foo\ndescription: Foo\n---\nBody.\n",
+      "b/SKILL.md": "---\nname: bar\ndescription: Bar\n---\nBody.\n",
+    };
+
+    expect(() =>
+      translateSkill({ sourceTool: "claude", targetTool: "cursor", files }),
+    ).toThrow("Expected exactly one SKILL.md file");
+  });
 });
 
 describe("translateCommand", () => {
@@ -1247,6 +1258,61 @@ describe("translateAgent", () => {
       ].join("\n"),
     });
   });
+
+  it("preserves sandbox_mode when round-tripping a Codex agent", () => {
+    const source = [
+      'name = "code-reviewer"',
+      'description = "Review code for bugs and risks"',
+      'model = "gpt-5"',
+      'sandbox_mode = "code-interpreter"',
+      'developer_instructions = """',
+      "Review the diff for correctness and missing tests.",
+      '"""',
+      "",
+    ].join("\n");
+
+    const translated = translateAgent({
+      sourceTool: "codex",
+      targetTool: "codex",
+      source,
+    });
+
+    expect(translated[".codex/agents/code-reviewer.toml"]).toContain(
+      'sandbox_mode = "code-interpreter"',
+    );
+  });
+
+  it("throws when a Codex agent TOML is missing required fields", () => {
+    const missingName = [
+      'description = "Review code for bugs and risks"',
+      'developer_instructions = """',
+      "Review the diff.",
+      '"""',
+      "",
+    ].join("\n");
+
+    const missingInstructions = [
+      'name = "code-reviewer"',
+      'description = "Review code for bugs and risks"',
+      "",
+    ].join("\n");
+
+    expect(() =>
+      translateAgent({
+        sourceTool: "codex",
+        targetTool: "claude",
+        source: missingName,
+      }),
+    ).toThrow("name is required");
+
+    expect(() =>
+      translateAgent({
+        sourceTool: "codex",
+        targetTool: "claude",
+        source: missingInstructions,
+      }),
+    ).toThrow("developer_instructions is required");
+  });
 });
 
 describe("copilot agent translation", () => {
@@ -1771,6 +1837,16 @@ describe("YAML frontmatter parser", () => {
         "",
       ].join("\n"),
     });
+  });
+
+  it("throws when SKILL.md has an unclosed frontmatter block", () => {
+    const files = {
+      "SKILL.md": "---\nname: broken\ndescription: Missing close marker\n",
+    };
+
+    expect(() =>
+      translateSkill({ sourceTool: "claude", targetTool: "cursor", files }),
+    ).toThrow("Document must contain a closing YAML frontmatter marker");
   });
 
   it("does not corrupt a scalar value when a bare list item appears at column 0 after a root-level key", () => {
