@@ -13,8 +13,6 @@ This guide covers the commands and flags that aren't part of the day-to-day work
 | `skul sync` | Run `git pull --ff-only` with tracked root-instruction shadow suspend/refresh |
 | `skul shadow --suspend \| --refresh` | Restore or rebuild tracked root-instruction shadows |
 | `skul reset` | Remove all Skul-managed files from the current worktree |
-| `skul clear-cache [source] --all` | Remove one cached source or all cached remote sources from the global library |
-| `skul prune` (alias `gc`) | Remove stale registry entries for deleted worktrees and orphaned repos |
 
 All mutating commands accept `--dry-run`. `skul check` accepts `--json`.
 
@@ -106,38 +104,13 @@ skul sync
 
 ---
 
-## Cleanup
-
-### `reset`
+## Cleanup: `reset`
 
 ```bash
 skul reset
 ```
 
 Removes all Skul-managed files from the current worktree. Restores tracked root-instruction shadows to their committed `HEAD` version and clears `skip-worktree`. For untracked shared root instructions, restores the preserved local base content. Accepts `--dry-run` and `--global` (the latter resets globally managed tool config).
-
-### `clear-cache`
-
-If a cached remote source becomes stale or corrupted, remove it from `~/.skul/library` and let the next `skul add` re-clone it:
-
-```bash
-skul clear-cache acme/shared-bundles
-skul add acme/shared-bundles core --agent codex
-```
-
-To wipe the entire cache:
-
-```bash
-skul clear-cache --all
-```
-
-### `prune` (alias `gc`)
-
-```bash
-skul prune
-```
-
-Removes stale registry entries for deleted worktrees and orphaned repositories. Run after `git worktree remove` cleanups, or periodically if you frequently move/delete repos.
 
 ---
 
@@ -150,4 +123,4 @@ Use `skul shadow --suspend` before a manual Git update that touches tracked root
 Skul treats tracked root-instruction shadows as generated output. `skul status` will usually report `Manual edits: suspected`, and follow-up commands may refuse to refresh, remove, or reset that shadowed file once the rendered output no longer matches Skul's recorded fingerprint. This is a current limitation of tracked shadow mode, so the safe practice is to avoid manual edits to shadowed root instruction files.
 
 **What happens to files after `git worktree remove`?**
-Run `skul reset` before removing a worktree. If removed externally, the registry entry persists until cleared with `skul prune`.
+Run `skul reset` before removing a worktree.

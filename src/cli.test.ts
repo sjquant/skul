@@ -55,8 +55,6 @@ describe("parseCliArgs", () => {
     const statusArgs = ["status"];
     const checkArgs = ["check"];
     const updateArgs = ["update"];
-    const pruneArgs = ["prune"];
-    const gcArgs = ["gc"];
     const syncArgs = ["sync"];
     const resetArgs = ["reset"];
     const applyArgs = ["apply"];
@@ -81,16 +79,6 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "update",
       options: { dryRun: false },
-    });
-    await expect(parseCliArgs(pruneArgs)).resolves.toEqual({
-      kind: "command",
-      command: "prune",
-      options: {},
-    });
-    await expect(parseCliArgs(gcArgs)).resolves.toEqual({
-      kind: "command",
-      command: "prune",
-      options: {},
     });
     await expect(parseCliArgs(syncArgs)).resolves.toEqual({
       kind: "command",
@@ -617,64 +605,6 @@ describe("parseCliArgs", () => {
     });
   });
 
-  it("parses clear-cache with a normalized GitHub source", async () => {
-    // Given / When / Then
-    await expect(
-      parseCliArgs(["clear-cache", "sjquant/ghosts"]),
-    ).resolves.toEqual({
-      kind: "command",
-      command: "clear-cache",
-      options: {
-        source: "github.com/sjquant/ghosts",
-        all: false,
-        dryRun: false,
-      },
-    });
-  });
-
-  it("parses --dry-run flag on clear-cache", async () => {
-    // Given / When / Then
-    await expect(
-      parseCliArgs([
-        "clear-cache",
-        "https://github.com/sjquant/ghosts.git",
-        "--dry-run",
-      ]),
-    ).resolves.toEqual({
-      kind: "command",
-      command: "clear-cache",
-      options: {
-        source: "github.com/sjquant/ghosts",
-        all: false,
-        dryRun: true,
-      },
-    });
-  });
-
-  it("normalizes owner/repo.git sources for clear-cache", async () => {
-    // Given / When / Then
-    await expect(
-      parseCliArgs(["clear-cache", "sjquant/ghosts.git"]),
-    ).resolves.toEqual({
-      kind: "command",
-      command: "clear-cache",
-      options: {
-        source: "github.com/sjquant/ghosts",
-        all: false,
-        dryRun: false,
-      },
-    });
-  });
-
-  it("parses clear-cache --all without a source", async () => {
-    // Given / When / Then
-    await expect(parseCliArgs(["clear-cache", "--all"])).resolves.toEqual({
-      kind: "command",
-      command: "clear-cache",
-      options: { all: true, dryRun: false },
-    });
-  });
-
   it("parses list source filters", async () => {
     // Given / When / Then
     await expect(
@@ -791,12 +721,6 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["reset", "extra"])).rejects.toThrowError(
       /Command reset does not accept positional arguments/,
     );
-    await expect(parseCliArgs(["prune", "extra"])).rejects.toThrowError(
-      /Command prune does not accept positional arguments/,
-    );
-    await expect(parseCliArgs(["gc", "extra"])).rejects.toThrowError(
-      /Command prune does not accept positional arguments/,
-    );
     await expect(parseCliArgs(["sync", "extra"])).rejects.toThrowError(
       /Command sync does not accept positional arguments/,
     );
@@ -815,19 +739,8 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["update", "a", "b"])).rejects.toThrowError(
       /Command update accepts at most 1 positional argument/,
     );
-    await expect(parseCliArgs(["clear-cache", "a", "b"])).rejects.toThrowError(
-      /Command clear-cache accepts at most 1 positional argument/,
-    );
     await expect(parseCliArgs(["remove"])).rejects.toThrowError(
       /Command remove requires a source or bundle name/,
-    );
-    await expect(parseCliArgs(["clear-cache"])).rejects.toThrowError(
-      /Command clear-cache requires a source or --all/,
-    );
-    await expect(
-      parseCliArgs(["clear-cache", "sjquant/ghosts", "--all"]),
-    ).rejects.toThrowError(
-      /Command clear-cache accepts either a source or --all/,
     );
     await expect(
       parseCliArgs([
@@ -1077,187 +990,6 @@ describe("run", () => {
         "",
         "Cache one with: skul add github.com/user/ai-vault <bundle-name>",
       ),
-    );
-  });
-
-  it("clears a cached source without requiring a Git repository", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const cachedSourceDir = path.join(
-      homeDir,
-      ".skul",
-      "library",
-      "github.com",
-      "sjquant",
-      "ghosts",
-    );
-    fs.mkdirSync(cachedSourceDir, { recursive: true });
-    fs.writeFileSync(path.join(cachedSourceDir, "README.md"), "# ghosts\n");
-
-    // When / Then
-    await expect(
-      run(["clear-cache", "sjquant/ghosts"], { homeDir }),
-    ).resolves.toBe("Cleared cache for github.com/sjquant/ghosts");
-    expect(pathExists(cachedSourceDir)).toBe(false);
-  });
-
-  it("prunes stale worktree and repo registry entries without requiring a Git repository", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-    const registryFile = path.join(homeDir, ".skul", "registry.json");
-    const gitContext = detectGitContext({ cwd: repoRoot })!;
-    const deletedWorktreeRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "skul-prune-worktree-"),
-    );
-    const deletedRepoRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "skul-prune-repo-"),
-    );
-    tempDirs.push(deletedWorktreeRoot, deletedRepoRoot);
-    fs.rmSync(deletedWorktreeRoot, { recursive: true, force: true });
-    fs.rmSync(deletedRepoRoot, { recursive: true, force: true });
-
-    let registry = upsertRepoState(
-      createEmptyRegistry(),
-      gitContext.repoFingerprint,
-      {
-        repo_root: repoRoot,
-        desired_state: [{ bundle: "react-expert", protocol: "https" }],
-      },
-    );
-    registry = upsertRepoState(registry, "repo_orphan", {
-      repo_root: deletedRepoRoot,
-      desired_state: [],
-    });
-    registry = upsertWorktreeState(registry, "worktree_stale", {
-      repo_fingerprint: gitContext.repoFingerprint,
-      path: deletedWorktreeRoot,
-      materialized_state: { bundles: {}, exclude_configured: false },
-      shadowed_files: {},
-    });
-    writeRegistryFile(registryFile, registry);
-
-    // When
-    const output = await run(["prune"], { homeDir });
-
-    // Then
-    expect(output).toBe(
-      "Pruned 1 stale worktree entry; Pruned 1 stale repo entry",
-    );
-    const prunedRegistry = readRegistryFile(registryFile);
-    expect(prunedRegistry.worktrees).toEqual({});
-    expect(prunedRegistry.repos).toHaveProperty(gitContext.repoFingerprint);
-    expect(prunedRegistry.repos).not.toHaveProperty("repo_orphan");
-  });
-
-  it("accepts gc as an alias for prune", async () => {
-    // Given
-    const homeDir = createHomeDir();
-
-    // When / Then
-    await expect(run(["gc"], { homeDir })).resolves.toBe(
-      "No stale registry entries found",
-    );
-  });
-
-  it("dry-runs clear-cache without deleting the cached source", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const cachedSourceDir = path.join(
-      homeDir,
-      ".skul",
-      "library",
-      "github.com",
-      "sjquant",
-      "ghosts",
-    );
-    fs.mkdirSync(cachedSourceDir, { recursive: true });
-    fs.writeFileSync(path.join(cachedSourceDir, "README.md"), "# ghosts\n");
-
-    // When / Then
-    await expect(
-      run(["clear-cache", "sjquant/ghosts", "--dry-run"], { homeDir }),
-    ).resolves.toBe("DRY RUN: Would clear cache for github.com/sjquant/ghosts");
-    expect(pathExists(cachedSourceDir)).toBe(true);
-  });
-
-  it("reports when clear-cache targets a missing source", async () => {
-    // Given
-    const homeDir = createHomeDir();
-
-    // When / Then
-    await expect(
-      run(["clear-cache", "sjquant/ghosts"], { homeDir }),
-    ).resolves.toBe("No cached source found for github.com/sjquant/ghosts");
-  });
-
-  it("clears all cached sources without requiring a Git repository", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const firstSourceDir = path.join(
-      homeDir,
-      ".skul",
-      "library",
-      "github.com",
-      "sjquant",
-      "ghosts",
-    );
-    const secondSourceDir = path.join(
-      homeDir,
-      ".skul",
-      "library",
-      "github.com",
-      "acme",
-      "shared-bundles",
-    );
-    fs.mkdirSync(firstSourceDir, { recursive: true });
-    fs.mkdirSync(secondSourceDir, { recursive: true });
-
-    // When / Then
-    await expect(run(["clear-cache", "--all"], { homeDir })).resolves.toBe(
-      "Cleared cache for 2 source(s)",
-    );
-    expect(pathExists(firstSourceDir)).toBe(false);
-    expect(pathExists(secondSourceDir)).toBe(false);
-  });
-
-  it("dry-runs clear-cache --all without deleting cached sources", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const firstSourceDir = path.join(
-      homeDir,
-      ".skul",
-      "library",
-      "github.com",
-      "sjquant",
-      "ghosts",
-    );
-    const secondSourceDir = path.join(
-      homeDir,
-      ".skul",
-      "library",
-      "github.com",
-      "acme",
-      "shared-bundles",
-    );
-    fs.mkdirSync(firstSourceDir, { recursive: true });
-    fs.mkdirSync(secondSourceDir, { recursive: true });
-
-    // When / Then
-    await expect(
-      run(["clear-cache", "--all", "--dry-run"], { homeDir }),
-    ).resolves.toBe("DRY RUN: Would clear cache for 2 source(s)");
-    expect(pathExists(firstSourceDir)).toBe(true);
-    expect(pathExists(secondSourceDir)).toBe(true);
-  });
-
-  it("reports when clear-cache --all finds no cached sources", async () => {
-    // Given
-    const homeDir = createHomeDir();
-
-    // When / Then
-    await expect(run(["clear-cache", "--all"], { homeDir })).resolves.toBe(
-      "No cached sources found",
     );
   });
 

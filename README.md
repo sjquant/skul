@@ -54,7 +54,7 @@ skul apply
 
 All mutating commands accept `--dry-run`. `skul list` and `skul status` accept `--json`. Bare `owner/repo` sources default to `github.com/owner/repo`. For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
 
-See [docs/advanced.md](docs/advanced.md) for maintenance, recovery, and cleanup commands (`check`, `update`, `sync`, `shadow`, `reset`, `clear-cache`, `prune`) and `add` power flags (`--ref`, `--pin`, `--ssh`, `--include`, `--select-items`).
+See [docs/advanced.md](docs/advanced.md) for maintenance, recovery, and cleanup commands (`check`, `update`, `sync`, `shadow`, `reset`) and `add` power flags (`--ref`, `--pin`, `--ssh`, `--include`, `--select-items`).
 
 ---
 
@@ -221,7 +221,7 @@ Two options: (1) create a GitHub repo with one subdirectory per bundle, each con
 Skul fingerprints files on write. Edited files require explicit confirmation before removal, or fail fast with `SKUL_NO_TUI=1`.
 
 **How do I keep bundles up to date, customize cloning, or clean up?**
-See [docs/advanced.md](docs/advanced.md) for `check`/`update`, tracked-shadow lifecycle (`shadow`, `sync`), SSH cloning, and cleanup commands (`reset`, `clear-cache`, `prune`).
+See [docs/advanced.md](docs/advanced.md) for `check`/`update`, tracked-shadow lifecycle (`shadow`, `sync`), SSH cloning, and `skul reset`.
 
 ---
 

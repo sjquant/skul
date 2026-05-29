@@ -16,11 +16,8 @@ import {
 } from "./bundle-discovery";
 import {
   type CachedSourceRevision,
-  clearAllCachedSources,
-  clearCachedSource,
   fetchRemoteSource,
   inspectRemoteSource,
-  listCachedSources,
   readCachedSourceRevision,
   removeCachedRemoteSource,
   restoreCachedRemoteSourceRevision,
@@ -201,10 +198,6 @@ export async function run(
         bundle: parsed.options.bundle,
         dryRun: parsed.options.dryRun,
       });
-    case "prune":
-      return pruneRegistryState({
-        registryFile: stateLayout.registryFile,
-      });
     case "shadow":
       return shadowWorktree({
         cwd,
@@ -257,13 +250,6 @@ export async function run(
         selectItems: parsed.options.selectItems ?? false,
         dryRun: parsed.options.dryRun,
         inferredBundleFromSource: parsed.options.inferredBundleFromSource,
-      });
-    case "clear-cache":
-      return clearBundleCache({
-        source: parsed.options.source,
-        all: parsed.options.all,
-        libraryDir: stateLayout.libraryDir,
-        dryRun: parsed.options.dryRun,
       });
     case "apply":
       if (parsed.options.global) {
@@ -834,151 +820,6 @@ function renderBundleList(options: {
       return `${pc.cyan(bundle.bundle)} [${bundle.source}] ${pc.dim(`(${tools})`)}`;
     }),
   ].join("\n");
-}
-
-function clearBundleCache(options: {
-  source?: string;
-  all: boolean;
-  libraryDir: string;
-  dryRun: boolean;
-}): string {
-  if (options.all) {
-    const cachedSources = listCachedSources(options.libraryDir);
-
-    if (options.dryRun) {
-      return cachedSources.length > 0
-        ? `DRY RUN: Would clear cache for ${cachedSources.length} source(s)`
-        : "DRY RUN: No cached sources found";
-    }
-
-    const result = clearAllCachedSources({ libraryDir: options.libraryDir });
-
-    return result.clearedSources.length > 0
-      ? `Cleared cache for ${result.clearedSources.length} source(s)`
-      : "No cached sources found";
-  }
-
-  const revision = readCachedSourceRevision({
-    source: options.source!,
-    libraryDir: options.libraryDir,
-  });
-
-  if (options.dryRun) {
-    return revision.cached
-      ? `DRY RUN: Would clear cache for ${options.source!}`
-      : `DRY RUN: No cached source found for ${options.source!}`;
-  }
-
-  const result = clearCachedSource({
-    source: options.source!,
-    libraryDir: options.libraryDir,
-  });
-
-  return result.cleared
-    ? `Cleared cache for ${options.source!}`
-    : `No cached source found for ${options.source!}`;
-}
-
-function pruneRegistryState(options: { registryFile: string }): string {
-  const registry = readRegistryWithGuidance(options.registryFile);
-  const staleWorktreeIds = Object.entries(registry.worktrees)
-    .filter(([worktreeId, worktreeState]) =>
-      isStaleWorktreeState(worktreeId, worktreeState),
-    )
-    .map(([worktreeId]) => worktreeId)
-    .sort((left, right) => left.localeCompare(right));
-
-  const nextWorktrees = Object.fromEntries(
-    Object.entries(registry.worktrees).filter(
-      ([worktreeId]) => !staleWorktreeIds.includes(worktreeId),
-    ),
-  );
-  const liveRepoFingerprints = new Set(
-    Object.values(nextWorktrees).map(
-      (worktreeState) => worktreeState.repo_fingerprint,
-    ),
-  );
-  const staleRepoFingerprints = Object.entries(registry.repos)
-    .filter(([repoFingerprint, repoState]) =>
-      isStaleRepoState(repoFingerprint, repoState, liveRepoFingerprints),
-    )
-    .map(([repoFingerprint]) => repoFingerprint)
-    .sort((left, right) => left.localeCompare(right));
-
-  if (staleWorktreeIds.length === 0 && staleRepoFingerprints.length === 0) {
-    return "No stale registry entries found";
-  }
-
-  const nextRegistry = {
-    version: 1 as const,
-    repos: Object.fromEntries(
-      Object.entries(registry.repos).filter(
-        ([repoFingerprint]) => !staleRepoFingerprints.includes(repoFingerprint),
-      ),
-    ),
-    worktrees: nextWorktrees,
-  };
-  writeRegistryFile(options.registryFile, nextRegistry);
-
-  const summary: string[] = [];
-
-  if (staleWorktreeIds.length > 0) {
-    summary.push(
-      `Pruned ${staleWorktreeIds.length} stale worktree ${staleWorktreeIds.length === 1 ? "entry" : "entries"}`,
-    );
-  }
-
-  if (staleRepoFingerprints.length > 0) {
-    summary.push(
-      `Pruned ${staleRepoFingerprints.length} stale repo ${staleRepoFingerprints.length === 1 ? "entry" : "entries"}`,
-    );
-  }
-
-  return summary.join("; ");
-}
-
-function isStaleWorktreeState(
-  worktreeId: string,
-  worktreeState: { repo_fingerprint: string; path: string },
-): boolean {
-  if (!fs.existsSync(worktreeState.path)) {
-    return true;
-  }
-
-  const context = detectGitContext({ cwd: worktreeState.path });
-
-  return (
-    !context ||
-    context.worktreeId !== worktreeId ||
-    context.repoFingerprint !== worktreeState.repo_fingerprint ||
-    context.worktreeRoot !== worktreeState.path
-  );
-}
-
-function isStaleRepoState(
-  repoFingerprint: string,
-  repoState: { repo_root: string; desired_state: DesiredBundleEntry[] },
-  liveRepoFingerprints: Set<string>,
-): boolean {
-  if (liveRepoFingerprints.has(repoFingerprint)) {
-    return false;
-  }
-
-  if (!fs.existsSync(repoState.repo_root)) {
-    return true;
-  }
-
-  const context = detectGitContext({ cwd: repoState.repo_root });
-
-  if (!context) {
-    return true;
-  }
-
-  if (context.repoFingerprint !== repoFingerprint) {
-    return true;
-  }
-
-  return repoState.desired_state.length === 0;
 }
 
 function renderStatus(options: {

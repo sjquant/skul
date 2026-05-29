@@ -19,13 +19,11 @@ export type CommandName =
   | "status"
   | "check"
   | "update"
-  | "prune"
   | "shadow"
   | "sync"
   | "reset"
   | "remove"
-  | "apply"
-  | "clear-cache";
+  | "apply";
 
 export type CliParseResult =
   | { kind: "help"; command?: CommandName }
@@ -49,7 +47,6 @@ export type CliParseResult =
       command: "update";
       options: { bundle?: string; dryRun: boolean };
     }
-  | { kind: "command"; command: "prune"; options: Record<string, never> }
   | {
       kind: "command";
       command: "shadow";
@@ -65,11 +62,6 @@ export type CliParseResult =
       kind: "command";
       command: "reset";
       options: { dryRun: boolean; global: boolean };
-    }
-  | {
-      kind: "command";
-      command: "clear-cache";
-      options: { source?: string; all: boolean; dryRun: boolean };
     }
   | {
       kind: "command";
@@ -147,17 +139,12 @@ const COMMANDS: CommandName[] = [
   "status",
   "check",
   "update",
-  "prune",
   "shadow",
   "sync",
   "reset",
   "remove",
   "apply",
-  "clear-cache",
 ];
-const COMMAND_ALIASES: Record<string, CommandName> = {
-  gc: "prune",
-};
 const PROGRAM_HELP_DETAILS = [
   "",
   "Root instructions:",
@@ -485,9 +472,7 @@ export async function parseCliArgs(
   prompts: PromptClient = createPromptClient(),
 ): Promise<CliParseResult> {
   const [rawCommand] = argv;
-  const command = rawCommand
-    ? (COMMAND_ALIASES[rawCommand] ?? rawCommand)
-    : rawCommand;
+  const command = rawCommand;
 
   if (
     !command ||
@@ -808,15 +793,6 @@ function createProgram(
       };
     });
 
-  program
-    .command("prune")
-    .alias("gc")
-    .description(
-      "Remove stale registry entries for deleted worktrees and orphaned repositories",
-    )
-    .action(() => {
-      context.result = { kind: "command", command: "prune", options: {} };
-    });
   const shadowCommand = program
     .command("shadow")
     .description("Suspend or refresh tracked root instruction shadows")
@@ -995,47 +971,6 @@ function createProgram(
       },
     );
 
-  program
-    .command("clear-cache")
-    .description("Remove a cached remote source from the global library")
-    .argument("[source]", "Cached bundle source (e.g. github.com/user/repo)")
-    .option(
-      "--all",
-      "Remove every cached remote source from the global library",
-    )
-    .option(
-      "-n, --dry-run",
-      "Preview what would be deleted without removing any files",
-    )
-    .action(
-      (
-        source: string | undefined,
-        opts: { all?: boolean; dryRun?: boolean },
-      ) => {
-        if (opts.all && source) {
-          throw new Error(
-            "Command clear-cache accepts either a source or --all",
-          );
-        }
-
-        if (!opts.all && !source) {
-          throw new Error("Command clear-cache requires a source or --all");
-        }
-
-        context.result = {
-          kind: "command",
-          command: "clear-cache",
-          options: {
-            ...(source !== undefined
-              ? { source: normalizeBundleSource(source) }
-              : {}),
-            all: opts.all ?? false,
-            dryRun: opts.dryRun ?? false,
-          },
-        };
-      },
-    );
-
   return program;
 }
 
@@ -1051,12 +986,6 @@ function normalizeParseError(error: unknown, command: string): Error {
 
     if (command === "remove") {
       return new Error("Command remove accepts at most 2 positional arguments");
-    }
-
-    if (command === "clear-cache") {
-      return new Error(
-        "Command clear-cache accepts at most 1 positional argument",
-      );
     }
 
     if (command === "check" || command === "update") {
