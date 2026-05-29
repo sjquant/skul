@@ -180,7 +180,7 @@ skul add github.com/sjquant/ai-bundles claude-standards --agent claude-code
 # - recorded in the worktree registry as a shadowed file
 ```
 
-For tracked shadow lifecycle (`shadow --suspend`/`--refresh`, `sync`), safety limits, recovery flows, SSH cloning, and cache management, see [docs/advanced.md](docs/advanced.md).
+For tracked shadow lifecycle (`shadow --suspend`/`--refresh`, `sync`), safety limits, recovery flows, and SSH cloning, see [docs/advanced.md](docs/advanced.md).
 
 ---
 
