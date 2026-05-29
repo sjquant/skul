@@ -878,8 +878,8 @@ async function writeTranslatedFile(options: {
   );
   const targetRootIsNew = !fs.existsSync(targetRootAbsPath);
 
-  let currentRepoRelPath = options.repoRelPath;
-  let currentAbsPath = path.join(
+  const currentRepoRelPath = options.repoRelPath;
+  const currentAbsPath = path.join(
     options.repoRoot,
     ...currentRepoRelPath.split("/"),
   );

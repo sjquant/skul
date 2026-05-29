@@ -348,4 +348,3 @@ describe("fetchRemoteSource", () => {
     expect(execFileSync).not.toHaveBeenCalled();
   });
 });
-
