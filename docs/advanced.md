@@ -18,43 +18,6 @@ All mutating commands accept `--dry-run`. `skul check` accepts `--json`.
 
 ---
 
-## `add` — power flags
-
-The Quick Start in the README shows the simplest `add` invocations. These flags cover non-default cases.
-
-```bash
-# Track a specific branch or tag
-skul add github.com/sjquant/ai-bundles react-expert --ref stable
-
-# Pin a bundle to an exact commit
-skul add github.com/sjquant/ai-bundles react-expert --pin 2813b88
-
-# Install only selected bundle items
-skul add react-expert --agent codex --include skills/diagnose
-skul add react-expert --agent codex --include agents/reviewer
-skul add react-expert --agent codex --include root-instruction
-
-# Choose bundle items interactively
-skul add react-expert --agent codex --select-items
-```
-
-`--include <item>` installs only specific bundle items. Repeat it for multiple items. Supported selectors are `skills/<name>`, `commands/<name>`, `agents/<name>`, and `root-instruction`; `AGENTS.md` and `CLAUDE.md` are accepted aliases for `root-instruction`. Use `--select-items` to open an interactive picker. If `--include` and `--select-items` are used together, the included items are preselected in the picker.
-
-### Cloning: HTTPS vs SSH
-
-By default Skul clones bundle sources over HTTPS. To use SSH, either pass `--ssh` or supply a `git@` URL — both are equivalent:
-
-```bash
-skul add --ssh github.com/sjquant/ai-bundles react-expert
-skul add git@github.com:sjquant/ai-bundles react-expert
-```
-
-The protocol choice is stored in the registry alongside the bundle entry. When `skul apply` re-clones a source in a new worktree it uses the same protocol automatically — no need to repeat `--ssh`.
-
-If SSH authentication fails (missing key, wrong host, etc.) Skul prints a hint pointing to the HTTPS equivalent command.
-
----
-
 ## Staying up to date: `check` and `update`
 
 ```bash

@@ -39,16 +39,27 @@ description: Command reference for the current skul CLI surface.
 | `skul check [bundle]` | Check remote-backed bundles for upstream updates |
 | `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
 
-## Flags
+## `skul add` options
+
+```text
+skul add [options] [source] [bundle]
+```
+
+| Option | Description |
+| --- | --- |
+| `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
+| `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. Persisted in the registry and reused by `skul apply`. |
+| `--pin <commit>` | Pin the bundle to one commit SHA (7–40 hex chars). Mutually exclusive with `--ref`. |
+| `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
+| `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
+| `-s, --ssh` | Clone the source via SSH instead of HTTPS. `git@host:owner/repo` URLs are auto-detected as SSH. Protocol is persisted and reused by `skul apply`. |
+| `-g, --global` | Install to global tool config under `~/` instead of the current worktree. |
+| `-n, --dry-run` | Preview what would be written without making any changes. |
+
+## Other flags
 
 - Mutating commands accept `--dry-run`.
 - `skul list`, `skul status`, and `skul check` accept `--json`.
-- `skul add` accepts `--ssh`.
-- Repeat `--agent` to target multiple tools.
-- Repeat `--include <item>` to install selected bundle items only.
-- Use `--select-items` to choose bundle items interactively.
-
-Bundle item selectors are `skills/<name>`, `commands/<name>`, `agents/<name>`, and `root-instruction`. `AGENTS.md` and `CLAUDE.md` are also accepted as root-instruction aliases. If `--include` and `--select-items` are used together, the included items are preselected in the picker.
 
 ## Protocol behavior
 

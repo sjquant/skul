@@ -54,7 +54,53 @@ skul apply
 
 All mutating commands accept `--dry-run`. `skul list` and `skul status` accept `--json`. Bare `owner/repo` sources default to `github.com/owner/repo`. For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
 
-See [docs/advanced.md](docs/advanced.md) for maintenance, recovery, and cleanup commands (`check`, `update`, `sync`, `shadow`, `reset`) and `add` power flags (`--ref`, `--pin`, `--ssh`, `--include`, `--select-items`).
+See [docs/advanced.md](docs/advanced.md) for maintenance, recovery, and cleanup commands (`check`, `update`, `sync`, `shadow`, `reset`).
+
+---
+
+## `skul add`
+
+```text
+skul add [options] [source] [bundle]
+```
+
+`source` is a GitHub registry like `github.com/owner/repo`, the `owner/repo` shorthand, or a `git@github.com:owner/repo` SSH URL. `bundle` is the bundle name; omit it when the source is a single-bundle repo or when you want the interactive picker.
+
+| Option | Description |
+|---|---|
+| `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
+| `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. Persisted in the registry and reused by `skul apply`. |
+| `--pin <commit>` | Pin the bundle to one commit SHA (7–40 hex chars). Mutually exclusive with `--ref`. |
+| `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
+| `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
+| `-s, --ssh` | Clone the source via SSH instead of HTTPS. `git@host:owner/repo` URLs are auto-detected as SSH. Protocol is persisted and reused by `skul apply`. |
+| `-g, --global` | Install to global tool config under `~/` instead of the current worktree. |
+| `-n, --dry-run` | Preview what would be written without making any changes. |
+
+### Examples
+
+```bash
+# Track a branch or tag instead of HEAD
+skul add github.com/sjquant/ai-bundles react-expert --ref stable
+
+# Pin to an exact commit
+skul add github.com/sjquant/ai-bundles react-expert --pin 2813b88
+
+# Install only the diagnose skill, for Codex only
+skul add react-expert --agent codex --include skills/diagnose
+
+# Install only the bundle's root instruction
+skul add react-expert --agent codex --include root-instruction
+
+# Pick items interactively
+skul add react-expert --agent codex --select-items
+
+# Clone over SSH
+skul add --ssh github.com/sjquant/ai-bundles react-expert
+skul add git@github.com:sjquant/ai-bundles react-expert
+```
+
+If SSH authentication fails, Skul prints a hint with the HTTPS equivalent command.
 
 ---
 
