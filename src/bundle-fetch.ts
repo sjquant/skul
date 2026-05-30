@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { escapeRegExp, safeReaddirSync } from "./fs-utils";
+import { escapeRegExp } from "./fs-utils";
 
 export interface FetchRemoteSourceOptions {
   /** Normalized source identifier, e.g. "github.com/owner/repo" */
@@ -16,15 +16,6 @@ export interface FetchRemoteSourceResult {
   /** true if a fresh clone was performed; false if the cache already existed */
   cloned: boolean;
   targetDir: string;
-}
-
-export interface ClearCachedSourceResult {
-  cleared: boolean;
-  targetDir: string;
-}
-
-export interface ClearAllCachedSourcesResult {
-  clearedSources: string[];
 }
 
 export interface CachedSourceRevision {
@@ -253,68 +244,6 @@ function rewriteInspectFailureForUpdate(error: unknown, source: string): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-/** Removes one cached source from disk and prunes empty cache directories above it. */
-export function clearCachedSource(
-  options: FetchRemoteSourceOptions,
-): ClearCachedSourceResult {
-  const targetDir = getTargetDir(options);
-
-  if (!fs.existsSync(targetDir)) {
-    return { cleared: false, targetDir };
-  }
-
-  fs.rmSync(targetDir, { recursive: true, force: true });
-  removeEmptyLibraryAncestors(path.dirname(targetDir), options.libraryDir);
-
-  return { cleared: true, targetDir };
-}
-
-/** Removes every cached source beneath the library directory. */
-export function clearAllCachedSources(options: {
-  libraryDir: string;
-}): ClearAllCachedSourcesResult {
-  const clearedSources: string[] = [];
-
-  for (const source of listCachedSources(options.libraryDir)) {
-    const result = clearCachedSource({
-      source,
-      libraryDir: options.libraryDir,
-    });
-
-    if (result.cleared) {
-      clearedSources.push(source);
-    }
-  }
-
-  return { clearedSources };
-}
-
-/** Lists normalized source identifiers currently present in the local cache. */
-export function listCachedSources(libraryDir: string): string[] {
-  if (!fs.existsSync(libraryDir)) {
-    return [];
-  }
-
-  const sources: string[] = [];
-
-  for (const hostEntry of safeReaddirSync(libraryDir)) {
-    if (!hostEntry.isDirectory()) continue;
-    const hostDir = path.join(libraryDir, hostEntry.name);
-
-    for (const ownerEntry of safeReaddirSync(hostDir)) {
-      if (!ownerEntry.isDirectory()) continue;
-      const ownerDir = path.join(hostDir, ownerEntry.name);
-
-      for (const repoEntry of safeReaddirSync(ownerDir)) {
-        if (!repoEntry.isDirectory()) continue;
-        sources.push(`${hostEntry.name}/${ownerEntry.name}/${repoEntry.name}`);
-      }
-    }
-  }
-
-  return sources.sort((left, right) => left.localeCompare(right));
-}
-
 /** Moves a cached source checkout back to a previously recorded revision. */
 export function restoreCachedRemoteSourceRevision(
   options: FetchRemoteSourceOptions & {
@@ -350,23 +279,6 @@ export function removeCachedRemoteSource(
 function getTargetDir(options: FetchRemoteSourceOptions): string {
   assertSafeSource(options.source);
   return path.join(options.libraryDir, ...options.source.split("/"));
-}
-
-function removeEmptyLibraryAncestors(
-  currentDir: string,
-  libraryDir: string,
-): void {
-  let directory = currentDir;
-  const libraryRoot = path.resolve(libraryDir);
-
-  while (directory.startsWith(libraryRoot) && directory !== libraryRoot) {
-    if (safeReaddirSync(directory).length > 0) {
-      return;
-    }
-
-    fs.rmdirSync(directory);
-    directory = path.dirname(directory);
-  }
 }
 
 function getCloneUrl(
