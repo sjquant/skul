@@ -276,6 +276,33 @@ export function removeCachedRemoteSource(
   fs.rmSync(getTargetDir(options), { recursive: true, force: true });
 }
 
+/**
+ * Clears the cached clone for a source and re-clones it fresh, reusing the
+ * stored origin URL so that test fixtures with local-path remotes continue to
+ * work. Used when `add` is run without a ref to guarantee a pristine HEAD copy.
+ */
+export function clearAndRefetchCachedRemoteSource(
+  options: FetchRemoteSourceOptions,
+): void {
+  const targetDir = getTargetDir(options);
+  const revision = readCachedSourceRevision(options);
+  const cloneUrl =
+    revision.remoteUrl ?? getCloneUrl(options.source, options.protocol);
+
+  fs.rmSync(targetDir, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+
+  try {
+    runGit(["clone", "--depth=1", cloneUrl, targetDir]);
+  } catch (error) {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    throw normalizeGitError(error, `Failed to clone ${cloneUrl}`, {
+      source: options.source,
+      protocol: options.protocol,
+    });
+  }
+}
+
 function getTargetDir(options: FetchRemoteSourceOptions): string {
   assertSafeSource(options.source);
   return path.join(options.libraryDir, ...options.source.split("/"));

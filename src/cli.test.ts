@@ -567,7 +567,7 @@ describe("parseCliArgs", () => {
     });
   });
 
-  it("parses add ref selectors and commit pins", async () => {
+  it("parses add ref selectors including commit SHAs", async () => {
     // Given / When / Then
     await expect(
       parseCliArgs(["add", "react-expert", "--ref", "stable"]),
@@ -588,7 +588,7 @@ describe("parseCliArgs", () => {
       parseCliArgs([
         "add",
         "react-expert",
-        "--pin",
+        "--ref",
         "2813b888fb134532be3749c71a38ee111b788e5b",
       ]),
     ).resolves.toEqual({
@@ -741,21 +741,6 @@ describe("parseCliArgs", () => {
     );
     await expect(parseCliArgs(["remove"])).rejects.toThrowError(
       /Command remove requires a source or bundle name/,
-    );
-    await expect(
-      parseCliArgs([
-        "add",
-        "react-expert",
-        "--ref",
-        "stable",
-        "--pin",
-        "2813b88",
-      ]),
-    ).rejects.toThrowError(/accepts either --ref or --pin/i);
-    await expect(
-      parseCliArgs(["add", "react-expert", "--pin", "stable"]),
-    ).rejects.toThrowError(
-      /--pin requires a 7-40 character hexadecimal commit SHA/i,
     );
   });
 
@@ -7762,7 +7747,7 @@ describe("run", () => {
     });
   });
 
-  it("pins a remote-backed bundle to an explicit commit", async () => {
+  it("pins a remote-backed bundle to an explicit commit via --ref", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -7784,7 +7769,7 @@ describe("run", () => {
           "add",
           remoteSource.source,
           remoteSource.bundle,
-          "--pin",
+          "--ref",
           remoteSource.initialCommit,
         ],
         { homeDir, cwd: repoRoot, prompts: createPromptClientStub() },

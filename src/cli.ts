@@ -545,28 +545,9 @@ function normalizeRefSelector(value: string): string {
   return normalizedValue;
 }
 
-function normalizePinnedCommit(value: string): string {
-  const normalizedValue = normalizeRefSelector(value);
-
-  if (!/^[0-9a-f]{7,40}$/i.test(normalizedValue)) {
-    throw new Error("--pin requires a 7-40 character hexadecimal commit SHA");
-  }
-
-  return normalizedValue;
-}
-
 function resolveRequestedRefSelector(options: {
   ref?: string;
-  pin?: string;
 }): string | undefined {
-  if (options.ref !== undefined && options.pin !== undefined) {
-    throw new Error("Command add accepts either --ref or --pin, not both");
-  }
-
-  if (options.pin !== undefined) {
-    return normalizePinnedCommit(options.pin);
-  }
-
   if (options.ref !== undefined) {
     return normalizeRefSelector(options.ref);
   }
@@ -610,7 +591,6 @@ function createProgram(
       "--ref <selector>",
       "Track a specific branch, tag, or commit instead of remote HEAD",
     )
-    .option("--pin <commit>", "Pin the bundle to an exact commit SHA")
     .option(
       "--include <item>",
       "Install only a bundle item such as skills/name, agents/name, commands/name, or root-instruction (repeatable)",
@@ -635,7 +615,6 @@ function createProgram(
         opts: {
           agent: ToolName[];
           ref?: string;
-          pin?: string;
           include: BundleItemSelector[];
           selectItems?: boolean;
           dryRun?: boolean;
