@@ -1082,15 +1082,44 @@ describe("run", () => {
     });
 
     // Then
-    expect(output).toContain(
-      "No supported untracked AI tool config was found.",
-    );
+    expect(output).toContain("No files will be adopted.");
     expect(output).toContain("AGENTS.md");
     expect(output).toContain("tracked by Git");
+    expect(output).toContain("Next step:");
     expect(fs.existsSync(path.join(homeDir, ".skul", "registry.json"))).toBe(
       false,
     );
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).not.toBe("S");
+  });
+
+  it("collapses setup symlink findings by path instead of repeating each compatible tool", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# Team policy\n");
+    fs.symlinkSync("CLAUDE.md", path.join(repoRoot, "AGENTS.md"));
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track claude policy"]);
+
+    // When
+    const output = await run(["setup"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub({
+        confirmSetupImport: async () => {
+          throw new Error("setup confirmation should not be requested");
+        },
+      }),
+    });
+
+    // Then
+    expect(output).toContain("AGENTS.md (symlink)");
+    expect(output).not.toContain("codex symlink");
+    expect(output).not.toContain("opencode symlink");
+    expect(output).toContain("symlinks are left untouched");
+    expect(fs.existsSync(path.join(homeDir, ".skul", "registry.json"))).toBe(
+      false,
+    );
   });
 
   it("requires an interactive terminal for guided setup in headless mode", async () => {

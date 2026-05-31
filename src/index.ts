@@ -571,9 +571,27 @@ function collectSetupDirectoryCandidates(options: {
 
 function renderSetupImportPreview(plan: SetupImportPlan): string {
   const lines = [pc.bold("Skul Setup Preview"), ""];
+  const skippedLines = renderSetupSkippedSummary(plan);
 
   if (plan.adoptedFiles.length === 0) {
-    lines.push("No supported untracked AI tool config was found.");
+    lines.push("No files will be adopted.");
+
+    if (skippedLines.length > 0) {
+      lines.push("", "What Skul found:", ...skippedLines);
+      lines.push(
+        "",
+        "Why:",
+        "  Setup adopts only untracked regular files. Tracked files stay under Git ownership, and symlinks are left untouched.",
+      );
+    } else {
+      lines.push("", "No supported project AI config was found.");
+    }
+
+    lines.push(
+      "",
+      "Next step:",
+      '  Use "skul add <source> <bundle>" to layer Skul-managed config into this project.',
+    );
   } else {
     lines.push("Skul found existing untracked config it can adopt:");
     lines.push(...renderSetupToolSummary(plan.adoptedFilesByTool));
@@ -586,14 +604,11 @@ function renderSetupImportPreview(plan: SetupImportPlan): string {
       "",
       "Skul will not rewrite, delete, or overwrite the discovered files.",
     );
-  }
 
-  const skippedLines = renderSetupSkippedSummary(plan);
-  if (skippedLines.length > 0) {
-    lines.push("", "Left unchanged:", ...skippedLines);
-  }
+    if (skippedLines.length > 0) {
+      lines.push("", "Left unchanged:", ...skippedLines);
+    }
 
-  if (plan.adoptedFiles.length > 0) {
     lines.push("", "Files to adopt:");
     for (const file of plan.adoptedFiles) {
       lines.push(`  ${file}`);
@@ -625,13 +640,13 @@ function renderSetupSkippedSummary(plan: SetupImportPlan): string[] {
 
   for (const candidate of plan.skippedTracked) {
     const tools = grouped.get(candidate.repoRelativePath) ?? new Set<string>();
-    tools.add(`${candidate.toolName} tracked by Git`);
+    tools.add("tracked by Git");
     grouped.set(candidate.repoRelativePath, tools);
   }
 
   for (const candidate of plan.skippedSymlinks) {
     const tools = grouped.get(candidate.repoRelativePath) ?? new Set<string>();
-    tools.add(`${candidate.toolName} symlink`);
+    tools.add("symlink");
     grouped.set(candidate.repoRelativePath, tools);
   }
 
