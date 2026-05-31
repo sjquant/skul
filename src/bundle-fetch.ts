@@ -277,25 +277,39 @@ export function removeCachedRemoteSource(
 }
 
 /**
- * Clears the cached clone for a source and re-clones it fresh, reusing the
- * stored origin URL so that test fixtures with local-path remotes continue to
- * work. Used when `add` is run without a ref to guarantee a pristine HEAD copy.
+ * Clears the cached clone for a source and re-clones it fresh at HEAD.
+ *
+ * Clones into a sibling `.tmp` directory first so the existing cache survives
+ * any network or authentication failure — the working copy is only replaced
+ * after the clone succeeds.
+ *
+ * Respects protocol switching: if the stored origin URL uses a different
+ * transport than `options.protocol` (e.g. the cache was SSH but the caller
+ * requests HTTPS), a fresh URL is constructed from the source identifier so the
+ * new protocol takes effect. Local-path remotes used in tests are left as-is
+ * because they don't start with `git@` and therefore match `"https"` by default.
  */
 export function clearAndRefetchCachedRemoteSource(
   options: FetchRemoteSourceOptions,
 ): void {
   const targetDir = getTargetDir(options);
   const revision = readCachedSourceRevision(options);
+  const isStoredSsh = revision.remoteUrl?.startsWith("git@") ?? false;
   const cloneUrl =
-    revision.remoteUrl ?? getCloneUrl(options.source, options.protocol);
+    revision.remoteUrl && isStoredSsh === (options.protocol === "ssh")
+      ? revision.remoteUrl
+      : getCloneUrl(options.source, options.protocol);
 
-  fs.rmSync(targetDir, { recursive: true, force: true });
+  const tempDir = `${targetDir}.tmp`;
+  fs.rmSync(tempDir, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   try {
-    runGit(["clone", "--depth=1", cloneUrl, targetDir]);
-  } catch (error) {
+    runGit(["clone", "--depth=1", cloneUrl, tempDir]);
     fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.renameSync(tempDir, targetDir);
+  } catch (error) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
     throw normalizeGitError(error, `Failed to clone ${cloneUrl}`, {
       source: options.source,
       protocol: options.protocol,
