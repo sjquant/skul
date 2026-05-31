@@ -16,6 +16,7 @@ import {
 } from "./bundle-discovery";
 import {
   type CachedSourceRevision,
+  clearAndRefetchCachedRemoteSource,
   fetchRemoteSource,
   inspectRemoteSource,
   readCachedSourceRevision,
@@ -2064,6 +2065,7 @@ async function selectSourceBundleItemApplyTargets(options: {
     choices,
     selectedValues: selections,
     existingDesiredState: options.existingDesiredState,
+    source: options.source,
   });
 
   if (selections.length === 0 && removeTargets.length === 0) {
@@ -2218,6 +2220,7 @@ function listDeselectedSourceBundleApplyTargets(options: {
   choices: BundleItemApplyChoice[];
   selectedValues: string[];
   existingDesiredState: DesiredBundleEntry[];
+  source: string;
 }): BundleItemApplyRemoveTarget[] {
   const selectedBundleKeys = new Set(
     options.selectedValues.map((value) => {
@@ -2242,6 +2245,9 @@ function listDeselectedSourceBundleApplyTargets(options: {
 
     const bundleChoices = choicesByBundle.get(key);
     if (!bundleChoices) {
+      if (entry.source === options.source) {
+        targets.push({ bundle: entry.bundle, source: entry.source });
+      }
       continue;
     }
 
@@ -2669,12 +2675,20 @@ function refreshBundleSourceForApply(
     return [];
   }
 
-  updateCachedRemoteSource({
-    source: options.source,
-    libraryDir: options.libraryDir,
-    protocol: options.protocol,
-    ref: options.ref,
-  });
+  if (!options.ref && initialRevision.cached) {
+    clearAndRefetchCachedRemoteSource({
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+    });
+  } else {
+    updateCachedRemoteSource({
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+      ref: options.ref,
+    });
+  }
 
   return initialRevision.cached ? [] : [pc.dim(`Cloned ${options.source}`)];
 }
