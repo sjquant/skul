@@ -33,6 +33,10 @@ import {
   normalizeBundleItemSelectors,
 } from "./bundle-items";
 import {
+  MANIFEST_FILE_NAME,
+  resolveCachedBundleLayout,
+} from "./bundle-manifest";
+import {
   type MaterializeBundleResult,
   materializeBundle,
   previewMaterializeBundleWriteTargets,
@@ -355,6 +359,7 @@ async function setupWorktree(options: {
   const materializedState: MaterializedState = {
     bundles: {
       [plan.bundleName]: {
+        source: plan.bundleSource,
         tools: materializedTools,
       },
     },
@@ -366,6 +371,7 @@ async function setupWorktree(options: {
     desired_state: [
       {
         bundle: plan.bundleName,
+        source: plan.bundleSource,
         tools: Object.keys(materializedTools) as ToolName[],
         protocol: "https",
       },
@@ -399,11 +405,12 @@ function planSetupImport(options: {
 }): SetupImportPlan {
   const bundleName = `project-import-${options.repoFingerprint.replace(/^repo_/, "")}`;
   const bundleSource = "local/skul/imports";
-  const bundleDir = path.join(
-    options.libraryDir,
-    ...bundleSource.split("/"),
-    bundleName,
-  );
+  const layout = resolveCachedBundleLayout({
+    libraryDir: options.libraryDir,
+    source: bundleSource,
+    bundle: bundleName,
+  });
+  const bundleDir = layout.bundleDir;
   const adoptedFiles = new Set<string>();
   const adoptedTargetsByTool: Partial<Record<ToolName, Set<ToolTargetName>>> =
     {};
@@ -441,8 +448,15 @@ function planSetupImport(options: {
         }
 
         adoptedFiles.add(candidate.repoRelativePath);
-        addSetupToolTarget(adoptedTargetsByTool, candidate);
-        addSetupToolFile(adoptedFilesByTool, candidate);
+
+        const toolTargets =
+          adoptedTargetsByTool[candidate.toolName] ?? new Set();
+        toolTargets.add(candidate.targetName);
+        adoptedTargetsByTool[candidate.toolName] = toolTargets;
+
+        const toolFiles = adoptedFilesByTool[candidate.toolName] ?? new Set();
+        toolFiles.add(candidate.repoRelativePath);
+        adoptedFilesByTool[candidate.toolName] = toolFiles;
       }
     }
   }
@@ -555,24 +569,6 @@ function collectSetupDirectoryCandidates(options: {
   return candidates;
 }
 
-function addSetupToolTarget(
-  targetsByTool: Partial<Record<ToolName, Set<ToolTargetName>>>,
-  candidate: SetupImportCandidate,
-): void {
-  const targets = targetsByTool[candidate.toolName] ?? new Set();
-  targets.add(candidate.targetName);
-  targetsByTool[candidate.toolName] = targets;
-}
-
-function addSetupToolFile(
-  filesByTool: Partial<Record<ToolName, Set<string>>>,
-  candidate: SetupImportCandidate,
-): void {
-  const files = filesByTool[candidate.toolName] ?? new Set();
-  files.add(candidate.repoRelativePath);
-  filesByTool[candidate.toolName] = files;
-}
-
 function renderSetupImportPreview(plan: SetupImportPlan): string {
   const lines = [pc.bold("Skul Setup Preview"), ""];
 
@@ -651,23 +647,34 @@ function writeSetupImportBundle(options: {
   repoRoot: string;
   plan: SetupImportPlan;
 }): void {
+  const tempBundleDir = `${options.plan.bundleDir}.tmp-${process.pid}-${Date.now()}`;
+
   if (fs.existsSync(options.plan.bundleDir)) {
     throw new Error(
       `Setup import bundle already exists: ${options.plan.bundleSource}/${options.plan.bundleName}`,
     );
   }
 
-  for (const filePath of options.plan.adoptedFiles) {
-    const sourcePath = path.join(options.repoRoot, filePath);
-    const destinationPath = path.join(options.plan.bundleDir, filePath);
-    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
-    fs.copyFileSync(sourcePath, destinationPath);
-  }
+  fs.rmSync(tempBundleDir, { recursive: true, force: true });
 
-  fs.writeFileSync(
-    path.join(options.plan.bundleDir, "manifest.json"),
-    `${JSON.stringify(buildSetupManifest(options.plan), null, 2)}\n`,
-  );
+  try {
+    for (const filePath of options.plan.adoptedFiles) {
+      const sourcePath = path.join(options.repoRoot, filePath);
+      const destinationPath = path.join(tempBundleDir, filePath);
+      fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+      fs.copyFileSync(sourcePath, destinationPath);
+    }
+
+    fs.writeFileSync(
+      path.join(tempBundleDir, MANIFEST_FILE_NAME),
+      `${JSON.stringify(buildSetupManifest(options.plan), null, 2)}\n`,
+    );
+    fs.mkdirSync(path.dirname(options.plan.bundleDir), { recursive: true });
+    fs.renameSync(tempBundleDir, options.plan.bundleDir);
+  } catch (error) {
+    fs.rmSync(tempBundleDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function buildSetupManifest(plan: SetupImportPlan): {
@@ -1602,11 +1609,11 @@ function renderUpdateCheck(options: {
     const materializedBundle =
       worktreeState?.materialized_state.bundles[entry.bundle];
 
-    if (!entry.source) {
+    if (isLocalOnlyDesiredEntry(entry, options.libraryDir)) {
       return {
         bundle: entry.bundle,
         status: "local-only",
-        source: null,
+        source: entry.source ?? null,
         current_commit: null,
         latest_commit: null,
         worktree_commit: materializedBundle?.resolved_commit ?? null,
@@ -1614,8 +1621,9 @@ function renderUpdateCheck(options: {
       };
     }
 
+    const source = requireRemoteDesiredEntrySource(entry);
     const remoteStatus = inspectRemoteSource({
-      source: entry.source,
+      source,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
       ref: entry.ref,
@@ -1671,6 +1679,31 @@ function renderUpdateCheck(options: {
   return lines.join("\n");
 }
 
+function isLocalOnlyDesiredEntry(
+  entry: DesiredBundleEntry,
+  libraryDir: string,
+): boolean {
+  if (!entry.source) {
+    return true;
+  }
+
+  const cachedSource = readCachedSourceRevision({
+    source: entry.source,
+    libraryDir,
+    protocol: entry.protocol,
+  });
+
+  return cachedSource.cached && cachedSource.remoteUrl === undefined;
+}
+
+function requireRemoteDesiredEntrySource(entry: DesiredBundleEntry): string {
+  if (!entry.source) {
+    throw new Error(`Remote-backed bundle ${entry.bundle} is missing a source`);
+  }
+
+  return entry.source;
+}
+
 async function updateBundles(options: {
   cwd: string;
   prompts: PromptClient;
@@ -1695,13 +1728,14 @@ async function updateBundles(options: {
 
   const skippedLocalOnly: string[] = [];
   const updatePlans = entries.flatMap((entry) => {
-    if (!entry.source) {
+    if (isLocalOnlyDesiredEntry(entry, options.libraryDir)) {
       skippedLocalOnly.push(entry.bundle);
       return [];
     }
 
+    const source = requireRemoteDesiredEntrySource(entry);
     const remoteStatus = inspectRemoteSource({
-      source: entry.source,
+      source,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
       ref: entry.ref,

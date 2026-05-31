@@ -966,7 +966,7 @@ describe("run", () => {
       trackedClaudeContent,
     );
     expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).not.toBe("S");
-    expect(desiredEntry.source).toBeUndefined();
+    expect(desiredEntry.source).toBe("local/skul/imports");
     expect(desiredEntry.protocol).toBe("https");
     expect(desiredEntry.tools).toContain("claude-code");
     expect(desiredEntry.tools).toContain("codex");
@@ -1004,6 +1004,31 @@ describe("run", () => {
     expect(excludeContent).toContain("AGENTS.md");
     expect(excludeContent).toContain(".claude/skills/review/SKILL.md");
     expect(excludeContent).not.toContain("CLAUDE.md");
+    await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `${desiredEntry.bundle}: local-only (no remote source to check)`,
+    );
+    await expect(run(["update"], { homeDir, cwd: repoRoot })).resolves.toBe(
+      `No remote-backed bundles to update (${desiredEntry.bundle} is local-only)`,
+    );
+
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    const linkedStatus = JSON.parse(
+      await run(["status", "--json"], { homeDir, cwd: linkedWorktree }),
+    );
+    expect(linkedStatus.suggested_action).toBe("skul apply");
+
+    await expect(
+      run(["apply"], { homeDir, cwd: linkedWorktree }),
+    ).resolves.toBe(`Applied ${desiredEntry.bundle}`);
+    expect(
+      fs.readFileSync(path.join(linkedWorktree, "AGENTS.md"), "utf8"),
+    ).toContain("# Project agents");
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe(skillContent);
   });
 
   it("does not write setup state when the guided setup preview is rejected", async () => {
