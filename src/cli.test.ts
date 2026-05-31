@@ -49,14 +49,14 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(argv)).resolves.toEqual({ kind: "help" });
   });
 
-  it("parses the guided setup command", async () => {
+  it("parses the guided import command", async () => {
     // Given
-    const argv = ["setup"];
+    const argv = ["import"];
 
     // When / Then
     await expect(parseCliArgs(argv)).resolves.toEqual({
       kind: "command",
-      command: "setup",
+      command: "import",
       options: {},
     });
   });
@@ -891,7 +891,7 @@ describe("run", () => {
     expect(output).toContain("skul shadow --refresh");
   });
 
-  it("adopts existing untracked AI config through guided setup without rewriting files", async () => {
+  it("adopts existing untracked AI config through guided import without rewriting files", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -913,14 +913,14 @@ describe("run", () => {
     runGit(repoRoot, ["commit", "-m", "track claude policy"]);
 
     const prompts = createPromptClientStub({
-      confirmSetupImport: async (message) => {
+      confirmImport: async (message) => {
         preview = message;
         return true;
       },
     });
 
     // When
-    const output = await run(["setup"], { homeDir, cwd: repoRoot, prompts });
+    const output = await run(["import"], { homeDir, cwd: repoRoot, prompts });
     const registry = readRegistryFile(
       path.join(homeDir, ".skul", "registry.json"),
     );
@@ -945,9 +945,9 @@ describe("run", () => {
     );
 
     // Then
-    expect(output).toContain("Skul setup complete");
+    expect(output).toContain("Skul import complete");
     expect(output).toContain(`Local bundle: ${desiredEntry.bundle}`);
-    expect(preview).toContain("Skul Setup Preview");
+    expect(preview).toContain("Skul Import Preview");
     expect(preview).toContain("Skul will not rewrite, delete, or overwrite");
     expect(preview).toContain("AGENTS.md");
     expect(preview).toContain(".claude/skills/review/SKILL.md");
@@ -1031,18 +1031,18 @@ describe("run", () => {
     ).toBe(skillContent);
   });
 
-  it("does not write setup state when the guided setup preview is rejected", async () => {
+  it("does not write import state when the guided import preview is rejected", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Project agents\n");
 
     // When
-    const output = await run(["setup"], {
+    const output = await run(["import"], {
       homeDir,
       cwd: repoRoot,
       prompts: createPromptClientStub({
-        confirmSetupImport: async () => false,
+        confirmImport: async () => false,
       }),
     });
     const gitContext = detectGitContext({ cwd: repoRoot })!;
@@ -1062,7 +1062,7 @@ describe("run", () => {
     ).toBe(false);
   });
 
-  it("reports tracked-only setup findings without writing state", async () => {
+  it("reports tracked-only import findings without writing state", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1071,18 +1071,18 @@ describe("run", () => {
     runGit(repoRoot, ["commit", "-m", "track agents"]);
 
     // When
-    const output = await run(["setup"], {
+    const output = await run(["import"], {
       homeDir,
       cwd: repoRoot,
       prompts: createPromptClientStub({
-        confirmSetupImport: async () => {
-          throw new Error("setup confirmation should not be requested");
+        confirmImport: async () => {
+          throw new Error("import confirmation should not be requested");
         },
       }),
     });
 
     // Then
-    expect(output).toContain("No files will be adopted.");
+    expect(output).toContain("No files will be imported.");
     expect(output).toContain("AGENTS.md");
     expect(output).toContain("tracked by Git");
     expect(output).toContain("Next step:");
@@ -1092,7 +1092,7 @@ describe("run", () => {
     expect(readGitIndexFlag(repoRoot, "AGENTS.md")).not.toBe("S");
   });
 
-  it("collapses setup symlink findings by path instead of repeating each compatible tool", async () => {
+  it("collapses import symlink findings by path instead of repeating each compatible tool", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1102,12 +1102,12 @@ describe("run", () => {
     runGit(repoRoot, ["commit", "-m", "track claude policy"]);
 
     // When
-    const output = await run(["setup"], {
+    const output = await run(["import"], {
       homeDir,
       cwd: repoRoot,
       prompts: createPromptClientStub({
-        confirmSetupImport: async () => {
-          throw new Error("setup confirmation should not be requested");
+        confirmImport: async () => {
+          throw new Error("import confirmation should not be requested");
         },
       }),
     });
@@ -1122,7 +1122,7 @@ describe("run", () => {
     );
   });
 
-  it("requires an interactive terminal for guided setup in headless mode", async () => {
+  it("requires an interactive terminal for guided import in headless mode", async () => {
     // Given
     const previousNoTui = process.env["SKUL_NO_TUI"];
     const homeDir = createHomeDir();
@@ -1132,8 +1132,8 @@ describe("run", () => {
 
     try {
       // When / Then
-      await expect(run(["setup"], { homeDir, cwd: repoRoot })).rejects.toThrow(
-        /Setup requires an interactive terminal/,
+      await expect(run(["import"], { homeDir, cwd: repoRoot })).rejects.toThrow(
+        /Import requires an interactive terminal/,
       );
       expect(fs.existsSync(path.join(homeDir, ".skul", "registry.json"))).toBe(
         false,
@@ -9514,7 +9514,7 @@ function createPromptClientStub(
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
-    confirmSetupImport: async () => true,
+    confirmImport: async () => true,
   };
 
   return { ...defaults, ...overrides };

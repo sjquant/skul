@@ -138,7 +138,7 @@ export async function run(
   }
 
   switch (parsed.command) {
-    case "setup":
+    case "import":
       return setupWorktree({
         cwd,
         prompts,
@@ -311,7 +311,7 @@ async function setupWorktree(options: {
   registryFile: string;
   libraryDir: string;
 }): Promise<string> {
-  const gitContext = requireGitContext(options.cwd, "setup");
+  const gitContext = requireGitContext(options.cwd, "import");
   let registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
   const worktreeState = registry.worktrees[gitContext.worktreeId];
@@ -323,10 +323,10 @@ async function setupWorktree(options: {
         Object.keys(worktreeState.shadowed_files).length > 0))
   ) {
     return [
-      pc.bold("Skul Setup"),
+      pc.bold("Skul Import"),
       "",
       "This repository is already configured for Skul.",
-      pc.dim('Run "skul status" to inspect the current setup.'),
+      pc.dim('Run "skul status" to inspect the current Skul state.'),
     ].join("\n");
   }
 
@@ -341,7 +341,7 @@ async function setupWorktree(options: {
     return preview;
   }
 
-  const confirmed = await options.prompts.confirmSetupImport(preview);
+  const confirmed = await options.prompts.confirmImport(preview);
 
   if (!confirmed) {
     return [preview, "", "No changes made."].join("\n");
@@ -390,10 +390,10 @@ async function setupWorktree(options: {
   writeRegistryFile(options.registryFile, registry);
 
   return [
-    pc.green("Skul setup complete"),
+    pc.green("Skul import complete"),
     "",
     `Local bundle: ${plan.bundleName}`,
-    `Adopted files: ${plan.adoptedFiles.length}`,
+    `Imported files: ${plan.adoptedFiles.length}`,
     pc.dim('Run "skul status" to inspect the managed files.'),
   ].join("\n");
 }
@@ -570,18 +570,18 @@ function collectSetupDirectoryCandidates(options: {
 }
 
 function renderSetupImportPreview(plan: SetupImportPlan): string {
-  const lines = [pc.bold("Skul Setup Preview"), ""];
+  const lines = [pc.bold("Skul Import Preview"), ""];
   const skippedLines = renderSetupSkippedSummary(plan);
 
   if (plan.adoptedFiles.length === 0) {
-    lines.push("No files will be adopted.");
+    lines.push("No files will be imported.");
 
     if (skippedLines.length > 0) {
       lines.push("", "What Skul found:", ...skippedLines);
       lines.push(
         "",
         "Why:",
-        "  Setup adopts only untracked regular files. Tracked files stay under Git ownership, and symlinks are left untouched.",
+        "  Import copies only untracked regular files into a local Skul bundle. Tracked files stay under Git ownership, and symlinks are left untouched.",
       );
     } else {
       lines.push("", "No supported project AI config was found.");
@@ -593,7 +593,7 @@ function renderSetupImportPreview(plan: SetupImportPlan): string {
       '  Use "skul add <source> <bundle>" to layer Skul-managed config into this project.',
     );
   } else {
-    lines.push("Skul found existing untracked config it can adopt:");
+    lines.push("Skul found existing untracked config it can import:");
     lines.push(...renderSetupToolSummary(plan.adoptedFilesByTool));
     lines.push(
       "",
@@ -609,7 +609,7 @@ function renderSetupImportPreview(plan: SetupImportPlan): string {
       lines.push("", "Left unchanged:", ...skippedLines);
     }
 
-    lines.push("", "Files to adopt:");
+    lines.push("", "Files to import:");
     for (const file of plan.adoptedFiles) {
       lines.push(`  ${file}`);
     }
@@ -666,7 +666,7 @@ function writeSetupImportBundle(options: {
 
   if (fs.existsSync(options.plan.bundleDir)) {
     throw new Error(
-      `Setup import bundle already exists: ${options.plan.bundleSource}/${options.plan.bundleName}`,
+      `Import bundle already exists: ${options.plan.bundleSource}/${options.plan.bundleName}`,
     );
   }
 
@@ -1195,7 +1195,7 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
     selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
-    confirmSetupImport: promptClient.confirmSetupImport,
+    confirmImport: promptClient.confirmImport,
   };
 }
 
@@ -5301,7 +5301,7 @@ function requireGitContext(
   cwd: string,
   command:
     | "add"
-    | "setup"
+    | "import"
     | "apply"
     | "status"
     | "check"

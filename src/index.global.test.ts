@@ -2304,7 +2304,7 @@ function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
-    confirmSetupImport: async () => true,
+    confirmImport: async () => true,
   };
 
   return { ...defaults, ...overrides };

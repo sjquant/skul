@@ -13,8 +13,8 @@ Including `AGENTS.md` and `CLAUDE.md`: Skul can layer your personal instructions
 ## Quick Start
 
 ```bash
-# First run in an existing project: discover and adopt current AI config
-skul setup
+# First run in an existing project: discover and import current AI config
+skul import
 
 # Fetch from a GitHub registry and materialize a bundle (first use clones the repo)
 skul add github.com/sjquant/ai-bundles react-expert
@@ -48,7 +48,7 @@ skul apply
 
 | Command | Description |
 |---|---|
-| `skul setup` | Guided first-run discovery and adoption of existing project AI config |
+| `skul import` | Guided first-run discovery and import of existing project AI config |
 | `skul add <source> [bundle]` | Fetch (when needed) and materialize a bundle from a source |
 | `skul add <bundle>` | Materialize a uniquely named cached bundle |
 | `skul list` | List cached bundles |
