@@ -1,5 +1,5 @@
 :global(.theme-code-block:hover) .copyButtonCopied {
-  opacity: 1 !important;
+  opacity: 1;
 }
 
 .copyButtonIcons {

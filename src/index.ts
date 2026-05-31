@@ -56,6 +56,7 @@ import {
 import {
   clearGitSkipWorktree,
   inspectRootInstructionShadowTarget,
+  isTrackedGitPath,
   setGitSkipWorktree,
 } from "./git-index";
 import {
@@ -95,7 +96,9 @@ import {
   GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
   globalCapableToolNames,
+  listToolDefinitions,
   type ToolName,
+  type ToolTargetName,
 } from "./tool-mapping";
 
 // Lazily evaluated so that SKUL_NO_TUI set after module load (e.g. in tests) is respected.
@@ -131,6 +134,13 @@ export async function run(
   }
 
   switch (parsed.command) {
+    case "setup":
+      return setupWorktree({
+        cwd,
+        prompts,
+        registryFile: stateLayout.registryFile,
+        libraryDir: stateLayout.libraryDir,
+      });
     case "add":
       if (parsed.options.global) {
         return applyBundleGlobal({
@@ -272,6 +282,451 @@ export async function run(
     default:
       return assertUnreachable(parsed);
   }
+}
+
+interface SetupImportCandidate {
+  repoRelativePath: string;
+  toolName: ToolName;
+  targetName: ToolTargetName;
+}
+
+interface SetupImportPlan {
+  bundleName: string;
+  bundleSource: string;
+  bundleDir: string;
+  adoptedFiles: string[];
+  adoptedTargetsByTool: Partial<Record<ToolName, Set<ToolTargetName>>>;
+  adoptedFilesByTool: Partial<Record<ToolName, Set<string>>>;
+  skippedTracked: SetupImportCandidate[];
+  skippedSymlinks: SetupImportCandidate[];
+}
+
+async function setupWorktree(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+}): Promise<string> {
+  const gitContext = requireGitContext(options.cwd, "setup");
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const repoState = registry.repos[gitContext.repoFingerprint];
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+
+  if (
+    (repoState?.desired_state.length ?? 0) > 0 ||
+    (worktreeState &&
+      (worktreeHasMaterializedBundles(worktreeState.materialized_state) ||
+        Object.keys(worktreeState.shadowed_files).length > 0))
+  ) {
+    return [
+      pc.bold("Skul Setup"),
+      "",
+      "This repository is already configured for Skul.",
+      pc.dim('Run "skul status" to inspect the current setup.'),
+    ].join("\n");
+  }
+
+  const plan = planSetupImport({
+    repoRoot: gitContext.worktreeRoot,
+    repoFingerprint: gitContext.repoFingerprint,
+    libraryDir: options.libraryDir,
+  });
+  const preview = renderSetupImportPreview(plan);
+
+  if (plan.adoptedFiles.length === 0) {
+    return preview;
+  }
+
+  const confirmed = await options.prompts.confirmSetupImport(preview);
+
+  if (!confirmed) {
+    return [preview, "", "No changes made."].join("\n");
+  }
+
+  writeSetupImportBundle({
+    repoRoot: gitContext.worktreeRoot,
+    plan,
+  });
+
+  const materializedTools = buildSetupMaterializedToolStates({
+    repoRoot: gitContext.worktreeRoot,
+    filesByTool: plan.adoptedFilesByTool,
+  });
+  const materializedState: MaterializedState = {
+    bundles: {
+      [plan.bundleName]: {
+        tools: materializedTools,
+      },
+    },
+    exclude_configured: plan.adoptedFiles.length > 0,
+  };
+
+  registry = upsertRepoState(registry, gitContext.repoFingerprint, {
+    repo_root: gitContext.repoRoot,
+    desired_state: [
+      {
+        bundle: plan.bundleName,
+        tools: Object.keys(materializedTools) as ToolName[],
+        protocol: "https",
+      },
+    ],
+  });
+  registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+    repo_fingerprint: gitContext.repoFingerprint,
+    path: gitContext.worktreeRoot,
+    materialized_state: materializedState,
+    shadowed_files: {},
+  });
+  configureSkulExcludeBlock({
+    gitDir: gitContext.gitDir,
+    files: plan.adoptedFiles,
+  });
+  writeRegistryFile(options.registryFile, registry);
+
+  return [
+    pc.green("Skul setup complete"),
+    "",
+    `Local bundle: ${plan.bundleName}`,
+    `Adopted files: ${plan.adoptedFiles.length}`,
+    pc.dim('Run "skul status" to inspect the managed files.'),
+  ].join("\n");
+}
+
+function planSetupImport(options: {
+  repoRoot: string;
+  repoFingerprint: string;
+  libraryDir: string;
+}): SetupImportPlan {
+  const bundleName = `project-import-${options.repoFingerprint.replace(/^repo_/, "")}`;
+  const bundleSource = "local/skul/imports";
+  const bundleDir = path.join(
+    options.libraryDir,
+    ...bundleSource.split("/"),
+    bundleName,
+  );
+  const adoptedFiles = new Set<string>();
+  const adoptedTargetsByTool: Partial<Record<ToolName, Set<ToolTargetName>>> =
+    {};
+  const adoptedFilesByTool: Partial<Record<ToolName, Set<string>>> = {};
+  const skippedTracked: SetupImportCandidate[] = [];
+  const skippedSymlinks: SetupImportCandidate[] = [];
+
+  for (const toolDefinition of listToolDefinitions()) {
+    for (const [targetName, targetDefinition] of Object.entries(
+      toolDefinition.targets,
+    ) as Array<
+      [
+        ToolTargetName,
+        NonNullable<(typeof toolDefinition.targets)[ToolTargetName]>,
+      ]
+    >) {
+      const candidates = collectSetupTargetCandidates({
+        repoRoot: options.repoRoot,
+        toolName: toolDefinition.name,
+        targetName,
+        targetPath: targetDefinition.path,
+        targetKind: targetDefinition.kind,
+        skippedSymlinks,
+      });
+
+      for (const candidate of candidates) {
+        if (
+          isTrackedGitPath({
+            repoRoot: options.repoRoot,
+            filePath: candidate.repoRelativePath,
+          })
+        ) {
+          skippedTracked.push(candidate);
+          continue;
+        }
+
+        adoptedFiles.add(candidate.repoRelativePath);
+        addSetupToolTarget(adoptedTargetsByTool, candidate);
+        addSetupToolFile(adoptedFilesByTool, candidate);
+      }
+    }
+  }
+
+  return {
+    bundleName,
+    bundleSource,
+    bundleDir,
+    adoptedFiles: Array.from(adoptedFiles).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    adoptedTargetsByTool,
+    adoptedFilesByTool,
+    skippedTracked,
+    skippedSymlinks,
+  };
+}
+
+function collectSetupTargetCandidates(options: {
+  repoRoot: string;
+  toolName: ToolName;
+  targetName: ToolTargetName;
+  targetPath: string;
+  targetKind: "directory" | "file";
+  skippedSymlinks: SetupImportCandidate[];
+}): SetupImportCandidate[] {
+  const targetAbsolutePath = path.join(options.repoRoot, options.targetPath);
+  const targetRelativePath = normalizeSetupRepoPath(options.targetPath);
+
+  if (!fs.existsSync(targetAbsolutePath)) {
+    return [];
+  }
+
+  const targetStats = fs.lstatSync(targetAbsolutePath);
+  const targetCandidate = {
+    repoRelativePath: targetRelativePath,
+    toolName: options.toolName,
+    targetName: options.targetName,
+  };
+
+  if (targetStats.isSymbolicLink()) {
+    options.skippedSymlinks.push(targetCandidate);
+    return [];
+  }
+
+  if (options.targetKind === "file") {
+    return targetStats.isFile() ? [targetCandidate] : [];
+  }
+
+  if (!targetStats.isDirectory()) {
+    return [];
+  }
+
+  return collectSetupDirectoryCandidates({
+    rootPath: targetAbsolutePath,
+    currentPath: targetAbsolutePath,
+    repoRelativeRoot: targetRelativePath,
+    toolName: options.toolName,
+    targetName: options.targetName,
+    skippedSymlinks: options.skippedSymlinks,
+  });
+}
+
+function collectSetupDirectoryCandidates(options: {
+  rootPath: string;
+  currentPath: string;
+  repoRelativeRoot: string;
+  toolName: ToolName;
+  targetName: ToolTargetName;
+  skippedSymlinks: SetupImportCandidate[];
+}): SetupImportCandidate[] {
+  const candidates: SetupImportCandidate[] = [];
+
+  for (const entry of fs.readdirSync(options.currentPath, {
+    withFileTypes: true,
+  })) {
+    const absolutePath = path.join(options.currentPath, entry.name);
+    const relativePath = normalizeSetupRepoPath(
+      path.join(
+        options.repoRelativeRoot,
+        path.relative(options.rootPath, absolutePath),
+      ),
+    );
+    const candidate = {
+      repoRelativePath: relativePath,
+      toolName: options.toolName,
+      targetName: options.targetName,
+    };
+
+    if (entry.isSymbolicLink()) {
+      options.skippedSymlinks.push(candidate);
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      candidates.push(
+        ...collectSetupDirectoryCandidates({
+          ...options,
+          currentPath: absolutePath,
+        }),
+      );
+      continue;
+    }
+
+    if (entry.isFile()) {
+      candidates.push(candidate);
+    }
+  }
+
+  return candidates;
+}
+
+function addSetupToolTarget(
+  targetsByTool: Partial<Record<ToolName, Set<ToolTargetName>>>,
+  candidate: SetupImportCandidate,
+): void {
+  const targets = targetsByTool[candidate.toolName] ?? new Set();
+  targets.add(candidate.targetName);
+  targetsByTool[candidate.toolName] = targets;
+}
+
+function addSetupToolFile(
+  filesByTool: Partial<Record<ToolName, Set<string>>>,
+  candidate: SetupImportCandidate,
+): void {
+  const files = filesByTool[candidate.toolName] ?? new Set();
+  files.add(candidate.repoRelativePath);
+  filesByTool[candidate.toolName] = files;
+}
+
+function renderSetupImportPreview(plan: SetupImportPlan): string {
+  const lines = [pc.bold("Skul Setup Preview"), ""];
+
+  if (plan.adoptedFiles.length === 0) {
+    lines.push("No supported untracked AI tool config was found.");
+  } else {
+    lines.push("Skul found existing untracked config it can adopt:");
+    lines.push(...renderSetupToolSummary(plan.adoptedFilesByTool));
+    lines.push(
+      "",
+      "Skul will create:",
+      `  Local bundle: ${plan.bundleName}`,
+      `  Bundle cache: ${plan.bundleSource}/${plan.bundleName}`,
+      `  Managed files: ${plan.adoptedFiles.length}`,
+      "",
+      "Skul will not rewrite, delete, or overwrite the discovered files.",
+    );
+  }
+
+  const skippedLines = renderSetupSkippedSummary(plan);
+  if (skippedLines.length > 0) {
+    lines.push("", "Left unchanged:", ...skippedLines);
+  }
+
+  if (plan.adoptedFiles.length > 0) {
+    lines.push("", "Files to adopt:");
+    for (const file of plan.adoptedFiles) {
+      lines.push(`  ${file}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function renderSetupToolSummary(
+  filesByTool: Partial<Record<ToolName, Set<string>>>,
+): string[] {
+  const lines: string[] = [];
+
+  for (const toolName of Object.keys(filesByTool).sort((left, right) =>
+    left.localeCompare(right),
+  ) as ToolName[]) {
+    const files = Array.from(filesByTool[toolName] ?? []).sort((left, right) =>
+      left.localeCompare(right),
+    );
+    lines.push(`  ${toolName}: ${files.length} file(s)`);
+  }
+
+  return lines;
+}
+
+function renderSetupSkippedSummary(plan: SetupImportPlan): string[] {
+  const grouped = new Map<string, Set<string>>();
+
+  for (const candidate of plan.skippedTracked) {
+    const tools = grouped.get(candidate.repoRelativePath) ?? new Set<string>();
+    tools.add(`${candidate.toolName} tracked by Git`);
+    grouped.set(candidate.repoRelativePath, tools);
+  }
+
+  for (const candidate of plan.skippedSymlinks) {
+    const tools = grouped.get(candidate.repoRelativePath) ?? new Set<string>();
+    tools.add(`${candidate.toolName} symlink`);
+    grouped.set(candidate.repoRelativePath, tools);
+  }
+
+  return Array.from(grouped.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([filePath, reasons]) => {
+      const reasonLabel = Array.from(reasons).sort().join(", ");
+      return `  ${filePath} (${reasonLabel})`;
+    });
+}
+
+function writeSetupImportBundle(options: {
+  repoRoot: string;
+  plan: SetupImportPlan;
+}): void {
+  if (fs.existsSync(options.plan.bundleDir)) {
+    throw new Error(
+      `Setup import bundle already exists: ${options.plan.bundleSource}/${options.plan.bundleName}`,
+    );
+  }
+
+  for (const filePath of options.plan.adoptedFiles) {
+    const sourcePath = path.join(options.repoRoot, filePath);
+    const destinationPath = path.join(options.plan.bundleDir, filePath);
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    fs.copyFileSync(sourcePath, destinationPath);
+  }
+
+  fs.writeFileSync(
+    path.join(options.plan.bundleDir, "manifest.json"),
+    `${JSON.stringify(buildSetupManifest(options.plan), null, 2)}\n`,
+  );
+}
+
+function buildSetupManifest(plan: SetupImportPlan): {
+  name: string;
+  tools: Record<string, Record<string, { path: string }>>;
+} {
+  const tools: Record<string, Record<string, { path: string }>> = {};
+
+  for (const toolDefinition of listToolDefinitions()) {
+    const targetNames = Array.from(
+      plan.adoptedTargetsByTool[toolDefinition.name] ?? [],
+    ).sort((left, right) => left.localeCompare(right));
+
+    if (targetNames.length === 0) {
+      continue;
+    }
+
+    tools[toolDefinition.name] = Object.fromEntries(
+      targetNames.map((targetName) => [
+        targetName,
+        { path: toolDefinition.targets[targetName]!.path },
+      ]),
+    );
+  }
+
+  return {
+    name: plan.bundleName,
+    tools,
+  };
+}
+
+function buildSetupMaterializedToolStates(options: {
+  repoRoot: string;
+  filesByTool: Partial<Record<ToolName, Set<string>>>;
+}): Record<string, MaterializedToolState> {
+  return Object.fromEntries(
+    Object.entries(options.filesByTool)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([toolName, files]) => {
+        const sortedFiles = Array.from(files ?? []).sort((left, right) =>
+          left.localeCompare(right),
+        );
+
+        return [
+          toolName,
+          {
+            files: sortedFiles,
+            file_fingerprints: captureManagedFileFingerprints(
+              options.repoRoot,
+              sortedFiles,
+            ),
+          } satisfies MaterializedToolState,
+        ];
+      }),
+  );
+}
+
+function normalizeSetupRepoPath(filePath: string): string {
+  return filePath.split(path.sep).join("/");
 }
 
 function shadowWorktree(options: {
@@ -718,6 +1173,7 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
     selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
+    confirmSetupImport: promptClient.confirmSetupImport,
   };
 }
 
@@ -4796,6 +5252,7 @@ function requireGitContext(
   cwd: string,
   command:
     | "add"
+    | "setup"
     | "apply"
     | "status"
     | "check"

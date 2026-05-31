@@ -2288,7 +2288,7 @@ function pathExists(targetPath: string): boolean {
 }
 
 function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
-  return {
+  const defaults: PromptClient = {
     selectBundle: async () => {
       throw new Error("selectBundle should not be called in this test");
     },
@@ -2304,6 +2304,8 @@ function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
-    ...overrides,
+    confirmSetupImport: async () => true,
   };
+
+  return { ...defaults, ...overrides };
 }

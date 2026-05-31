@@ -5,7 +5,7 @@ import type { Props } from "@theme/CodeBlock/Buttons/CopyButton";
 import IconCopy from "@theme/Icon/Copy";
 import IconSuccess from "@theme/Icon/Success";
 import clsx from "clsx";
-import React, {
+import {
   type ReactNode,
   useCallback,
   useEffect,

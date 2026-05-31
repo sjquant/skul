@@ -49,6 +49,18 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(argv)).resolves.toEqual({ kind: "help" });
   });
 
+  it("parses the guided setup command", async () => {
+    // Given
+    const argv = ["setup"];
+
+    // When / Then
+    await expect(parseCliArgs(argv)).resolves.toEqual({
+      kind: "command",
+      command: "setup",
+      options: {},
+    });
+  });
+
   it("parses non-mutating commands without arguments", async () => {
     // Given
     const listArgs = ["list"];
@@ -877,6 +889,208 @@ describe("run", () => {
     expect(output).toContain("Usage: skul shadow [options]");
     expect(output).toContain("Lifecycle:");
     expect(output).toContain("skul shadow --refresh");
+  });
+
+  it("adopts existing untracked AI config through guided setup without rewriting files", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const agentsContent = "# Project agents\nUse the repo conventions.\n";
+    const skillContent = "# Review skill\nCheck the public behavior.\n";
+    const trackedClaudeContent = "# Team Claude policy\n";
+    let preview = "";
+
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), agentsContent);
+    fs.mkdirSync(path.join(repoRoot, ".claude", "skills", "review"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoRoot, ".claude", "skills", "review", "SKILL.md"),
+      skillContent,
+    );
+    fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), trackedClaudeContent);
+    runGit(repoRoot, ["add", "CLAUDE.md"]);
+    runGit(repoRoot, ["commit", "-m", "track claude policy"]);
+
+    const prompts = createPromptClientStub({
+      confirmSetupImport: async (message) => {
+        preview = message;
+        return true;
+      },
+    });
+
+    // When
+    const output = await run(["setup"], { homeDir, cwd: repoRoot, prompts });
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    const desiredEntry =
+      registry.repos[gitContext.repoFingerprint]!.desired_state[0]!;
+    const bundleDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      "local",
+      "skul",
+      "imports",
+      desiredEntry.bundle,
+    );
+    const status = JSON.parse(
+      await run(["status", "--json"], { homeDir, cwd: repoRoot }),
+    );
+    const excludeContent = fs.readFileSync(
+      path.join(gitContext.gitDir, "info", "exclude"),
+      "utf8",
+    );
+
+    // Then
+    expect(output).toContain("Skul setup complete");
+    expect(output).toContain(`Local bundle: ${desiredEntry.bundle}`);
+    expect(preview).toContain("Skul Setup Preview");
+    expect(preview).toContain("Skul will not rewrite, delete, or overwrite");
+    expect(preview).toContain("AGENTS.md");
+    expect(preview).toContain(".claude/skills/review/SKILL.md");
+    expect(preview).toContain("CLAUDE.md");
+    expect(preview).toContain("tracked by Git");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      agentsContent,
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe(skillContent);
+    expect(fs.readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(
+      trackedClaudeContent,
+    );
+    expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).not.toBe("S");
+    expect(desiredEntry.source).toBeUndefined();
+    expect(desiredEntry.protocol).toBe("https");
+    expect(desiredEntry.tools).toContain("claude-code");
+    expect(desiredEntry.tools).toContain("codex");
+    expect(fs.readFileSync(path.join(bundleDir, "AGENTS.md"), "utf8")).toBe(
+      agentsContent,
+    );
+    expect(
+      fs.readFileSync(
+        path.join(bundleDir, ".claude", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe(skillContent);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(bundleDir, "manifest.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      name: desiredEntry.bundle,
+      tools: {
+        "claude-code": {
+          skills: { path: ".claude/skills" },
+        },
+        codex: {
+          root_instruction: { path: "AGENTS.md" },
+        },
+      },
+    });
+    expect(status.worktree.materialized).toBe(true);
+    expect(
+      status.worktree.bundles[desiredEntry.bundle].tools["claude-code"].files,
+    ).toContain(".claude/skills/review/SKILL.md");
+    expect(
+      status.worktree.bundles[desiredEntry.bundle].tools.codex.files,
+    ).toContain("AGENTS.md");
+    expect(excludeContent).toContain("AGENTS.md");
+    expect(excludeContent).toContain(".claude/skills/review/SKILL.md");
+    expect(excludeContent).not.toContain("CLAUDE.md");
+  });
+
+  it("does not write setup state when the guided setup preview is rejected", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Project agents\n");
+
+    // When
+    const output = await run(["setup"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub({
+        confirmSetupImport: async () => false,
+      }),
+    });
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+
+    // Then
+    expect(output).toContain("No changes made.");
+    expect(fs.existsSync(path.join(homeDir, ".skul", "registry.json"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(homeDir, ".skul", "library", "local"))).toBe(
+      false,
+    );
+    expect(
+      fs
+        .readFileSync(path.join(gitContext.gitDir, "info", "exclude"), "utf8")
+        .includes("SKUL"),
+    ).toBe(false);
+  });
+
+  it("reports tracked-only setup findings without writing state", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team agents\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track agents"]);
+
+    // When
+    const output = await run(["setup"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub({
+        confirmSetupImport: async () => {
+          throw new Error("setup confirmation should not be requested");
+        },
+      }),
+    });
+
+    // Then
+    expect(output).toContain(
+      "No supported untracked AI tool config was found.",
+    );
+    expect(output).toContain("AGENTS.md");
+    expect(output).toContain("tracked by Git");
+    expect(fs.existsSync(path.join(homeDir, ".skul", "registry.json"))).toBe(
+      false,
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).not.toBe("S");
+  });
+
+  it("requires an interactive terminal for guided setup in headless mode", async () => {
+    // Given
+    const previousNoTui = process.env["SKUL_NO_TUI"];
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Project agents\n");
+    process.env["SKUL_NO_TUI"] = "1";
+
+    try {
+      // When / Then
+      await expect(run(["setup"], { homeDir, cwd: repoRoot })).rejects.toThrow(
+        /Setup requires an interactive terminal/,
+      );
+      expect(fs.existsSync(path.join(homeDir, ".skul", "registry.json"))).toBe(
+        false,
+      );
+    } finally {
+      if (previousNoTui === undefined) {
+        delete process.env["SKUL_NO_TUI"];
+      } else {
+        process.env["SKUL_NO_TUI"] = previousNoTui;
+      }
+    }
   });
 
   it("lists cached bundles from the global library", async () => {
@@ -9231,7 +9445,7 @@ function expectClaudeDocument(repoRoot: string, ...parts: string[]): void {
 function createPromptClientStub(
   overrides: Partial<PromptClient> = {},
 ): PromptClient {
-  return {
+  const defaults: PromptClient = {
     selectBundle: async () => ({ bundle: "react-expert" }),
     selectBundleFromSelections: async (availableBundles) => {
       if (availableBundles.length === 0) {
@@ -9246,8 +9460,10 @@ function createPromptClientStub(
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
-    ...overrides,
+    confirmSetupImport: async () => true,
   };
+
+  return { ...defaults, ...overrides };
 }
 
 function renderBundleListOutput(...lines: string[]): string {

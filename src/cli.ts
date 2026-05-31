@@ -14,6 +14,7 @@ const VALID_TOOL_NAMES = new Set<string>(
 );
 
 export type CommandName =
+  | "setup"
   | "add"
   | "list"
   | "status"
@@ -27,6 +28,7 @@ export type CommandName =
 
 export type CliParseResult =
   | { kind: "help"; command?: CommandName }
+  | { kind: "command"; command: "setup"; options: Record<string, never> }
   | {
       kind: "command";
       command: "list";
@@ -131,9 +133,11 @@ export interface PromptClient {
     conflictPath: string,
     operation: "reset" | "replace" | "remove",
   ): Promise<boolean>;
+  confirmSetupImport(preview: string): Promise<boolean>;
 }
 
 const COMMANDS: CommandName[] = [
+  "setup",
   "add",
   "list",
   "status",
@@ -255,6 +259,11 @@ export function createHeadlessPromptClient(): PromptClient {
     ): Promise<boolean> {
       throw new Error(
         `Modified managed file blocks ${operation} in headless mode: ${conflictPath}\nHint: run 'skul status' to inspect managed files, or run the command interactively to confirm`,
+      );
+    },
+    async confirmSetupImport(): Promise<boolean> {
+      throw new Error(
+        "Setup requires an interactive terminal.\nHint: rerun without SKUL_NO_TUI so Skul can show the preview and ask before writing",
       );
     },
   };
@@ -394,6 +403,19 @@ export function createPromptClientForSelections(
 
       return confirmed;
     },
+    async confirmSetupImport(preview: string): Promise<boolean> {
+      const { confirm, isCancel } = await loadPrompts();
+      const confirmed = await confirm({
+        message: `${preview}\n\nCreate this Skul setup?`,
+        initialValue: false,
+      });
+
+      if (isCancel(confirmed)) {
+        throw new Error("Setup confirmation was cancelled");
+      }
+
+      return confirmed;
+    },
   };
 }
 
@@ -441,6 +463,7 @@ export function createHelpText(command?: CommandName): string {
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
+    confirmSetupImport: async () => true,
   });
   const writeOutput = (chunk: string) => {
     output.push(chunk);
@@ -573,6 +596,19 @@ function createProgram(
       writeErr: () => undefined,
     })
     .exitOverride();
+
+  program
+    .command("setup")
+    .description(
+      "Discover existing project AI config and adopt it into a local Skul bundle",
+    )
+    .action(() => {
+      context.result = {
+        kind: "command",
+        command: "setup",
+        options: {},
+      };
+    });
 
   program
     .command("add")
