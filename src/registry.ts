@@ -34,6 +34,8 @@ export interface DesiredBundleEntry {
   resolved_ref?: string;
   /** Last resolved commit SHA for the desired bundle source. */
   resolved_commit?: string;
+  /** When true, all skills are materialized with disable-model-invocation regardless of source metadata. */
+  disable_model_invocation?: boolean;
 }
 
 export interface MaterializedToolState {

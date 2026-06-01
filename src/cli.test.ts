@@ -744,6 +744,59 @@ describe("parseCliArgs", () => {
     );
   });
 
+  it("parses --disable-model-invocation flag for the add command", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs([
+        "add",
+        "github.com/user/ai-vault",
+        "react-expert",
+        "--disable-model-invocation",
+      ]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        source: "github.com/user/ai-vault",
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+        global: false,
+        disableModelInvocation: true,
+      },
+    });
+
+    await expect(
+      parseCliArgs(["add", "react-expert", "--disable-model-invocation"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: [],
+        dryRun: false,
+        global: false,
+        disableModelInvocation: true,
+      },
+    });
+  });
+
+  it("rejects --select-items combined with --disable-model-invocation", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "--select-items",
+        "--disable-model-invocation",
+      ]),
+    ).rejects.toThrowError(
+      /--select-items and --disable-model-invocation cannot be used together/,
+    );
+  });
+
   it("suggests a close command when an unknown command is typed", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["addd"])).rejects.toThrowError(
