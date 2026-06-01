@@ -783,6 +783,20 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("rejects --select-items combined with --disable-model-invocation", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "--select-items",
+        "--disable-model-invocation",
+      ]),
+    ).rejects.toThrowError(
+      /--select-items and --disable-model-invocation cannot be used together/,
+    );
+  });
+
   it("suggests a close command when an unknown command is typed", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["addd"])).rejects.toThrowError(

@@ -642,6 +642,12 @@ function createProgram(
           );
         }
 
+        if (selectItems && disableModelInvocation) {
+          throw new Error(
+            "--select-items and --disable-model-invocation cannot be used together\nHint: skills not selected in the prompt would remain on disk without the flag, leaving the installation inconsistent",
+          );
+        }
+
         if (source && !bundle) {
           // If the single argument looks like a git source (host/owner/repo), treat the
           // repo slug as the bundle name so `skul add github.com/user/react-bundle` works.
