@@ -2789,8 +2789,8 @@ function buildDesiredEntryForAppliedBundle(options: {
       : existingDesiredEntry?.resolved_commit !== undefined
         ? { resolved_commit: existingDesiredEntry.resolved_commit }
         : {}),
-    ...(options.disableModelInvocation ??
-    existingDesiredEntry?.disable_model_invocation
+    ...((options.disableModelInvocation ??
+    existingDesiredEntry?.disable_model_invocation)
       ? { disable_model_invocation: true }
       : {}),
   };
