@@ -77,6 +77,7 @@ export type CliParseResult =
         ref?: string;
         inferredBundleFromSource?: true;
         global: boolean;
+        disableModelInvocation?: boolean;
       };
     }
   | {
@@ -607,6 +608,10 @@ function createProgram(
     )
     .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
     .option("-g, --global", "Install to global tool config under ~/")
+    .option(
+      "--disable-model-invocation",
+      "Force disable-model-invocation on all skills even when the skill does not set it",
+    )
     .addHelpText("after", ADD_HELP_DETAILS)
     .action(
       async (
@@ -620,6 +625,7 @@ function createProgram(
           dryRun?: boolean;
           ssh?: boolean;
           global?: boolean;
+          disableModelInvocation?: boolean;
         },
       ) => {
         const agents = opts.agent;
@@ -627,6 +633,7 @@ function createProgram(
         const selectItems = opts.selectItems ?? false;
         const dryRun = opts.dryRun ?? false;
         const global = opts.global ?? false;
+        const disableModelInvocation = opts.disableModelInvocation ?? false;
         const ref = resolveRequestedRefSelector(opts);
 
         if (!source && !bundle) {
@@ -658,6 +665,7 @@ function createProgram(
                 ...(ref !== undefined ? { ref } : {}),
                 inferredBundleFromSource: true,
                 global,
+                ...(disableModelInvocation ? { disableModelInvocation } : {}),
               },
             };
           } catch {
@@ -674,6 +682,7 @@ function createProgram(
                 dryRun,
                 ...(ref !== undefined ? { ref } : {}),
                 global,
+                ...(disableModelInvocation ? { disableModelInvocation } : {}),
               },
             };
           }
@@ -699,6 +708,7 @@ function createProgram(
             dryRun,
             ...(ref !== undefined ? { ref } : {}),
             global,
+            ...(disableModelInvocation ? { disableModelInvocation } : {}),
           },
         };
       },

@@ -78,6 +78,7 @@ interface CodexAgentDocument {
 export interface BundleTranslationOptions {
   name?: string;
   description?: string;
+  disableModelInvocation?: boolean;
 }
 
 /** Translates a canonical skill bundle into one target tool's skill file layout. */
@@ -88,7 +89,16 @@ export function translateSkill(options: {
   options?: BundleTranslationOptions;
 }): Record<string, string> {
   const model = parseSkill(options.sourceTool, options.files);
-  return renderSkill(options.targetTool, model, options.options, options.files);
+  const effectiveModel =
+    options.options?.disableModelInvocation && !model.manualOnly
+      ? { ...model, manualOnly: true }
+      : model;
+  return renderSkill(
+    options.targetTool,
+    effectiveModel,
+    options.options,
+    options.files,
+  );
 }
 
 /** Translates a canonical command document into one target tool's command layout. */

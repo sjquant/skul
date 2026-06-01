@@ -48,6 +48,7 @@ export function previewMaterializeBundleWriteTargets(options: {
   tools?: ToolName[];
   itemSelectors?: BundleItemSelector[];
   pathLayout?: ToolMaterializationLayout;
+  disableModelInvocation?: boolean;
 }): string[] {
   const writeTargets = new Set<string>();
   const pathLayout = options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT;
@@ -131,6 +132,7 @@ export function previewMaterializeBundleWriteTargets(options: {
         targetName: targetName as ToolTargetName,
         itemSelectors: options.itemSelectors,
         pathLayout,
+        disableModelInvocation: options.disableModelInvocation,
       })) {
         writeTargets.add(repoRelativePath);
       }
@@ -166,6 +168,7 @@ export async function materializeBundle(options: {
     conflictPath: string,
   ) => Promise<FileConflictResolution>;
   pathLayout?: ToolMaterializationLayout;
+  disableModelInvocation?: boolean;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const writtenSharedFileTargets = new Set<string>();
@@ -291,6 +294,7 @@ export async function materializeBundle(options: {
           resolveFileConflict: options.resolveFileConflict,
           itemSelectors: options.itemSelectors,
           pathLayout,
+          disableModelInvocation: options.disableModelInvocation,
         });
       }
     }
@@ -639,6 +643,7 @@ async function materializeCanonicalTarget(options: {
     | undefined;
   itemSelectors?: BundleItemSelector[];
   pathLayout: ToolMaterializationLayout;
+  disableModelInvocation?: boolean;
 }): Promise<void> {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
@@ -671,6 +676,9 @@ async function materializeCanonicalTarget(options: {
         sourceTool: "claude",
         targetTool: translTool,
         files,
+        options: options.disableModelInvocation
+          ? { disableModelInvocation: true }
+          : undefined,
       });
     } else if (options.targetName === "commands") {
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
@@ -746,6 +754,7 @@ function previewCanonicalTargetWriteTargets(options: {
   targetName: ToolTargetName;
   itemSelectors?: BundleItemSelector[];
   pathLayout: ToolMaterializationLayout;
+  disableModelInvocation?: boolean;
 }): string[] {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
@@ -778,6 +787,9 @@ function previewCanonicalTargetWriteTargets(options: {
         sourceTool: "claude",
         targetTool: translTool,
         files,
+        options: options.disableModelInvocation
+          ? { disableModelInvocation: true }
+          : undefined,
       });
     } else if (options.targetName === "commands") {
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;

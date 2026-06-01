@@ -147,6 +147,7 @@ export async function run(
           dryRun: parsed.options.dryRun,
           ref: parsed.options.ref,
           inferredBundleFromSource: parsed.options.inferredBundleFromSource,
+          disableModelInvocation: parsed.options.disableModelInvocation,
         });
       }
       return applyBundle({
@@ -163,6 +164,7 @@ export async function run(
         dryRun: parsed.options.dryRun,
         ref: parsed.options.ref,
         inferredBundleFromSource: parsed.options.inferredBundleFromSource,
+        disableModelInvocation: parsed.options.disableModelInvocation,
       });
     case "list":
       return renderBundleList({
@@ -1593,6 +1595,7 @@ async function applyBundle(options: {
   inferredBundleFromSource?: true;
   replaceItems?: boolean;
   refreshedSources?: Set<string>;
+  disableModelInvocation?: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -1635,6 +1638,7 @@ async function applyBundle(options: {
       existingDesiredState:
         registryBeforePrepare.repos[gitContext.repoFingerprint]
           ?.desired_state ?? [],
+      disableModelInvocation: options.disableModelInvocation,
     });
   }
 
@@ -1685,6 +1689,7 @@ async function applyBundle(options: {
     manifest: preparedBundle.cachedBundle.manifest,
     tools: preparedBundle.selectedTools,
     itemSelectors: preparedBundle.selectedItems,
+    disableModelInvocation: options.disableModelInvocation,
   });
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -1818,6 +1823,7 @@ async function applyBundle(options: {
       trackedRootInstructionShadowPlan.deferredMaterializationTargets,
     rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
+    disableModelInvocation: options.disableModelInvocation,
   });
   currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
     repoRoot: gitContext.worktreeRoot,
@@ -1968,6 +1974,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
   dryRun: boolean;
   ref?: string;
   existingDesiredState: DesiredBundleEntry[];
+  disableModelInvocation?: boolean;
 }): Promise<string> {
   const refreshedSources = new Set<string>();
   const cloneLines = refreshBundleSourceForApply(
@@ -2022,6 +2029,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
         dryRun: options.dryRun,
         ref: options.ref,
         refreshedSources,
+        disableModelInvocation: options.disableModelInvocation,
       }),
     );
   }
@@ -5135,6 +5143,7 @@ async function applyBundleGlobal(options: {
   inferredBundleFromSource?: true;
   replaceItems?: boolean;
   refreshedSources?: Set<string>;
+  disableModelInvocation?: boolean;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
 
@@ -5173,6 +5182,7 @@ async function applyBundleGlobal(options: {
       dryRun: options.dryRun,
       ref: options.ref,
       existingDesiredState: existingGlobal?.desired_state ?? [],
+      disableModelInvocation: options.disableModelInvocation,
     });
   }
 
@@ -5365,6 +5375,7 @@ async function applyBundleGlobal(options: {
     resolveFileConflict: options.prompts.resolveFileConflict,
     pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
+    disableModelInvocation: options.disableModelInvocation,
   });
 
   const newBundleState = buildMaterializedBundleState({
@@ -5492,6 +5503,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
   dryRun: boolean;
   ref?: string;
   existingDesiredState: DesiredBundleEntry[];
+  disableModelInvocation?: boolean;
 }): Promise<string> {
   const refreshedSources = new Set<string>();
   const cloneLines = refreshBundleSourceForApply(
@@ -5547,6 +5559,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
         dryRun: options.dryRun,
         ref: options.ref,
         refreshedSources,
+        disableModelInvocation: options.disableModelInvocation,
       }),
     );
   }

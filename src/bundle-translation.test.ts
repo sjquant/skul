@@ -1600,6 +1600,60 @@ describe("copilot skill translation", () => {
     });
   });
 
+  it("forces disable-model-invocation on all tools when disableModelInvocation option is set", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "---",
+        "",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translatedClaude = translateSkill({
+      sourceTool: "claude",
+      targetTool: "claude",
+      files,
+      options: { disableModelInvocation: true },
+    });
+    const translatedOpencode = translateSkill({
+      sourceTool: "claude",
+      targetTool: "opencode",
+      files,
+      options: { disableModelInvocation: true },
+    });
+    const translatedCodex = translateSkill({
+      sourceTool: "claude",
+      targetTool: "codex",
+      files,
+      options: { disableModelInvocation: true },
+    });
+
+    // Then
+    expect(translatedClaude).toEqual({
+      ".claude/skills/reviewer/SKILL.md": [
+        "---",
+        "name: reviewer",
+        "description: Review changes for bugs",
+        "disable-model-invocation: true",
+        "---",
+        "Review the current diff for correctness.",
+        "",
+      ].join("\n"),
+    });
+    expect(translatedOpencode).toMatchObject({
+      ".opencode/commands/reviewer.md": expect.any(String),
+    });
+    expect(translatedCodex).toMatchObject({
+      ".agents/skills/reviewer/agents/openai.yaml": expect.any(String),
+    });
+  });
+
   it("accepts installed Copilot skill paths as source input", () => {
     // Given
     const files = {
