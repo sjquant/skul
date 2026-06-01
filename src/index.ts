@@ -1344,6 +1344,7 @@ async function updateBundles(options: {
         manifest: cachedBundle.manifest,
         tools: toolsToRefresh,
         itemSelectors: entry.items,
+        disableModelInvocation: entry.disable_model_invocation,
       });
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
@@ -1455,6 +1456,7 @@ async function updateBundles(options: {
             trackedRootInstructionShadowPlan.deferredMaterializationTargets,
           rootInstructionBaseContents,
           resolveFileConflict: options.prompts.resolveFileConflict,
+          disableModelInvocation: entry.disable_model_invocation,
         });
 
         currentBundles = {
@@ -1852,6 +1854,7 @@ async function applyBundle(options: {
     requestedItems: preparedBundle.selectedItems,
     replaceRequestedItems: preparedBundle.replacesItemSelection,
     sourceRevision: preparedBundle.sourceRevision,
+    disableModelInvocation: options.disableModelInvocation,
   });
   const newDesiredState = [
     ...upsertDesiredEntryPreservingOrder(existingDesiredState, newDesiredEntry),
@@ -2729,6 +2732,7 @@ function buildDesiredEntryForAppliedBundle(options: {
   requestedItems?: BundleItemSelector[];
   replaceRequestedItems?: boolean;
   sourceRevision?: CachedSourceRevision;
+  disableModelInvocation?: boolean;
 }): DesiredBundleEntry {
   const existingDesiredEntry = options.existingDesiredState.find(
     (entry) => entry.bundle === options.cachedBundle.bundle,
@@ -2785,6 +2789,10 @@ function buildDesiredEntryForAppliedBundle(options: {
       : existingDesiredEntry?.resolved_commit !== undefined
         ? { resolved_commit: existingDesiredEntry.resolved_commit }
         : {}),
+    ...(options.disableModelInvocation ??
+    existingDesiredEntry?.disable_model_invocation
+      ? { disable_model_invocation: true }
+      : {}),
   };
 }
 
@@ -5283,6 +5291,7 @@ async function applyBundleGlobal(options: {
     tools: availableGlobalTools,
     pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
+    disableModelInvocation: options.disableModelInvocation,
   });
 
   const plannedRootInstructionTargets = new Set(
@@ -5399,6 +5408,7 @@ async function applyBundleGlobal(options: {
     requestedItems: preparedBundle.selectedItems,
     replaceRequestedItems: preparedBundle.replacesItemSelection,
     sourceRevision: preparedBundle.sourceRevision,
+    disableModelInvocation: options.disableModelInvocation,
   });
 
   const newDesiredState = [
