@@ -6,6 +6,30 @@ description: The shortest path to adding and managing a bundle.
 
 # Quick Start
 
+## Try Skul from a clone
+
+Clone and link the CLI locally:
+
+```bash
+git clone https://github.com/sjquant/skul
+cd skul
+pnpm install
+pnpm run build
+pnpm link --global
+```
+
+Then run Skul from the project where you want to try a bundle:
+
+```bash
+skul add github.com/sjquant/ai-bundles react-expert --agent codex --select-items
+```
+
+The item picker lets you browse available skills, agents, commands, and root instructions, then install only the ones you need. Agents are selected from the same picker as `agents/<name>`.
+
+If you are installing the full skill set and want every skill to stay manual-only, use `--disable-model-invocation`. That flag cannot be combined with `--select-items`.
+
+## Daily workflow
+
 Apply a bundle from GitHub:
 
 ```bash
@@ -42,6 +66,12 @@ Or choose items interactively:
 
 ```bash
 skul add react-expert --agent codex --select-items
+```
+
+Install the full skill set as manual-only:
+
+```bash
+skul add react-expert --agent codex --disable-model-invocation
 ```
 
 Inspect state:

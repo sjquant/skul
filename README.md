@@ -41,6 +41,34 @@ skul apply
 
 ---
 
+## Try Skul With Your Team
+
+Clone and link the CLI locally:
+
+```bash
+git clone https://github.com/sjquant/skul
+cd skul
+pnpm install
+pnpm run build
+pnpm link --global
+```
+
+Then run Skul from the project where you want to try a bundle:
+
+```bash
+# Pick the exact skills, agents, commands, or root instructions to install
+skul add github.com/sjquant/ai-bundles react-expert --agent codex --select-items
+
+# Reopen the same picker later from the cached bundle
+skul add react-expert --agent codex --select-items
+```
+
+The item picker is useful when you want a workflow like `npx skills`: browse the available bundle items and install only the ones you need. Agents are first-class bundle items too, so choose `agents/<name>` in the same picker when you want to bring an agent into the target tool.
+
+When installing a full skill set, add `--disable-model-invocation` to force every materialized skill to stay manual-only even if the source skill did not set that metadata. This flag is intentionally separate from `--select-items`; use the picker for interactive selection, or use repeated `--include` entries when you need a non-interactive subset with forced manual-only skills.
+
+---
+
 ## Commands
 
 | Command | Description |
@@ -70,9 +98,9 @@ skul add [options] [source] [bundle]
 |---|---|
 | `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
 | `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. Persisted in the registry and reused by `skul apply`. |
-| `--pin <commit>` | Pin the bundle to one commit SHA (7–40 hex chars). Mutually exclusive with `--ref`. |
 | `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
 | `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
+| `--disable-model-invocation` | Force `disable-model-invocation` on all materialized skills, keeping them manual-only even when the source skill does not set it. Cannot be combined with `--select-items`. |
 | `-s, --ssh` | Clone the source via SSH instead of HTTPS. `git@host:owner/repo` URLs are auto-detected as SSH. Protocol is persisted and reused by `skul apply`. |
 | `-g, --global` | Install to global tool config under `~/` instead of the current worktree. |
 | `-n, --dry-run` | Preview what would be written without making any changes. |
@@ -83,8 +111,8 @@ skul add [options] [source] [bundle]
 # Track a branch or tag instead of HEAD
 skul add github.com/sjquant/ai-bundles react-expert --ref stable
 
-# Pin to an exact commit
-skul add github.com/sjquant/ai-bundles react-expert --pin 2813b88
+# Track an exact commit
+skul add github.com/sjquant/ai-bundles react-expert --ref 2813b88
 
 # Install only the diagnose skill, for Codex only
 skul add react-expert --agent codex --include skills/diagnose
@@ -94,6 +122,9 @@ skul add react-expert --agent codex --include root-instruction
 
 # Pick items interactively
 skul add react-expert --agent codex --select-items
+
+# Install the full skill set as manual-only
+skul add react-expert --agent codex --disable-model-invocation
 
 # Clone over SSH
 skul add --ssh github.com/sjquant/ai-bundles react-expert
