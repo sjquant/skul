@@ -107,6 +107,17 @@ const pc = new Proxy({} as ReturnType<typeof createColors>, {
   },
 });
 
+type RefreshedSourceUpdate = {
+  updated: boolean;
+  before: SourceItemFingerprints;
+  after: SourceItemFingerprints;
+};
+
+type SourceItemFingerprints = Map<
+  string,
+  Map<ToolName, Map<BundleItemSelector, string>>
+>;
+
 export interface RunOptions {
   homeDir?: string;
   cwd?: string;
@@ -1597,6 +1608,7 @@ async function applyBundle(options: {
   inferredBundleFromSource?: true;
   replaceItems?: boolean;
   refreshedSources?: Set<string>;
+  refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
   disableModelInvocation?: boolean;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
@@ -1660,6 +1672,7 @@ async function applyBundle(options: {
       registryBeforePrepare.repos[gitContext.repoFingerprint]?.desired_state ??
       [],
     refreshedSources: options.refreshedSources,
+    refreshedSourceUpdates: options.refreshedSourceUpdates,
   });
 
   if (options.dryRun) {
@@ -1921,6 +1934,7 @@ async function applyBundle(options: {
         items: preparedBundle.replacesItemSelection
           ? preparedBundle.selectedItems
           : undefined,
+        updated: preparedBundle.sourceUpdated,
       }),
     ),
   ].join("\n");
@@ -1930,11 +1944,13 @@ function formatAppliedBundleMessage(options: {
   bundle: string;
   toolLabel: string;
   items?: BundleItemSelector[];
+  updated?: boolean;
 }): string {
   return formatApplyBundleMessage({
     bundle: options.bundle,
     toolLabel: options.toolLabel,
     items: options.items,
+    updated: options.updated,
     action: "Applied",
   });
 }
@@ -1943,14 +1959,16 @@ function formatApplyBundleMessage(options: {
   bundle: string;
   toolLabel: string;
   items?: BundleItemSelector[];
+  updated?: boolean;
   action?: "Applied";
 }): string {
   const itemLabel =
     options.items !== undefined && options.items.length > 0
       ? `: ${options.items.join(", ")}`
       : "";
+  const updatedLabel = options.updated ? " (Updated)" : "";
 
-  return `${options.action ?? "apply"} ${options.bundle} for ${options.toolLabel}${itemLabel}`;
+  return `${options.action ?? "apply"} ${options.bundle} for ${options.toolLabel}${itemLabel}${updatedLabel}`;
 }
 
 function shouldApplySelectedItemsAcrossSourceBundles(options: {
@@ -1980,6 +1998,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
   disableModelInvocation?: boolean;
 }): Promise<string> {
   const refreshedSources = new Set<string>();
+  const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
   const cloneLines = refreshBundleSourceForApply(
     {
       source: options.source,
@@ -1988,6 +2007,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
       ref: options.ref,
     },
     refreshedSources,
+    refreshedSourceUpdates,
   );
   const selection = await selectSourceBundleItemApplyTargets({
     libraryDir: options.libraryDir,
@@ -1996,6 +2016,10 @@ async function applySelectedItemsAcrossSourceBundles(options: {
     requestedItems: options.includeItems,
     prompts: options.prompts,
     existingDesiredState: options.existingDesiredState,
+    sourceUpdate: getRefreshedSourceUpdate(
+      refreshedSourceUpdates,
+      options.source,
+    ),
   });
   const outputLines: string[] = [];
 
@@ -2032,6 +2056,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
         dryRun: options.dryRun,
         ref: options.ref,
         refreshedSources,
+        refreshedSourceUpdates,
         disableModelInvocation: options.disableModelInvocation,
       }),
     );
@@ -2048,12 +2073,14 @@ async function selectSourceBundleItemApplyTargets(options: {
   prompts: PromptClient;
   existingDesiredState: DesiredBundleEntry[];
   global?: boolean;
+  sourceUpdate?: RefreshedSourceUpdate;
 }): Promise<BundleItemApplySelection> {
   const selectedTools = await selectToolsForSourceBundleItems(options);
   const choices = listSourceBundleItemApplyChoices({
     libraryDir: options.libraryDir,
     source: options.source,
     tools: selectedTools,
+    sourceUpdate: options.sourceUpdate,
   });
 
   if (choices.length === 0) {
@@ -2149,6 +2176,7 @@ function listSourceBundleItemApplyChoices(options: {
   libraryDir: string;
   source: string;
   tools: ToolName[];
+  sourceUpdate?: RefreshedSourceUpdate;
 }): BundleItemApplyChoice[] {
   return listCachedBundles({ libraryDir: options.libraryDir })
     .filter((bundle) => bundle.source === options.source)
@@ -2174,6 +2202,13 @@ function listSourceBundleItemApplyChoices(options: {
           item,
         }),
         label: `${bundle.bundle}: ${item}`,
+        ...(getUpdatedItemsForBundle({
+          sourceUpdate: options.sourceUpdate,
+          bundle: bundle.bundle,
+          tools: bundleTools,
+        }).has(item)
+          ? { hint: "Updated" }
+          : {}),
         source: bundle.source,
         bundle: bundle.bundle,
         item,
@@ -2427,11 +2462,13 @@ async function prepareApplyBundle(options: {
   existingDesiredState: DesiredBundleEntry[];
   preBundlePrompts?: PromptClient;
   refreshedSources?: Set<string>;
+  refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
 }): Promise<{
   cloneLines: string[];
   cachedBundle: CachedBundle;
   bundleSource?: string;
   sourceRevision?: CachedSourceRevision;
+  sourceUpdated: boolean;
   selectedTools?: ToolName[];
   selectedItems?: BundleItemSelector[];
   nextToolNames: ToolName[];
@@ -2440,7 +2477,13 @@ async function prepareApplyBundle(options: {
   replacesItemSelection: boolean;
 }> {
   const refreshedSources = options.refreshedSources ?? new Set<string>();
-  const cloneLines = refreshBundleSourceForApply(options, refreshedSources);
+  const refreshedSourceUpdates =
+    options.refreshedSourceUpdates ?? new Map<string, RefreshedSourceUpdate>();
+  const cloneLines = refreshBundleSourceForApply(
+    options,
+    refreshedSources,
+    refreshedSourceUpdates,
+  );
   let cachedBundle: CachedBundle;
   let bundleSource: string | undefined;
   let selectedToolsBeforeBundle: ToolName[] | undefined;
@@ -2500,6 +2543,7 @@ async function prepareApplyBundle(options: {
           ref: options.ref,
         },
         refreshedSources,
+        refreshedSourceUpdates,
       ),
     );
     cachedBundle = findCachedBundleWithGuidance({
@@ -2537,6 +2581,14 @@ async function prepareApplyBundle(options: {
   const existingDesiredEntry = options.existingDesiredState.find(
     (entry) => entry.bundle === cachedBundle.bundle,
   );
+  const sourceUpdate = bundleSource
+    ? getRefreshedSourceUpdate(refreshedSourceUpdates, bundleSource)
+    : createEmptyRefreshedSourceUpdate();
+  const updatedItems = getUpdatedItemsForBundle({
+    sourceUpdate,
+    bundle: cachedBundle.bundle,
+    tools: nextToolNames,
+  });
   const selectedItems = await resolveSelectedBundleItems({
     bundleDir: path.dirname(cachedBundle.manifestFile),
     manifest: cachedBundle.manifest,
@@ -2546,6 +2598,11 @@ async function prepareApplyBundle(options: {
     replaceItems: options.replaceItems,
     prompts: options.prompts,
     existingItems: existingDesiredEntry?.items,
+    updatedItems,
+  });
+  const sourceUpdated = isSelectedBundleUpdated({
+    updatedItems,
+    selectedItems,
   });
 
   return {
@@ -2553,6 +2610,7 @@ async function prepareApplyBundle(options: {
     cachedBundle,
     bundleSource,
     sourceRevision,
+    sourceUpdated,
     ...(hasToolSelection ? { selectedTools: selectedRequestedTools } : {}),
     ...(selectedItems !== undefined ? { selectedItems } : {}),
     nextToolNames,
@@ -2612,6 +2670,7 @@ async function resolveSelectedBundleItems(options: {
   replaceItems?: boolean;
   prompts: PromptClient;
   existingItems?: BundleItemSelector[];
+  updatedItems?: Set<BundleItemSelector>;
 }): Promise<BundleItemSelector[] | undefined> {
   if (!options.selectItems && options.requestedItems.length === 0) {
     return undefined;
@@ -2634,6 +2693,18 @@ async function resolveSelectedBundleItems(options: {
 
   if (!options.selectItems) {
     return mergedItems;
+  }
+
+  if (options.updatedItems && options.updatedItems.size > 0) {
+    return options.prompts.selectBundleItemChoices(
+      availableItems.map((item) => ({
+        value: item,
+        label: item,
+        ...(options.updatedItems?.has(item) ? { hint: "Updated" } : {}),
+      })),
+      mergedItems ?? [],
+      "install",
+    );
   }
 
   return options.prompts.selectBundleItems(availableItems, mergedItems ?? []);
@@ -2669,8 +2740,13 @@ function refreshBundleSourceForApply(
     ref?: string;
   },
   refreshedSources: Set<string>,
+  refreshedSourceUpdates: Map<string, RefreshedSourceUpdate>,
 ): string[] {
-  if (!options.source || refreshedSources.has(options.source)) {
+  if (!options.source) {
+    return [];
+  }
+
+  if (refreshedSources.has(options.source)) {
     return [];
   }
 
@@ -2681,27 +2757,311 @@ function refreshBundleSourceForApply(
     libraryDir: options.libraryDir,
     protocol: options.protocol,
   });
+  const initialItemFingerprints = initialRevision.cached
+    ? collectSourceItemFingerprints({
+        libraryDir: options.libraryDir,
+        source: options.source,
+      })
+    : new Map();
 
   if (initialRevision.cached && initialRevision.remoteUrl === undefined) {
+    refreshedSourceUpdates.set(
+      options.source,
+      createEmptyRefreshedSourceUpdate(),
+    );
     return [];
   }
 
+  let updated = false;
   if (!options.ref && initialRevision.cached) {
     clearAndRefetchCachedRemoteSource({
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
     });
+    const refreshedRevision = readCachedSourceRevision({
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+    });
+    updated =
+      initialRevision.currentCommit !== undefined &&
+      refreshedRevision.currentCommit !== undefined &&
+      initialRevision.currentCommit !== refreshedRevision.currentCommit;
   } else {
-    updateCachedRemoteSource({
+    const refreshed = updateCachedRemoteSource({
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
     });
+    updated =
+      initialRevision.cached &&
+      refreshed.previousCommit !== undefined &&
+      refreshed.currentCommit !== undefined &&
+      refreshed.previousCommit !== refreshed.currentCommit;
   }
 
+  refreshedSourceUpdates.set(options.source, {
+    updated,
+    before: initialItemFingerprints,
+    after: updated
+      ? collectSourceItemFingerprints({
+          libraryDir: options.libraryDir,
+          source: options.source,
+        })
+      : new Map(),
+  });
+
   return initialRevision.cached ? [] : [pc.dim(`Cloned ${options.source}`)];
+}
+
+function collectSourceItemFingerprints(options: {
+  libraryDir: string;
+  source: string;
+}): SourceItemFingerprints {
+  return new Map(
+    listCachedBundles({ libraryDir: options.libraryDir })
+      .filter((bundle) => bundle.source === options.source)
+      .map((bundle) => [
+        bundle.bundle,
+        collectBundleToolItemFingerprints({
+          bundleDir: path.dirname(bundle.manifestFile),
+          manifest: bundle.manifest,
+        }),
+      ]),
+  );
+}
+
+function collectBundleToolItemFingerprints(options: {
+  bundleDir: string;
+  manifest: CachedBundle["manifest"];
+}): Map<ToolName, Map<BundleItemSelector, string>> {
+  return new Map(
+    (Object.keys(options.manifest.tools) as ToolName[]).map((toolName) => [
+      toolName,
+      collectToolItemFingerprints({
+        bundleDir: options.bundleDir,
+        manifest: options.manifest,
+        toolName,
+      }),
+    ]),
+  );
+}
+
+function collectToolItemFingerprints(options: {
+  bundleDir: string;
+  manifest: CachedBundle["manifest"];
+  toolName: ToolName;
+}): Map<BundleItemSelector, string> {
+  return new Map(
+    listSelectableBundleItems({
+      bundleDir: options.bundleDir,
+      manifest: options.manifest,
+      tools: [options.toolName],
+    }).map((item) => [
+      item,
+      fingerprintBundleItem({
+        bundleDir: options.bundleDir,
+        manifest: options.manifest,
+        tools: [options.toolName],
+        item,
+      }),
+    ]),
+  );
+}
+
+function fingerprintBundleItem(options: {
+  bundleDir: string;
+  manifest: CachedBundle["manifest"];
+  tools: ToolName[];
+  item: BundleItemSelector;
+}): string {
+  const itemPaths = listBundleItemSourcePaths(options);
+  const content = itemPaths
+    .map((itemPath) => {
+      const relativePath = path.relative(options.bundleDir, itemPath);
+      return `${relativePath}\0${fingerprintPath(itemPath)}`;
+    })
+    .join("\0");
+
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function listBundleItemSourcePaths(options: {
+  bundleDir: string;
+  manifest: CachedBundle["manifest"];
+  tools: ToolName[];
+  item: BundleItemSelector;
+}): string[] {
+  const sourcePaths: string[] = [];
+
+  for (const toolName of options.tools) {
+    const targets = options.manifest.tools[toolName];
+    if (!targets) {
+      continue;
+    }
+
+    if (options.item === "root-instruction") {
+      const rootInstructionPath = targets.root_instruction?.path;
+      if (rootInstructionPath) {
+        sourcePaths.push(path.join(options.bundleDir, rootInstructionPath));
+      }
+      continue;
+    }
+
+    const [targetName, itemName] = options.item.split("/");
+    const target = targets[targetName as keyof typeof targets];
+    if (!target || !("path" in target) || !itemName) {
+      continue;
+    }
+
+    sourcePaths.push(
+      ...listDirectoryItemSourcePaths({
+        sourceDir: path.join(options.bundleDir, target.path),
+        targetName,
+        itemName,
+      }),
+    );
+  }
+
+  return Array.from(new Set(sourcePaths)).sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
+function listDirectoryItemSourcePaths(options: {
+  sourceDir: string;
+  targetName: string;
+  itemName: string;
+}): string[] {
+  if (!fs.existsSync(options.sourceDir)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(options.sourceDir, { withFileTypes: true })
+    .filter((entry) => isMatchingBundleItemEntry(entry, options))
+    .map((entry) => path.join(options.sourceDir, entry.name));
+}
+
+function isMatchingBundleItemEntry(
+  entry: fs.Dirent,
+  options: {
+    targetName: string;
+    itemName: string;
+  },
+): boolean {
+  if (options.targetName === "skills" && !entry.isDirectory()) {
+    return false;
+  }
+
+  if (options.targetName !== "skills" && !entry.isFile()) {
+    return false;
+  }
+
+  return stripKnownBundleItemExtension(entry.name) === options.itemName;
+}
+
+function stripKnownBundleItemExtension(value: string): string {
+  if (value.endsWith(".agent.md")) {
+    return value.slice(0, -".agent.md".length);
+  }
+
+  return value.replace(/\.(md|toml|yaml|yml|json)$/i, "");
+}
+
+function fingerprintPath(filePath: string): string {
+  if (!fs.existsSync(filePath)) {
+    return "";
+  }
+
+  const stat = fs.lstatSync(filePath);
+
+  if (stat.isDirectory()) {
+    return fingerprintDirectory(filePath);
+  }
+
+  if (stat.isFile()) {
+    return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  }
+
+  return "";
+}
+
+function fingerprintDirectory(directoryPath: string): string {
+  const entries = fs
+    .readdirSync(directoryPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() || entry.isFile())
+    .map((entry) => {
+      const entryPath = path.join(directoryPath, entry.name);
+      return `${entry.name}\0${fingerprintPath(entryPath)}`;
+    })
+    .sort((left, right) => left.localeCompare(right))
+    .join("\0");
+
+  return createHash("sha256").update(entries).digest("hex");
+}
+
+function getRefreshedSourceUpdate(
+  updates: Map<string, RefreshedSourceUpdate>,
+  source: string,
+): RefreshedSourceUpdate {
+  return updates.get(source) ?? createEmptyRefreshedSourceUpdate();
+}
+
+function createEmptyRefreshedSourceUpdate(): RefreshedSourceUpdate {
+  return { updated: false, before: new Map(), after: new Map() };
+}
+
+function getUpdatedItemsForBundle(options: {
+  sourceUpdate: RefreshedSourceUpdate | undefined;
+  bundle: string;
+  tools: ToolName[];
+}): Set<BundleItemSelector> {
+  const updatedItems = new Set<BundleItemSelector>();
+
+  if (!options.sourceUpdate?.updated) {
+    return updatedItems;
+  }
+
+  for (const toolName of options.tools) {
+    const afterItems = options.sourceUpdate.after
+      .get(options.bundle)
+      ?.get(toolName);
+
+    if (!afterItems) {
+      continue;
+    }
+
+    for (const [item, afterFingerprint] of afterItems) {
+      const beforeFingerprint = options.sourceUpdate.before
+        .get(options.bundle)
+        ?.get(toolName)
+        ?.get(item);
+
+      if (beforeFingerprint !== afterFingerprint) {
+        updatedItems.add(item);
+      }
+    }
+  }
+
+  return updatedItems;
+}
+
+function isSelectedBundleUpdated(options: {
+  updatedItems: Set<BundleItemSelector> | undefined;
+  selectedItems: BundleItemSelector[] | undefined;
+}): boolean {
+  if (!options.updatedItems || options.updatedItems.size === 0) {
+    return false;
+  }
+
+  if (!options.selectedItems) {
+    return true;
+  }
+
+  return options.selectedItems.some((item) => options.updatedItems?.has(item));
 }
 
 function assertBundleSupportsRequestedTools(
@@ -5151,6 +5511,7 @@ async function applyBundleGlobal(options: {
   inferredBundleFromSource?: true;
   replaceItems?: boolean;
   refreshedSources?: Set<string>;
+  refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
   disableModelInvocation?: boolean;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
@@ -5242,6 +5603,7 @@ async function applyBundleGlobal(options: {
     preBundlePrompts: options.prompts,
     inferredBundleFromSource: options.inferredBundleFromSource,
     refreshedSources: options.refreshedSources,
+    refreshedSourceUpdates: options.refreshedSourceUpdates,
   });
 
   const availableGlobalTools = preparedBundle.nextToolNames.filter((t) =>
@@ -5459,6 +5821,7 @@ async function applyBundleGlobal(options: {
         items: preparedBundle.replacesItemSelection
           ? preparedBundle.selectedItems
           : undefined,
+        updated: preparedBundle.sourceUpdated,
       }),
     ),
   ];
@@ -5478,11 +5841,13 @@ function formatAppliedGlobalBundleMessage(options: {
   bundle: string;
   toolLabel: string;
   items?: BundleItemSelector[];
+  updated?: boolean;
 }): string {
   return formatApplyGlobalBundleMessage({
     bundle: options.bundle,
     toolLabel: options.toolLabel,
     items: options.items,
+    updated: options.updated,
     action: "Applied",
   });
 }
@@ -5491,14 +5856,16 @@ function formatApplyGlobalBundleMessage(options: {
   bundle: string;
   toolLabel: string;
   items?: BundleItemSelector[];
+  updated?: boolean;
   action?: "Applied";
 }): string {
   const itemLabel =
     options.items !== undefined && options.items.length > 0
       ? `: ${options.items.join(", ")}`
       : "";
+  const updatedLabel = options.updated ? " (Updated)" : "";
 
-  return `${options.action ?? "apply"} ${options.bundle} globally for ${options.toolLabel}${itemLabel}`;
+  return `${options.action ?? "apply"} ${options.bundle} globally for ${options.toolLabel}${itemLabel}${updatedLabel}`;
 }
 
 async function applySelectedItemsAcrossGlobalSourceBundles(options: {
@@ -5516,6 +5883,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
   disableModelInvocation?: boolean;
 }): Promise<string> {
   const refreshedSources = new Set<string>();
+  const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
   const cloneLines = refreshBundleSourceForApply(
     {
       source: options.source,
@@ -5524,6 +5892,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
       ref: options.ref,
     },
     refreshedSources,
+    refreshedSourceUpdates,
   );
   const selection = await selectSourceBundleItemApplyTargets({
     libraryDir: options.libraryDir,
@@ -5533,6 +5902,10 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
     prompts: options.prompts,
     existingDesiredState: options.existingDesiredState,
     global: true,
+    sourceUpdate: getRefreshedSourceUpdate(
+      refreshedSourceUpdates,
+      options.source,
+    ),
   });
   const outputLines: string[] = [];
 
@@ -5569,6 +5942,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
         dryRun: options.dryRun,
         ref: options.ref,
         refreshedSources,
+        refreshedSourceUpdates,
         disableModelInvocation: options.disableModelInvocation,
       }),
     );
