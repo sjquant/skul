@@ -2855,7 +2855,7 @@ describe("run", () => {
         cwd: repoRoot,
         prompts: createPromptClientStub(),
       }),
-    ).resolves.toBe("Applied react-expert for claude-code");
+    ).resolves.toBe("Applied react-expert for claude-code (Updated)");
 
     // Then
     expect(
@@ -5620,6 +5620,286 @@ describe("run", () => {
     });
     await expect(run(["check"], { homeDir, cwd: repoRoot })).resolves.toBe(
       "react-expert: up-to-date",
+    );
+  });
+
+  it("marks a remote-backed bundle as updated when add refreshes cached content", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# updated react\n",
+      },
+    );
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string }>) =>
+        choices.map((choice) => choice.value),
+    );
+    // When
+    await expect(
+      run(["add", remoteSource.source, remoteSource.bundle, "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundleItemChoices }),
+      }),
+    ).resolves.toBe(
+      "Applied react-expert for claude-code: skills/react (Updated)",
+    );
+
+    // Then
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        {
+          value: "skills/react",
+          label: "skills/react",
+          hint: "Updated",
+        },
+      ],
+      [],
+      "install",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# updated react\n");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    expect(
+      registry.repos[gitContext.repoFingerprint]?.desired_state[0]
+        ?.resolved_commit,
+    ).toBe(updatedCommit);
+  });
+
+  it("marks each source-scoped item add as updated when the remote source refreshes", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/sjquant/ghosts",
+      bundle: "core",
+      manifest: {
+        tools: { codex: { skills: { path: ".agents/skills" } } },
+      },
+      files: {
+        ".agents/skills/wdd/SKILL.md": "# wdd\n",
+      },
+    });
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, "sandbox", {
+      "manifest.json": `${JSON.stringify(
+        {
+          tools: { codex: { skills: { path: ".agents/skills" } } },
+        },
+        null,
+        2,
+      )}\n`,
+      ".agents/skills/audit/SKILL.md": "# audit\n",
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string }>) =>
+        choices.map((choice) => choice.value),
+    );
+
+    // When
+    await expect(
+      run(["add", remoteSource.source, "--select-items"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ selectBundleItemChoices }),
+      }),
+    ).resolves.toBe(
+      "Applied core for codex: skills/wdd\nApplied sandbox for codex: skills/audit (Updated)",
+    );
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "wdd", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# wdd\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "audit", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# audit\n");
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "core: skills/wdd",
+        }),
+        expect.objectContaining({
+          label: "sandbox: skills/audit",
+          hint: "Updated",
+        }),
+      ],
+      [],
+      "install",
+    );
+    expect(selectBundleItemChoices.mock.calls[0]?.[0][0]).not.toHaveProperty(
+      "hint",
+    );
+  });
+
+  it("does not mark selected items as updated when only an unselected tool changed", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        tools: {
+          codex: { skills: { path: ".agents/skills" } },
+          cursor: { skills: { path: ".cursor/skills" } },
+        },
+      },
+      files: {
+        ".agents/skills/react/SKILL.md": "# codex react\n",
+        ".cursor/skills/react/SKILL.md": "# cursor react\n",
+      },
+    });
+    await run(
+      ["add", remoteSource.source, remoteSource.bundle, "--agent", "codex"],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".cursor/skills/react/SKILL.md": "# updated cursor react\n",
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string }>) =>
+        choices.map((choice) => choice.value),
+    );
+    const selectBundleItems = vi.fn(async (items: string[]) => items);
+
+    // When
+    await expect(
+      run(
+        [
+          "add",
+          remoteSource.source,
+          remoteSource.bundle,
+          "--agent",
+          "codex",
+          "--select-items",
+        ],
+        {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub({
+            selectBundleItems,
+            selectBundleItemChoices,
+          }),
+        },
+      ),
+    ).resolves.toBe("Applied react-expert for codex: skills/react");
+
+    // Then
+    expect(selectBundleItemChoices).not.toHaveBeenCalled();
+    expect(selectBundleItems).toHaveBeenCalledWith(["skills/react"], []);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# codex react\n");
+  });
+
+  it("marks changed items during global remote-backed item selection", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/sjquant/ghosts",
+      bundle: "core",
+      manifest: {
+        tools: { codex: { skills: { path: "skills" } } },
+      },
+      files: {
+        "skills/gotchas/SKILL.md":
+          "---\nname: gotchas\ndescription: Gotchas\n---\n# gotchas\n",
+        "skills/interview/SKILL.md":
+          "---\nname: interview\ndescription: Interview\n---\n# interview\n",
+        "skills/wdd/SKILL.md": "---\nname: wdd\ndescription: WDD\n---\n# wdd\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle, "--global"], {
+      homeDir,
+      prompts: createPromptClientStub(),
+    });
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      "skills/gotchas/SKILL.md":
+        "---\nname: gotchas\ndescription: Gotchas\n---\n# updated gotchas\n",
+      "skills/interview/SKILL.md":
+        "---\nname: interview\ndescription: Interview\n---\n# updated interview\n",
+    });
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string }>) =>
+        choices.map((choice) => choice.value),
+    );
+
+    // When
+    await expect(
+      run(
+        [
+          "add",
+          remoteSource.source,
+          remoteSource.bundle,
+          "--global",
+          "--select-items",
+        ],
+        {
+          homeDir,
+          prompts: createPromptClientStub({ selectBundleItemChoices }),
+        },
+      ),
+    ).resolves.toBe(
+      "Applied core globally for codex: skills/gotchas, skills/interview, skills/wdd (Updated)",
+    );
+
+    // Then
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "skills/gotchas",
+          hint: "Updated",
+        }),
+        expect.objectContaining({
+          label: "skills/interview",
+          hint: "Updated",
+        }),
+        expect.objectContaining({
+          label: "skills/wdd",
+        }),
+      ],
+      [],
+      "install",
+    );
+    expect(selectBundleItemChoices.mock.calls[0]?.[0][2]).not.toHaveProperty(
+      "hint",
     );
   });
 

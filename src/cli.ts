@@ -105,6 +105,7 @@ export interface BundleSelection {
 export interface BundleItemChoice {
   value: string;
   label: string;
+  hint?: string;
 }
 
 export interface PromptClient {
