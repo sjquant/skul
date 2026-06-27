@@ -1,5 +1,5 @@
 {
-  "name": "skul",
+  "name": "@solaqua/skul",
   "version": "0.1.0",
   "description": "AI configuration layer manager for project-scoped bundles (project setup only)",
   "homepage": "https://sjquant.github.io/skul/",
@@ -15,6 +15,9 @@
   "bin": {
     "skul": "bin/skul.js"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "bin",
     "dist",
@@ -22,7 +25,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm run clean && tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
     "docs:build": "pnpm install --dir website --frozen-lockfile && pnpm --dir website build",
     "docs:start": "pnpm install --dir website --frozen-lockfile && pnpm --dir website start",
     "docs:typecheck": "pnpm install --dir website --frozen-lockfile && pnpm --dir website typecheck",
@@ -36,7 +40,8 @@
     "format:check": "biome format .",
     "check": "biome check --write .",
     "check:ci": "biome check .",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "prepack": "pnpm run build"
   },
   "keywords": [
     "cli",

@@ -233,13 +233,19 @@ For tracked shadow lifecycle (`shadow --suspend`/`--refresh`, `sync`), safety li
 ## Installation
 
 ```bash
+npm install --global @solaqua/skul
+```
+
+**Requirements:** Node.js >=20, git
+
+### Local development install
+
+```bash
 git clone https://github.com/sjquant/skul
 cd skul
 pnpm install && pnpm run build
 pnpm link --global
 ```
-
-**Requirements:** Node.js >=20, pnpm
 
 ---
 

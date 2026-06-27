@@ -97,7 +97,7 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_NAME="$(node -p "encodeURIComponent(require('./package.json').name)")"
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://registry.npmjs.org/${PACKAGE_NAME}/${VERSION}")
           if [[ "$HTTP_STATUS" == "200" ]]; then
             echo "result=true" >> "$GITHUB_OUTPUT"
@@ -118,7 +118,7 @@ jobs:
 
       - name: Smoke-test build
         if: steps.published.outputs.result != 'true'
-        run: node bin/skul.js --version
+        run: node bin/skul.js --help
 
       - name: Resolve npm dist-tag
         if: steps.published.outputs.result != 'true'
