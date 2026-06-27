@@ -142,14 +142,45 @@ export async function run(
   }
 
   switch (parsed.command) {
-    case "add":
+    case "add": {
+      const addPrompts = parsed.options.yes
+        ? createYesPromptClient(prompts, { selectAllAgents: true })
+        : prompts;
+
+      if (parsed.options.all) {
+        const addSource = parsed.options.source;
+        if (addSource === undefined) {
+          throw new Error("Command add --all requires a source");
+        }
+
+        return applyAllBundles({
+          cwd,
+          homeDir: options.homeDir ?? os.homedir(),
+          prompts: addPrompts,
+          registryFile: stateLayout.registryFile,
+          libraryDir: stateLayout.libraryDir,
+          source: addSource,
+          protocol: parsed.options.protocol,
+          agents: parsed.options.agents,
+          dryRun: parsed.options.dryRun,
+          ref: parsed.options.ref,
+          global: parsed.options.global,
+          disableModelInvocation: parsed.options.disableModelInvocation,
+        });
+      }
+
+      const addBundle = parsed.options.bundle;
+      if (addBundle === undefined) {
+        throw new Error("Command add requires a bundle name");
+      }
+
       if (parsed.options.global) {
         return applyBundleGlobal({
           homeDir: options.homeDir ?? os.homedir(),
-          prompts,
+          prompts: addPrompts,
           registryFile: stateLayout.registryFile,
           libraryDir: stateLayout.libraryDir,
-          bundle: parsed.options.bundle,
+          bundle: addBundle,
           source: parsed.options.source,
           protocol: parsed.options.protocol,
           agents: parsed.options.agents,
@@ -163,10 +194,10 @@ export async function run(
       }
       return applyBundle({
         cwd,
-        prompts,
+        prompts: addPrompts,
         registryFile: stateLayout.registryFile,
         libraryDir: stateLayout.libraryDir,
-        bundle: parsed.options.bundle,
+        bundle: addBundle,
         source: parsed.options.source,
         protocol: parsed.options.protocol,
         agents: parsed.options.agents,
@@ -177,6 +208,7 @@ export async function run(
         inferredBundleFromSource: parsed.options.inferredBundleFromSource,
         disableModelInvocation: parsed.options.disableModelInvocation,
       });
+    }
     case "list":
       return renderBundleList({
         libraryDir: stateLayout.libraryDir,
@@ -206,7 +238,7 @@ export async function run(
     case "update":
       return updateBundles({
         cwd,
-        prompts,
+        prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
         registryFile: stateLayout.registryFile,
         libraryDir: stateLayout.libraryDir,
         bundle: parsed.options.bundle,
@@ -227,22 +259,49 @@ export async function run(
       if (parsed.options.global) {
         return resetGlobal({
           homeDir: options.homeDir ?? os.homedir(),
-          prompts,
+          prompts: parsed.options.yes
+            ? createYesPromptClient(prompts)
+            : prompts,
           registryFile: stateLayout.registryFile,
           dryRun: parsed.options.dryRun,
         });
       }
       return resetWorktree({
         cwd,
-        prompts,
+        prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
         registryFile: stateLayout.registryFile,
         dryRun: parsed.options.dryRun,
       });
     case "remove":
+      if (parsed.options.all) {
+        const removePrompts = parsed.options.yes
+          ? createYesPromptClient(prompts)
+          : prompts;
+        return parsed.options.global
+          ? removeAllGlobalBundles({
+              homeDir: options.homeDir ?? os.homedir(),
+              prompts: removePrompts,
+              registryFile: stateLayout.registryFile,
+              libraryDir: stateLayout.libraryDir,
+              source: parsed.options.source,
+              dryRun: parsed.options.dryRun,
+            })
+          : removeAllWorktreeBundles({
+              cwd,
+              prompts: removePrompts,
+              registryFile: stateLayout.registryFile,
+              libraryDir: stateLayout.libraryDir,
+              source: parsed.options.source,
+              dryRun: parsed.options.dryRun,
+            });
+      }
+
       if (parsed.options.global) {
         return removeGlobalBundle({
           homeDir: options.homeDir ?? os.homedir(),
-          prompts,
+          prompts: parsed.options.yes
+            ? createYesPromptClient(prompts)
+            : prompts,
           registryFile: stateLayout.registryFile,
           libraryDir: stateLayout.libraryDir,
           bundle: parsed.options.bundle,
@@ -255,7 +314,7 @@ export async function run(
       }
       return removeBundle({
         cwd,
-        prompts,
+        prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
         registryFile: stateLayout.registryFile,
         libraryDir: stateLayout.libraryDir,
         bundle: parsed.options.bundle,
@@ -269,7 +328,9 @@ export async function run(
       if (parsed.options.global) {
         return applyGlobal({
           homeDir: options.homeDir ?? os.homedir(),
-          prompts,
+          prompts: parsed.options.yes
+            ? createYesPromptClient(prompts)
+            : prompts,
           registryFile: stateLayout.registryFile,
           libraryDir: stateLayout.libraryDir,
           dryRun: parsed.options.dryRun,
@@ -277,7 +338,7 @@ export async function run(
       }
       return applyWorktree({
         cwd,
-        prompts,
+        prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
         registryFile: stateLayout.registryFile,
         libraryDir: stateLayout.libraryDir,
         dryRun: parsed.options.dryRun,
@@ -285,6 +346,703 @@ export async function run(
     default:
       return assertUnreachable(parsed);
   }
+}
+
+function createYesPromptClient(
+  prompts: PromptClient,
+  options: { selectAllAgents?: boolean } = {},
+): PromptClient {
+  return {
+    ...prompts,
+    ...(options.selectAllAgents
+      ? {
+          selectAgents: async (availableAgents: ToolName[]) => availableAgents,
+        }
+      : {}),
+    resolveFileConflict: async () => ({ action: "overwrite" }),
+    confirmManagedFileRemoval: async () => true,
+  };
+}
+
+async function applyAllBundles(options: {
+  cwd: string;
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  source: string;
+  protocol: "https" | "ssh";
+  agents: ToolName[];
+  dryRun: boolean;
+  ref?: string;
+  global: boolean;
+  disableModelInvocation?: boolean;
+}): Promise<string> {
+  if (options.dryRun) {
+    const { cached } = readCachedSourceRevision({
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+    });
+    if (!cached) {
+      return [
+        pc.dim(`(would clone ${options.source})`),
+        `${pc.yellow("DRY RUN:")} Would apply all bundles from ${options.source}`,
+      ].join("\n");
+    }
+
+    return renderAllApplyDryRun({
+      libraryDir: options.libraryDir,
+      source: options.source,
+      agents: options.agents,
+      global: options.global,
+    });
+  }
+
+  const refreshedSources = new Set<string>();
+  const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
+  const cloneLines = refreshBundleSourceForApply(
+    {
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+      ref: options.ref,
+    },
+    refreshedSources,
+    refreshedSourceUpdates,
+  );
+  const bundles = listAllApplyBundles({
+    libraryDir: options.libraryDir,
+    source: options.source,
+    agents: options.agents,
+    global: options.global,
+  });
+
+  if (bundles.length === 0) {
+    const agentLabel =
+      options.agents.length > 0
+        ? ` supporting ${options.agents.join(", ")}`
+        : "";
+    throw new Error(`No bundles found for ${options.source}${agentLabel}`);
+  }
+
+  const outputLines: string[] = [];
+  for (const bundle of bundles) {
+    outputLines.push(
+      options.global
+        ? await applyBundleGlobal({
+            homeDir: options.homeDir,
+            prompts: options.prompts,
+            registryFile: options.registryFile,
+            libraryDir: options.libraryDir,
+            bundle: bundle.bundle,
+            source: bundle.source,
+            protocol: options.protocol,
+            agents: options.agents,
+            includeItems: [],
+            selectItems: false,
+            dryRun: options.dryRun,
+            ref: options.ref,
+            refreshedSources,
+            refreshedSourceUpdates,
+            disableModelInvocation: options.disableModelInvocation,
+          })
+        : await applyBundle({
+            cwd: options.cwd,
+            prompts: options.prompts,
+            registryFile: options.registryFile,
+            libraryDir: options.libraryDir,
+            bundle: bundle.bundle,
+            source: bundle.source,
+            protocol: options.protocol,
+            agents: options.agents,
+            includeItems: [],
+            selectItems: false,
+            dryRun: options.dryRun,
+            ref: options.ref,
+            refreshedSources,
+            refreshedSourceUpdates,
+            disableModelInvocation: options.disableModelInvocation,
+          }),
+    );
+  }
+
+  return [...cloneLines, ...outputLines].filter(Boolean).join("\n");
+}
+
+function renderAllApplyDryRun(options: {
+  libraryDir: string;
+  source: string;
+  agents: ToolName[];
+  global: boolean;
+}): string {
+  const bundles = listAllApplyBundles(options);
+
+  if (bundles.length === 0) {
+    const agentLabel =
+      options.agents.length > 0
+        ? ` supporting ${options.agents.join(", ")}`
+        : "";
+    throw new Error(`No bundles found for ${options.source}${agentLabel}`);
+  }
+
+  return bundles
+    .map((bundle) => {
+      const toolLabel = formatAllApplyDryRunToolLabel({
+        bundle,
+        agents: options.agents,
+        global: options.global,
+      });
+      const message = options.global
+        ? formatApplyGlobalBundleMessage({
+            bundle: bundle.bundle,
+            toolLabel,
+          })
+        : formatApplyBundleMessage({
+            bundle: bundle.bundle,
+            toolLabel,
+          });
+
+      return `${pc.yellow("DRY RUN:")} Would ${message}`;
+    })
+    .join("\n");
+}
+
+function formatAllApplyDryRunToolLabel(options: {
+  bundle: CachedBundle;
+  agents: ToolName[];
+  global: boolean;
+}): string {
+  if (options.agents.length > 0) {
+    return options.agents.join(", ");
+  }
+
+  const bundleTools = Object.keys(options.bundle.manifest.tools) as ToolName[];
+  const toolNames = options.global
+    ? bundleTools.filter((toolName) =>
+        globalCapableToolNames().includes(toolName),
+      )
+    : bundleTools;
+
+  return toolNames.join(", ");
+}
+
+function listAllApplyBundles(options: {
+  libraryDir: string;
+  source: string;
+  agents: ToolName[];
+  global: boolean;
+}): CachedBundle[] {
+  const globalTools = globalCapableToolNames();
+
+  if (
+    options.global &&
+    options.agents.some((toolName) => !globalTools.includes(toolName))
+  ) {
+    throw new Error(
+      `Global mode only supports: ${globalTools.join(", ")}. Unsupported: ${options.agents.filter((toolName) => !globalTools.includes(toolName)).join(", ")}`,
+    );
+  }
+
+  return listCachedBundles({ libraryDir: options.libraryDir })
+    .filter((bundle) =>
+      isBundleSelectionCandidate({
+        bundle,
+        source: options.source,
+        requestedTools: options.agents,
+      }),
+    )
+    .filter(
+      (bundle) =>
+        !options.global ||
+        Object.keys(bundle.manifest.tools).some((toolName) =>
+          globalTools.includes(toolName as ToolName),
+        ),
+    )
+    .sort((left, right) =>
+      compareBundleSelections(
+        { bundle: left.bundle, source: left.source },
+        { bundle: right.bundle, source: right.source },
+      ),
+    );
+}
+
+async function removeAllWorktreeBundles(options: {
+  cwd: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  source?: string;
+  dryRun: boolean;
+}): Promise<string> {
+  const gitContext = requireGitContext(options.cwd, "remove");
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const repoState = registry.repos[gitContext.repoFingerprint];
+  const selections = listActiveRemoveBundleSelections({
+    repoState,
+    worktreeState: registry.worktrees[gitContext.worktreeId],
+    source: options.source,
+  });
+
+  if (selections.length === 0) {
+    throw new Error(
+      options.source
+        ? `No active bundles found for ${options.source}. Run "skul add ${options.source} <bundle>" to add one first`
+        : 'No active bundles found. Run "skul add <bundle>" to add one first',
+    );
+  }
+
+  if (options.dryRun) {
+    return selections
+      .map((selection) =>
+        renderWorktreeRemoveDryRun({
+          selection,
+          worktreeState: registry.worktrees[gitContext.worktreeId],
+        }),
+      )
+      .join("\n");
+  }
+
+  const worktreeState = registry.worktrees[gitContext.worktreeId];
+  const selectionKeys = new Set(selections.map(encodeBundleIdentity));
+  const materializedTargets = Object.entries(
+    worktreeState?.materialized_state.bundles ?? {},
+  ).filter(([bundle, bundleState]) =>
+    selectionKeys.has(
+      encodeBundleIdentity({
+        bundle,
+        ...(bundleState.source !== undefined
+          ? { source: bundleState.source }
+          : {}),
+      }),
+    ),
+  );
+  const shadowedFilePaths = Object.entries(worktreeState?.shadowed_files ?? {})
+    .filter(([, shadowedFile]) =>
+      selections.some((selection) => selection.bundle === shadowedFile.bundle),
+    )
+    .map(([filePath]) => filePath);
+  const removedBundlePaths = mergeManagedRemovalPaths(
+    materializedTargets.map(([, bundleState]) =>
+      flattenBundleState(bundleState),
+    ),
+  );
+  const removedRootInstructionPaths = new Set(
+    removedBundlePaths.files.filter((filePath) =>
+      isRootInstructionPath(filePath),
+    ),
+  );
+  const remainingBundles = {
+    ...(worktreeState?.materialized_state.bundles ?? {}),
+  };
+
+  for (const [bundle] of materializedTargets) {
+    delete remainingBundles[bundle];
+  }
+
+  const remainingDesiredState =
+    repoState?.desired_state.filter(
+      (entry) => !selectionKeys.has(encodeBundleIdentity(entry)),
+    ) ?? [];
+  const rewrittenRootInstructionPaths = new Set(
+    Array.from(collectManagedRootInstructionTargets(remainingBundles)).filter(
+      (filePath) => removedRootInstructionPaths.has(filePath),
+    ),
+  );
+
+  assertManagedRootInstructionSyncSourcesCached({
+    desiredState: remainingDesiredState,
+    materializedBundles: remainingBundles,
+    targetPaths: rewrittenRootInstructionPaths,
+    resolveCachedBundle: (entry) =>
+      resolveDesiredCachedBundle(options.libraryDir, entry),
+  });
+
+  if (removedBundlePaths.files.length > 0 || shadowedFilePaths.length > 0) {
+    const removeAllowed = await confirmManagedFileRemovals(
+      gitContext.worktreeRoot,
+      removedBundlePaths,
+      options.prompts,
+      "remove",
+    );
+
+    if (!removeAllowed) {
+      throw new Error(
+        "Removal aborted because a modified managed file was kept",
+      );
+    }
+  }
+
+  let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
+  currentShadowedFiles = retireTrackedRootInstructionShadows({
+    repoRoot: gitContext.worktreeRoot,
+    shadowedFiles: currentShadowedFiles,
+    filePaths: shadowedFilePaths,
+  });
+
+  if (Object.keys(remainingBundles).length > 0) {
+    assertTrackedRootInstructionShadowSafetyForPaths({
+      repoRoot: gitContext.worktreeRoot,
+      operation: "refresh",
+      filePaths: Array.from(rewrittenRootInstructionPaths),
+    });
+  }
+
+  removeManagedPaths(gitContext.worktreeRoot, removedBundlePaths);
+  const rootInstructionBaseContents =
+    worktreeState?.materialized_state.root_instruction_base_contents;
+  const remainingRootInstructionTargets =
+    collectManagedRootInstructionTargets(remainingBundles);
+  const restoredRootInstructionPaths = new Set(
+    Array.from(removedRootInstructionPaths).filter(
+      (filePath) => !remainingRootInstructionTargets.has(filePath),
+    ),
+  );
+  restoreRootInstructionBaseContents({
+    repoRoot: gitContext.worktreeRoot,
+    baseContents: rootInstructionBaseContents,
+    targetPaths: restoredRootInstructionPaths,
+  });
+  const nextRootInstructionBaseContents = rootInstructionBaseContents
+    ? Object.fromEntries(
+        Object.entries(rootInstructionBaseContents).filter(
+          ([filePath]) => !restoredRootInstructionPaths.has(filePath),
+        ),
+      )
+    : undefined;
+
+  if (Object.keys(remainingBundles).length > 0) {
+    const syncedRootInstructionPaths = syncManagedRootInstructionFiles({
+      repoRoot: gitContext.worktreeRoot,
+      desiredState: remainingDesiredState,
+      materializedBundles: remainingBundles,
+      rootInstructionBaseContents: nextRootInstructionBaseContents,
+      targetPaths: rewrittenRootInstructionPaths,
+      resolveCachedBundle: (entry) =>
+        resolveDesiredCachedBundle(options.libraryDir, entry),
+    });
+    const refreshedRemainingBundles = refreshManagedFileFingerprintsForPaths(
+      gitContext.worktreeRoot,
+      remainingBundles,
+      syncedRootInstructionPaths,
+    );
+    const newMatState: MaterializedState = {
+      bundles: refreshedRemainingBundles,
+      exclude_configured: false,
+      ...(nextRootInstructionBaseContents !== undefined &&
+      Object.keys(nextRootInstructionBaseContents).length > 0
+        ? { root_instruction_base_contents: nextRootInstructionBaseContents }
+        : {}),
+    };
+    const managedFiles = collectAllFiles(newMatState);
+    newMatState.exclude_configured = managedFiles.length > 0;
+
+    if (managedFiles.length > 0) {
+      configureSkulExcludeBlock({
+        gitDir: gitContext.gitDir,
+        files: managedFiles,
+      });
+    } else {
+      removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+    }
+
+    registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+      repo_fingerprint: gitContext.repoFingerprint,
+      path: gitContext.worktreeRoot,
+      materialized_state: newMatState,
+      shadowed_files: currentShadowedFiles,
+    });
+  } else {
+    removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+    if (Object.keys(currentShadowedFiles).length > 0) {
+      registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+        repo_fingerprint: gitContext.repoFingerprint,
+        path: gitContext.worktreeRoot,
+        materialized_state: {
+          bundles: {},
+          exclude_configured: false,
+        },
+        shadowed_files: currentShadowedFiles,
+      });
+    } else {
+      registry = removeWorktreeState(registry, gitContext.worktreeId);
+    }
+  }
+
+  if (repoState) {
+    registry = upsertRepoState(registry, gitContext.repoFingerprint, {
+      ...repoState,
+      repo_root: gitContext.repoRoot,
+      desired_state: remainingDesiredState,
+    });
+  }
+
+  writeRegistryFile(options.registryFile, registry);
+
+  return selections
+    .map((selection) => `Removed ${selection.bundle}`)
+    .join("\n");
+}
+
+function renderWorktreeRemoveDryRun(options: {
+  selection: BundleSelection;
+  worktreeState?: WorktreeState;
+}): string {
+  const bundleMaterializedState = findMaterializedBundleState({
+    worktreeState: options.worktreeState,
+    bundle: options.selection.bundle,
+    source: options.selection.source,
+  });
+  const shadowedFilesForBundle = Object.entries(
+    options.worktreeState?.shadowed_files ?? {},
+  ).filter(
+    ([, shadowedFile]) => shadowedFile.bundle === options.selection.bundle,
+  );
+
+  return renderRemoveDryRun({
+    bundle: options.selection.bundle,
+    prefix: "",
+    materializedState: bundleMaterializedState,
+    extraFiles: shadowedFilesForBundle.map(([filePath]) => filePath),
+    desiredStateLabel: "desired state",
+  });
+}
+
+type ManagedRemovalState = {
+  files: string[];
+  file_fingerprints?: Record<string, string>;
+  directories?: string[];
+};
+
+function mergeManagedRemovalPaths(
+  states: ManagedRemovalState[],
+): ManagedRemovalState {
+  return {
+    files: Array.from(new Set(states.flatMap((state) => state.files))),
+    file_fingerprints: Object.assign(
+      {},
+      ...states.map((state) => state.file_fingerprints ?? {}),
+    ),
+    directories: Array.from(
+      new Set(states.flatMap((state) => state.directories ?? [])),
+    ),
+  };
+}
+
+async function removeAllGlobalBundles(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  source?: string;
+  dryRun: boolean;
+}): Promise<string> {
+  let registry = readRegistryWithGuidance(options.registryFile);
+  const selections = listActiveGlobalRemoveBundleSelections({
+    globalState: registry.global,
+    source: options.source,
+  });
+
+  if (selections.length === 0) {
+    throw new Error(
+      options.source
+        ? `No active global bundles found for ${options.source}. Run "skul add --global ${options.source} <bundle>" to add one first`
+        : 'No active global bundles found. Run "skul add --global <bundle>" to add one first',
+    );
+  }
+
+  if (options.dryRun) {
+    return selections
+      .map((selection) =>
+        renderGlobalRemoveDryRun({
+          selection,
+          globalState: registry.global,
+        }),
+      )
+      .join("\n");
+  }
+
+  const globalState = registry.global;
+  const selectionKeys = new Set(selections.map(encodeBundleIdentity));
+  const materializedTargets = Object.entries(
+    globalState?.materialized_state.bundles ?? {},
+  ).filter(([bundle, bundleState]) =>
+    selectionKeys.has(
+      encodeBundleIdentity({
+        bundle,
+        ...(bundleState.source !== undefined
+          ? { source: bundleState.source }
+          : {}),
+      }),
+    ),
+  );
+  const removedBundlePaths = mergeManagedRemovalPaths(
+    materializedTargets.map(([, bundleState]) =>
+      flattenBundleState(bundleState),
+    ),
+  );
+  const removedRootInstructionPaths = new Set(
+    removedBundlePaths.files.filter((filePath) =>
+      isRootInstructionPath(filePath),
+    ),
+  );
+  const remainingBundles = {
+    ...(globalState?.materialized_state.bundles ?? {}),
+  };
+
+  for (const [bundle] of materializedTargets) {
+    delete remainingBundles[bundle];
+  }
+
+  const remainingDesiredState =
+    globalState?.desired_state.filter(
+      (entry) => !selectionKeys.has(encodeBundleIdentity(entry)),
+    ) ?? [];
+  const rewrittenRootInstructionPaths = new Set(
+    Array.from(collectManagedRootInstructionTargets(remainingBundles)).filter(
+      (filePath) => removedRootInstructionPaths.has(filePath),
+    ),
+  );
+
+  assertManagedRootInstructionSyncSourcesCached({
+    desiredState: remainingDesiredState,
+    materializedBundles: remainingBundles,
+    targetPaths: rewrittenRootInstructionPaths,
+    resolveCachedBundle: (entry) =>
+      resolveDesiredCachedBundle(options.libraryDir, entry),
+  });
+
+  if (removedBundlePaths.files.length > 0) {
+    const removeAllowed = await confirmManagedFileRemovals(
+      options.homeDir,
+      removedBundlePaths,
+      options.prompts,
+      "remove",
+    );
+    if (!removeAllowed) {
+      throw new Error(
+        "Removal aborted because a modified managed file was kept",
+      );
+    }
+  }
+
+  removeManagedPaths(options.homeDir, removedBundlePaths);
+
+  const rootInstructionBaseContents =
+    globalState?.materialized_state.root_instruction_base_contents;
+  const remainingRootInstructionTargets =
+    collectManagedRootInstructionTargets(remainingBundles);
+  const restoredRootInstructionPaths = new Set(
+    Array.from(removedRootInstructionPaths).filter(
+      (filePath) => !remainingRootInstructionTargets.has(filePath),
+    ),
+  );
+  restoreRootInstructionBaseContents({
+    repoRoot: options.homeDir,
+    baseContents: rootInstructionBaseContents,
+    targetPaths: restoredRootInstructionPaths,
+  });
+  const nextRootInstructionBaseContents = rootInstructionBaseContents
+    ? Object.fromEntries(
+        Object.entries(rootInstructionBaseContents).filter(
+          ([filePath]) => !restoredRootInstructionPaths.has(filePath),
+        ),
+      )
+    : undefined;
+
+  if (
+    Object.keys(remainingBundles).length > 0 ||
+    remainingDesiredState.length > 0
+  ) {
+    if (Object.keys(remainingBundles).length > 0) {
+      const syncedRootInstructionPaths = syncManagedRootInstructionFiles({
+        repoRoot: options.homeDir,
+        desiredState: remainingDesiredState,
+        materializedBundles: remainingBundles,
+        rootInstructionBaseContents: nextRootInstructionBaseContents,
+        targetPaths: rewrittenRootInstructionPaths,
+        resolveCachedBundle: (entry) =>
+          resolveDesiredCachedBundle(options.libraryDir, entry),
+        repoRelPathRemapper:
+          GLOBAL_TOOL_MATERIALIZATION_LAYOUT.remapRepoRelPath,
+      });
+      const refreshedBundles = refreshManagedFileFingerprintsForPaths(
+        options.homeDir,
+        remainingBundles,
+        syncedRootInstructionPaths,
+      );
+      registry = upsertGlobalState(registry, {
+        desired_state: remainingDesiredState,
+        materialized_state: {
+          bundles: refreshedBundles,
+          ...(nextRootInstructionBaseContents !== undefined &&
+          Object.keys(nextRootInstructionBaseContents).length > 0
+            ? {
+                root_instruction_base_contents: nextRootInstructionBaseContents,
+              }
+            : {}),
+        },
+      });
+    } else {
+      registry = upsertGlobalState(registry, {
+        desired_state: remainingDesiredState,
+        materialized_state: { bundles: {} },
+      });
+    }
+  } else {
+    registry = { ...registry, global: undefined };
+  }
+
+  writeRegistryFile(options.registryFile, registry);
+
+  return selections
+    .map((selection) => `Removed global ${selection.bundle}`)
+    .join("\n");
+}
+
+function renderGlobalRemoveDryRun(options: {
+  selection: BundleSelection;
+  globalState?: GlobalState;
+}): string {
+  const bundleMaterializedState = findGlobalMaterializedBundleState({
+    globalState: options.globalState,
+    bundle: options.selection.bundle,
+    source: options.selection.source,
+  });
+
+  return renderRemoveDryRun({
+    bundle: options.selection.bundle,
+    prefix: "global ",
+    materializedState: bundleMaterializedState,
+    extraFiles: [],
+    desiredStateLabel: "global desired state",
+  });
+}
+
+function renderRemoveDryRun(options: {
+  bundle: string;
+  prefix: string;
+  materializedState?: MaterializedBundleState;
+  extraFiles: string[];
+  desiredStateLabel: string;
+}): string {
+  if (options.materializedState || options.extraFiles.length > 0) {
+    const materializedFiles = options.materializedState
+      ? flattenBundleState(options.materializedState).files
+      : [];
+    const files = [...materializedFiles, ...options.extraFiles];
+    const lines = [
+      `${pc.yellow("DRY RUN:")} Would remove ${options.prefix}${options.bundle} (${files.length} file(s))`,
+    ];
+
+    for (const file of files) {
+      lines.push(`  ${file}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  return `${pc.yellow("DRY RUN:")} Would remove ${options.bundle} from ${options.desiredStateLabel}`;
 }
 
 function shadowWorktree(options: {

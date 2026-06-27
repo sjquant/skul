@@ -52,13 +52,17 @@ skul add [options] [source] [bundle]
 | `--pin <commit>` | Pin the bundle to one commit SHA (7–40 hex chars). Mutually exclusive with `--ref`. |
 | `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
 | `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
+| `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
 | `-s, --ssh` | Clone the source via SSH instead of HTTPS. `git@host:owner/repo` URLs are auto-detected as SSH. Protocol is persisted and reused by `skul apply`. |
 | `-g, --global` | Install to global tool config under `~/` instead of the current worktree. |
+| `-y, --yes` | Install without interactive confirmation prompts. Selects all available agents and auto-approves overwrite/replacement confirmations. Also available on `remove`, `apply`, `update`, and `reset` for confirmation prompts. |
 | `-n, --dry-run` | Preview what would be written without making any changes. |
 
 ## Other flags
 
 - Mutating commands accept `--dry-run`.
+- `skul add <source> --all` installs every bundle from a source, and `skul remove --all` removes every active bundle.
+- `skul add`, `skul remove`, `skul apply`, `skul update`, and `skul reset` accept `-y, --yes` to auto-approve overwrite/removal confirmations.
 - `skul list`, `skul status`, and `skul check` accept `--json`.
 
 ## Protocol behavior
