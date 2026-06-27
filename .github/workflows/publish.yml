@@ -1,0 +1,153 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish (e.g. 1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run check:ci
+
+      - name: Type check
+        run: pnpm run typecheck
+
+      - name: Test with coverage
+        run: pnpm run test:coverage
+
+      - name: Build package
+        run: pnpm build
+
+  publish:
+    if: |
+      always() && (
+        github.event_name == 'workflow_dispatch' ||
+        needs.test.result == 'success'
+      )
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Resolve version and tag
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            EXPECTED="${INPUT_VERSION#v}"
+            if [[ "$VERSION" != "$EXPECTED" ]]; then
+              echo "Error: package.json version ($VERSION) does not match input ($EXPECTED)" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether version is already published on npm
+        id: published
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          PACKAGE_NAME="$(node -p "encodeURIComponent(require('./package.json').name)")"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://registry.npmjs.org/${PACKAGE_NAME}/${VERSION}")
+          if [[ "$HTTP_STATUS" == "200" ]]; then
+            echo "result=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$HTTP_STATUS" == "404" ]]; then
+            echo "result=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Error: unexpected registry response $HTTP_STATUS" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        if: steps.published.outputs.result != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        if: steps.published.outputs.result != 'true'
+        run: pnpm build
+
+      - name: Smoke-test build
+        if: steps.published.outputs.result != 'true'
+        run: node bin/skul.js --help
+
+      - name: Resolve npm dist-tag
+        if: steps.published.outputs.result != 'true'
+        id: npm_tag
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if [[ "$VERSION" == *-* ]]; then
+            TAG="${VERSION#*-}"
+            TAG="${TAG%%.*}"
+          else
+            TAG="latest"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        if: steps.published.outputs.result != 'true'
+        env:
+          NPM_DIST_TAG: ${{ steps.npm_tag.outputs.tag }}
+        run: npm publish --ignore-scripts --provenance --tag "$NPM_DIST_TAG"
+
+      - name: Create GitHub release
+        if: steps.published.outputs.result != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+          gh release create "$RELEASE_TAG" \
+            --title "$RELEASE_TAG" \
+            --generate-notes \
+            --target "$(git rev-parse HEAD)"
