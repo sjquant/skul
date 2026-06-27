@@ -469,8 +469,10 @@ function parseYamlMap(source: string): MetadataMap {
     lastKey?: string;
     lastKeyIndent?: number;
   }> = [{ indent: -1, map: root }];
+  const lines = source.split("\n");
 
-  for (const rawLine of source.split("\n")) {
+  for (let index = 0; index < lines.length; index++) {
+    const rawLine = lines[index];
     if (rawLine.trim() === "") {
       continue;
     }
@@ -520,6 +522,32 @@ function parseYamlMap(source: string): MetadataMap {
     const frame = stack.at(-1)!;
     frame.lastKey = key;
     frame.lastKeyIndent = indent;
+
+    if (rawValue === ">") {
+      const foldedLines: string[] = [];
+      let contentIndent: number | undefined;
+
+      for (index++; index < lines.length; index++) {
+        const foldedLine = lines[index];
+
+        if (foldedLine.trim() === "") {
+          continue;
+        }
+
+        const foldedIndent = foldedLine.length - foldedLine.trimStart().length;
+
+        if (foldedIndent <= indent) {
+          break;
+        }
+
+        contentIndent ??= foldedIndent;
+        foldedLines.push(foldedLine.slice(contentIndent).trimEnd());
+      }
+
+      frame.map[key] = foldedLines.join(" ");
+      index--;
+      continue;
+    }
 
     if (rawValue === "") {
       const child: MetadataMap = {};

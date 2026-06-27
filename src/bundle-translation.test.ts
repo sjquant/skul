@@ -1893,6 +1893,42 @@ describe("YAML frontmatter parser", () => {
     });
   });
 
+  it("parses folded multiline scalar values in frontmatter", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: >",
+        "  Handle the next queued task",
+        "  across tools",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".cursor/skills/my-skill/SKILL.md": [
+        "---",
+        "name: my-skill",
+        "description: Handle the next queued task across tools",
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    });
+  });
+
   it("throws when SKILL.md has an unclosed frontmatter block", () => {
     const files = {
       "SKILL.md": "---\nname: broken\ndescription: Missing close marker\n",
