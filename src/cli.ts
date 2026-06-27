@@ -45,7 +45,7 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "update";
-      options: { bundle?: string; dryRun: boolean };
+      options: { bundle?: string; dryRun: boolean; yes?: boolean };
     }
   | {
       kind: "command";
@@ -56,18 +56,18 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "apply";
-      options: { dryRun: boolean; global: boolean };
+      options: { dryRun: boolean; global: boolean; yes?: boolean };
     }
   | {
       kind: "command";
       command: "reset";
-      options: { dryRun: boolean; global: boolean };
+      options: { dryRun: boolean; global: boolean; yes?: boolean };
     }
   | {
       kind: "command";
       command: "add";
       options: {
-        bundle: string;
+        bundle?: string;
         source?: string;
         protocol: "https" | "ssh";
         agents: ToolName[];
@@ -78,6 +78,8 @@ export type CliParseResult =
         inferredBundleFromSource?: true;
         global: boolean;
         disableModelInvocation?: boolean;
+        yes?: boolean;
+        all?: boolean;
       };
     }
   | {
@@ -91,6 +93,8 @@ export type CliParseResult =
         dryRun: boolean;
         inferredBundleFromSource?: true;
         global: boolean;
+        yes?: boolean;
+        all?: boolean;
       };
     };
 
@@ -603,12 +607,14 @@ function createProgram(
       "--select-items",
       "Choose bundle items interactively before installing",
     )
+    .option("--all", "Install every bundle from the source")
     .option(
       "-n, --dry-run",
       "Preview what would be written without making any changes",
     )
     .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
     .option("-g, --global", "Install to global tool config under ~/")
+    .option("-y, --yes", "Install without interactive confirmation prompts")
     .option(
       "--disable-model-invocation",
       "Force disable-model-invocation on all skills even when the skill does not set it",
@@ -623,19 +629,69 @@ function createProgram(
           ref?: string;
           include: BundleItemSelector[];
           selectItems?: boolean;
+          all?: boolean;
           dryRun?: boolean;
           ssh?: boolean;
           global?: boolean;
+          yes?: boolean;
           disableModelInvocation?: boolean;
         },
       ) => {
         const agents = opts.agent;
         const includeItems = opts.include;
         const selectItems = opts.selectItems ?? false;
+        const all = opts.all ?? false;
         const dryRun = opts.dryRun ?? false;
         const global = opts.global ?? false;
+        const yes = opts.yes ?? false;
         const disableModelInvocation = opts.disableModelInvocation ?? false;
         const ref = resolveRequestedRefSelector(opts);
+
+        if (all) {
+          if (!source) {
+            throw new Error(
+              "Command add --all requires a source\nHint: run 'skul add <source> --all' to install every bundle from that source",
+            );
+          }
+
+          if (bundle) {
+            throw new Error(
+              "Command add --all does not accept a bundle name\nHint: run 'skul add <source> --all' to install every bundle from that source",
+            );
+          }
+
+          if (selectItems) {
+            throw new Error(
+              "--all and --select-items cannot be used together\nHint: use 'skul add <source> --select-items' to choose items across bundles",
+            );
+          }
+
+          if (includeItems.length > 0) {
+            throw new Error(
+              "--all and --include cannot be used together\nHint: omit --all to install selected bundle items",
+            );
+          }
+
+          const detectedProtocol = opts.ssh
+            ? "ssh"
+            : detectSourceProtocol(source);
+          context.result = {
+            kind: "command",
+            command: "add",
+            options: {
+              source: normalizeBundleSource(source),
+              protocol: detectedProtocol,
+              agents,
+              dryRun,
+              ...(ref !== undefined ? { ref } : {}),
+              global,
+              ...(yes ? { yes } : {}),
+              ...(disableModelInvocation ? { disableModelInvocation } : {}),
+              all: true,
+            },
+          };
+          return;
+        }
 
         if (!source && !bundle) {
           throw new Error(
@@ -672,6 +728,7 @@ function createProgram(
                 ...(ref !== undefined ? { ref } : {}),
                 inferredBundleFromSource: true,
                 global,
+                ...(yes ? { yes } : {}),
                 ...(disableModelInvocation ? { disableModelInvocation } : {}),
               },
             };
@@ -689,6 +746,7 @@ function createProgram(
                 dryRun,
                 ...(ref !== undefined ? { ref } : {}),
                 global,
+                ...(yes ? { yes } : {}),
                 ...(disableModelInvocation ? { disableModelInvocation } : {}),
               },
             };
@@ -715,6 +773,7 @@ function createProgram(
             dryRun,
             ...(ref !== undefined ? { ref } : {}),
             global,
+            ...(yes ? { yes } : {}),
             ...(disableModelInvocation ? { disableModelInvocation } : {}),
           },
         };
@@ -778,16 +837,23 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be updated without making any changes",
     )
-    .action((bundle: string | undefined, opts: { dryRun?: boolean }) => {
-      context.result = {
-        kind: "command",
-        command: "update",
-        options: {
-          ...(bundle !== undefined ? { bundle } : {}),
-          dryRun: opts.dryRun ?? false,
-        },
-      };
-    });
+    .option("-y, --yes", "Run without interactive confirmation prompts")
+    .action(
+      (
+        bundle: string | undefined,
+        opts: { dryRun?: boolean; yes?: boolean },
+      ) => {
+        context.result = {
+          kind: "command",
+          command: "update",
+          options: {
+            ...(bundle !== undefined ? { bundle } : {}),
+            dryRun: opts.dryRun ?? false,
+            ...(opts.yes ? { yes: true } : {}),
+          },
+        };
+      },
+    );
 
   const shadowCommand = program
     .command("shadow")
@@ -835,11 +901,16 @@ function createProgram(
       "Preview what would be written without making any changes",
     )
     .option("-g, --global", "Apply global desired-state bundles")
-    .action((opts: { dryRun?: boolean; global?: boolean }) => {
+    .option("-y, --yes", "Run without interactive confirmation prompts")
+    .action((opts: { dryRun?: boolean; global?: boolean; yes?: boolean }) => {
       context.result = {
         kind: "command",
         command: "apply",
-        options: { dryRun: opts.dryRun ?? false, global: opts.global ?? false },
+        options: {
+          dryRun: opts.dryRun ?? false,
+          global: opts.global ?? false,
+          ...(opts.yes ? { yes: true } : {}),
+        },
       };
     });
 
@@ -853,11 +924,16 @@ function createProgram(
       "Preview what would be deleted without removing any files",
     )
     .option("-g, --global", "Reset globally managed tool config")
-    .action((opts: { dryRun?: boolean; global?: boolean }) => {
+    .option("-y, --yes", "Run without interactive confirmation prompts")
+    .action((opts: { dryRun?: boolean; global?: boolean; yes?: boolean }) => {
       context.result = {
         kind: "command",
         command: "reset",
-        options: { dryRun: opts.dryRun ?? false, global: opts.global ?? false },
+        options: {
+          dryRun: opts.dryRun ?? false,
+          global: opts.global ?? false,
+          ...(opts.yes ? { yes: true } : {}),
+        },
       };
     });
 
@@ -878,11 +954,13 @@ function createProgram(
       "--select-items",
       "Choose bundle items interactively before removing",
     )
+    .option("--all", "Remove every active bundle")
     .option(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
     .option("-g, --global", "Remove from globally managed tool config")
+    .option("-y, --yes", "Run without interactive confirmation prompts")
     .action(
       (
         source: string | undefined,
@@ -890,14 +968,46 @@ function createProgram(
         opts: {
           include: BundleItemSelector[];
           selectItems?: boolean;
+          all?: boolean;
           dryRun?: boolean;
           global?: boolean;
+          yes?: boolean;
         },
       ) => {
         const includeItems = opts.include;
         const selectItems = opts.selectItems ?? false;
+        const all = opts.all ?? false;
         const dryRun = opts.dryRun ?? false;
         const global = opts.global ?? false;
+
+        if (all) {
+          if (bundle) {
+            throw new Error(
+              "Command remove --all does not accept a bundle name\nHint: run 'skul remove --all' or 'skul remove <source> --all'",
+            );
+          }
+
+          if (selectItems || includeItems.length > 0) {
+            throw new Error(
+              "--all cannot be combined with item selection flags\nHint: omit --all to remove selected bundle items",
+            );
+          }
+
+          context.result = {
+            kind: "command",
+            command: "remove",
+            options: {
+              ...(source !== undefined
+                ? { source: normalizeBundleSource(source) }
+                : {}),
+              dryRun,
+              global,
+              ...(opts.yes ? { yes: true } : {}),
+              all: true,
+            },
+          };
+          return;
+        }
 
         if (!source && !bundle) {
           if (selectItems || includeItems.length > 0) {
@@ -909,6 +1019,7 @@ function createProgram(
                 ...(selectItems ? { selectItems } : {}),
                 dryRun,
                 global,
+                ...(opts.yes ? { yes: true } : {}),
               },
             };
             return;
@@ -934,6 +1045,7 @@ function createProgram(
                 dryRun,
                 inferredBundleFromSource: true,
                 global,
+                ...(opts.yes ? { yes: true } : {}),
               },
             };
           } catch {
@@ -946,6 +1058,7 @@ function createProgram(
                 ...(selectItems ? { selectItems } : {}),
                 dryRun,
                 global,
+                ...(opts.yes ? { yes: true } : {}),
               },
             };
           }
@@ -962,6 +1075,7 @@ function createProgram(
             ...(selectItems ? { selectItems } : {}),
             dryRun,
             global,
+            ...(opts.yes ? { yes: true } : {}),
           },
         };
       },

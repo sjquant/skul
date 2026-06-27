@@ -255,6 +255,237 @@ describe("run --global", () => {
     expect(registry.global).toBeUndefined();
   });
 
+  it("removes every global bundle when remove global uses all", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+    await run(["add", "--global", "repo-standards"], { homeDir });
+
+    // When
+    await expect(
+      run(["remove", "--global", "--all"], {
+        homeDir,
+        prompts: createPromptStub(),
+      }),
+    ).resolves.toBe(
+      "Removed global react-expert\nRemoved global repo-standards",
+    );
+
+    // Then
+    expect(
+      pathExists(path.join(homeDir, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(false);
+    expect(
+      pathExists(
+        path.join(homeDir, ".agents", "skills", "next-task", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).global,
+    ).toBeUndefined();
+  });
+
+  it("dry-runs removing every global bundle without deleting files or registry state", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      ".agents/skills/next-task/SKILL.md",
+      "# next task\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+    await run(["add", "--global", "repo-standards"], { homeDir });
+    const registryBefore = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+
+    // When
+    await expect(
+      run(["remove", "--global", "--all", "--dry-run"], {
+        homeDir,
+        prompts: createPromptStub(),
+      }),
+    ).resolves.toBe(
+      [
+        "DRY RUN: Would remove global react-expert (1 file(s))",
+        "  .claude/skills/react/SKILL.md",
+        "DRY RUN: Would remove global repo-standards (1 file(s))",
+        "  .agents/skills/next-task/SKILL.md",
+      ].join("\n"),
+    );
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react\n");
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "next-task", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# next task\n");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")),
+    ).toEqual(registryBefore);
+  });
+
+  it("removes every global bundle from one source when source-scoped global remove uses all", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/sjquant/ghosts", "core", {
+      name: "core",
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "core",
+      ".agents/skills/wdd/SKILL.md",
+      "# wdd\n",
+    );
+    writeManifest(homeDir, "github.com/other/ai-vault", "extras", {
+      name: "extras",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/other/ai-vault",
+      "extras",
+      ".claude/skills/other/SKILL.md",
+      "# other\n",
+    );
+    await run(["add", "--global", "github.com/sjquant/ghosts", "core"], {
+      homeDir,
+    });
+    await run(["add", "--global", "github.com/other/ai-vault", "extras"], {
+      homeDir,
+    });
+
+    // When
+    await expect(
+      run(["remove", "--global", "github.com/sjquant/ghosts", "--all"], {
+        homeDir,
+        prompts: createPromptStub(),
+      }),
+    ).resolves.toBe("Removed global core");
+
+    // Then
+    expect(
+      pathExists(
+        path.join(homeDir, ".config", "opencode", "agent", "wdd", "SKILL.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".claude", "skills", "other", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# other\n");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).global,
+    ).toEqual({
+      desired_state: [
+        {
+          bundle: "extras",
+          source: "github.com/other/ai-vault",
+          protocol: "https",
+          tools: ["claude-code"],
+        },
+      ],
+      materialized_state: {
+        bundles: {
+          extras: expect.objectContaining({
+            source: "github.com/other/ai-vault",
+          }),
+        },
+      },
+    });
+  });
+
+  it("prompts before removing a modified global managed file when remove global all is used", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const confirmManagedFileRemoval = vi.fn(async () => false);
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+    fs.writeFileSync(
+      path.join(homeDir, ".claude", "skills", "react", "SKILL.md"),
+      "# modified\n",
+    );
+
+    // When / Then
+    await expect(
+      run(["remove", "--global", "--all"], {
+        homeDir,
+        prompts: createPromptStub({ confirmManagedFileRemoval }),
+      }),
+    ).rejects.toThrowError(
+      /Removal aborted because a modified managed file was kept/,
+    );
+    expect(confirmManagedFileRemoval).toHaveBeenCalledWith(
+      ".claude/skills/react/SKILL.md",
+      "remove",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# modified\n");
+  });
+
   it("does not remove a same-named global bundle from a different explicit source", async () => {
     // Given
     const homeDir = createHomeDir();
