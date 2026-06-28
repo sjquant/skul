@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchRemoteSource } from "./bundle-fetch";
 
@@ -11,10 +11,18 @@ vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 
 const tempDirs: string[] = [];
 
+beforeEach(() => {
+  // Given
+  for (const name of ["GH_TOKEN", "GITHUB_TOKEN", "SKUL_GITHUB_TRANSPORT"]) {
+    vi.stubEnv(name, undefined);
+  }
+});
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  vi.unstubAllEnvs();
   vi.resetAllMocks();
 });
 
@@ -25,7 +33,7 @@ function createLibraryDir(): string {
 }
 
 describe("fetchRemoteSource", () => {
-  it("returns cloned: false and skips git when target directory already exists", () => {
+  it("returns cloned: false and skips git when target directory already exists", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const targetDir = path.join(
@@ -37,7 +45,7 @@ describe("fetchRemoteSource", () => {
     fs.mkdirSync(targetDir, { recursive: true });
 
     // When
-    const result = fetchRemoteSource({
+    const result = await fetchRemoteSource({
       source: "github.com/user/react-bundle",
       libraryDir,
     });
@@ -47,7 +55,7 @@ describe("fetchRemoteSource", () => {
     expect(execFileSync).not.toHaveBeenCalled();
   });
 
-  it("shallow-clones the repo and returns cloned: true when directory is missing", () => {
+  it("shallow-clones the repo and returns cloned: true when directory is missing", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const targetDir = path.join(
@@ -60,7 +68,7 @@ describe("fetchRemoteSource", () => {
     vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
 
     // When
-    const result = fetchRemoteSource({
+    const result = await fetchRemoteSource({
       source: "github.com/user/react-bundle",
       libraryDir,
     });
@@ -74,13 +82,59 @@ describe("fetchRemoteSource", () => {
     );
   });
 
-  it("creates the parent directory before cloning so git has a place to write", () => {
+  it("checks out the requested ref after cloning with the git transport", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
+    const commit = "1111111111111111111111111111111111111111";
+    vi.mocked(execFileSync).mockImplementation((command, args) => {
+      if (command === "git" && Array.isArray(args) && args[0] === "ls-remote") {
+        return Buffer.from(`${commit}\trefs/heads/stable\n`);
+      }
+
+      return Buffer.from("");
+    });
+
+    // When
+    await fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+      ref: "stable",
+    });
+
+    // Then
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["clone", "--depth=1", "https://github.com/user/react-bundle", targetDir],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["-C", targetDir, "fetch", "--depth=1", "origin", "refs/heads/stable"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["-C", targetDir, "checkout", "-B", "stable", "FETCH_HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+  });
+
+  it("creates the parent directory before cloning so git has a place to write", async () => {
     // Given
     const libraryDir = createLibraryDir();
     vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
 
     // When
-    fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir });
+    await fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+    });
 
     // Then
     expect(fs.existsSync(path.join(libraryDir, "github.com", "user"))).toBe(
@@ -88,7 +142,7 @@ describe("fetchRemoteSource", () => {
     );
   });
 
-  it("throws a helpful error when git is not installed", () => {
+  it("throws a helpful error when git is not installed", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const notFoundError = Object.assign(new Error("spawn git ENOENT"), {
@@ -99,12 +153,12 @@ describe("fetchRemoteSource", () => {
     });
 
     // When / Then
-    expect(() =>
+    await expect(
       fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }),
-    ).toThrowError(/git is not installed or not on PATH/);
+    ).rejects.toThrowError(/git is not installed or not on PATH/);
   });
 
-  it("surfaces stderr from a failed clone", () => {
+  it("surfaces stderr from a failed clone", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const cloneError = Object.assign(new Error("Command failed"), {
@@ -115,14 +169,14 @@ describe("fetchRemoteSource", () => {
     });
 
     // When / Then
-    expect(() =>
+    await expect(
       fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       /Failed to clone https:\/\/github\.com\/user\/react-bundle[\s\S]*Repository not found/,
     );
   });
 
-  it("surfaces a plain error message when stderr is absent", () => {
+  it("surfaces a plain error message when stderr is absent", async () => {
     // Given
     const libraryDir = createLibraryDir();
     vi.mocked(execFileSync).mockImplementation(() => {
@@ -130,12 +184,14 @@ describe("fetchRemoteSource", () => {
     });
 
     // When / Then
-    expect(() =>
+    await expect(
       fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }),
-    ).toThrowError(/Failed to clone https:\/\/github\.com\/user\/react-bundle/);
+    ).rejects.toThrowError(
+      /Failed to clone https:\/\/github\.com\/user\/react-bundle/,
+    );
   });
 
-  it("removes the partial target directory when the clone fails", () => {
+  it("removes the partial target directory when the clone fails", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const targetDir = path.join(
@@ -151,15 +207,15 @@ describe("fetchRemoteSource", () => {
     });
 
     // When
-    expect(() =>
+    await expect(
       fetchRemoteSource({ source: "github.com/user/react-bundle", libraryDir }),
-    ).toThrowError(/Failed to clone/);
+    ).rejects.toThrowError(/Failed to clone/);
 
     // Then — no partial directory left behind
     expect(fs.existsSync(targetDir)).toBe(false);
   });
 
-  it("shallow-clones via SSH when protocol is ssh", () => {
+  it("shallow-clones via SSH when protocol is ssh", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const targetDir = path.join(
@@ -172,7 +228,7 @@ describe("fetchRemoteSource", () => {
     vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
 
     // When
-    const result = fetchRemoteSource({
+    const result = await fetchRemoteSource({
       source: "github.com/user/react-bundle",
       libraryDir,
       protocol: "ssh",
@@ -187,7 +243,7 @@ describe("fetchRemoteSource", () => {
     );
   });
 
-  it("shallow-clones via HTTPS when protocol is https (explicit)", () => {
+  it("shallow-clones via HTTPS when protocol is https (explicit)", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const targetDir = path.join(
@@ -200,7 +256,7 @@ describe("fetchRemoteSource", () => {
     vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
 
     // When
-    fetchRemoteSource({
+    await fetchRemoteSource({
       source: "github.com/user/react-bundle",
       libraryDir,
       protocol: "https",
@@ -214,7 +270,74 @@ describe("fetchRemoteSource", () => {
     );
   });
 
-  it("includes the SSH clone URL in the error message when SSH clone fails", () => {
+  it("requires a GitHub token when archive-first transport is requested", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    vi.stubEnv("SKUL_GITHUB_TRANSPORT", "archive");
+
+    // When / Then
+    await expect(
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+      }),
+    ).rejects.toThrowError(/requires GH_TOKEN or GITHUB_TOKEN/);
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects GitHub API base URL overrides outside tests", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    vi.stubEnv("GH_TOKEN", "github-token-value");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SKUL_GITHUB_API_BASE_URL", "http://127.0.0.1:1");
+    vi.stubEnv("SKUL_GITHUB_TRANSPORT", "archive");
+
+    // When / Then
+    await expect(
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+      }),
+    ).rejects.toThrowError(
+      /SKUL_GITHUB_API_BASE_URL is only supported in tests/,
+    );
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it("does not add GH_TOKEN to git command args during the default clone transport", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
+    vi.stubEnv("GH_TOKEN", "github-token-value");
+    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
+
+    // When
+    await fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+    });
+
+    // Then
+    const [, args] = vi.mocked(execFileSync).mock.calls[0] as [
+      string,
+      string[],
+    ];
+    expect(args).toEqual([
+      "clone",
+      "--depth=1",
+      "https://github.com/user/react-bundle",
+      targetDir,
+    ]);
+    expect(args.join(" ")).not.toContain("github-token-value");
+  });
+
+  it("includes the SSH clone URL in the error message when SSH clone fails", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const cloneError = Object.assign(new Error("Command failed"), {
@@ -225,18 +348,18 @@ describe("fetchRemoteSource", () => {
     });
 
     // When / Then
-    expect(() =>
+    await expect(
       fetchRemoteSource({
         source: "github.com/user/react-bundle",
         libraryDir,
         protocol: "ssh",
       }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       /Failed to clone git@github\.com:user\/react-bundle\.git[\s\S]*Permission denied/,
     );
   });
 
-  it("appends an HTTPS hint when SSH authentication fails with publickey error", () => {
+  it("appends an HTTPS hint when SSH authentication fails with publickey error", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const cloneError = Object.assign(new Error("Command failed"), {
@@ -247,18 +370,18 @@ describe("fetchRemoteSource", () => {
     });
 
     // When / Then
-    expect(() =>
+    await expect(
       fetchRemoteSource({
         source: "github.com/user/react-bundle",
         libraryDir,
         protocol: "ssh",
       }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       /Hint: SSH authentication failed[\s\S]*skul add github\.com\/user\/react-bundle/,
     );
   });
 
-  it("appends an HTTPS hint when SSH authentication fails with 'could not read from remote' error", () => {
+  it("appends an HTTPS hint when SSH authentication fails with 'could not read from remote' error", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const cloneError = Object.assign(new Error("Command failed"), {
@@ -269,16 +392,16 @@ describe("fetchRemoteSource", () => {
     });
 
     // When / Then
-    expect(() =>
+    await expect(
       fetchRemoteSource({
         source: "github.com/user/react-bundle",
         libraryDir,
         protocol: "ssh",
       }),
-    ).toThrowError(/Hint: SSH authentication failed/);
+    ).rejects.toThrowError(/Hint: SSH authentication failed/);
   });
 
-  it("does not append an HTTPS hint for non-auth SSH failures", () => {
+  it("does not append an HTTPS hint for non-auth SSH failures", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const cloneError = Object.assign(new Error("Command failed"), {
@@ -293,7 +416,7 @@ describe("fetchRemoteSource", () => {
     // When
     let caught: Error | undefined;
     try {
-      fetchRemoteSource({
+      await fetchRemoteSource({
         source: "github.com/user/react-bundle",
         libraryDir,
         protocol: "ssh",
@@ -307,7 +430,7 @@ describe("fetchRemoteSource", () => {
     expect(caught?.message).not.toMatch(/Hint/);
   });
 
-  it("does not append an HTTPS hint for HTTPS clone failures", () => {
+  it("does not append an HTTPS hint for HTTPS clone failures", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const cloneError = Object.assign(new Error("Command failed"), {
@@ -320,7 +443,7 @@ describe("fetchRemoteSource", () => {
     // When
     let caught: Error | undefined;
     try {
-      fetchRemoteSource({
+      await fetchRemoteSource({
         source: "github.com/user/react-bundle",
         libraryDir,
         protocol: "https",
@@ -334,17 +457,17 @@ describe("fetchRemoteSource", () => {
     expect(caught?.message).not.toMatch(/Hint/);
   });
 
-  it("rejects sources that do not match host/owner/repo format", () => {
+  it("rejects sources that do not match host/owner/repo format", async () => {
     // Given
     const libraryDir = createLibraryDir();
 
     // When / Then
-    expect(() =>
+    await expect(
       fetchRemoteSource({ source: "../../../etc/passwd", libraryDir }),
-    ).toThrowError(/Invalid bundle source/);
-    expect(() =>
+    ).rejects.toThrowError(/Invalid bundle source/);
+    await expect(
       fetchRemoteSource({ source: "github.com/user", libraryDir }),
-    ).toThrowError(/Invalid bundle source/);
+    ).rejects.toThrowError(/Invalid bundle source/);
     expect(execFileSync).not.toHaveBeenCalled();
   });
 });

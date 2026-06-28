@@ -1098,6 +1098,84 @@ describe("run", () => {
     });
   });
 
+  it("applies an uncached remote-backed bundle from its explicit ref", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# main\n",
+      },
+    });
+    runGit(remoteSource.remoteRepoPath, ["checkout", "-b", "stable"]);
+    fs.writeFileSync(
+      path.join(
+        remoteSource.remoteRepoPath,
+        remoteSource.bundle,
+        ".claude",
+        "skills",
+        "react",
+        "SKILL.md",
+      ),
+      "# stable\n",
+    );
+    runGit(remoteSource.remoteRepoPath, ["add", "."]);
+    runGit(remoteSource.remoteRepoPath, ["commit", "-m", "Stable bundle"]);
+    const stableCommit = runGit(remoteSource.remoteRepoPath, [
+      "rev-parse",
+      "HEAD",
+    ]);
+    runGit(remoteSource.remoteRepoPath, ["checkout", "main"]);
+
+    await run(
+      ["add", remoteSource.source, remoteSource.bundle, "--ref", "stable"],
+      { homeDir, cwd: repoRoot, prompts: createPromptClientStub() },
+    );
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    fs.rmSync(
+      path.join(homeDir, ".skul", "library", ...remoteSource.source.split("/")),
+      { recursive: true, force: true },
+    );
+    const previousGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
+    const gitConfigFile = path.join(homeDir, "gitconfig");
+    fs.writeFileSync(
+      gitConfigFile,
+      `[url "${remoteSource.remoteRepoPath}"]\n\tinsteadOf = https://${remoteSource.source}\n`,
+    );
+    process.env.GIT_CONFIG_GLOBAL = gitConfigFile;
+
+    try {
+      // When
+      await expect(
+        run(["apply"], { homeDir, cwd: linkedWorktree }),
+      ).resolves.toBe(`Cloned ${remoteSource.source}\nApplied react-expert`);
+    } finally {
+      if (previousGitConfigGlobal === undefined) {
+        delete process.env.GIT_CONFIG_GLOBAL;
+      } else {
+        process.env.GIT_CONFIG_GLOBAL = previousGitConfigGlobal;
+      }
+    }
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# stable\n");
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees[
+        detectGitContext({ cwd: linkedWorktree })!.worktreeId
+      ]?.materialized_state.bundles["react-expert"]?.resolved_commit,
+    ).toBe(stableCommit);
+  });
+
   it("pins a remote-backed bundle to an explicit commit via --ref", async () => {
     // Given
     const homeDir = createHomeDir();
