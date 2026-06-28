@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 describe("updateCachedRemoteSource integration", () => {
-  it("normalizes SSH authentication failures raised while resolving the requested remote ref", () => {
+  it("normalizes SSH authentication failures raised while resolving the requested remote ref", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const source = "github.com/user/react-bundle";
@@ -71,14 +71,14 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GIT_SSH = createFakeSshCommand(libraryDir);
 
     // When / Then
-    expect(() =>
+    await expect(
       updateCachedRemoteSource({
         source,
         libraryDir,
         protocol: "ssh",
         ref: "stable",
       }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       /Failed to update github\.com\/user\/react-bundle[\s\S]*Hint: SSH authentication failed/,
     );
   });
@@ -104,7 +104,7 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GH_TOKEN = "github-token-value";
 
     // When
-    const result = fetchRemoteSource({ source, libraryDir });
+    const result = await fetchRemoteSource({ source, libraryDir });
 
     // Then
     const metadata = readArchiveMetadata(result.targetDir);
@@ -152,13 +152,13 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({ source, libraryDir });
     updateFakeGithubState(stateFile, (state) => {
       state.branches.main = remoteCommit;
     });
 
     // When
-    const status = inspectRemoteSource({ source, libraryDir });
+    const status = await inspectRemoteSource({ source, libraryDir });
 
     // Then
     expect(status.currentCommit).toBe(initialCommit);
@@ -188,13 +188,13 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({ source, libraryDir });
     updateFakeGithubState(stateFile, (state) => {
       state.branches.main = remoteCommit;
     });
 
     // When
-    const result = updateCachedRemoteSource({ source, libraryDir });
+    const result = await updateCachedRemoteSource({ source, libraryDir });
 
     // Then
     const targetDir = path.join(libraryDir, ...source.split("/"));
@@ -244,7 +244,7 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
 
     // When
-    const result = fetchRemoteSource({
+    const result = await fetchRemoteSource({
       source,
       libraryDir,
       ref: "v1.0.0",
@@ -282,16 +282,16 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({ source, libraryDir });
     updateFakeGithubState(stateFile, (state) => {
       state.branches.main = remoteCommit;
       state.failArchiveFor = remoteCommit;
     });
 
     // When
-    expect(() => updateCachedRemoteSource({ source, libraryDir })).toThrowError(
-      /Failed to fetch github\.com\/user\/react-bundle/,
-    );
+    await expect(
+      updateCachedRemoteSource({ source, libraryDir }),
+    ).rejects.toThrowError(/Failed to fetch github\.com\/user\/react-bundle/);
 
     // Then
     const targetDir = path.join(libraryDir, ...source.split("/"));
@@ -324,7 +324,7 @@ describe("updateCachedRemoteSource integration", () => {
     // When
     let caught: Error | undefined;
     try {
-      fetchRemoteSource({ source, libraryDir });
+      await fetchRemoteSource({ source, libraryDir });
     } catch (error) {
       caught = error as Error;
     }
@@ -402,14 +402,14 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({ source, libraryDir });
     updateFakeGithubState(stateFile, (state) => {
       state.branches.main = remoteCommit;
     });
-    updateCachedRemoteSource({ source, libraryDir });
+    await updateCachedRemoteSource({ source, libraryDir });
 
     // When
-    restoreCachedRemoteSourceRevision({
+    await restoreCachedRemoteSourceRevision({
       source,
       libraryDir,
       commit: initialCommit,
@@ -429,9 +429,9 @@ describe("updateCachedRemoteSource integration", () => {
     updateFakeGithubState(stateFile, (state) => {
       state.branches.main = laterCommit;
     });
-    expect(inspectRemoteSource({ source, libraryDir }).remoteCommit).toBe(
-      laterCommit,
-    );
+    expect(
+      (await inspectRemoteSource({ source, libraryDir })).remoteCommit,
+    ).toBe(laterCommit);
   });
 
   it("refreshes an archive cache without an explicit ref", async () => {
@@ -457,13 +457,13 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({ source, libraryDir });
     updateFakeGithubState(stateFile, (state) => {
       state.branches.main = remoteCommit;
     });
 
     // When
-    clearAndRefetchCachedRemoteSource({ source, libraryDir });
+    await clearAndRefetchCachedRemoteSource({ source, libraryDir });
 
     // Then
     const targetDir = path.join(libraryDir, ...source.split("/"));

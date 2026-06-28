@@ -401,7 +401,7 @@ async function applyAllBundles(options: {
 
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
-  const cloneLines = refreshBundleSourceForApply(
+  const cloneLines = await refreshBundleSourceForApply(
     {
       source: options.source,
       libraryDir: options.libraryDir,
@@ -1892,13 +1892,13 @@ function worktreeHasMaterializedBundles(
   return Object.keys(materializedState.bundles).length > 0;
 }
 
-function renderUpdateCheck(options: {
+async function renderUpdateCheck(options: {
   cwd: string;
   registryFile: string;
   libraryDir: string;
   bundle?: string;
   json: boolean;
-}): string {
+}): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "check");
   const registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
@@ -1913,12 +1913,13 @@ function renderUpdateCheck(options: {
     return `No bundles configured for this repository. Run "skul add <bundle>" to add one`;
   }
 
-  const results = entries.map((entry) => {
+  const results = [];
+  for (const entry of entries) {
     const materializedBundle =
       worktreeState?.materialized_state.bundles[entry.bundle];
 
     if (!entry.source) {
-      return {
+      results.push({
         bundle: entry.bundle,
         status: "local-only",
         source: null,
@@ -1926,10 +1927,11 @@ function renderUpdateCheck(options: {
         latest_commit: null,
         worktree_commit: materializedBundle?.resolved_commit ?? null,
         worktree_stale: false,
-      };
+      });
+      continue;
     }
 
-    const remoteStatus = inspectRemoteSource({
+    const remoteStatus = await inspectRemoteSource({
       source: entry.source,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
@@ -1949,7 +1951,7 @@ function renderUpdateCheck(options: {
       desiredCommit !== null &&
       worktreeCommit !== desiredCommit;
 
-    return {
+    results.push({
       bundle: entry.bundle,
       status,
       source: entry.source,
@@ -1957,8 +1959,8 @@ function renderUpdateCheck(options: {
       latest_commit: isPinned ? desiredCommit : remoteStatus.remoteCommit,
       worktree_commit: worktreeCommit,
       worktree_stale: worktreeStale,
-    };
-  });
+    });
+  }
 
   if (options.json) {
     return JSON.stringify({ bundles: results }, null, 2);
@@ -2009,13 +2011,14 @@ async function updateBundles(options: {
   }
 
   const skippedLocalOnly: string[] = [];
-  const updatePlans = entries.flatMap((entry) => {
+  const updatePlans = [];
+  for (const entry of entries) {
     if (!entry.source) {
       skippedLocalOnly.push(entry.bundle);
-      return [];
+      continue;
     }
 
-    const remoteStatus = inspectRemoteSource({
+    const remoteStatus = await inspectRemoteSource({
       source: entry.source,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
@@ -2028,17 +2031,15 @@ async function updateBundles(options: {
         currentCommit === remoteStatus.remoteCommit) ||
       remoteStatus.refKind === "commit"
     ) {
-      return [];
+      continue;
     }
 
-    return [
-      {
-        entry,
-        currentCommit,
-        remoteStatus,
-      },
-    ];
-  });
+    updatePlans.push({
+      entry,
+      currentCommit,
+      remoteStatus,
+    });
+  }
 
   const localOnlyNote =
     skippedLocalOnly.length > 0
@@ -2095,7 +2096,7 @@ async function updateBundles(options: {
     });
 
     try {
-      const refreshed = updateCachedRemoteSource({
+      const refreshed = await updateCachedRemoteSource({
         source: entry.source!,
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
@@ -2276,7 +2277,7 @@ async function updateBundles(options: {
           protocol: entry.protocol,
         });
       } else if (initialRevision.currentCommit) {
-        restoreCachedRemoteSourceRevision({
+        await restoreCachedRemoteSourceRevision({
           source: entry.source!,
           libraryDir: options.libraryDir,
           protocol: entry.protocol,
@@ -2757,7 +2758,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
 }): Promise<string> {
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
-  const cloneLines = refreshBundleSourceForApply(
+  const cloneLines = await refreshBundleSourceForApply(
     {
       source: options.source,
       libraryDir: options.libraryDir,
@@ -3237,7 +3238,7 @@ async function prepareApplyBundle(options: {
   const refreshedSources = options.refreshedSources ?? new Set<string>();
   const refreshedSourceUpdates =
     options.refreshedSourceUpdates ?? new Map<string, RefreshedSourceUpdate>();
-  const cloneLines = refreshBundleSourceForApply(
+  const cloneLines = await refreshBundleSourceForApply(
     options,
     refreshedSources,
     refreshedSourceUpdates,
@@ -3293,7 +3294,7 @@ async function prepareApplyBundle(options: {
     (options.source !== undefined || options.ref !== undefined)
   ) {
     cloneLines.push(
-      ...refreshBundleSourceForApply(
+      ...(await refreshBundleSourceForApply(
         {
           source: bundleSource,
           libraryDir: options.libraryDir,
@@ -3302,7 +3303,7 @@ async function prepareApplyBundle(options: {
         },
         refreshedSources,
         refreshedSourceUpdates,
-      ),
+      )),
     );
     cachedBundle = findCachedBundleWithGuidance({
       libraryDir: options.libraryDir,
@@ -3490,7 +3491,7 @@ function shouldPromptForInferredBundle(options: {
   );
 }
 
-function refreshBundleSourceForApply(
+async function refreshBundleSourceForApply(
   options: {
     source?: string;
     protocol: "https" | "ssh";
@@ -3499,7 +3500,7 @@ function refreshBundleSourceForApply(
   },
   refreshedSources: Set<string>,
   refreshedSourceUpdates: Map<string, RefreshedSourceUpdate>,
-): string[] {
+): Promise<string[]> {
   if (!options.source) {
     return [];
   }
@@ -3532,7 +3533,7 @@ function refreshBundleSourceForApply(
 
   let updated = false;
   if (!options.ref && initialRevision.cached) {
-    clearAndRefetchCachedRemoteSource({
+    await clearAndRefetchCachedRemoteSource({
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
@@ -3547,7 +3548,7 @@ function refreshBundleSourceForApply(
       refreshedRevision.currentCommit !== undefined &&
       initialRevision.currentCommit !== refreshedRevision.currentCommit;
   } else {
-    const refreshed = updateCachedRemoteSource({
+    const refreshed = await updateCachedRemoteSource({
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
@@ -4959,66 +4960,60 @@ async function applyWorktree(options: {
   const worktreeState = registry.worktrees[gitContext.worktreeId];
   const materializedBundles = worktreeState?.materialized_state.bundles ?? {};
   const cloneLines: string[] = [];
-  const applyPlans: ApplyPlan[] = repoState.desired_state.flatMap(
-    (entry): ApplyPlan[] => {
-      // In dry-run mode skip actual cloning; if the source is not yet cached we
-      // can still report intent without a manifest.
-      const sourceRevision = entry.source
-        ? readCachedSourceRevision({
-            source: entry.source,
-            libraryDir: options.libraryDir,
-            protocol: entry.protocol,
-          })
-        : undefined;
-
-      if (entry.source && !sourceRevision?.cached) {
-        if (options.dryRun) {
-          return [{ uncached: true, entry }];
-        }
-        // Non-dry-run: fetch the source so the manifest is available below.
-        const { cloned } = fetchRemoteSource({
+  const applyPlans: ApplyPlan[] = [];
+  for (const entry of repoState.desired_state) {
+    // In dry-run mode skip actual cloning; if the source is not yet cached we
+    // can still report intent without a manifest.
+    const sourceRevision = entry.source
+      ? readCachedSourceRevision({
           source: entry.source,
           libraryDir: options.libraryDir,
           protocol: entry.protocol,
-          ref: entry.ref ?? entry.resolved_commit,
-        });
-        if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
-      }
-
-      const cachedBundle = findCachedBundleWithGuidance({
-        libraryDir: options.libraryDir,
-        bundle: entry.bundle,
-        source: entry.source,
-      });
-      const existingBundleState = materializedBundles[entry.bundle];
-
-      if (
-        existingBundleState &&
-        isDesiredBundleMaterialized({
-          desiredEntry: entry,
-          materializedBundleState: existingBundleState,
-          availableTools: Object.keys(
-            cachedBundle.manifest.tools,
-          ) as ToolName[],
         })
-      ) {
-        return [];
-      }
+      : undefined;
 
-      return [
-        {
-          uncached: false,
-          entry,
-          sourceRevision,
-          cachedBundle,
-          existingBundleState,
-          availableTools: Object.keys(
-            cachedBundle.manifest.tools,
-          ) as ToolName[],
-        },
-      ];
-    },
-  );
+    if (entry.source && !sourceRevision?.cached) {
+      if (options.dryRun) {
+        applyPlans.push({ uncached: true, entry });
+        continue;
+      }
+      // Non-dry-run: fetch the source so the manifest is available below.
+      const { cloned } = await fetchRemoteSource({
+        source: entry.source,
+        libraryDir: options.libraryDir,
+        protocol: entry.protocol,
+        ref: entry.ref ?? entry.resolved_commit,
+      });
+      if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
+    }
+
+    const cachedBundle = findCachedBundleWithGuidance({
+      libraryDir: options.libraryDir,
+      bundle: entry.bundle,
+      source: entry.source,
+    });
+    const existingBundleState = materializedBundles[entry.bundle];
+
+    if (
+      existingBundleState &&
+      isDesiredBundleMaterialized({
+        desiredEntry: entry,
+        materializedBundleState: existingBundleState,
+        availableTools: Object.keys(cachedBundle.manifest.tools) as ToolName[],
+      })
+    ) {
+      continue;
+    }
+
+    applyPlans.push({
+      uncached: false,
+      entry,
+      sourceRevision,
+      cachedBundle,
+      existingBundleState,
+      availableTools: Object.keys(cachedBundle.manifest.tools) as ToolName[],
+    });
+  }
 
   if (applyPlans.length === 0) {
     return options.dryRun
@@ -6643,7 +6638,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
 }): Promise<string> {
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
-  const cloneLines = refreshBundleSourceForApply(
+  const cloneLines = await refreshBundleSourceForApply(
     {
       source: options.source,
       libraryDir: options.libraryDir,

@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import { escapeRegExp } from "./fs-utils";
 
@@ -50,7 +52,6 @@ const GITHUB_TRANSPORT_ENV = "SKUL_GITHUB_TRANSPORT";
 const GITHUB_TRANSPORT_ARCHIVE = "archive";
 const GITHUB_API_BASE_URL_ENV = "SKUL_GITHUB_API_BASE_URL";
 const GITHUB_USER_AGENT = "skul";
-const MAX_GITHUB_RESPONSE_BYTES = 100 * 1024 * 1024;
 
 interface GithubArchiveMetadata {
   transport: "github-archive";
@@ -84,9 +85,9 @@ type GithubArchiveReplacement = Pick<
  * Otherwise the repo is shallow-cloned into libraryDir/host/owner/repo using
  * HTTPS (default) or SSH when protocol is "ssh".
  */
-export function fetchRemoteSource(
+export async function fetchRemoteSource(
   options: FetchRemoteSourceOptions,
-): FetchRemoteSourceResult {
+): Promise<FetchRemoteSourceResult> {
   const targetDir = getTargetDir(options);
 
   if (fs.existsSync(targetDir)) {
@@ -98,7 +99,7 @@ export function fetchRemoteSource(
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   if (shouldUseGithubArchiveFirst(options)) {
-    fetchGithubArchiveSource(options, targetDir);
+    await fetchGithubArchiveSource(options, targetDir);
     return { cloned: true, targetDir };
   }
 
@@ -112,7 +113,7 @@ export function fetchRemoteSource(
 
     if (shouldFallbackToGithubArchive(options, error)) {
       try {
-        fetchGithubArchiveSource(options, targetDir);
+        await fetchGithubArchiveSource(options, targetDir);
         return { cloned: true, targetDir };
       } catch (archiveError) {
         throw combineGitAndArchiveErrors(error, archiveError, cloneUrl, {
@@ -172,15 +173,15 @@ export function readCachedSourceRevision(
 }
 
 /** Resolves the remote state for one source and optional ref selector without mutating the cache. */
-export function inspectRemoteSource(
+export async function inspectRemoteSource(
   options: FetchRemoteSourceOptions,
-): RemoteSourceStatus {
+): Promise<RemoteSourceStatus> {
   const cached = readCachedSourceRevision(options);
   const metadata = readGithubArchiveMetadata(cached.targetDir, options.source);
 
   if (metadata) {
     try {
-      const resolvedRemote = resolveGithubArchiveRef(
+      const resolvedRemote = await resolveGithubArchiveRef(
         options.source,
         options.ref ?? metadata.requested_ref ?? metadata.resolved_ref,
       );
@@ -231,13 +232,13 @@ export function inspectRemoteSource(
 }
 
 /** Updates a cached remote source to the latest commit for its selected ref. */
-export function updateCachedRemoteSource(
+export async function updateCachedRemoteSource(
   options: FetchRemoteSourceOptions,
-): UpdateCachedRemoteSourceResult {
+): Promise<UpdateCachedRemoteSourceResult> {
   const initialRevision = readCachedSourceRevision(options);
 
   if (!initialRevision.cached) {
-    fetchRemoteSource(options);
+    await fetchRemoteSource(options);
   }
 
   const targetDir = getTargetDir(options);
@@ -249,7 +250,7 @@ export function updateCachedRemoteSource(
   let status: RemoteSourceStatus;
 
   try {
-    status = inspectRemoteSource(options);
+    status = await inspectRemoteSource(options);
   } catch (error) {
     throw rewriteInspectFailureForUpdate(error, options.source);
   }
@@ -347,19 +348,19 @@ function rewriteInspectFailureForUpdate(error: unknown, source: string): Error {
 }
 
 /** Moves a cached source checkout back to a previously recorded revision. */
-export function restoreCachedRemoteSourceRevision(
+export async function restoreCachedRemoteSourceRevision(
   options: FetchRemoteSourceOptions & {
     ref?: string;
     commit: string;
     refName?: string;
   },
-): void {
+): Promise<void> {
   const targetDir = getTargetDir(options);
 
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
 
   if (archiveMetadata) {
-    replaceWithGithubArchiveSource(options.source, targetDir, {
+    await replaceWithGithubArchiveSource(options.source, targetDir, {
       commit: options.commit,
       requestedRef: options.ref ?? archiveMetadata.requested_ref,
       resolvedRef: options.refName ?? archiveMetadata.resolved_ref,
@@ -402,9 +403,9 @@ export function removeCachedRemoteSource(
  * new protocol takes effect. Local-path remotes used in tests are left as-is
  * because they don't start with `git@` and therefore match `"https"` by default.
  */
-export function clearAndRefetchCachedRemoteSource(
+export async function clearAndRefetchCachedRemoteSource(
   options: FetchRemoteSourceOptions,
-): void {
+): Promise<void> {
   const targetDir = getTargetDir(options);
   const revision = readCachedSourceRevision(options);
 
@@ -412,7 +413,7 @@ export function clearAndRefetchCachedRemoteSource(
     readGithubArchiveMetadata(targetDir, options.source) ||
     shouldUseGithubArchiveFirst(options)
   ) {
-    fetchGithubArchiveSource(options, targetDir);
+    await fetchGithubArchiveSource(options, targetDir);
     return;
   }
 
@@ -682,20 +683,20 @@ function isProxyForbiddenGitError(error: unknown): boolean {
   return /proxy[\s\S]*403|403[\s\S]*proxy|CONNECT[\s\S]*403/i.test(stderr);
 }
 
-function fetchGithubArchiveSource(
+async function fetchGithubArchiveSource(
   options: FetchRemoteSourceOptions,
   targetDir: string,
-): GithubArchiveMetadata {
-  const resolved = resolveGithubArchiveRef(options.source, options.ref);
+): Promise<GithubArchiveMetadata> {
+  const resolved = await resolveGithubArchiveRef(options.source, options.ref);
 
   return replaceWithGithubArchiveSource(options.source, targetDir, resolved);
 }
 
-function replaceWithGithubArchiveSource(
+async function replaceWithGithubArchiveSource(
   source: string,
   targetDir: string,
   resolved: GithubArchiveReplacement,
-): GithubArchiveMetadata {
+): Promise<GithubArchiveMetadata> {
   const parentDir = path.dirname(targetDir);
   const tempDir = `${targetDir}.tmp-${process.pid}-${Date.now()}`;
   const archiveFile = `${tempDir}.tar.gz`;
@@ -707,7 +708,7 @@ function replaceWithGithubArchiveSource(
   fs.mkdirSync(parentDir, { recursive: true });
 
   try {
-    downloadGithubArchive(source, resolved.commit, archiveFile);
+    await downloadGithubArchive(source, resolved.commit, archiveFile);
     extractGithubArchive(archiveFile, tempDir);
     writeGithubArchiveMetadata(tempDir, {
       transport: "github-archive",
@@ -737,13 +738,13 @@ function replaceWithGithubArchiveSource(
   }
 }
 
-function updateGithubArchiveSource(
+async function updateGithubArchiveSource(
   options: FetchRemoteSourceOptions,
   initialRevision: CachedSourceRevision,
-): UpdateCachedRemoteSourceResult {
+): Promise<UpdateCachedRemoteSourceResult> {
   const targetDir = getTargetDir(options);
   const metadata = readRequiredGithubArchiveMetadata(targetDir, options.source);
-  const status = inspectRemoteSource(options);
+  const status = await inspectRemoteSource(options);
 
   if (metadata.resolved_commit === status.remoteCommit) {
     return {
@@ -754,11 +755,15 @@ function updateGithubArchiveSource(
     };
   }
 
-  const refreshed = replaceWithGithubArchiveSource(options.source, targetDir, {
-    commit: status.remoteCommit,
-    requestedRef: options.ref ?? metadata.requested_ref,
-    resolvedRef: status.resolvedRef ?? null,
-  });
+  const refreshed = await replaceWithGithubArchiveSource(
+    options.source,
+    targetDir,
+    {
+      commit: status.remoteCommit,
+      requestedRef: options.ref ?? metadata.requested_ref,
+      resolvedRef: status.resolvedRef ?? null,
+    },
+  );
 
   return {
     ...status,
@@ -769,14 +774,14 @@ function updateGithubArchiveSource(
   };
 }
 
-function resolveGithubArchiveRef(
+async function resolveGithubArchiveRef(
   source: string,
   requestedRef?: string | null,
-): GithubResolvedRef {
+): Promise<GithubResolvedRef> {
   const github = requireGithubSource(source);
 
   if (requestedRef && isCommitSha(requestedRef)) {
-    const commit = githubApiJson<{ sha: string }>(
+    const commit = await githubApiJson<{ sha: string }>(
       `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
         github.repo,
       )}/commits/${encodeURIComponent(requestedRef)}`,
@@ -791,13 +796,13 @@ function resolveGithubArchiveRef(
   }
 
   if (requestedRef) {
-    const branch = tryResolveGithubBranch(github, requestedRef);
+    const branch = await tryResolveGithubBranch(github, requestedRef);
 
     if (branch) {
       return branch;
     }
 
-    const tag = tryResolveGithubTag(github, requestedRef);
+    const tag = await tryResolveGithubTag(github, requestedRef);
 
     if (tag) {
       return tag;
@@ -806,12 +811,15 @@ function resolveGithubArchiveRef(
     throw new Error(`GitHub ref not found: ${requestedRef}`);
   }
 
-  const repo = githubApiJson<{ default_branch: string }>(
+  const repo = await githubApiJson<{ default_branch: string }>(
     `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
       github.repo,
     )}`,
   );
-  const defaultBranch = tryResolveGithubBranch(github, repo.default_branch);
+  const defaultBranch = await tryResolveGithubBranch(
+    github,
+    repo.default_branch,
+  );
 
   if (!defaultBranch) {
     throw new Error(`GitHub default branch not found: ${repo.default_branch}`);
@@ -823,12 +831,12 @@ function resolveGithubArchiveRef(
   };
 }
 
-function tryResolveGithubBranch(
+async function tryResolveGithubBranch(
   github: GithubSourceParts,
   branch: string,
-): GithubResolvedRef | undefined {
+): Promise<GithubResolvedRef | undefined> {
   try {
-    const ref = githubApiJson<{ object: { sha: string } }>(
+    const ref = await githubApiJson<{ object: { sha: string } }>(
       `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
         github.repo,
       )}/git/ref/heads/${encodeGithubRefPath(branch)}`,
@@ -849,12 +857,12 @@ function tryResolveGithubBranch(
   }
 }
 
-function tryResolveGithubTag(
+async function tryResolveGithubTag(
   github: GithubSourceParts,
   tag: string,
-): GithubResolvedRef | undefined {
+): Promise<GithubResolvedRef | undefined> {
   try {
-    const ref = githubApiJson<{
+    const ref = await githubApiJson<{
       object: { sha: string; type: string };
     }>(
       `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
@@ -863,7 +871,7 @@ function tryResolveGithubTag(
     );
 
     return {
-      commit: peelGithubTagObject(github, ref.object),
+      commit: await peelGithubTagObject(github, ref.object),
       kind: "tag",
       requestedRef: tag,
       resolvedRef: tag,
@@ -877,10 +885,10 @@ function tryResolveGithubTag(
   }
 }
 
-function peelGithubTagObject(
+async function peelGithubTagObject(
   github: GithubSourceParts,
   object: { sha: string; type: string },
-): string {
+): Promise<string> {
   if (object.type === "commit") {
     return object.sha;
   }
@@ -889,7 +897,7 @@ function peelGithubTagObject(
     throw new Error(`Unsupported GitHub tag object type: ${object.type}`);
   }
 
-  const tag = githubApiJson<{ object: { sha: string; type: string } }>(
+  const tag = await githubApiJson<{ object: { sha: string; type: string } }>(
     `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
       github.repo,
     )}/git/tags/${encodeURIComponent(object.sha)}`,
@@ -898,101 +906,95 @@ function peelGithubTagObject(
   return peelGithubTagObject(github, tag.object);
 }
 
-function downloadGithubArchive(
+async function downloadGithubArchive(
   source: string,
   commit: string,
   archiveFile: string,
-): void {
+): Promise<void> {
   const github = requireGithubSource(source);
 
-  githubApiRequest(
+  await githubApiFile(
     `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
       github.repo,
     )}/tarball/${encodeURIComponent(commit)}`,
-    "file",
     archiveFile,
   );
 }
 
-function githubApiJson<T>(apiPath: string): T {
-  return JSON.parse(githubApiRequest(apiPath, "json").toString("utf8")) as T;
+async function githubApiJson<T>(apiPath: string): Promise<T> {
+  return JSON.parse((await githubApiRequest(apiPath)).toString("utf8")) as T;
 }
 
-function githubApiRequest(
-  apiPath: string,
-  responseType: "json" | "file",
-  outputPath?: string,
-): Buffer {
-  const token = getRequiredGithubToken();
-  const env = {
-    ...process.env,
-    SKUL_GITHUB_API_PATH: apiPath,
-    SKUL_GITHUB_API_RESPONSE_TYPE: responseType,
-    SKUL_GITHUB_API_TOKEN: token,
-    SKUL_GITHUB_API_BASE_URL: getGithubApiBaseUrl(),
-    ...(outputPath !== undefined
-      ? { SKUL_GITHUB_API_OUTPUT_PATH: outputPath }
-      : {}),
-    SKUL_GITHUB_API_VERSION: GITHUB_API_VERSION,
-    SKUL_GITHUB_USER_AGENT: GITHUB_USER_AGENT,
-  };
-
-  try {
-    return execFileSync(process.execPath, ["-e", GITHUB_API_HELPER_SCRIPT], {
-      env,
-      maxBuffer: MAX_GITHUB_RESPONSE_BYTES,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (error) {
-    throw parseGithubApiFailure(error);
-  }
-}
-
-const GITHUB_API_HELPER_SCRIPT = `
-(async () => {
-  const fs = require("node:fs");
-  const { Readable } = require("node:stream");
-  const { pipeline } = require("node:stream/promises");
-  const url = new URL(process.env.SKUL_GITHUB_API_PATH, process.env.SKUL_GITHUB_API_BASE_URL);
-  const response = await fetch(url, {
-    headers: {
-      Authorization: "Bearer " + process.env.SKUL_GITHUB_API_TOKEN,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": process.env.SKUL_GITHUB_API_VERSION,
-      "User-Agent": process.env.SKUL_GITHUB_USER_AGENT,
-    },
-  });
+async function githubApiRequest(apiPath: string): Promise<Buffer> {
+  const response = await fetchGithubApi(apiPath);
+  const bytes = Buffer.from(await response.arrayBuffer());
 
   if (!response.ok) {
-    const bytes = Buffer.from(await response.arrayBuffer());
-    process.stderr.write(JSON.stringify({
-      status: response.status,
-      statusText: response.statusText,
-      body: bytes.toString("utf8"),
-      rateLimitRemaining: response.headers.get("x-ratelimit-remaining"),
-      rateLimitReset: response.headers.get("x-ratelimit-reset"),
-    }));
-    process.exit(1);
+    throw new Error(formatGithubApiResponseFailure(response, bytes));
   }
 
-  if (process.env.SKUL_GITHUB_API_RESPONSE_TYPE === "file") {
-    if (!response.body || !process.env.SKUL_GITHUB_API_OUTPUT_PATH) {
-      throw new Error("Missing GitHub API file response target");
-    }
-    await pipeline(
-      Readable.fromWeb(response.body),
-      fs.createWriteStream(process.env.SKUL_GITHUB_API_OUTPUT_PATH),
+  return bytes;
+}
+
+async function githubApiFile(
+  apiPath: string,
+  outputPath: string,
+): Promise<void> {
+  const response = await fetchGithubApi(apiPath);
+
+  if (!response.ok) {
+    throw new Error(
+      formatGithubApiResponseFailure(
+        response,
+        Buffer.from(await response.arrayBuffer()),
+      ),
     );
-    return;
   }
 
-  const bytes = Buffer.from(await response.arrayBuffer());
-  process.stdout.write(bytes);
-})().catch((error) => {
-  process.stderr.write(JSON.stringify({ message: String(error && error.message ? error.message : error) }));
-  process.exit(1);
-});
-`;
+  if (!response.body) {
+    throw new Error("Missing GitHub API file response body");
+  }
+
+  await pipeline(
+    Readable.fromWeb(response.body),
+    fs.createWriteStream(outputPath),
+  );
+}
+
+async function fetchGithubApi(apiPath: string): Promise<Response> {
+  const token = getRequiredGithubToken();
+  const url = new URL(apiPath, getGithubApiBaseUrl());
+
+  try {
+    return await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        "User-Agent": GITHUB_USER_AGENT,
+      },
+    });
+  } catch (error) {
+    throw new Error(
+      formatGithubApiFailure({
+        message: sanitizeGithubErrorMessage(getErrorText(error)),
+      }),
+    );
+  }
+}
+
+function formatGithubApiResponseFailure(
+  response: Response,
+  body: Buffer,
+): string {
+  return formatGithubApiFailure({
+    status: response.status,
+    statusText: response.statusText,
+    body: body.toString("utf8"),
+    rateLimitRemaining: response.headers.get("x-ratelimit-remaining"),
+    rateLimitReset: response.headers.get("x-ratelimit-reset"),
+  });
+}
 
 function extractGithubArchive(archiveFile: string, targetDir: string): void {
   const extractDir = `${targetDir}.extract`;
@@ -1185,28 +1187,6 @@ function normalizeGithubArchiveError(error: unknown, prefix: string): Error {
   }
 
   return new Error(`${prefix}:\n${sanitizeGithubErrorMessage(String(error))}`);
-}
-
-function parseGithubApiFailure(error: unknown): Error {
-  const stderr =
-    error instanceof Error && "stderr" in error
-      ? String((error as { stderr: Buffer | string }).stderr).trim()
-      : String(error);
-
-  try {
-    const parsed = JSON.parse(stderr) as {
-      body?: string;
-      message?: string;
-      rateLimitRemaining?: string | null;
-      rateLimitReset?: string | null;
-      status?: number;
-      statusText?: string;
-    };
-
-    return new Error(formatGithubApiFailure(parsed));
-  } catch {
-    return new Error(sanitizeGithubErrorMessage(stderr));
-  }
 }
 
 function formatGithubApiFailure(error: {
