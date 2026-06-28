@@ -131,6 +131,7 @@ describe("updateCachedRemoteSource integration", () => {
     const source = "github.com/user/react-bundle";
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
+    const laterCommit = "3333333333333333333333333333333333333333";
     const { stateFile } = await configureFakeGithubApi(
       libraryDir,
       createFakeGithubState({
@@ -141,9 +142,12 @@ describe("updateCachedRemoteSource integration", () => {
           [remoteCommit]: createArchive(libraryDir, remoteCommit, {
             "AGENTS.md": "# remote\n",
           }),
+          [laterCommit]: createArchive(libraryDir, laterCommit, {
+            "AGENTS.md": "# later\n",
+          }),
         },
         branches: { main: initialCommit },
-        commits: [initialCommit, remoteCommit],
+        commits: [initialCommit, remoteCommit, laterCommit],
       }),
     );
     process.env.GH_TOKEN = "github-token-value";
@@ -294,7 +298,11 @@ describe("updateCachedRemoteSource integration", () => {
     expect(fs.readFileSync(path.join(targetDir, "AGENTS.md"), "utf8")).toBe(
       "# initial\n",
     );
-    expect(readArchiveMetadata(targetDir).resolved_commit).toBe(initialCommit);
+    expect(readArchiveMetadata(targetDir)).toMatchObject({
+      requested_ref: null,
+      resolved_commit: initialCommit,
+      resolved_ref: "main",
+    });
   });
 
   it("does not leak tokens through git args or archive fallback errors", async () => {
@@ -373,6 +381,7 @@ describe("updateCachedRemoteSource integration", () => {
     const source = "github.com/user/react-bundle";
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
+    const laterCommit = "3333333333333333333333333333333333333333";
     const { stateFile } = await configureFakeGithubApi(
       libraryDir,
       createFakeGithubState({
@@ -383,9 +392,12 @@ describe("updateCachedRemoteSource integration", () => {
           [remoteCommit]: createArchive(libraryDir, remoteCommit, {
             "AGENTS.md": "# remote\n",
           }),
+          [laterCommit]: createArchive(libraryDir, laterCommit, {
+            "AGENTS.md": "# later\n",
+          }),
         },
         branches: { main: initialCommit },
-        commits: [initialCommit, remoteCommit],
+        commits: [initialCommit, remoteCommit, laterCommit],
       }),
     );
     process.env.GH_TOKEN = "github-token-value";
@@ -409,7 +421,17 @@ describe("updateCachedRemoteSource integration", () => {
     expect(fs.readFileSync(path.join(targetDir, "AGENTS.md"), "utf8")).toBe(
       "# initial\n",
     );
-    expect(readArchiveMetadata(targetDir).resolved_commit).toBe(initialCommit);
+    expect(readArchiveMetadata(targetDir)).toMatchObject({
+      requested_ref: null,
+      resolved_commit: initialCommit,
+      resolved_ref: "main",
+    });
+    updateFakeGithubState(stateFile, (state) => {
+      state.branches.main = laterCommit;
+    });
+    expect(inspectRemoteSource({ source, libraryDir }).remoteCommit).toBe(
+      laterCommit,
+    );
   });
 
   it("refreshes an archive cache without an explicit ref", async () => {

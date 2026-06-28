@@ -356,11 +356,13 @@ export function restoreCachedRemoteSourceRevision(
 ): void {
   const targetDir = getTargetDir(options);
 
-  if (readGithubArchiveMetadata(targetDir, options.source)) {
+  const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
+
+  if (archiveMetadata) {
     replaceWithGithubArchiveSource(options.source, targetDir, {
       commit: options.commit,
-      requestedRef: options.commit,
-      resolvedRef: options.refName ?? options.commit,
+      requestedRef: options.ref ?? archiveMetadata.requested_ref,
+      resolvedRef: options.refName ?? archiveMetadata.resolved_ref,
     });
     return;
   }
