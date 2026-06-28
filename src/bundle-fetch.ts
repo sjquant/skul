@@ -67,7 +67,6 @@ interface GithubArchiveMetadata {
 interface GithubSourceParts {
   owner: string;
   repo: string;
-  source: string;
 }
 
 interface GithubResolvedRef {
@@ -171,7 +170,7 @@ export function readCachedSourceRevision(
 
 /** Resolves the remote state for one source and optional ref selector without mutating the cache. */
 export function inspectRemoteSource(
-  options: FetchRemoteSourceOptions & { ref?: string },
+  options: FetchRemoteSourceOptions,
 ): RemoteSourceStatus {
   const cached = readCachedSourceRevision(options);
 
@@ -235,7 +234,7 @@ export function inspectRemoteSource(
 
 /** Updates a cached remote source to the latest commit for its selected ref. */
 export function updateCachedRemoteSource(
-  options: FetchRemoteSourceOptions & { ref?: string },
+  options: FetchRemoteSourceOptions,
 ): UpdateCachedRemoteSourceResult {
   const initialRevision = readCachedSourceRevision(options);
 
@@ -360,21 +359,12 @@ export function restoreCachedRemoteSourceRevision(
   const targetDir = getTargetDir(options);
 
   if (readGithubArchiveMetadata(targetDir)) {
-    replaceWithGithubArchiveSource(
-      {
-        source: options.source,
-        libraryDir: options.libraryDir,
-        protocol: options.protocol,
-        ref: options.commit,
-      },
-      targetDir,
-      {
-        commit: options.commit,
-        kind: "commit",
-        requestedRef: options.commit,
-        resolvedRef: options.refName ?? options.commit,
-      },
-    );
+    replaceWithGithubArchiveSource(options.source, targetDir, {
+      commit: options.commit,
+      kind: "commit",
+      requestedRef: options.commit,
+      resolvedRef: options.refName ?? options.commit,
+    });
     return;
   }
 
@@ -626,13 +616,10 @@ function shouldFallbackToGithubArchive(
   options: FetchRemoteSourceOptions,
   error: unknown,
 ): boolean {
-  return canUseGithubArchive(options) && isProxyForbiddenGitError(error);
-}
-
-function canUseGithubArchive(options: FetchRemoteSourceOptions): boolean {
   return (
     isGithubArchiveEligible(options) &&
-    getGithubToken(process.env) !== undefined
+    getGithubToken(process.env) !== undefined &&
+    isProxyForbiddenGitError(error)
   );
 }
 
@@ -658,11 +645,11 @@ function fetchGithubArchiveSource(
 ): GithubArchiveMetadata {
   const resolved = resolveGithubArchiveRef(options.source, options.ref);
 
-  return replaceWithGithubArchiveSource(options, targetDir, resolved);
+  return replaceWithGithubArchiveSource(options.source, targetDir, resolved);
 }
 
 function replaceWithGithubArchiveSource(
-  options: FetchRemoteSourceOptions,
+  source: string,
   targetDir: string,
   resolved: GithubResolvedRef,
 ): GithubArchiveMetadata {
@@ -675,12 +662,12 @@ function replaceWithGithubArchiveSource(
   fs.mkdirSync(parentDir, { recursive: true });
 
   try {
-    const archive = downloadGithubArchive(options.source, resolved.commit);
+    const archive = downloadGithubArchive(source, resolved.commit);
     fs.writeFileSync(archiveFile, archive);
     extractGithubArchive(archiveFile, tempDir);
     writeGithubArchiveMetadata(tempDir, {
       transport: "github-archive",
-      source: options.source,
+      source,
       requested_ref: resolved.requestedRef,
       resolved_commit: resolved.commit,
       resolved_ref: resolved.resolvedRef,
@@ -692,17 +679,14 @@ function replaceWithGithubArchiveSource(
     return readRequiredGithubArchiveMetadata(targetDir);
   } catch (error) {
     fs.rmSync(tempDir, { recursive: true, force: true });
-    throw normalizeGithubArchiveError(
-      error,
-      `Failed to fetch ${options.source}`,
-    );
+    throw normalizeGithubArchiveError(error, `Failed to fetch ${source}`);
   } finally {
     fs.rmSync(archiveFile, { force: true });
   }
 }
 
 function updateGithubArchiveSource(
-  options: FetchRemoteSourceOptions & { ref?: string },
+  options: FetchRemoteSourceOptions,
   initialRevision: CachedSourceRevision,
 ): UpdateCachedRemoteSourceResult {
   const targetDir = getTargetDir(options);
@@ -718,7 +702,7 @@ function updateGithubArchiveSource(
     };
   }
 
-  const refreshed = replaceWithGithubArchiveSource(options, targetDir, {
+  const refreshed = replaceWithGithubArchiveSource(options.source, targetDir, {
     commit: status.remoteCommit,
     kind: status.refKind,
     requestedRef: options.ref ?? metadata.requested_ref,
@@ -866,19 +850,16 @@ function peelGithubTagObject(
 function downloadGithubArchive(source: string, commit: string): Buffer {
   const github = requireGithubSource(source);
 
-  return githubApiBuffer(
+  return githubApiRequest(
     `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
       github.repo,
     )}/tarball/${encodeURIComponent(commit)}`,
+    "buffer",
   );
 }
 
 function githubApiJson<T>(apiPath: string): T {
   return JSON.parse(githubApiRequest(apiPath, "json").toString("utf8")) as T;
-}
-
-function githubApiBuffer(apiPath: string): Buffer {
-  return githubApiRequest(apiPath, "buffer");
 }
 
 function githubApiRequest(
@@ -1031,7 +1012,7 @@ function parseGithubSource(source: string): GithubSourceParts | undefined {
     return undefined;
   }
 
-  return { owner, repo, source };
+  return { owner, repo };
 }
 
 function requireGithubSource(source: string): GithubSourceParts {
