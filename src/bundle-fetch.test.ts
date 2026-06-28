@@ -13,18 +13,7 @@ const tempDirs: string[] = [];
 
 beforeEach(() => {
   // Given
-  for (const name of [
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "all_proxy",
-    "NO_PROXY",
-    "no_proxy",
-  ]) {
+  for (const name of ["GH_TOKEN", "GITHUB_TOKEN", "SKUL_GITHUB_TRANSPORT"]) {
     vi.stubEnv(name, undefined);
   }
 });
@@ -233,44 +222,22 @@ describe("fetchRemoteSource", () => {
     );
   });
 
-  it("bypasses a loopback proxy when cloning over HTTPS", () => {
+  it("requires a GitHub token when archive-first transport is requested", () => {
     // Given
     const libraryDir = createLibraryDir();
-    const targetDir = path.join(
-      libraryDir,
-      "github.com",
-      "user",
-      "react-bundle",
-    );
-    vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:12345");
-    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
+    vi.stubEnv("SKUL_GITHUB_TRANSPORT", "archive");
 
-    // When
-    fetchRemoteSource({
-      source: "github.com/user/react-bundle",
-      libraryDir,
-    });
-
-    // Then
-    const [, args, options] = vi.mocked(execFileSync).mock.calls[0] as [
-      string,
-      string[],
-      { env?: NodeJS.ProcessEnv },
-    ];
-    expect(args).toEqual([
-      "-c",
-      "http.https://github.com.proxy=",
-      "clone",
-      "--depth=1",
-      "https://github.com/user/react-bundle",
-      targetDir,
-    ]);
-    expect(options.env?.HTTPS_PROXY).toBeUndefined();
-    expect(options.env?.NO_PROXY).toContain("github.com");
-    expect(options.env?.no_proxy).toContain("github.com");
+    // When / Then
+    expect(() =>
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+      }),
+    ).toThrowError(/requires GH_TOKEN or GITHUB_TOKEN/);
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
-  it("uses GH_TOKEN through a transient credential helper without adding it to git args", () => {
+  it("does not add GH_TOKEN to git command args during the default clone transport", () => {
     // Given
     const libraryDir = createLibraryDir();
     const targetDir = path.join(
@@ -289,25 +256,17 @@ describe("fetchRemoteSource", () => {
     });
 
     // Then
-    const [, args, options] = vi.mocked(execFileSync).mock.calls[0] as [
+    const [, args] = vi.mocked(execFileSync).mock.calls[0] as [
       string,
       string[],
-      { env?: NodeJS.ProcessEnv },
     ];
     expect(args).toEqual([
-      "-c",
-      "http.https://github.com.proxy=",
-      "-c",
-      "credential.helper=",
-      "-c",
-      expect.stringContaining("credential.helper=!f()"),
       "clone",
       "--depth=1",
       "https://github.com/user/react-bundle",
       targetDir,
     ]);
     expect(args.join(" ")).not.toContain("github-token-value");
-    expect(options.env?.SKUL_GIT_AUTH_TOKEN).toBe("github-token-value");
   });
 
   it("includes the SSH clone URL in the error message when SSH clone fails", () => {

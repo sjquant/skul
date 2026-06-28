@@ -31,6 +31,16 @@ Those use tracked-shadow behavior instead of plain local file creation. Use `sku
 
 Yes. Pass `--ssh` to `skul add` or use a `git@...` source URL.
 
+## What is the GitHub archive fallback?
+
+Skul normally caches remote sources with `git clone`. For GitHub HTTPS sources,
+when a clone fails with a proxy 403 and `GH_TOKEN` or `GITHUB_TOKEN` is set,
+Skul can fetch the repository tarball through the GitHub REST API instead. Set
+`SKUL_GITHUB_TRANSPORT=archive` to use that transport first.
+
+Archive caches contain working tree files only. They do not include `.git`
+metadata, submodules, or Git LFS objects.
+
 ## What happens after `git worktree remove`?
 
 Run `skul reset` before removing a worktree. If the worktree is removed externally, the registry entry can outlive the clone until you clear it manually.

@@ -30,6 +30,19 @@ skul update
 
 `check` is read-only and accepts `--json` for scripting. `update` accepts `--dry-run`.
 
+### GitHub archive fallback
+
+Skul uses `git clone` as the default remote source transport. For GitHub HTTPS
+sources (`github.com/<owner>/<repo>`), if `git clone` fails with a proxy 403 and
+`GH_TOKEN` or `GITHUB_TOKEN` is available, Skul can fall back to the GitHub REST
+API archive endpoint and cache the repository contents without a `.git`
+directory. Set `SKUL_GITHUB_TRANSPORT=archive` to use the archive transport
+first for GitHub HTTPS sources.
+
+Archive caches support Skul bundle file materialization only. They do not
+include Git metadata, submodules, or Git LFS objects, so bundles that depend on
+those features should use the default Git transport.
+
 ---
 
 ## Git Update Workflow

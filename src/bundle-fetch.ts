@@ -10,6 +10,8 @@ export interface FetchRemoteSourceOptions {
   libraryDir: string;
   /** Transport protocol to use when cloning. Defaults to "https". */
   protocol?: "https" | "ssh";
+  /** Optional branch, tag, or commit to fetch. */
+  ref?: string;
 }
 
 export interface FetchRemoteSourceResult {
@@ -24,6 +26,7 @@ export interface CachedSourceRevision {
   currentCommit?: string;
   currentRef?: string;
   remoteUrl?: string;
+  transport?: RemoteSourceTransport;
 }
 
 export interface RemoteSourceStatus extends CachedSourceRevision {
@@ -41,22 +44,37 @@ export interface UpdateCachedRemoteSourceResult extends RemoteSourceStatus {
 const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 const SSH_AUTH_FAILURE_RE =
   /permission denied|could not read from remote repository|host key verification failed/i;
-const PROXY_ENV_NAMES = [
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "ALL_PROXY",
-  "http_proxy",
-  "https_proxy",
-  "all_proxy",
-] as const;
-const NO_PROXY_ENV_NAMES = ["NO_PROXY", "no_proxy"] as const;
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const GITHUB_HOST = "github.com";
-const GITHUB_TOKEN_CREDENTIAL_HELPER =
-  '!f() { test "$1" = get || exit 0; echo username=x-access-token; echo password="$SKUL_GIT_AUTH_TOKEN"; }; f';
+const ARCHIVE_METADATA_FILE = ".skul-source.json";
+const GITHUB_API_VERSION = "2022-11-28";
+const GITHUB_TRANSPORT_ENV = "SKUL_GITHUB_TRANSPORT";
+const GITHUB_TRANSPORT_ARCHIVE = "archive";
+const GITHUB_API_BASE_URL_ENV = "SKUL_GITHUB_API_BASE_URL";
+const GITHUB_USER_AGENT = "skul";
+const MAX_GITHUB_RESPONSE_BYTES = 100 * 1024 * 1024;
 
-interface GitRunContext {
-  remoteUrl: string;
+type RemoteSourceTransport = "git" | "github-archive";
+
+interface GithubArchiveMetadata {
+  transport: "github-archive";
+  source: string;
+  requested_ref: string | null;
+  resolved_commit: string;
+  resolved_ref: string | null;
+  fetched_at: string;
+}
+
+interface GithubSourceParts {
+  owner: string;
+  repo: string;
+  source: string;
+}
+
+interface GithubResolvedRef {
+  commit: string;
+  kind: "branch" | "tag" | "commit";
+  requestedRef: string | null;
+  resolvedRef: string | null;
 }
 
 /**
@@ -78,12 +96,28 @@ export function fetchRemoteSource(
 
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
+  if (shouldUseGithubArchiveFirst(options)) {
+    fetchGithubArchiveSource(options, targetDir);
+    return { cloned: true, targetDir };
+  }
+
   try {
-    runRemoteGit(["clone", "--depth=1", cloneUrl, targetDir], {
-      remoteUrl: cloneUrl,
-    });
+    runGit(["clone", "--depth=1", cloneUrl, targetDir]);
   } catch (error) {
     fs.rmSync(targetDir, { recursive: true, force: true });
+
+    if (shouldFallbackToGithubArchive(options, error)) {
+      try {
+        fetchGithubArchiveSource(options, targetDir);
+        return { cloned: true, targetDir };
+      } catch (archiveError) {
+        throw combineGitAndArchiveErrors(error, archiveError, cloneUrl, {
+          source: options.source,
+          protocol: options.protocol,
+        });
+      }
+    }
+
     throw normalizeGitError(error, `Failed to clone ${cloneUrl}`, {
       source: options.source,
       protocol: options.protocol,
@@ -103,6 +137,19 @@ export function readCachedSourceRevision(
     return { cached: false, targetDir };
   }
 
+  const archiveMetadata = readGithubArchiveMetadata(targetDir);
+
+  if (archiveMetadata) {
+    return {
+      cached: true,
+      targetDir,
+      currentCommit: archiveMetadata.resolved_commit,
+      currentRef: archiveMetadata.resolved_ref ?? undefined,
+      remoteUrl: getCloneUrl(options.source, "https"),
+      transport: archiveMetadata.transport,
+    };
+  }
+
   return {
     cached: true,
     targetDir,
@@ -118,6 +165,7 @@ export function readCachedSourceRevision(
       ]),
     ),
     remoteUrl: tryRunGit(["-C", targetDir, "remote", "get-url", "origin"]),
+    transport: "git",
   };
 }
 
@@ -126,6 +174,37 @@ export function inspectRemoteSource(
   options: FetchRemoteSourceOptions & { ref?: string },
 ): RemoteSourceStatus {
   const cached = readCachedSourceRevision(options);
+
+  if (cached.transport === "github-archive") {
+    const metadata = readGithubArchiveMetadata(cached.targetDir);
+
+    if (!metadata) {
+      throw new Error(`Missing GitHub archive metadata for ${options.source}`);
+    }
+
+    try {
+      const resolvedRemote = resolveGithubArchiveRef(
+        options.source,
+        options.ref ?? metadata.requested_ref ?? undefined,
+      );
+
+      return {
+        ...cached,
+        remoteUrl: getCloneUrl(options.source, "https"),
+        remoteCommit: resolvedRemote.commit,
+        refKind: resolvedRemote.kind,
+        ...(resolvedRemote.resolvedRef !== null
+          ? { resolvedRef: resolvedRemote.resolvedRef }
+          : {}),
+      };
+    } catch (error) {
+      throw normalizeGithubArchiveError(
+        error,
+        `Failed to inspect ${options.source}`,
+      );
+    }
+  }
+
   const remoteUrl =
     cached.remoteUrl ?? getCloneUrl(options.source, options.protocol);
   let resolvedRemote: {
@@ -165,6 +244,11 @@ export function updateCachedRemoteSource(
   }
 
   const targetDir = getTargetDir(options);
+
+  if (readCachedSourceRevision(options).transport === "github-archive") {
+    return updateGithubArchiveSource(options, initialRevision);
+  }
+
   let status: RemoteSourceStatus;
 
   try {
@@ -191,19 +275,14 @@ export function updateCachedRemoteSource(
 
   try {
     if (status.refKind === "branch") {
-      runRemoteGit(
-        [
-          "-C",
-          targetDir,
-          "fetch",
-          "--depth=1",
-          "origin",
-          `refs/heads/${status.resolvedRef!}`,
-        ],
-        {
-          remoteUrl: status.remoteUrl,
-        },
-      );
+      runGit([
+        "-C",
+        targetDir,
+        "fetch",
+        "--depth=1",
+        "origin",
+        `refs/heads/${status.resolvedRef!}`,
+      ]);
       runGit([
         "-C",
         targetDir,
@@ -213,27 +292,24 @@ export function updateCachedRemoteSource(
         "FETCH_HEAD",
       ]);
     } else if (status.refKind === "tag") {
-      runRemoteGit(
-        [
-          "-C",
-          targetDir,
-          "fetch",
-          "--depth=1",
-          "origin",
-          `refs/tags/${status.resolvedRef!}`,
-        ],
-        {
-          remoteUrl: status.remoteUrl,
-        },
-      );
+      runGit([
+        "-C",
+        targetDir,
+        "fetch",
+        "--depth=1",
+        "origin",
+        `refs/tags/${status.resolvedRef!}`,
+      ]);
       runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
     } else {
-      runRemoteGit(
-        ["-C", targetDir, "fetch", "--depth=1", "origin", status.remoteCommit],
-        {
-          remoteUrl: status.remoteUrl,
-        },
-      );
+      runGit([
+        "-C",
+        targetDir,
+        "fetch",
+        "--depth=1",
+        "origin",
+        status.remoteCommit,
+      ]);
       runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
     }
   } catch (error) {
@@ -283,6 +359,25 @@ export function restoreCachedRemoteSourceRevision(
 ): void {
   const targetDir = getTargetDir(options);
 
+  if (readGithubArchiveMetadata(targetDir)) {
+    replaceWithGithubArchiveSource(
+      {
+        source: options.source,
+        libraryDir: options.libraryDir,
+        protocol: options.protocol,
+        ref: options.commit,
+      },
+      targetDir,
+      {
+        commit: options.commit,
+        kind: "commit",
+        requestedRef: options.commit,
+        resolvedRef: options.refName ?? options.commit,
+      },
+    );
+    return;
+  }
+
   if (options.refName) {
     runGit([
       "-C",
@@ -323,6 +418,15 @@ export function clearAndRefetchCachedRemoteSource(
 ): void {
   const targetDir = getTargetDir(options);
   const revision = readCachedSourceRevision(options);
+
+  if (
+    revision.transport === "github-archive" ||
+    shouldUseGithubArchiveFirst(options)
+  ) {
+    fetchGithubArchiveSource(options, targetDir);
+    return;
+  }
+
   const isStoredSsh = revision.remoteUrl?.startsWith("git@") ?? false;
   const cloneUrl =
     revision.remoteUrl && isStoredSsh === (options.protocol === "ssh")
@@ -334,9 +438,7 @@ export function clearAndRefetchCachedRemoteSource(
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   try {
-    runRemoteGit(["clone", "--depth=1", cloneUrl, tempDir], {
-      remoteUrl: cloneUrl,
-    });
+    runGit(["clone", "--depth=1", cloneUrl, tempDir]);
     fs.rmSync(targetDir, { recursive: true, force: true });
     fs.renameSync(tempDir, targetDir);
   } catch (error) {
@@ -376,9 +478,7 @@ function resolveRemoteRef(
 
   if (requestedRef) {
     const branchCommit = parseFirstSha(
-      runRemoteGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`], {
-        remoteUrl,
-      }),
+      runGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`]),
     );
 
     if (branchCommit) {
@@ -389,15 +489,12 @@ function resolveRemoteRef(
       };
     }
 
-    const tagOutput = runRemoteGit(
-      [
-        "ls-remote",
-        remoteUrl,
-        `refs/tags/${requestedRef}`,
-        `refs/tags/${requestedRef}^{}`,
-      ],
-      { remoteUrl },
-    );
+    const tagOutput = runGit([
+      "ls-remote",
+      remoteUrl,
+      `refs/tags/${requestedRef}`,
+      `refs/tags/${requestedRef}^{}`,
+    ]);
     const tagCommit = parsePreferredTagSha(tagOutput, requestedRef);
 
     if (tagCommit) {
@@ -407,12 +504,7 @@ function resolveRemoteRef(
     throw new Error(`Remote ref not found: ${requestedRef}`);
   }
 
-  const headOutput = runRemoteGit(
-    ["ls-remote", "--symref", remoteUrl, "HEAD"],
-    {
-      remoteUrl,
-    },
-  );
+  const headOutput = runGit(["ls-remote", "--symref", remoteUrl, "HEAD"]);
   const headRef = parseHeadRef(headOutput);
   const headCommit = parseHeadCommit(headOutput);
 
@@ -499,22 +591,11 @@ function normalizeCurrentRef(value: string | undefined): string | undefined {
 }
 
 function runGit(args: string[]): string {
-  return runGitWithOptions(args);
-}
-
-function runRemoteGit(args: string[], context: GitRunContext): string {
-  const invocation = buildGitInvocation(args, context);
-
-  return runGitWithOptions(invocation.args, invocation.env);
-}
-
-function runGitWithOptions(args: string[], env?: NodeJS.ProcessEnv): string {
   try {
     return String(
       execFileSync("git", args, {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-        ...(env ? { env } : {}),
       }),
     ).trim();
   } catch (error) {
@@ -532,161 +613,579 @@ function runGitWithOptions(args: string[], env?: NodeJS.ProcessEnv): string {
   }
 }
 
-function buildGitInvocation(
-  args: string[],
-  context: GitRunContext,
-): { args: string[]; env?: NodeJS.ProcessEnv } {
-  const remoteHost = getHttpsRemoteHost(context);
+function shouldUseGithubArchiveFirst(
+  options: FetchRemoteSourceOptions,
+): boolean {
+  return (
+    process.env[GITHUB_TRANSPORT_ENV] === GITHUB_TRANSPORT_ARCHIVE &&
+    isGithubArchiveEligible(options)
+  );
+}
 
-  if (!remoteHost) {
-    return { args };
+function shouldFallbackToGithubArchive(
+  options: FetchRemoteSourceOptions,
+  error: unknown,
+): boolean {
+  return canUseGithubArchive(options) && isProxyForbiddenGitError(error);
+}
+
+function canUseGithubArchive(options: FetchRemoteSourceOptions): boolean {
+  return (
+    isGithubArchiveEligible(options) &&
+    getGithubToken(process.env) !== undefined
+  );
+}
+
+function isGithubArchiveEligible(options: FetchRemoteSourceOptions): boolean {
+  return (
+    (options.protocol ?? "https") === "https" &&
+    parseGithubSource(options.source) !== undefined
+  );
+}
+
+function isProxyForbiddenGitError(error: unknown): boolean {
+  const stderr =
+    error instanceof Error && "stderr" in error
+      ? String((error as { stderr: Buffer | string }).stderr)
+      : String(error);
+
+  return /proxy[\s\S]*403|403[\s\S]*proxy|CONNECT[\s\S]*403/i.test(stderr);
+}
+
+function fetchGithubArchiveSource(
+  options: FetchRemoteSourceOptions,
+  targetDir: string,
+): GithubArchiveMetadata {
+  const resolved = resolveGithubArchiveRef(options.source, options.ref);
+
+  return replaceWithGithubArchiveSource(options, targetDir, resolved);
+}
+
+function replaceWithGithubArchiveSource(
+  options: FetchRemoteSourceOptions,
+  targetDir: string,
+  resolved: GithubResolvedRef,
+): GithubArchiveMetadata {
+  const parentDir = path.dirname(targetDir);
+  const tempDir = `${targetDir}.tmp-${process.pid}-${Date.now()}`;
+  const archiveFile = `${tempDir}.tar.gz`;
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+  fs.rmSync(archiveFile, { force: true });
+  fs.mkdirSync(parentDir, { recursive: true });
+
+  try {
+    const archive = downloadGithubArchive(options.source, resolved.commit);
+    fs.writeFileSync(archiveFile, archive);
+    extractGithubArchive(archiveFile, tempDir);
+    writeGithubArchiveMetadata(tempDir, {
+      transport: "github-archive",
+      source: options.source,
+      requested_ref: resolved.requestedRef,
+      resolved_commit: resolved.commit,
+      resolved_ref: resolved.resolvedRef,
+      fetched_at: new Date().toISOString(),
+    });
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.renameSync(tempDir, targetDir);
+
+    return readRequiredGithubArchiveMetadata(targetDir);
+  } catch (error) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    throw normalizeGithubArchiveError(
+      error,
+      `Failed to fetch ${options.source}`,
+    );
+  } finally {
+    fs.rmSync(archiveFile, { force: true });
+  }
+}
+
+function updateGithubArchiveSource(
+  options: FetchRemoteSourceOptions & { ref?: string },
+  initialRevision: CachedSourceRevision,
+): UpdateCachedRemoteSourceResult {
+  const targetDir = getTargetDir(options);
+  const metadata = readRequiredGithubArchiveMetadata(targetDir);
+  const status = inspectRemoteSource(options);
+
+  if (metadata.resolved_commit === status.remoteCommit) {
+    return {
+      ...status,
+      previousCommit: initialRevision.currentCommit,
+      updated: false,
+      currentCommit: metadata.resolved_commit,
+    };
   }
 
-  const githubToken = getGithubToken(process.env);
-  const isGithubRemote = remoteHost === GITHUB_HOST;
-  const hasLoopbackProxyEnv = hasLoopbackProxy(process.env);
-  const shouldUseGithubToken = githubToken !== undefined && isGithubRemote;
-  const shouldBypassGitProxy =
-    isGithubRemote && (shouldUseGithubToken || hasLoopbackProxyEnv);
-  const shouldScrubProxyEnv = isGithubRemote && hasLoopbackProxyEnv;
-
-  if (!shouldUseGithubToken && !shouldBypassGitProxy) {
-    return { args };
-  }
+  const refreshed = replaceWithGithubArchiveSource(options, targetDir, {
+    commit: status.remoteCommit,
+    kind: status.refKind,
+    requestedRef: options.ref ?? metadata.requested_ref,
+    resolvedRef: status.resolvedRef ?? null,
+  });
 
   return {
-    args: [
-      ...buildGitConfigArgs(remoteHost, {
-        bypassGitProxy: shouldBypassGitProxy,
-        useGithubToken: shouldUseGithubToken,
-      }),
-      ...args,
-    ],
-    env: buildGitEnv(remoteHost, {
-      scrubProxyEnv: shouldScrubProxyEnv,
-      githubToken,
-    }),
+    ...status,
+    currentCommit: refreshed.resolved_commit,
+    currentRef: refreshed.resolved_ref ?? undefined,
+    previousCommit: initialRevision.currentCommit,
+    updated: true,
   };
 }
 
-function getHttpsRemoteHost(context: GitRunContext): string | undefined {
-  return parseHttpsRemoteHost(context.remoteUrl);
+function resolveGithubArchiveRef(
+  source: string,
+  requestedRef?: string | null,
+): GithubResolvedRef {
+  const github = requireGithubSource(source);
+
+  if (requestedRef && isCommitSha(requestedRef)) {
+    const commit = githubApiJson<{ sha: string }>(
+      `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
+        github.repo,
+      )}/commits/${encodeURIComponent(requestedRef)}`,
+    );
+
+    return {
+      commit: commit.sha,
+      kind: "commit",
+      requestedRef,
+      resolvedRef: requestedRef,
+    };
+  }
+
+  if (requestedRef) {
+    const branch = tryResolveGithubBranch(github, requestedRef);
+
+    if (branch) {
+      return branch;
+    }
+
+    const tag = tryResolveGithubTag(github, requestedRef);
+
+    if (tag) {
+      return tag;
+    }
+
+    throw new Error(`GitHub ref not found: ${requestedRef}`);
+  }
+
+  const repo = githubApiJson<{ default_branch: string }>(
+    `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
+      github.repo,
+    )}`,
+  );
+  const defaultBranch = tryResolveGithubBranch(github, repo.default_branch);
+
+  if (!defaultBranch) {
+    throw new Error(`GitHub default branch not found: ${repo.default_branch}`);
+  }
+
+  return {
+    ...defaultBranch,
+    requestedRef: null,
+  };
 }
 
-function parseHttpsRemoteHost(remoteUrl: string): string | undefined {
+function tryResolveGithubBranch(
+  github: GithubSourceParts,
+  branch: string,
+): GithubResolvedRef | undefined {
   try {
-    const url = new URL(remoteUrl);
+    const ref = githubApiJson<{ object: { sha: string } }>(
+      `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
+        github.repo,
+      )}/git/ref/heads/${encodeGithubRefPath(branch)}`,
+    );
 
-    if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return {
+      commit: ref.object.sha,
+      kind: "branch",
+      requestedRef: branch,
+      resolvedRef: branch,
+    };
+  } catch (error) {
+    if (isGithubNotFoundError(error)) {
       return undefined;
     }
 
-    return normalizeHostname(url.hostname);
+    throw error;
+  }
+}
+
+function tryResolveGithubTag(
+  github: GithubSourceParts,
+  tag: string,
+): GithubResolvedRef | undefined {
+  try {
+    const ref = githubApiJson<{
+      object: { sha: string; type: string };
+    }>(
+      `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
+        github.repo,
+      )}/git/ref/tags/${encodeGithubRefPath(tag)}`,
+    );
+
+    return {
+      commit: peelGithubTagObject(github, ref.object),
+      kind: "tag",
+      requestedRef: tag,
+      resolvedRef: tag,
+    };
+  } catch (error) {
+    if (isGithubNotFoundError(error)) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function peelGithubTagObject(
+  github: GithubSourceParts,
+  object: { sha: string; type: string },
+): string {
+  if (object.type === "commit") {
+    return object.sha;
+  }
+
+  if (object.type !== "tag") {
+    throw new Error(`Unsupported GitHub tag object type: ${object.type}`);
+  }
+
+  const tag = githubApiJson<{ object: { sha: string; type: string } }>(
+    `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
+      github.repo,
+    )}/git/tags/${encodeURIComponent(object.sha)}`,
+  );
+
+  return peelGithubTagObject(github, tag.object);
+}
+
+function downloadGithubArchive(source: string, commit: string): Buffer {
+  const github = requireGithubSource(source);
+
+  return githubApiBuffer(
+    `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
+      github.repo,
+    )}/tarball/${encodeURIComponent(commit)}`,
+  );
+}
+
+function githubApiJson<T>(apiPath: string): T {
+  return JSON.parse(githubApiRequest(apiPath, "json").toString("utf8")) as T;
+}
+
+function githubApiBuffer(apiPath: string): Buffer {
+  return githubApiRequest(apiPath, "buffer");
+}
+
+function githubApiRequest(
+  apiPath: string,
+  responseType: "json" | "buffer",
+): Buffer {
+  const token = getRequiredGithubToken();
+  const env = {
+    ...process.env,
+    SKUL_GITHUB_API_PATH: apiPath,
+    SKUL_GITHUB_API_RESPONSE_TYPE: responseType,
+    SKUL_GITHUB_API_TOKEN: token,
+    SKUL_GITHUB_API_BASE_URL:
+      process.env[GITHUB_API_BASE_URL_ENV] ?? "https://api.github.com",
+    SKUL_GITHUB_API_VERSION: GITHUB_API_VERSION,
+    SKUL_GITHUB_USER_AGENT: GITHUB_USER_AGENT,
+  };
+
+  try {
+    return execFileSync(process.execPath, ["-e", GITHUB_API_HELPER_SCRIPT], {
+      env,
+      maxBuffer: MAX_GITHUB_RESPONSE_BYTES,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    throw parseGithubApiFailure(error);
+  }
+}
+
+const GITHUB_API_HELPER_SCRIPT = `
+(async () => {
+  const url = new URL(process.env.SKUL_GITHUB_API_PATH, process.env.SKUL_GITHUB_API_BASE_URL);
+  const response = await fetch(url, {
+    headers: {
+      Authorization: "Bearer " + process.env.SKUL_GITHUB_API_TOKEN,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": process.env.SKUL_GITHUB_API_VERSION,
+      "User-Agent": process.env.SKUL_GITHUB_USER_AGENT,
+    },
+  });
+  const bytes = Buffer.from(await response.arrayBuffer());
+
+  if (!response.ok) {
+    process.stderr.write(JSON.stringify({
+      status: response.status,
+      statusText: response.statusText,
+      body: bytes.toString("utf8"),
+      rateLimitRemaining: response.headers.get("x-ratelimit-remaining"),
+      rateLimitReset: response.headers.get("x-ratelimit-reset"),
+    }));
+    process.exit(1);
+  }
+
+  process.stdout.write(bytes);
+})().catch((error) => {
+  process.stderr.write(JSON.stringify({ message: String(error && error.message ? error.message : error) }));
+  process.exit(1);
+});
+`;
+
+function extractGithubArchive(archiveFile: string, targetDir: string): void {
+  const extractDir = `${targetDir}.extract`;
+  fs.rmSync(extractDir, { recursive: true, force: true });
+  fs.mkdirSync(extractDir, { recursive: true });
+
+  try {
+    execFileSync("tar", ["-xzf", archiveFile, "-C", extractDir], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const wrapperDir = getArchiveWrapperDir(extractDir);
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    for (const entry of fs.readdirSync(wrapperDir)) {
+      fs.renameSync(path.join(wrapperDir, entry), path.join(targetDir, entry));
+    }
+  } catch (error) {
+    throw new Error(`Failed to extract GitHub archive: ${getErrorText(error)}`);
+  } finally {
+    fs.rmSync(extractDir, { recursive: true, force: true });
+  }
+}
+
+function getArchiveWrapperDir(extractDir: string): string {
+  const entries = fs
+    .readdirSync(extractDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory());
+
+  if (entries.length !== 1) {
+    throw new Error("GitHub archive did not contain one wrapper directory");
+  }
+
+  return path.join(extractDir, entries[0]!.name);
+}
+
+function writeGithubArchiveMetadata(
+  targetDir: string,
+  metadata: GithubArchiveMetadata,
+): void {
+  fs.writeFileSync(
+    getGithubArchiveMetadataPath(targetDir),
+    `${JSON.stringify(metadata, null, 2)}\n`,
+  );
+}
+
+function readGithubArchiveMetadata(
+  targetDir: string,
+): GithubArchiveMetadata | undefined {
+  const metadataPath = getGithubArchiveMetadataPath(targetDir);
+
+  if (!fs.existsSync(metadataPath)) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(metadataPath, "utf8"),
+    ) as GithubArchiveMetadata;
+
+    if (parsed.transport !== "github-archive") {
+      return undefined;
+    }
+
+    return parsed;
   } catch {
     return undefined;
   }
 }
 
-function buildGitConfigArgs(
-  remoteHost: string,
-  options: { bypassGitProxy: boolean; useGithubToken: boolean },
-): string[] {
-  const args: string[] = [];
+function readRequiredGithubArchiveMetadata(
+  targetDir: string,
+): GithubArchiveMetadata {
+  const metadata = readGithubArchiveMetadata(targetDir);
 
-  if (options.bypassGitProxy) {
-    args.push("-c", `http.https://${remoteHost}.proxy=`);
+  if (!metadata) {
+    throw new Error(`Missing GitHub archive metadata in ${targetDir}`);
   }
 
-  if (options.useGithubToken) {
-    args.push(
-      "-c",
-      "credential.helper=",
-      "-c",
-      `credential.helper=${GITHUB_TOKEN_CREDENTIAL_HELPER}`,
+  return metadata;
+}
+
+function getGithubArchiveMetadataPath(targetDir: string): string {
+  return path.join(targetDir, ARCHIVE_METADATA_FILE);
+}
+
+function parseGithubSource(source: string): GithubSourceParts | undefined {
+  assertSafeSource(source);
+  const [host, owner, repo] = source.split("/");
+
+  if (host !== GITHUB_HOST) {
+    return undefined;
+  }
+
+  return { owner, repo, source };
+}
+
+function requireGithubSource(source: string): GithubSourceParts {
+  const github = parseGithubSource(source);
+
+  if (!github) {
+    throw new Error(
+      `GitHub archive transport only supports github.com sources`,
     );
   }
 
-  return args;
+  return github;
 }
 
-function buildGitEnv(
-  remoteHost: string,
-  options: { scrubProxyEnv: boolean; githubToken?: string },
-): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-
-  if (options.scrubProxyEnv) {
-    for (const name of PROXY_ENV_NAMES) {
-      delete env[name];
-    }
-
-    const noProxy = mergeNoProxyHost(env, remoteHost);
-
-    for (const name of NO_PROXY_ENV_NAMES) {
-      env[name] = noProxy;
-    }
-  }
-
-  if (options.githubToken !== undefined) {
-    env.SKUL_GIT_AUTH_TOKEN = options.githubToken;
-  }
-
-  return env;
+function encodeGithubRefPath(ref: string): string {
+  return ref.split("/").map(encodeURIComponent).join("/");
 }
 
-function mergeNoProxyHost(env: NodeJS.ProcessEnv, remoteHost: string): string {
-  const existing = NO_PROXY_ENV_NAMES.flatMap((name) =>
-    (env[name] ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
-  );
-  const merged = new Set([...existing, remoteHost]);
+function getRequiredGithubToken(): string {
+  const token = getGithubToken(process.env);
 
-  return [...merged].join(",");
+  if (!token) {
+    throw new Error(
+      "GitHub archive transport requires GH_TOKEN or GITHUB_TOKEN.",
+    );
+  }
+
+  return token;
 }
 
 function getGithubToken(env: NodeJS.ProcessEnv): string | undefined {
   return env.GH_TOKEN || env.GITHUB_TOKEN || undefined;
 }
 
-function hasLoopbackProxy(env: NodeJS.ProcessEnv): boolean {
-  return PROXY_ENV_NAMES.some((name) => {
-    const value = env[name];
+function combineGitAndArchiveErrors(
+  gitError: unknown,
+  archiveError: unknown,
+  cloneUrl: string,
+  context: { source: string; protocol?: "https" | "ssh" },
+): Error {
+  const gitMessage = normalizeGitError(
+    gitError,
+    `Failed to clone ${cloneUrl}`,
+    context,
+  ).message;
+  const archiveMessage =
+    archiveError instanceof Error ? archiveError.message : String(archiveError);
 
-    return value ? isLoopbackProxy(value) : false;
-  });
-}
-
-function isLoopbackProxy(value: string): boolean {
-  const hostname = parseProxyHostname(value);
-
-  return (
-    hostname !== undefined &&
-    (LOOPBACK_HOSTS.has(hostname) || hostname.startsWith("127."))
+  return new Error(
+    `${gitMessage}\nGitHub archive fallback failed:\n${archiveMessage}`,
   );
 }
 
-function parseProxyHostname(value: string): string | undefined {
-  const proxyValue = value.trim();
-
-  if (!proxyValue) {
-    return undefined;
+function normalizeGithubArchiveError(error: unknown, prefix: string): Error {
+  if (error instanceof Error) {
+    return new Error(
+      `${prefix}:\n${sanitizeGithubErrorMessage(error.message)}`,
+    );
   }
 
-  const urlValue = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(proxyValue)
-    ? proxyValue
-    : `http://${proxyValue}`;
+  return new Error(`${prefix}:\n${sanitizeGithubErrorMessage(String(error))}`);
+}
+
+function parseGithubApiFailure(error: unknown): Error {
+  const stderr =
+    error instanceof Error && "stderr" in error
+      ? String((error as { stderr: Buffer | string }).stderr).trim()
+      : String(error);
 
   try {
-    return normalizeHostname(new URL(urlValue).hostname);
+    const parsed = JSON.parse(stderr) as {
+      body?: string;
+      message?: string;
+      rateLimitRemaining?: string | null;
+      rateLimitReset?: string | null;
+      status?: number;
+      statusText?: string;
+    };
+
+    return new Error(formatGithubApiFailure(parsed));
   } catch {
-    return undefined;
+    return new Error(sanitizeGithubErrorMessage(stderr));
   }
 }
 
-function normalizeHostname(hostname: string): string {
-  return hostname.replace(/^\[|\]$/g, "").toLowerCase();
+function formatGithubApiFailure(error: {
+  body?: string;
+  message?: string;
+  rateLimitRemaining?: string | null;
+  rateLimitReset?: string | null;
+  status?: number;
+  statusText?: string;
+}): string {
+  const detail = parseGithubApiErrorBody(error.body) ?? error.message;
+
+  if (error.status === 401) {
+    return "GitHub API authentication failed (401). Check GH_TOKEN or GITHUB_TOKEN.";
+  }
+
+  if (error.status === 403) {
+    if (error.rateLimitRemaining === "0") {
+      const reset = error.rateLimitReset
+        ? new Date(Number(error.rateLimitReset) * 1000).toISOString()
+        : "the rate limit resets";
+      return `GitHub API rate limit exceeded (403). Try again after ${reset}.`;
+    }
+
+    return `GitHub API request forbidden (403). Check token repository access.${detail ? ` ${detail}` : ""}`;
+  }
+
+  if (error.status === 404) {
+    return "GitHub repository or ref was not found (404). Check the source, ref, and token access.";
+  }
+
+  if (error.status) {
+    return `GitHub API request failed (${error.status}${error.statusText ? ` ${error.statusText}` : ""}).${detail ? ` ${detail}` : ""}`;
+  }
+
+  return detail ?? "GitHub API request failed.";
+}
+
+function parseGithubApiErrorBody(body: string | undefined): string | undefined {
+  if (!body) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(body) as { message?: string };
+    return parsed.message
+      ? sanitizeGithubErrorMessage(parsed.message)
+      : undefined;
+  } catch {
+    return sanitizeGithubErrorMessage(body);
+  }
+}
+
+function isGithubNotFoundError(error: unknown): boolean {
+  return (
+    error instanceof Error && /\(404\)|not found \(404\)/i.test(error.message)
+  );
+}
+
+function sanitizeGithubErrorMessage(message: string): string {
+  const token = getGithubToken(process.env);
+
+  return token ? message.split(token).join("[redacted]") : message;
+}
+
+function getErrorText(error: unknown): string {
+  if (error instanceof Error && "stderr" in error) {
+    return String((error as { stderr: Buffer | string }).stderr).trim();
+  }
+
+  return error instanceof Error ? error.message : String(error);
 }
 
 function tryRunGit(args: string[]): string | undefined {
