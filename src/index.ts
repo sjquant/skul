@@ -4980,6 +4980,7 @@ async function applyWorktree(options: {
           source: entry.source,
           libraryDir: options.libraryDir,
           protocol: entry.protocol,
+          ref: entry.ref ?? entry.resolved_commit,
         });
         if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
       }

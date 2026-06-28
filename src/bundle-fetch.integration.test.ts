@@ -6,8 +6,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  clearAndRefetchCachedRemoteSource,
   fetchRemoteSource,
   inspectRemoteSource,
+  readCachedSourceRevision,
+  restoreCachedRemoteSourceRevision,
   updateCachedRemoteSource,
 } from "./bundle-fetch";
 
@@ -86,21 +89,18 @@ describe("updateCachedRemoteSource integration", () => {
     const source = "github.com/user/react-bundle";
     const commit = "1111111111111111111111111111111111111111";
     const argsFile = installProxyForbiddenGit(libraryDir);
-    await configureFakeGithubApi(libraryDir, {
-      archives: {
-        [commit]: createArchive(libraryDir, commit, {
-          "AGENTS.md": "# archive bundle\n",
-        }),
-      },
-      branches: { main: commit },
-      commits: [commit],
-      defaultBranch: "main",
-      owner: "user",
-      repo: "react-bundle",
-      tagObjects: {},
-      tags: {},
-      token: "github-token-value",
-    });
+    await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [commit]: createArchive(libraryDir, commit, {
+            "AGENTS.md": "# archive bundle\n",
+          }),
+        },
+        branches: { main: commit },
+        commits: [commit],
+      }),
+    );
     process.env.GH_TOKEN = "github-token-value";
 
     // When
@@ -131,24 +131,21 @@ describe("updateCachedRemoteSource integration", () => {
     const source = "github.com/user/react-bundle";
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
-    const { stateFile } = await configureFakeGithubApi(libraryDir, {
-      archives: {
-        [initialCommit]: createArchive(libraryDir, initialCommit, {
-          "AGENTS.md": "# initial\n",
-        }),
-        [remoteCommit]: createArchive(libraryDir, remoteCommit, {
-          "AGENTS.md": "# remote\n",
-        }),
-      },
-      branches: { main: initialCommit },
-      commits: [initialCommit, remoteCommit],
-      defaultBranch: "main",
-      owner: "user",
-      repo: "react-bundle",
-      tagObjects: {},
-      tags: {},
-      token: "github-token-value",
-    });
+    const { stateFile } = await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [initialCommit]: createArchive(libraryDir, initialCommit, {
+            "AGENTS.md": "# initial\n",
+          }),
+          [remoteCommit]: createArchive(libraryDir, remoteCommit, {
+            "AGENTS.md": "# remote\n",
+          }),
+        },
+        branches: { main: initialCommit },
+        commits: [initialCommit, remoteCommit],
+      }),
+    );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
     fetchRemoteSource({ source, libraryDir });
@@ -162,7 +159,6 @@ describe("updateCachedRemoteSource integration", () => {
     // Then
     expect(status.currentCommit).toBe(initialCommit);
     expect(status.remoteCommit).toBe(remoteCommit);
-    expect(status.transport).toBe("github-archive");
   });
 
   it("updates an archive cache by replacing it with a newer downloaded archive", async () => {
@@ -171,24 +167,21 @@ describe("updateCachedRemoteSource integration", () => {
     const source = "github.com/user/react-bundle";
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
-    const { stateFile } = await configureFakeGithubApi(libraryDir, {
-      archives: {
-        [initialCommit]: createArchive(libraryDir, initialCommit, {
-          "AGENTS.md": "# initial\n",
-        }),
-        [remoteCommit]: createArchive(libraryDir, remoteCommit, {
-          "AGENTS.md": "# remote\n",
-        }),
-      },
-      branches: { main: initialCommit },
-      commits: [initialCommit, remoteCommit],
-      defaultBranch: "main",
-      owner: "user",
-      repo: "react-bundle",
-      tagObjects: {},
-      tags: {},
-      token: "github-token-value",
-    });
+    const { stateFile } = await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [initialCommit]: createArchive(libraryDir, initialCommit, {
+            "AGENTS.md": "# initial\n",
+          }),
+          [remoteCommit]: createArchive(libraryDir, remoteCommit, {
+            "AGENTS.md": "# remote\n",
+          }),
+        },
+        branches: { main: initialCommit },
+        commits: [initialCommit, remoteCommit],
+      }),
+    );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
     fetchRemoteSource({ source, libraryDir });
@@ -218,32 +211,31 @@ describe("updateCachedRemoteSource integration", () => {
     const libraryDir = createLibraryDir();
     const source = "github.com/user/react-bundle";
     const commit = "3333333333333333333333333333333333333333";
-    await configureFakeGithubApi(libraryDir, {
-      archives: {
-        [commit]: createArchive(libraryDir, commit, {
-          "AGENTS.md": "# tagged\n",
-        }),
-      },
-      branches: {},
-      commits: [commit],
-      defaultBranch: "main",
-      owner: "user",
-      repo: "react-bundle",
-      tagObjects: {
-        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {
-          object: { sha: commit, type: "commit" },
+    await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [commit]: createArchive(libraryDir, commit, {
+            "AGENTS.md": "# tagged\n",
+          }),
         },
-      },
-      tags: {
-        "v1.0.0": {
-          object: {
-            sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            type: "tag",
+        branches: {},
+        commits: [commit],
+        tagObjects: {
+          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {
+            object: { sha: commit, type: "commit" },
           },
         },
-      },
-      token: "github-token-value",
-    });
+        tags: {
+          "v1.0.0": {
+            object: {
+              sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              type: "tag",
+            },
+          },
+        },
+      }),
+    );
     process.env.GITHUB_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
 
@@ -272,21 +264,18 @@ describe("updateCachedRemoteSource integration", () => {
     const source = "github.com/user/react-bundle";
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
-    const { stateFile } = await configureFakeGithubApi(libraryDir, {
-      archives: {
-        [initialCommit]: createArchive(libraryDir, initialCommit, {
-          "AGENTS.md": "# initial\n",
-        }),
-      },
-      branches: { main: initialCommit },
-      commits: [initialCommit, remoteCommit],
-      defaultBranch: "main",
-      owner: "user",
-      repo: "react-bundle",
-      tagObjects: {},
-      tags: {},
-      token: "github-token-value",
-    });
+    const { stateFile } = await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [initialCommit]: createArchive(libraryDir, initialCommit, {
+            "AGENTS.md": "# initial\n",
+          }),
+        },
+        branches: { main: initialCommit },
+        commits: [initialCommit, remoteCommit],
+      }),
+    );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
     fetchRemoteSource({ source, libraryDir });
@@ -313,17 +302,15 @@ describe("updateCachedRemoteSource integration", () => {
     const libraryDir = createLibraryDir();
     const source = "github.com/user/react-bundle";
     const argsFile = installProxyForbiddenGit(libraryDir);
-    await configureFakeGithubApi(libraryDir, {
-      archives: {},
-      branches: {},
-      commits: [],
-      defaultBranch: "main",
-      owner: "user",
-      repo: "react-bundle",
-      tagObjects: {},
-      tags: {},
-      token: "different-token",
-    });
+    await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {},
+        branches: {},
+        commits: [],
+        token: "different-token",
+      }),
+    );
     process.env.GH_TOKEN = "github-token-value";
 
     // When
@@ -339,6 +326,129 @@ describe("updateCachedRemoteSource integration", () => {
     expect(fs.readFileSync(argsFile, "utf8")).not.toContain(
       "github-token-value",
     );
+  });
+
+  it("ignores repository-owned archive metadata in a git cache", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/react-bundle";
+    const targetDir = seedCachedRemoteSource(libraryDir, source);
+    const currentCommit = runGit(targetDir, ["rev-parse", "HEAD"]);
+    fs.writeFileSync(
+      path.join(targetDir, ".skul-source.json"),
+      `${JSON.stringify({
+        transport: "github-archive",
+        source,
+        requested_ref: null,
+        resolved_commit: "0000000000000000000000000000000000000000",
+        resolved_ref: "main",
+        fetched_at: new Date().toISOString(),
+      })}\n`,
+    );
+
+    // When
+    const revision = readCachedSourceRevision({ source, libraryDir });
+
+    // Then
+    expect(revision.currentCommit).toBe(currentCommit);
+  });
+
+  it("fails clearly when archive metadata is invalid", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/react-bundle";
+    const targetDir = path.join(libraryDir, ...source.split("/"));
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, ".skul-source.json"), "{");
+
+    // When / Then
+    expect(() => readCachedSourceRevision({ source, libraryDir })).toThrowError(
+      /Invalid GitHub archive metadata/,
+    );
+  });
+
+  it("restores an archive cache to a previous commit", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/react-bundle";
+    const initialCommit = "1111111111111111111111111111111111111111";
+    const remoteCommit = "2222222222222222222222222222222222222222";
+    const { stateFile } = await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [initialCommit]: createArchive(libraryDir, initialCommit, {
+            "AGENTS.md": "# initial\n",
+          }),
+          [remoteCommit]: createArchive(libraryDir, remoteCommit, {
+            "AGENTS.md": "# remote\n",
+          }),
+        },
+        branches: { main: initialCommit },
+        commits: [initialCommit, remoteCommit],
+      }),
+    );
+    process.env.GH_TOKEN = "github-token-value";
+    process.env.SKUL_GITHUB_TRANSPORT = "archive";
+    fetchRemoteSource({ source, libraryDir });
+    updateFakeGithubState(stateFile, (state) => {
+      state.branches.main = remoteCommit;
+    });
+    updateCachedRemoteSource({ source, libraryDir });
+
+    // When
+    restoreCachedRemoteSourceRevision({
+      source,
+      libraryDir,
+      commit: initialCommit,
+      refName: "main",
+    });
+
+    // Then
+    const targetDir = path.join(libraryDir, ...source.split("/"));
+    expect(fs.readFileSync(path.join(targetDir, "AGENTS.md"), "utf8")).toBe(
+      "# initial\n",
+    );
+    expect(readArchiveMetadata(targetDir).resolved_commit).toBe(initialCommit);
+  });
+
+  it("refreshes an archive cache without an explicit ref", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/react-bundle";
+    const initialCommit = "1111111111111111111111111111111111111111";
+    const remoteCommit = "2222222222222222222222222222222222222222";
+    const { stateFile } = await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [initialCommit]: createArchive(libraryDir, initialCommit, {
+            "AGENTS.md": "# initial\n",
+          }),
+          [remoteCommit]: createArchive(libraryDir, remoteCommit, {
+            "AGENTS.md": "# remote\n",
+          }),
+        },
+        branches: { main: initialCommit },
+        commits: [initialCommit, remoteCommit],
+      }),
+    );
+    process.env.GH_TOKEN = "github-token-value";
+    process.env.SKUL_GITHUB_TRANSPORT = "archive";
+    fetchRemoteSource({ source, libraryDir });
+    updateFakeGithubState(stateFile, (state) => {
+      state.branches.main = remoteCommit;
+    });
+
+    // When
+    clearAndRefetchCachedRemoteSource({ source, libraryDir });
+
+    // Then
+    const targetDir = path.join(libraryDir, ...source.split("/"));
+    expect(fs.readFileSync(path.join(targetDir, "AGENTS.md"), "utf8")).toBe(
+      "# remote\n",
+    );
+    expect(readArchiveMetadata(targetDir).resolved_commit).toBe(remoteCommit);
   });
 });
 
@@ -373,7 +483,7 @@ function createLibraryDir(): string {
 async function configureFakeGithubApi(
   libraryDir: string,
   state: FakeGithubState,
-): Promise<{ stateFile: string; url: string }> {
+): Promise<{ stateFile: string }> {
   const serverScript = path.join(libraryDir, "fake-github-api.js");
   const stateFile = path.join(libraryDir, "fake-github-state.json");
   fs.writeFileSync(serverScript, getFakeGithubApiScript());
@@ -388,7 +498,24 @@ async function configureFakeGithubApi(
   const url = await readServerUrl(server);
   process.env.SKUL_GITHUB_API_BASE_URL = url;
 
-  return { stateFile, url };
+  return { stateFile };
+}
+
+function createFakeGithubState(
+  overrides: Partial<FakeGithubState>,
+): FakeGithubState {
+  return {
+    archives: {},
+    branches: {},
+    commits: [],
+    defaultBranch: "main",
+    owner: "user",
+    repo: "react-bundle",
+    tagObjects: {},
+    tags: {},
+    token: "github-token-value",
+    ...overrides,
+  };
 }
 
 function readServerUrl(server: ChildProcess): Promise<string> {

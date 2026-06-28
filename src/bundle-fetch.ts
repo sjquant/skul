@@ -26,7 +26,6 @@ export interface CachedSourceRevision {
   currentCommit?: string;
   currentRef?: string;
   remoteUrl?: string;
-  transport?: RemoteSourceTransport;
 }
 
 export interface RemoteSourceStatus extends CachedSourceRevision {
@@ -53,8 +52,6 @@ const GITHUB_API_BASE_URL_ENV = "SKUL_GITHUB_API_BASE_URL";
 const GITHUB_USER_AGENT = "skul";
 const MAX_GITHUB_RESPONSE_BYTES = 100 * 1024 * 1024;
 
-type RemoteSourceTransport = "git" | "github-archive";
-
 interface GithubArchiveMetadata {
   transport: "github-archive";
   source: string;
@@ -75,6 +72,11 @@ interface GithubResolvedRef {
   requestedRef: string | null;
   resolvedRef: string | null;
 }
+
+type GithubArchiveReplacement = Pick<
+  GithubResolvedRef,
+  "commit" | "requestedRef" | "resolvedRef"
+>;
 
 /**
  * Ensures a remote git source is present in the local library cache.
@@ -102,6 +104,9 @@ export function fetchRemoteSource(
 
   try {
     runGit(["clone", "--depth=1", cloneUrl, targetDir]);
+    if (options.ref) {
+      checkoutGitRemoteRef(targetDir, cloneUrl, options.ref);
+    }
   } catch (error) {
     fs.rmSync(targetDir, { recursive: true, force: true });
 
@@ -136,7 +141,7 @@ export function readCachedSourceRevision(
     return { cached: false, targetDir };
   }
 
-  const archiveMetadata = readGithubArchiveMetadata(targetDir);
+  const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
 
   if (archiveMetadata) {
     return {
@@ -145,7 +150,6 @@ export function readCachedSourceRevision(
       currentCommit: archiveMetadata.resolved_commit,
       currentRef: archiveMetadata.resolved_ref ?? undefined,
       remoteUrl: getCloneUrl(options.source, "https"),
-      transport: archiveMetadata.transport,
     };
   }
 
@@ -164,7 +168,6 @@ export function readCachedSourceRevision(
       ]),
     ),
     remoteUrl: tryRunGit(["-C", targetDir, "remote", "get-url", "origin"]),
-    transport: "git",
   };
 }
 
@@ -173,18 +176,13 @@ export function inspectRemoteSource(
   options: FetchRemoteSourceOptions,
 ): RemoteSourceStatus {
   const cached = readCachedSourceRevision(options);
+  const metadata = readGithubArchiveMetadata(cached.targetDir, options.source);
 
-  if (cached.transport === "github-archive") {
-    const metadata = readGithubArchiveMetadata(cached.targetDir);
-
-    if (!metadata) {
-      throw new Error(`Missing GitHub archive metadata for ${options.source}`);
-    }
-
+  if (metadata) {
     try {
       const resolvedRemote = resolveGithubArchiveRef(
         options.source,
-        options.ref ?? metadata.requested_ref ?? undefined,
+        options.ref ?? metadata.requested_ref ?? metadata.resolved_ref,
       );
 
       return {
@@ -244,7 +242,7 @@ export function updateCachedRemoteSource(
 
   const targetDir = getTargetDir(options);
 
-  if (readCachedSourceRevision(options).transport === "github-archive") {
+  if (readGithubArchiveMetadata(targetDir, options.source)) {
     return updateGithubArchiveSource(options, initialRevision);
   }
 
@@ -358,10 +356,9 @@ export function restoreCachedRemoteSourceRevision(
 ): void {
   const targetDir = getTargetDir(options);
 
-  if (readGithubArchiveMetadata(targetDir)) {
+  if (readGithubArchiveMetadata(targetDir, options.source)) {
     replaceWithGithubArchiveSource(options.source, targetDir, {
       commit: options.commit,
-      kind: "commit",
       requestedRef: options.commit,
       resolvedRef: options.refName ?? options.commit,
     });
@@ -410,7 +407,7 @@ export function clearAndRefetchCachedRemoteSource(
   const revision = readCachedSourceRevision(options);
 
   if (
-    revision.transport === "github-archive" ||
+    readGithubArchiveMetadata(targetDir, options.source) ||
     shouldUseGithubArchiveFirst(options)
   ) {
     fetchGithubArchiveSource(options, targetDir);
@@ -503,6 +500,50 @@ function resolveRemoteRef(
   }
 
   return { kind: "branch", resolvedRef: headRef, commit: headCommit };
+}
+
+function checkoutGitRemoteRef(
+  targetDir: string,
+  remoteUrl: string,
+  requestedRef: string,
+): void {
+  const resolved = resolveRemoteRef(remoteUrl, requestedRef);
+
+  if (resolved.kind === "branch") {
+    runGit([
+      "-C",
+      targetDir,
+      "fetch",
+      "--depth=1",
+      "origin",
+      `refs/heads/${resolved.resolvedRef!}`,
+    ]);
+    runGit([
+      "-C",
+      targetDir,
+      "checkout",
+      "-B",
+      resolved.resolvedRef!,
+      "FETCH_HEAD",
+    ]);
+    return;
+  }
+
+  if (resolved.kind === "tag") {
+    runGit([
+      "-C",
+      targetDir,
+      "fetch",
+      "--depth=1",
+      "origin",
+      `refs/tags/${resolved.resolvedRef!}`,
+    ]);
+    runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
+    return;
+  }
+
+  runGit(["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit]);
+  runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
 }
 
 function parseHeadRef(output: string): string | undefined {
@@ -651,19 +692,20 @@ function fetchGithubArchiveSource(
 function replaceWithGithubArchiveSource(
   source: string,
   targetDir: string,
-  resolved: GithubResolvedRef,
+  resolved: GithubArchiveReplacement,
 ): GithubArchiveMetadata {
   const parentDir = path.dirname(targetDir);
   const tempDir = `${targetDir}.tmp-${process.pid}-${Date.now()}`;
   const archiveFile = `${tempDir}.tar.gz`;
+  const backupDir = `${targetDir}.backup-${process.pid}-${Date.now()}`;
 
   fs.rmSync(tempDir, { recursive: true, force: true });
   fs.rmSync(archiveFile, { force: true });
+  fs.rmSync(backupDir, { recursive: true, force: true });
   fs.mkdirSync(parentDir, { recursive: true });
 
   try {
-    const archive = downloadGithubArchive(source, resolved.commit);
-    fs.writeFileSync(archiveFile, archive);
+    downloadGithubArchive(source, resolved.commit, archiveFile);
     extractGithubArchive(archiveFile, tempDir);
     writeGithubArchiveMetadata(tempDir, {
       transport: "github-archive",
@@ -673,15 +715,23 @@ function replaceWithGithubArchiveSource(
       resolved_ref: resolved.resolvedRef,
       fetched_at: new Date().toISOString(),
     });
-    fs.rmSync(targetDir, { recursive: true, force: true });
+    if (fs.existsSync(targetDir)) {
+      fs.renameSync(targetDir, backupDir);
+    }
     fs.renameSync(tempDir, targetDir);
+    fs.rmSync(backupDir, { recursive: true, force: true });
 
-    return readRequiredGithubArchiveMetadata(targetDir);
+    return readRequiredGithubArchiveMetadata(targetDir, source);
   } catch (error) {
     fs.rmSync(tempDir, { recursive: true, force: true });
+    if (fs.existsSync(backupDir)) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      fs.renameSync(backupDir, targetDir);
+    }
     throw normalizeGithubArchiveError(error, `Failed to fetch ${source}`);
   } finally {
     fs.rmSync(archiveFile, { force: true });
+    fs.rmSync(backupDir, { recursive: true, force: true });
   }
 }
 
@@ -690,7 +740,7 @@ function updateGithubArchiveSource(
   initialRevision: CachedSourceRevision,
 ): UpdateCachedRemoteSourceResult {
   const targetDir = getTargetDir(options);
-  const metadata = readRequiredGithubArchiveMetadata(targetDir);
+  const metadata = readRequiredGithubArchiveMetadata(targetDir, options.source);
   const status = inspectRemoteSource(options);
 
   if (metadata.resolved_commit === status.remoteCommit) {
@@ -704,7 +754,6 @@ function updateGithubArchiveSource(
 
   const refreshed = replaceWithGithubArchiveSource(options.source, targetDir, {
     commit: status.remoteCommit,
-    kind: status.refKind,
     requestedRef: options.ref ?? metadata.requested_ref,
     resolvedRef: status.resolvedRef ?? null,
   });
@@ -847,14 +896,19 @@ function peelGithubTagObject(
   return peelGithubTagObject(github, tag.object);
 }
 
-function downloadGithubArchive(source: string, commit: string): Buffer {
+function downloadGithubArchive(
+  source: string,
+  commit: string,
+  archiveFile: string,
+): void {
   const github = requireGithubSource(source);
 
-  return githubApiRequest(
+  githubApiRequest(
     `/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(
       github.repo,
     )}/tarball/${encodeURIComponent(commit)}`,
-    "buffer",
+    "file",
+    archiveFile,
   );
 }
 
@@ -864,7 +918,8 @@ function githubApiJson<T>(apiPath: string): T {
 
 function githubApiRequest(
   apiPath: string,
-  responseType: "json" | "buffer",
+  responseType: "json" | "file",
+  outputPath?: string,
 ): Buffer {
   const token = getRequiredGithubToken();
   const env = {
@@ -872,8 +927,10 @@ function githubApiRequest(
     SKUL_GITHUB_API_PATH: apiPath,
     SKUL_GITHUB_API_RESPONSE_TYPE: responseType,
     SKUL_GITHUB_API_TOKEN: token,
-    SKUL_GITHUB_API_BASE_URL:
-      process.env[GITHUB_API_BASE_URL_ENV] ?? "https://api.github.com",
+    SKUL_GITHUB_API_BASE_URL: getGithubApiBaseUrl(),
+    ...(outputPath !== undefined
+      ? { SKUL_GITHUB_API_OUTPUT_PATH: outputPath }
+      : {}),
     SKUL_GITHUB_API_VERSION: GITHUB_API_VERSION,
     SKUL_GITHUB_USER_AGENT: GITHUB_USER_AGENT,
   };
@@ -891,6 +948,9 @@ function githubApiRequest(
 
 const GITHUB_API_HELPER_SCRIPT = `
 (async () => {
+  const fs = require("node:fs");
+  const { Readable } = require("node:stream");
+  const { pipeline } = require("node:stream/promises");
   const url = new URL(process.env.SKUL_GITHUB_API_PATH, process.env.SKUL_GITHUB_API_BASE_URL);
   const response = await fetch(url, {
     headers: {
@@ -900,9 +960,9 @@ const GITHUB_API_HELPER_SCRIPT = `
       "User-Agent": process.env.SKUL_GITHUB_USER_AGENT,
     },
   });
-  const bytes = Buffer.from(await response.arrayBuffer());
 
   if (!response.ok) {
+    const bytes = Buffer.from(await response.arrayBuffer());
     process.stderr.write(JSON.stringify({
       status: response.status,
       statusText: response.statusText,
@@ -913,6 +973,18 @@ const GITHUB_API_HELPER_SCRIPT = `
     process.exit(1);
   }
 
+  if (process.env.SKUL_GITHUB_API_RESPONSE_TYPE === "file") {
+    if (!response.body || !process.env.SKUL_GITHUB_API_OUTPUT_PATH) {
+      throw new Error("Missing GitHub API file response target");
+    }
+    await pipeline(
+      Readable.fromWeb(response.body),
+      fs.createWriteStream(process.env.SKUL_GITHUB_API_OUTPUT_PATH),
+    );
+    return;
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
   process.stdout.write(bytes);
 })().catch((error) => {
   process.stderr.write(JSON.stringify({ message: String(error && error.message ? error.message : error) }));
@@ -966,7 +1038,12 @@ function writeGithubArchiveMetadata(
 
 function readGithubArchiveMetadata(
   targetDir: string,
+  expectedSource: string,
 ): GithubArchiveMetadata | undefined {
+  if (fs.existsSync(path.join(targetDir, ".git"))) {
+    return undefined;
+  }
+
   const metadataPath = getGithubArchiveMetadataPath(targetDir);
 
   if (!fs.existsSync(metadataPath)) {
@@ -978,20 +1055,32 @@ function readGithubArchiveMetadata(
       fs.readFileSync(metadataPath, "utf8"),
     ) as GithubArchiveMetadata;
 
-    if (parsed.transport !== "github-archive") {
-      return undefined;
+    if (
+      parsed.transport !== "github-archive" ||
+      parsed.source !== expectedSource ||
+      typeof parsed.fetched_at !== "string" ||
+      !isCommitSha(parsed.resolved_commit) ||
+      !isNullableString(parsed.requested_ref) ||
+      !isNullableString(parsed.resolved_ref)
+    ) {
+      throw new Error(`Invalid GitHub archive metadata in ${targetDir}`);
     }
 
     return parsed;
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Invalid GitHub archive metadata in ${targetDir}`);
+    }
+
+    throw error;
   }
 }
 
 function readRequiredGithubArchiveMetadata(
   targetDir: string,
+  expectedSource: string,
 ): GithubArchiveMetadata {
-  const metadata = readGithubArchiveMetadata(targetDir);
+  const metadata = readGithubArchiveMetadata(targetDir, expectedSource);
 
   if (!metadata) {
     throw new Error(`Missing GitHub archive metadata in ${targetDir}`);
@@ -1002,6 +1091,10 @@ function readRequiredGithubArchiveMetadata(
 
 function getGithubArchiveMetadataPath(targetDir: string): string {
   return path.join(targetDir, ARCHIVE_METADATA_FILE);
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function parseGithubSource(source: string): GithubSourceParts | undefined {
@@ -1045,6 +1138,22 @@ function getRequiredGithubToken(): string {
 
 function getGithubToken(env: NodeJS.ProcessEnv): string | undefined {
   return env.GH_TOKEN || env.GITHUB_TOKEN || undefined;
+}
+
+function getGithubApiBaseUrl(): string {
+  const override = process.env[GITHUB_API_BASE_URL_ENV];
+
+  if (!override) {
+    return "https://api.github.com";
+  }
+
+  if (process.env.NODE_ENV === "test") {
+    return override;
+  }
+
+  throw new Error(
+    `${GITHUB_API_BASE_URL_ENV} is only supported in tests. GitHub Enterprise archive transport is not supported yet.`,
+  );
 }
 
 function combineGitAndArchiveErrors(

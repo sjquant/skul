@@ -82,6 +82,49 @@ describe("fetchRemoteSource", () => {
     );
   });
 
+  it("checks out the requested ref after cloning with the git transport", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
+    const commit = "1111111111111111111111111111111111111111";
+    vi.mocked(execFileSync).mockImplementation((command, args) => {
+      if (command === "git" && Array.isArray(args) && args[0] === "ls-remote") {
+        return Buffer.from(`${commit}\trefs/heads/stable\n`);
+      }
+
+      return Buffer.from("");
+    });
+
+    // When
+    fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+      ref: "stable",
+    });
+
+    // Then
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["clone", "--depth=1", "https://github.com/user/react-bundle", targetDir],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["-C", targetDir, "fetch", "--depth=1", "origin", "refs/heads/stable"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["-C", targetDir, "checkout", "-B", "stable", "FETCH_HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+  });
+
   it("creates the parent directory before cloning so git has a place to write", () => {
     // Given
     const libraryDir = createLibraryDir();
@@ -234,6 +277,24 @@ describe("fetchRemoteSource", () => {
         libraryDir,
       }),
     ).toThrowError(/requires GH_TOKEN or GITHUB_TOKEN/);
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects GitHub API base URL overrides outside tests", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    vi.stubEnv("GH_TOKEN", "github-token-value");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SKUL_GITHUB_API_BASE_URL", "http://127.0.0.1:1");
+    vi.stubEnv("SKUL_GITHUB_TRANSPORT", "archive");
+
+    // When / Then
+    expect(() =>
+      fetchRemoteSource({
+        source: "github.com/user/react-bundle",
+        libraryDir,
+      }),
+    ).toThrowError(/SKUL_GITHUB_API_BASE_URL is only supported in tests/);
     expect(execFileSync).not.toHaveBeenCalled();
   });
 
