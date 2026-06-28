@@ -27,6 +27,7 @@ export interface CachedSourceRevision {
 }
 
 export interface RemoteSourceStatus extends CachedSourceRevision {
+  remoteUrl: string;
   remoteCommit: string;
   refKind: "branch" | "tag" | "commit";
   resolvedRef?: string;
@@ -55,9 +56,7 @@ const GITHUB_TOKEN_CREDENTIAL_HELPER =
   '!f() { test "$1" = get || exit 0; echo username=x-access-token; echo password="$SKUL_GIT_AUTH_TOKEN"; }; f';
 
 interface GitRunContext {
-  remoteUrl?: string;
-  source?: string;
-  protocol?: "https" | "ssh";
+  remoteUrl: string;
 }
 
 /**
@@ -80,10 +79,8 @@ export function fetchRemoteSource(
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   try {
-    runGit(["clone", "--depth=1", cloneUrl, targetDir], {
+    runRemoteGit(["clone", "--depth=1", cloneUrl, targetDir], {
       remoteUrl: cloneUrl,
-      source: options.source,
-      protocol: options.protocol,
     });
   } catch (error) {
     fs.rmSync(targetDir, { recursive: true, force: true });
@@ -148,6 +145,7 @@ export function inspectRemoteSource(
 
   return {
     ...cached,
+    remoteUrl,
     remoteCommit: resolvedRemote.commit,
     refKind: resolvedRemote.kind,
     ...(resolvedRemote.resolvedRef !== undefined
@@ -193,7 +191,7 @@ export function updateCachedRemoteSource(
 
   try {
     if (status.refKind === "branch") {
-      runGit(
+      runRemoteGit(
         [
           "-C",
           targetDir,
@@ -204,8 +202,6 @@ export function updateCachedRemoteSource(
         ],
         {
           remoteUrl: status.remoteUrl,
-          source: options.source,
-          protocol: options.protocol,
         },
       );
       runGit([
@@ -217,7 +213,7 @@ export function updateCachedRemoteSource(
         "FETCH_HEAD",
       ]);
     } else if (status.refKind === "tag") {
-      runGit(
+      runRemoteGit(
         [
           "-C",
           targetDir,
@@ -228,18 +224,14 @@ export function updateCachedRemoteSource(
         ],
         {
           remoteUrl: status.remoteUrl,
-          source: options.source,
-          protocol: options.protocol,
         },
       );
       runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
     } else {
-      runGit(
+      runRemoteGit(
         ["-C", targetDir, "fetch", "--depth=1", "origin", status.remoteCommit],
         {
           remoteUrl: status.remoteUrl,
-          source: options.source,
-          protocol: options.protocol,
         },
       );
       runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
@@ -342,10 +334,8 @@ export function clearAndRefetchCachedRemoteSource(
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   try {
-    runGit(["clone", "--depth=1", cloneUrl, tempDir], {
+    runRemoteGit(["clone", "--depth=1", cloneUrl, tempDir], {
       remoteUrl: cloneUrl,
-      source: options.source,
-      protocol: options.protocol,
     });
     fs.rmSync(targetDir, { recursive: true, force: true });
     fs.renameSync(tempDir, targetDir);
@@ -386,7 +376,7 @@ function resolveRemoteRef(
 
   if (requestedRef) {
     const branchCommit = parseFirstSha(
-      runGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`], {
+      runRemoteGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`], {
         remoteUrl,
       }),
     );
@@ -399,7 +389,7 @@ function resolveRemoteRef(
       };
     }
 
-    const tagOutput = runGit(
+    const tagOutput = runRemoteGit(
       [
         "ls-remote",
         remoteUrl,
@@ -417,9 +407,12 @@ function resolveRemoteRef(
     throw new Error(`Remote ref not found: ${requestedRef}`);
   }
 
-  const headOutput = runGit(["ls-remote", "--symref", remoteUrl, "HEAD"], {
-    remoteUrl,
-  });
+  const headOutput = runRemoteGit(
+    ["ls-remote", "--symref", remoteUrl, "HEAD"],
+    {
+      remoteUrl,
+    },
+  );
   const headRef = parseHeadRef(headOutput);
   const headCommit = parseHeadCommit(headOutput);
 
@@ -505,15 +498,23 @@ function normalizeCurrentRef(value: string | undefined): string | undefined {
   return value.replace(/^heads\//, "");
 }
 
-function runGit(args: string[], context: GitRunContext = {}): string {
+function runGit(args: string[]): string {
+  return runGitWithOptions(args);
+}
+
+function runRemoteGit(args: string[], context: GitRunContext): string {
   const invocation = buildGitInvocation(args, context);
 
+  return runGitWithOptions(invocation.args, invocation.env);
+}
+
+function runGitWithOptions(args: string[], env?: NodeJS.ProcessEnv): string {
   try {
     return String(
-      execFileSync("git", invocation.args, {
+      execFileSync("git", args, {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-        ...(invocation.env ? { env: invocation.env } : {}),
+        ...(env ? { env } : {}),
       }),
     ).trim();
   } catch (error) {
@@ -535,18 +536,19 @@ function buildGitInvocation(
   args: string[],
   context: GitRunContext,
 ): { args: string[]; env?: NodeJS.ProcessEnv } {
-  const remoteHosts = getHttpsRemoteHosts(context);
+  const remoteHost = getHttpsRemoteHost(context);
 
-  if (remoteHosts.length === 0) {
+  if (!remoteHost) {
     return { args };
   }
 
   const githubToken = getGithubToken(process.env);
-  const shouldUseGithubToken =
-    githubToken !== undefined && remoteHosts.includes(GITHUB_HOST);
+  const isGithubRemote = remoteHost === GITHUB_HOST;
+  const hasLoopbackProxyEnv = hasLoopbackProxy(process.env);
+  const shouldUseGithubToken = githubToken !== undefined && isGithubRemote;
   const shouldBypassGitProxy =
-    shouldUseGithubToken || hasLoopbackProxy(process.env);
-  const shouldScrubProxyEnv = hasLoopbackProxy(process.env);
+    isGithubRemote && (shouldUseGithubToken || hasLoopbackProxyEnv);
+  const shouldScrubProxyEnv = isGithubRemote && hasLoopbackProxyEnv;
 
   if (!shouldUseGithubToken && !shouldBypassGitProxy) {
     return { args };
@@ -554,33 +556,21 @@ function buildGitInvocation(
 
   return {
     args: [
-      ...buildGitConfigArgs(remoteHosts, {
+      ...buildGitConfigArgs(remoteHost, {
         bypassGitProxy: shouldBypassGitProxy,
         useGithubToken: shouldUseGithubToken,
       }),
       ...args,
     ],
-    env: buildGitEnv(remoteHosts, {
+    env: buildGitEnv(remoteHost, {
       scrubProxyEnv: shouldScrubProxyEnv,
       githubToken,
     }),
   };
 }
 
-function getHttpsRemoteHosts(context: GitRunContext): string[] {
-  const remoteUrlHost = context.remoteUrl
-    ? parseHttpsRemoteHost(context.remoteUrl)
-    : undefined;
-
-  if (remoteUrlHost) {
-    return [remoteUrlHost];
-  }
-
-  if (context.source && (context.protocol ?? "https") === "https") {
-    return [context.source.split("/")[0].toLowerCase()];
-  }
-
-  return [];
+function getHttpsRemoteHost(context: GitRunContext): string | undefined {
+  return parseHttpsRemoteHost(context.remoteUrl);
 }
 
 function parseHttpsRemoteHost(remoteUrl: string): string | undefined {
@@ -598,15 +588,13 @@ function parseHttpsRemoteHost(remoteUrl: string): string | undefined {
 }
 
 function buildGitConfigArgs(
-  remoteHosts: string[],
+  remoteHost: string,
   options: { bypassGitProxy: boolean; useGithubToken: boolean },
 ): string[] {
   const args: string[] = [];
 
   if (options.bypassGitProxy) {
-    for (const host of remoteHosts) {
-      args.push("-c", `http.https://${host}.proxy=`);
-    }
+    args.push("-c", `http.https://${remoteHost}.proxy=`);
   }
 
   if (options.useGithubToken) {
@@ -622,7 +610,7 @@ function buildGitConfigArgs(
 }
 
 function buildGitEnv(
-  remoteHosts: string[],
+  remoteHost: string,
   options: { scrubProxyEnv: boolean; githubToken?: string },
 ): NodeJS.ProcessEnv {
   const env = { ...process.env };
@@ -632,7 +620,7 @@ function buildGitEnv(
       delete env[name];
     }
 
-    const noProxy = mergeNoProxyHosts(env, remoteHosts);
+    const noProxy = mergeNoProxyHost(env, remoteHost);
 
     for (const name of NO_PROXY_ENV_NAMES) {
       env[name] = noProxy;
@@ -646,17 +634,14 @@ function buildGitEnv(
   return env;
 }
 
-function mergeNoProxyHosts(
-  env: NodeJS.ProcessEnv,
-  remoteHosts: string[],
-): string {
+function mergeNoProxyHost(env: NodeJS.ProcessEnv, remoteHost: string): string {
   const existing = NO_PROXY_ENV_NAMES.flatMap((name) =>
     (env[name] ?? "")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean),
   );
-  const merged = new Set([...existing, ...remoteHosts]);
+  const merged = new Set([...existing, remoteHost]);
 
   return [...merged].join(",");
 }
