@@ -40,6 +40,25 @@ export interface UpdateCachedRemoteSourceResult extends RemoteSourceStatus {
 const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 const SSH_AUTH_FAILURE_RE =
   /permission denied|could not read from remote repository|host key verification failed/i;
+const PROXY_ENV_NAMES = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+] as const;
+const NO_PROXY_ENV_NAMES = ["NO_PROXY", "no_proxy"] as const;
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+const GITHUB_HOST = "github.com";
+const GITHUB_TOKEN_CREDENTIAL_HELPER =
+  '!f() { test "$1" = get || exit 0; echo username=x-access-token; echo password="$SKUL_GIT_AUTH_TOKEN"; }; f';
+
+interface GitRunContext {
+  remoteUrl?: string;
+  source?: string;
+  protocol?: "https" | "ssh";
+}
 
 /**
  * Ensures a remote git source is present in the local library cache.
@@ -61,7 +80,11 @@ export function fetchRemoteSource(
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   try {
-    runGit(["clone", "--depth=1", cloneUrl, targetDir]);
+    runGit(["clone", "--depth=1", cloneUrl, targetDir], {
+      remoteUrl: cloneUrl,
+      source: options.source,
+      protocol: options.protocol,
+    });
   } catch (error) {
     fs.rmSync(targetDir, { recursive: true, force: true });
     throw normalizeGitError(error, `Failed to clone ${cloneUrl}`, {
@@ -170,14 +193,21 @@ export function updateCachedRemoteSource(
 
   try {
     if (status.refKind === "branch") {
-      runGit([
-        "-C",
-        targetDir,
-        "fetch",
-        "--depth=1",
-        "origin",
-        `refs/heads/${status.resolvedRef!}`,
-      ]);
+      runGit(
+        [
+          "-C",
+          targetDir,
+          "fetch",
+          "--depth=1",
+          "origin",
+          `refs/heads/${status.resolvedRef!}`,
+        ],
+        {
+          remoteUrl: status.remoteUrl,
+          source: options.source,
+          protocol: options.protocol,
+        },
+      );
       runGit([
         "-C",
         targetDir,
@@ -187,24 +217,31 @@ export function updateCachedRemoteSource(
         "FETCH_HEAD",
       ]);
     } else if (status.refKind === "tag") {
-      runGit([
-        "-C",
-        targetDir,
-        "fetch",
-        "--depth=1",
-        "origin",
-        `refs/tags/${status.resolvedRef!}`,
-      ]);
+      runGit(
+        [
+          "-C",
+          targetDir,
+          "fetch",
+          "--depth=1",
+          "origin",
+          `refs/tags/${status.resolvedRef!}`,
+        ],
+        {
+          remoteUrl: status.remoteUrl,
+          source: options.source,
+          protocol: options.protocol,
+        },
+      );
       runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
     } else {
-      runGit([
-        "-C",
-        targetDir,
-        "fetch",
-        "--depth=1",
-        "origin",
-        status.remoteCommit,
-      ]);
+      runGit(
+        ["-C", targetDir, "fetch", "--depth=1", "origin", status.remoteCommit],
+        {
+          remoteUrl: status.remoteUrl,
+          source: options.source,
+          protocol: options.protocol,
+        },
+      );
       runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
     }
   } catch (error) {
@@ -305,7 +342,11 @@ export function clearAndRefetchCachedRemoteSource(
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   try {
-    runGit(["clone", "--depth=1", cloneUrl, tempDir]);
+    runGit(["clone", "--depth=1", cloneUrl, tempDir], {
+      remoteUrl: cloneUrl,
+      source: options.source,
+      protocol: options.protocol,
+    });
     fs.rmSync(targetDir, { recursive: true, force: true });
     fs.renameSync(tempDir, targetDir);
   } catch (error) {
@@ -345,7 +386,9 @@ function resolveRemoteRef(
 
   if (requestedRef) {
     const branchCommit = parseFirstSha(
-      runGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`]),
+      runGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`], {
+        remoteUrl,
+      }),
     );
 
     if (branchCommit) {
@@ -356,12 +399,15 @@ function resolveRemoteRef(
       };
     }
 
-    const tagOutput = runGit([
-      "ls-remote",
-      remoteUrl,
-      `refs/tags/${requestedRef}`,
-      `refs/tags/${requestedRef}^{}`,
-    ]);
+    const tagOutput = runGit(
+      [
+        "ls-remote",
+        remoteUrl,
+        `refs/tags/${requestedRef}`,
+        `refs/tags/${requestedRef}^{}`,
+      ],
+      { remoteUrl },
+    );
     const tagCommit = parsePreferredTagSha(tagOutput, requestedRef);
 
     if (tagCommit) {
@@ -371,7 +417,9 @@ function resolveRemoteRef(
     throw new Error(`Remote ref not found: ${requestedRef}`);
   }
 
-  const headOutput = runGit(["ls-remote", "--symref", remoteUrl, "HEAD"]);
+  const headOutput = runGit(["ls-remote", "--symref", remoteUrl, "HEAD"], {
+    remoteUrl,
+  });
   const headRef = parseHeadRef(headOutput);
   const headCommit = parseHeadCommit(headOutput);
 
@@ -457,12 +505,15 @@ function normalizeCurrentRef(value: string | undefined): string | undefined {
   return value.replace(/^heads\//, "");
 }
 
-function runGit(args: string[]): string {
+function runGit(args: string[], context: GitRunContext = {}): string {
+  const invocation = buildGitInvocation(args, context);
+
   try {
     return String(
-      execFileSync("git", args, {
+      execFileSync("git", invocation.args, {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
+        ...(invocation.env ? { env: invocation.env } : {}),
       }),
     ).trim();
   } catch (error) {
@@ -478,6 +529,179 @@ function runGit(args: string[]): string {
 
     throw error;
   }
+}
+
+function buildGitInvocation(
+  args: string[],
+  context: GitRunContext,
+): { args: string[]; env?: NodeJS.ProcessEnv } {
+  const remoteHosts = getHttpsRemoteHosts(context);
+
+  if (remoteHosts.length === 0) {
+    return { args };
+  }
+
+  const githubToken = getGithubToken(process.env);
+  const shouldUseGithubToken =
+    githubToken !== undefined && remoteHosts.includes(GITHUB_HOST);
+  const shouldBypassGitProxy =
+    shouldUseGithubToken || hasLoopbackProxy(process.env);
+  const shouldScrubProxyEnv = hasLoopbackProxy(process.env);
+
+  if (!shouldUseGithubToken && !shouldBypassGitProxy) {
+    return { args };
+  }
+
+  return {
+    args: [
+      ...buildGitConfigArgs(remoteHosts, {
+        bypassGitProxy: shouldBypassGitProxy,
+        useGithubToken: shouldUseGithubToken,
+      }),
+      ...args,
+    ],
+    env: buildGitEnv(remoteHosts, {
+      scrubProxyEnv: shouldScrubProxyEnv,
+      githubToken,
+    }),
+  };
+}
+
+function getHttpsRemoteHosts(context: GitRunContext): string[] {
+  const remoteUrlHost = context.remoteUrl
+    ? parseHttpsRemoteHost(context.remoteUrl)
+    : undefined;
+
+  if (remoteUrlHost) {
+    return [remoteUrlHost];
+  }
+
+  if (context.source && (context.protocol ?? "https") === "https") {
+    return [context.source.split("/")[0].toLowerCase()];
+  }
+
+  return [];
+}
+
+function parseHttpsRemoteHost(remoteUrl: string): string | undefined {
+  try {
+    const url = new URL(remoteUrl);
+
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return undefined;
+    }
+
+    return normalizeHostname(url.hostname);
+  } catch {
+    return undefined;
+  }
+}
+
+function buildGitConfigArgs(
+  remoteHosts: string[],
+  options: { bypassGitProxy: boolean; useGithubToken: boolean },
+): string[] {
+  const args: string[] = [];
+
+  if (options.bypassGitProxy) {
+    for (const host of remoteHosts) {
+      args.push("-c", `http.https://${host}.proxy=`);
+    }
+  }
+
+  if (options.useGithubToken) {
+    args.push(
+      "-c",
+      "credential.helper=",
+      "-c",
+      `credential.helper=${GITHUB_TOKEN_CREDENTIAL_HELPER}`,
+    );
+  }
+
+  return args;
+}
+
+function buildGitEnv(
+  remoteHosts: string[],
+  options: { scrubProxyEnv: boolean; githubToken?: string },
+): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+
+  if (options.scrubProxyEnv) {
+    for (const name of PROXY_ENV_NAMES) {
+      delete env[name];
+    }
+
+    const noProxy = mergeNoProxyHosts(env, remoteHosts);
+
+    for (const name of NO_PROXY_ENV_NAMES) {
+      env[name] = noProxy;
+    }
+  }
+
+  if (options.githubToken !== undefined) {
+    env.SKUL_GIT_AUTH_TOKEN = options.githubToken;
+  }
+
+  return env;
+}
+
+function mergeNoProxyHosts(
+  env: NodeJS.ProcessEnv,
+  remoteHosts: string[],
+): string {
+  const existing = NO_PROXY_ENV_NAMES.flatMap((name) =>
+    (env[name] ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  const merged = new Set([...existing, ...remoteHosts]);
+
+  return [...merged].join(",");
+}
+
+function getGithubToken(env: NodeJS.ProcessEnv): string | undefined {
+  return env.GH_TOKEN || env.GITHUB_TOKEN || undefined;
+}
+
+function hasLoopbackProxy(env: NodeJS.ProcessEnv): boolean {
+  return PROXY_ENV_NAMES.some((name) => {
+    const value = env[name];
+
+    return value ? isLoopbackProxy(value) : false;
+  });
+}
+
+function isLoopbackProxy(value: string): boolean {
+  const hostname = parseProxyHostname(value);
+
+  return (
+    hostname !== undefined &&
+    (LOOPBACK_HOSTS.has(hostname) || hostname.startsWith("127."))
+  );
+}
+
+function parseProxyHostname(value: string): string | undefined {
+  const proxyValue = value.trim();
+
+  if (!proxyValue) {
+    return undefined;
+  }
+
+  const urlValue = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(proxyValue)
+    ? proxyValue
+    : `http://${proxyValue}`;
+
+  try {
+    return normalizeHostname(new URL(urlValue).hostname);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname.replace(/^\[|\]$/g, "").toLowerCase();
 }
 
 function tryRunGit(args: string[]): string | undefined {

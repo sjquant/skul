@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchRemoteSource } from "./bundle-fetch";
 
@@ -11,10 +11,29 @@ vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 
 const tempDirs: string[] = [];
 
+beforeEach(() => {
+  // Given
+  for (const name of [
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
+  ]) {
+    vi.stubEnv(name, undefined);
+  }
+});
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  vi.unstubAllEnvs();
   vi.resetAllMocks();
 });
 
@@ -212,6 +231,83 @@ describe("fetchRemoteSource", () => {
       ["clone", "--depth=1", "https://github.com/user/react-bundle", targetDir],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
+  });
+
+  it("bypasses a loopback proxy when cloning over HTTPS", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
+    vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:12345");
+    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
+
+    // When
+    fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+    });
+
+    // Then
+    const [, args, options] = vi.mocked(execFileSync).mock.calls[0] as [
+      string,
+      string[],
+      { env?: NodeJS.ProcessEnv },
+    ];
+    expect(args).toEqual([
+      "-c",
+      "http.https://github.com.proxy=",
+      "clone",
+      "--depth=1",
+      "https://github.com/user/react-bundle",
+      targetDir,
+    ]);
+    expect(options.env?.HTTPS_PROXY).toBeUndefined();
+    expect(options.env?.NO_PROXY).toContain("github.com");
+    expect(options.env?.no_proxy).toContain("github.com");
+  });
+
+  it("uses GH_TOKEN through a transient credential helper without adding it to git args", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
+    vi.stubEnv("GH_TOKEN", "github-token-value");
+    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(""));
+
+    // When
+    fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+    });
+
+    // Then
+    const [, args, options] = vi.mocked(execFileSync).mock.calls[0] as [
+      string,
+      string[],
+      { env?: NodeJS.ProcessEnv },
+    ];
+    expect(args).toEqual([
+      "-c",
+      "http.https://github.com.proxy=",
+      "-c",
+      "credential.helper=",
+      "-c",
+      expect.stringContaining("credential.helper=!f()"),
+      "clone",
+      "--depth=1",
+      "https://github.com/user/react-bundle",
+      targetDir,
+    ]);
+    expect(args.join(" ")).not.toContain("github-token-value");
+    expect(options.env?.SKUL_GIT_AUTH_TOKEN).toBe("github-token-value");
   });
 
   it("includes the SSH clone URL in the error message when SSH clone fails", () => {
