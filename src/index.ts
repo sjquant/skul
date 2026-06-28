@@ -17,8 +17,10 @@ import {
 import {
   type CachedSourceRevision,
   clearAndRefetchCachedRemoteSource,
+  type FetchRemoteSourceOptions,
   fetchRemoteSource,
   inspectRemoteSource,
+  type RemoteSourceStatus,
   readCachedSourceRevision,
   removeCachedRemoteSource,
   restoreCachedRemoteSourceRevision,
@@ -1913,6 +1915,7 @@ async function renderUpdateCheck(options: {
     return `No bundles configured for this repository. Run "skul add <bundle>" to add one`;
   }
 
+  const inspectCache = new Map<string, Promise<RemoteSourceStatus>>();
   const results = [];
   for (const entry of entries) {
     const materializedBundle =
@@ -1931,7 +1934,7 @@ async function renderUpdateCheck(options: {
       continue;
     }
 
-    const remoteStatus = await inspectRemoteSource({
+    const remoteStatus = await inspectRemoteSourceCached(inspectCache, {
       source: entry.source,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
@@ -2011,6 +2014,7 @@ async function updateBundles(options: {
   }
 
   const skippedLocalOnly: string[] = [];
+  const inspectCache = new Map<string, Promise<RemoteSourceStatus>>();
   const updatePlans = [];
   for (const entry of entries) {
     if (!entry.source) {
@@ -2018,7 +2022,7 @@ async function updateBundles(options: {
       continue;
     }
 
-    const remoteStatus = await inspectRemoteSource({
+    const remoteStatus = await inspectRemoteSourceCached(inspectCache, {
       source: entry.source,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
@@ -2349,6 +2353,27 @@ async function updateBundles(options: {
   writeRegistryFile(options.registryFile, registry);
 
   return [localOnlyNote, ...outputLines].filter(Boolean).join("\n");
+}
+
+function inspectRemoteSourceCached(
+  cache: Map<string, Promise<RemoteSourceStatus>>,
+  options: FetchRemoteSourceOptions,
+): Promise<RemoteSourceStatus> {
+  const key = JSON.stringify([
+    options.source,
+    options.protocol ?? "https",
+    options.ref ?? null,
+  ]);
+  const cached = cache.get(key);
+
+  if (cached) {
+    return cached;
+  }
+
+  const status = inspectRemoteSource(options);
+  cache.set(key, status);
+
+  return status;
 }
 
 async function applyBundle(options: {

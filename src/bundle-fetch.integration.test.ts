@@ -1,5 +1,10 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import http, {
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,7 +20,7 @@ import {
 } from "./bundle-fetch";
 
 const tempDirs: string[] = [];
-const serverProcesses: ChildProcess[] = [];
+const fakeGithubServers: Server[] = [];
 const MUTATED_ENV_NAMES = [
   "GH_TOKEN",
   "GIT_SSH",
@@ -34,6 +39,7 @@ interface FakeGithubState {
   failArchiveFor?: string;
   owner: string;
   repo: string;
+  requests: string[];
   tagObjects: Record<string, { object: { sha: string; type: string } }>;
   tags: Record<string, { object: { sha: string; type: string } }>;
   token: string;
@@ -44,10 +50,8 @@ beforeEach(() => {
   previousEnv = snapshotEnv();
 });
 
-afterEach(() => {
-  for (const server of serverProcesses.splice(0)) {
-    server.kill();
-  }
+afterEach(async () => {
+  await Promise.all(fakeGithubServers.splice(0).map(closeServer));
 
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -125,6 +129,45 @@ describe("updateCachedRemoteSource integration", () => {
     );
   });
 
+  it("falls back to a GitHub archive cache when cached git refresh hits proxy 403", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/react-bundle";
+    const targetDir = seedCachedRemoteSource(libraryDir, source);
+    const commit = "1111111111111111111111111111111111111111";
+    const argsFile = installProxyForbiddenGit(libraryDir);
+    await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [commit]: createArchive(libraryDir, commit, {
+            "AGENTS.md": "# fallback refresh\n",
+          }),
+        },
+        branches: { main: commit },
+        commits: [commit],
+      }),
+    );
+    process.env.GH_TOKEN = "github-token-value";
+
+    // When
+    await clearAndRefetchCachedRemoteSource({ source, libraryDir });
+
+    // Then
+    expect(fs.existsSync(path.join(targetDir, ".git"))).toBe(false);
+    expect(fs.readFileSync(path.join(targetDir, "AGENTS.md"), "utf8")).toBe(
+      "# fallback refresh\n",
+    );
+    expect(readArchiveMetadata(targetDir)).toMatchObject({
+      requested_ref: null,
+      resolved_commit: commit,
+      resolved_ref: "main",
+    });
+    expect(fs.readFileSync(argsFile, "utf8")).not.toContain(
+      "github-token-value",
+    );
+  });
+
   it("inspects an archive cache through the GitHub API instead of git ls-remote", async () => {
     // Given
     const libraryDir = createLibraryDir();
@@ -132,7 +175,7 @@ describe("updateCachedRemoteSource integration", () => {
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
     const laterCommit = "3333333333333333333333333333333333333333";
-    const { stateFile } = await configureFakeGithubApi(
+    const { state } = await configureFakeGithubApi(
       libraryDir,
       createFakeGithubState({
         archives: {
@@ -153,7 +196,7 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
     await fetchRemoteSource({ source, libraryDir });
-    updateFakeGithubState(stateFile, (state) => {
+    updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
     });
 
@@ -165,13 +208,49 @@ describe("updateCachedRemoteSource integration", () => {
     expect(status.remoteCommit).toBe(remoteCommit);
   });
 
+  it("follows the current default branch for archive caches fetched without an explicit ref", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/react-bundle";
+    const initialCommit = "1111111111111111111111111111111111111111";
+    const laterCommit = "2222222222222222222222222222222222222222";
+    const { state } = await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [initialCommit]: createArchive(libraryDir, initialCommit, {
+            "AGENTS.md": "# initial\n",
+          }),
+          [laterCommit]: createArchive(libraryDir, laterCommit, {
+            "AGENTS.md": "# trunk\n",
+          }),
+        },
+        branches: { main: initialCommit, trunk: laterCommit },
+        commits: [initialCommit, laterCommit],
+      }),
+    );
+    process.env.GH_TOKEN = "github-token-value";
+    process.env.SKUL_GITHUB_TRANSPORT = "archive";
+    await fetchRemoteSource({ source, libraryDir });
+    updateFakeGithubState(state, (state) => {
+      state.defaultBranch = "trunk";
+    });
+
+    // When
+    const status = await inspectRemoteSource({ source, libraryDir });
+
+    // Then
+    expect(status.remoteCommit).toBe(laterCommit);
+    expect(status.resolvedRef).toBe("trunk");
+  });
+
   it("updates an archive cache by replacing it with a newer downloaded archive", async () => {
     // Given
     const libraryDir = createLibraryDir();
     const source = "github.com/user/react-bundle";
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
-    const { stateFile } = await configureFakeGithubApi(
+    const { state } = await configureFakeGithubApi(
       libraryDir,
       createFakeGithubState({
         archives: {
@@ -189,7 +268,7 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
     await fetchRemoteSource({ source, libraryDir });
-    updateFakeGithubState(stateFile, (state) => {
+    updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
     });
 
@@ -208,6 +287,46 @@ describe("updateCachedRemoteSource integration", () => {
       "# remote\n",
     );
     expect(readArchiveMetadata(targetDir).resolved_commit).toBe(remoteCommit);
+  });
+
+  it("replaces an archive cache with an SSH git clone when SSH is requested", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/react-bundle";
+    const commit = "1111111111111111111111111111111111111111";
+    await configureFakeGithubApi(
+      libraryDir,
+      createFakeGithubState({
+        archives: {
+          [commit]: createArchive(libraryDir, commit, {
+            "AGENTS.md": "# archive\n",
+          }),
+        },
+        branches: { main: commit },
+        commits: [commit],
+      }),
+    );
+    process.env.GH_TOKEN = "github-token-value";
+    process.env.SKUL_GITHUB_TRANSPORT = "archive";
+    const { targetDir } = await fetchRemoteSource({ source, libraryDir });
+    const argsFile = installSuccessfulCloneGit(libraryDir);
+    delete process.env.SKUL_GITHUB_TRANSPORT;
+
+    // When
+    await clearAndRefetchCachedRemoteSource({
+      source,
+      libraryDir,
+      protocol: "ssh",
+    });
+
+    // Then
+    expect(fs.existsSync(path.join(targetDir, ".git"))).toBe(true);
+    expect(fs.existsSync(path.join(targetDir, ".skul-source.json"))).toBe(
+      false,
+    );
+    expect(fs.readFileSync(argsFile, "utf8")).toContain(
+      "clone --depth=1 git@github.com:user/react-bundle.git",
+    );
   });
 
   it("uses GITHUB_TOKEN and resolves annotated tags for archive-first fetches", async () => {
@@ -268,7 +387,7 @@ describe("updateCachedRemoteSource integration", () => {
     const source = "github.com/user/react-bundle";
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
-    const { stateFile } = await configureFakeGithubApi(
+    const { state } = await configureFakeGithubApi(
       libraryDir,
       createFakeGithubState({
         archives: {
@@ -283,7 +402,7 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
     await fetchRemoteSource({ source, libraryDir });
-    updateFakeGithubState(stateFile, (state) => {
+    updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
       state.failArchiveFor = remoteCommit;
     });
@@ -382,7 +501,7 @@ describe("updateCachedRemoteSource integration", () => {
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
     const laterCommit = "3333333333333333333333333333333333333333";
-    const { stateFile } = await configureFakeGithubApi(
+    const { state } = await configureFakeGithubApi(
       libraryDir,
       createFakeGithubState({
         archives: {
@@ -403,7 +522,7 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
     await fetchRemoteSource({ source, libraryDir });
-    updateFakeGithubState(stateFile, (state) => {
+    updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
     });
     await updateCachedRemoteSource({ source, libraryDir });
@@ -426,7 +545,7 @@ describe("updateCachedRemoteSource integration", () => {
       resolved_commit: initialCommit,
       resolved_ref: "main",
     });
-    updateFakeGithubState(stateFile, (state) => {
+    updateFakeGithubState(state, (state) => {
       state.branches.main = laterCommit;
     });
     expect(
@@ -440,7 +559,7 @@ describe("updateCachedRemoteSource integration", () => {
     const source = "github.com/user/react-bundle";
     const initialCommit = "1111111111111111111111111111111111111111";
     const remoteCommit = "2222222222222222222222222222222222222222";
-    const { stateFile } = await configureFakeGithubApi(
+    const { state } = await configureFakeGithubApi(
       libraryDir,
       createFakeGithubState({
         archives: {
@@ -458,7 +577,7 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
     await fetchRemoteSource({ source, libraryDir });
-    updateFakeGithubState(stateFile, (state) => {
+    updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
     });
 
@@ -503,24 +622,48 @@ function createLibraryDir(): string {
 }
 
 async function configureFakeGithubApi(
-  libraryDir: string,
+  _libraryDir: string,
   state: FakeGithubState,
-): Promise<{ stateFile: string }> {
-  const serverScript = path.join(libraryDir, "fake-github-api.js");
-  const stateFile = path.join(libraryDir, "fake-github-state.json");
-  fs.writeFileSync(serverScript, getFakeGithubApiScript());
-  fs.writeFileSync(stateFile, JSON.stringify(state));
-
-  const server = spawn(process.execPath, [serverScript], {
-    env: { ...process.env, FAKE_GITHUB_STATE_FILE: stateFile },
-    stdio: ["ignore", "pipe", "pipe"],
+): Promise<{ state: FakeGithubState }> {
+  const server = http.createServer((request, response) => {
+    handleFakeGithubApiRequest(request, response, state);
   });
-  serverProcesses.push(server);
+  fakeGithubServers.push(server);
 
-  const url = await readServerUrl(server);
+  const url = await listen(server);
   process.env.SKUL_GITHUB_API_BASE_URL = url;
 
-  return { stateFile };
+  return { state };
+}
+
+function listen(server: Server): Promise<string> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        reject(new Error("Fake GitHub API server did not bind to a port"));
+        return;
+      }
+
+      resolve(`http://127.0.0.1:${address.port}`);
+    });
+  });
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
 }
 
 function createFakeGithubState(
@@ -533,6 +676,7 @@ function createFakeGithubState(
     defaultBranch: "main",
     owner: "user",
     repo: "react-bundle",
+    requests: [],
     tagObjects: {},
     tags: {},
     token: "github-token-value",
@@ -540,160 +684,130 @@ function createFakeGithubState(
   };
 }
 
-function readServerUrl(server: ChildProcess): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    const timer = setTimeout(() => {
-      reject(new Error("Timed out waiting for fake GitHub API server"));
-    }, 5000);
-
-    server.stdout?.on("data", (chunk: Buffer) => {
-      output += chunk.toString("utf8");
-      const line = output.split("\n").find(Boolean);
-
-      if (!line) {
-        return;
-      }
-
-      clearTimeout(timer);
-      resolve((JSON.parse(line) as { url: string }).url);
-    });
-    server.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    server.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`Fake GitHub API server exited with ${code}`));
-    });
-  });
-}
-
 function updateFakeGithubState(
-  stateFile: string,
+  state: FakeGithubState,
   update: (state: FakeGithubState) => void,
 ): void {
-  const state = JSON.parse(
-    fs.readFileSync(stateFile, "utf8"),
-  ) as FakeGithubState;
   update(state);
-  fs.writeFileSync(stateFile, JSON.stringify(state));
 }
 
-function getFakeGithubApiScript(): string {
-  return String.raw`
-const fs = require("node:fs");
-const http = require("node:http");
+function handleFakeGithubApiRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  state: FakeGithubState,
+): void {
+  if (!requireFakeGithubHeaders(request, response, state)) {
+    return;
+  }
 
-const stateFile = process.env.FAKE_GITHUB_STATE_FILE;
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  const prefix = `/repos/${state.owner}/${state.repo}`;
+  const pathname = decodeURIComponent(url.pathname);
+  state.requests.push(pathname);
 
-function state() {
-  return JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  if (pathname === prefix) {
+    writeJson(response, 200, { default_branch: state.defaultBranch });
+    return;
+  }
+
+  if (pathname.startsWith(`${prefix}/git/ref/heads/`)) {
+    const branch = pathname.slice(`${prefix}/git/ref/heads/`.length);
+    const sha = state.branches[branch];
+    writeJson(
+      response,
+      sha ? 200 : 404,
+      sha ? { object: { sha, type: "commit" } } : { message: "Not Found" },
+    );
+    return;
+  }
+
+  if (pathname.startsWith(`${prefix}/git/ref/tags/`)) {
+    const tag = pathname.slice(`${prefix}/git/ref/tags/`.length);
+    const value = state.tags[tag];
+    writeJson(response, value ? 200 : 404, value ?? { message: "Not Found" });
+    return;
+  }
+
+  if (pathname.startsWith(`${prefix}/git/tags/`)) {
+    const sha = pathname.slice(`${prefix}/git/tags/`.length);
+    const value = state.tagObjects[sha];
+    writeJson(response, value ? 200 : 404, value ?? { message: "Not Found" });
+    return;
+  }
+
+  if (pathname.startsWith(`${prefix}/commits/`)) {
+    const sha = pathname.slice(`${prefix}/commits/`.length);
+    writeJson(
+      response,
+      state.commits.includes(sha) ? 200 : 404,
+      state.commits.includes(sha) ? { sha } : { message: "Not Found" },
+    );
+    return;
+  }
+
+  if (pathname.startsWith(`${prefix}/tarball/`)) {
+    const ref = pathname.slice(`${prefix}/tarball/`.length);
+
+    if (state.failArchiveFor === ref) {
+      writeJson(response, 403, { message: "archive forbidden" });
+      return;
+    }
+
+    const archive = state.archives[ref];
+    if (!archive) {
+      writeJson(response, 404, { message: "Not Found" });
+      return;
+    }
+
+    response.writeHead(200, { "content-type": "application/x-gzip" });
+    fs.createReadStream(archive).pipe(response);
+    return;
+  }
+
+  writeJson(response, 404, { message: "Not Found" });
 }
 
-function json(response, status, value, headers = {}) {
-  response.writeHead(status, {
-    "content-type": "application/json",
-    ...headers,
-  });
-  response.end(JSON.stringify(value));
-}
-
-function requireHeaders(request, response, current) {
-  if (request.headers.authorization !== "Bearer " + current.token) {
-    json(response, 401, {
-      message: "Bad credentials for " + request.headers.authorization,
+function requireFakeGithubHeaders(
+  request: IncomingMessage,
+  response: ServerResponse,
+  state: FakeGithubState,
+): boolean {
+  if (request.headers.authorization !== `Bearer ${state.token}`) {
+    writeJson(response, 401, {
+      message: `Bad credentials for ${request.headers.authorization}`,
     });
     return false;
   }
 
   if (request.headers.accept !== "application/vnd.github+json") {
-    json(response, 400, { message: "missing accept header" });
+    writeJson(response, 400, { message: "missing accept header" });
     return false;
   }
 
   if (!request.headers["x-github-api-version"]) {
-    json(response, 400, { message: "missing api version header" });
+    writeJson(response, 400, { message: "missing api version header" });
     return false;
   }
 
   if (!request.headers["user-agent"]) {
-    json(response, 400, { message: "missing user agent" });
+    writeJson(response, 400, { message: "missing user agent" });
     return false;
   }
 
   return true;
 }
 
-const server = http.createServer((request, response) => {
-  const current = state();
-
-  if (!requireHeaders(request, response, current)) {
-    return;
-  }
-
-  const url = new URL(request.url, "http://127.0.0.1");
-  const prefix = "/repos/" + current.owner + "/" + current.repo;
-  const pathname = decodeURIComponent(url.pathname);
-
-  if (pathname === prefix) {
-    json(response, 200, { default_branch: current.defaultBranch });
-    return;
-  }
-
-  if (pathname.startsWith(prefix + "/git/ref/heads/")) {
-    const branch = pathname.slice((prefix + "/git/ref/heads/").length);
-    const sha = current.branches[branch];
-    if (!sha) return json(response, 404, { message: "Not Found" });
-    json(response, 200, { object: { sha, type: "commit" } });
-    return;
-  }
-
-  if (pathname.startsWith(prefix + "/git/ref/tags/")) {
-    const tag = pathname.slice((prefix + "/git/ref/tags/").length);
-    const value = current.tags[tag];
-    if (!value) return json(response, 404, { message: "Not Found" });
-    json(response, 200, value);
-    return;
-  }
-
-  if (pathname.startsWith(prefix + "/git/tags/")) {
-    const sha = pathname.slice((prefix + "/git/tags/").length);
-    const value = current.tagObjects[sha];
-    if (!value) return json(response, 404, { message: "Not Found" });
-    json(response, 200, value);
-    return;
-  }
-
-  if (pathname.startsWith(prefix + "/commits/")) {
-    const sha = pathname.slice((prefix + "/commits/").length);
-    if (!current.commits.includes(sha)) {
-      return json(response, 404, { message: "Not Found" });
-    }
-    json(response, 200, { sha });
-    return;
-  }
-
-  if (pathname.startsWith(prefix + "/tarball/")) {
-    const ref = pathname.slice((prefix + "/tarball/").length);
-    if (current.failArchiveFor === ref) {
-      return json(response, 403, { message: "archive forbidden" });
-    }
-    const archive = current.archives[ref];
-    if (!archive) return json(response, 404, { message: "Not Found" });
-    response.writeHead(200, { "content-type": "application/x-gzip" });
-    fs.createReadStream(archive).pipe(response);
-    return;
-  }
-
-  json(response, 404, { message: "Not Found" });
-});
-
-server.listen(0, "127.0.0.1", () => {
-  const address = server.address();
-  console.log(JSON.stringify({ url: "http://127.0.0.1:" + address.port }));
-});
-`;
+function writeJson(
+  response: ServerResponse,
+  status: number,
+  value: unknown,
+  headers: Record<string, string> = {},
+): void {
+  response.writeHead(status, {
+    "content-type": "application/json",
+    ...headers,
+  });
+  response.end(JSON.stringify(value));
 }
 
 function createArchive(
@@ -737,6 +851,31 @@ const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(argsFile)}, process.argv.slice(2).join(" ") + "\\n");
 console.error("fatal: unable to access 'https://github.com/user/react-bundle/': Received HTTP code 403 from proxy after CONNECT");
 process.exit(128);
+`,
+  );
+  fs.chmodSync(fakeGitPath, 0o755);
+  process.env.PATH = `${libraryDir}${path.delimiter}${process.env.PATH ?? ""}`;
+
+  return argsFile;
+}
+
+function installSuccessfulCloneGit(libraryDir: string): string {
+  const fakeGitPath = path.join(libraryDir, "git");
+  const argsFile = path.join(libraryDir, "git-args.log");
+  fs.writeFileSync(
+    fakeGitPath,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(argsFile)}, args.join(" ") + "\\n");
+if (args[0] !== "clone") {
+  console.error("unexpected git command: " + args.join(" "));
+  process.exit(1);
+}
+const targetDir = args[args.length - 1];
+fs.mkdirSync(path.join(targetDir, ".git"), { recursive: true });
+fs.writeFileSync(path.join(targetDir, "README.md"), "# ssh clone\\n");
 `,
   );
   fs.chmodSync(fakeGitPath, 0o755);

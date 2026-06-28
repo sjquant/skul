@@ -183,7 +183,7 @@ export async function inspectRemoteSource(
     try {
       const resolvedRemote = await resolveGithubArchiveRef(
         options.source,
-        options.ref ?? metadata.requested_ref ?? metadata.resolved_ref,
+        options.ref ?? metadata.requested_ref,
       );
 
       return {
@@ -243,8 +243,14 @@ export async function updateCachedRemoteSource(
 
   const targetDir = getTargetDir(options);
 
-  if (readGithubArchiveMetadata(targetDir, options.source)) {
+  const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
+
+  if (archiveMetadata && isGithubArchiveEligible(options)) {
     return updateGithubArchiveSource(options, initialRevision);
+  }
+
+  if (archiveMetadata) {
+    await clearAndRefetchCachedRemoteSource(options);
   }
 
   let status: RemoteSourceStatus;
@@ -272,44 +278,11 @@ export async function updateCachedRemoteSource(
   }
 
   try {
-    if (status.refKind === "branch") {
-      runGit([
-        "-C",
-        targetDir,
-        "fetch",
-        "--depth=1",
-        "origin",
-        `refs/heads/${status.resolvedRef!}`,
-      ]);
-      runGit([
-        "-C",
-        targetDir,
-        "checkout",
-        "-B",
-        status.resolvedRef!,
-        "FETCH_HEAD",
-      ]);
-    } else if (status.refKind === "tag") {
-      runGit([
-        "-C",
-        targetDir,
-        "fetch",
-        "--depth=1",
-        "origin",
-        `refs/tags/${status.resolvedRef!}`,
-      ]);
-      runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
-    } else {
-      runGit([
-        "-C",
-        targetDir,
-        "fetch",
-        "--depth=1",
-        "origin",
-        status.remoteCommit,
-      ]);
-      runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
-    }
+    checkoutResolvedRemoteRef(targetDir, {
+      kind: status.refKind,
+      resolvedRef: status.resolvedRef,
+      commit: status.remoteCommit,
+    });
   } catch (error) {
     throw normalizeGitError(error, `Failed to update ${options.source}`, {
       source: options.source,
@@ -409,8 +382,10 @@ export async function clearAndRefetchCachedRemoteSource(
   const targetDir = getTargetDir(options);
   const revision = readCachedSourceRevision(options);
 
+  const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
+
   if (
-    readGithubArchiveMetadata(targetDir, options.source) ||
+    (archiveMetadata && isGithubArchiveEligible(options)) ||
     shouldUseGithubArchiveFirst(options)
   ) {
     await fetchGithubArchiveSource(options, targetDir);
@@ -433,6 +408,18 @@ export async function clearAndRefetchCachedRemoteSource(
     fs.renameSync(tempDir, targetDir);
   } catch (error) {
     fs.rmSync(tempDir, { recursive: true, force: true });
+    if (shouldFallbackToGithubArchive(options, error)) {
+      try {
+        await fetchGithubArchiveSource(options, targetDir);
+        return;
+      } catch (archiveError) {
+        throw combineGitAndArchiveErrors(error, archiveError, cloneUrl, {
+          source: options.source,
+          protocol: options.protocol,
+        });
+      }
+    }
+
     throw normalizeGitError(error, `Failed to clone ${cloneUrl}`, {
       source: options.source,
       protocol: options.protocol,
@@ -512,34 +499,40 @@ function checkoutGitRemoteRef(
 ): void {
   const resolved = resolveRemoteRef(remoteUrl, requestedRef);
 
+  checkoutResolvedRemoteRef(targetDir, resolved);
+}
+
+function checkoutResolvedRemoteRef(
+  targetDir: string,
+  resolved: {
+    kind: "branch" | "tag" | "commit";
+    resolvedRef?: string;
+    commit: string;
+  },
+): void {
   if (resolved.kind === "branch") {
+    const branch = requireResolvedRemoteRef(resolved);
     runGit([
       "-C",
       targetDir,
       "fetch",
       "--depth=1",
       "origin",
-      `refs/heads/${resolved.resolvedRef!}`,
+      `refs/heads/${branch}`,
     ]);
-    runGit([
-      "-C",
-      targetDir,
-      "checkout",
-      "-B",
-      resolved.resolvedRef!,
-      "FETCH_HEAD",
-    ]);
+    runGit(["-C", targetDir, "checkout", "-B", branch, "FETCH_HEAD"]);
     return;
   }
 
   if (resolved.kind === "tag") {
+    const tag = requireResolvedRemoteRef(resolved);
     runGit([
       "-C",
       targetDir,
       "fetch",
       "--depth=1",
       "origin",
-      `refs/tags/${resolved.resolvedRef!}`,
+      `refs/tags/${tag}`,
     ]);
     runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
     return;
@@ -547,6 +540,17 @@ function checkoutGitRemoteRef(
 
   runGit(["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit]);
   runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
+}
+
+function requireResolvedRemoteRef(resolved: {
+  kind: "branch" | "tag" | "commit";
+  resolvedRef?: string;
+}): string {
+  if (!resolved.resolvedRef) {
+    throw new Error(`Failed to resolve remote ${resolved.kind} ref`);
+  }
+
+  return resolved.resolvedRef;
 }
 
 function parseHeadRef(output: string): string | undefined {
