@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { BundleManifest } from "./bundle-manifest";
+import { isSkillRefFileName, SKILL_REF_SUFFIX } from "./bundle-skill-refs";
 import {
   getToolDefinition,
   type ToolName,
@@ -74,6 +75,10 @@ function normalizeBundleItemName(
 function stripKnownItemExtension(value: string): string {
   if (value.endsWith(".agent.md")) {
     return value.slice(0, -".agent.md".length);
+  }
+
+  if (value.endsWith(SKILL_REF_SUFFIX)) {
+    return value.slice(0, -SKILL_REF_SUFFIX.length);
   }
 
   return value.replace(/\.(md|toml|yaml|yml|json)$/i, "");
@@ -182,7 +187,9 @@ function isSelectableTargetEntry(
   targetName: ToolTargetName,
 ): boolean {
   if (targetName === "skills") {
-    return entry.isDirectory();
+    return (
+      entry.isDirectory() || (entry.isFile() && isSkillRefFileName(entry.name))
+    );
   }
 
   return entry.isFile();

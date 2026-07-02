@@ -39,6 +39,7 @@ import {
   materializeBundle,
   previewMaterializeBundleWriteTargets,
 } from "./bundle-materialization";
+import { resolveBundleSkillRefs } from "./bundle-skill-refs";
 import {
   type BundleItemChoice,
   type BundleSelection,
@@ -2111,6 +2112,11 @@ async function updateBundles(options: {
         bundle: entry.bundle,
         source: entry.source,
       });
+      const resolvedSkillRefs = await resolveBundleSkillRefs({
+        bundleDir: path.dirname(cachedBundle.manifestFile),
+        libraryDir: options.libraryDir,
+        protocol: entry.protocol,
+      });
 
       const plannedWriteTargets = previewMaterializeBundleWriteTargets({
         repoRoot: gitContext.worktreeRoot,
@@ -2119,6 +2125,7 @@ async function updateBundles(options: {
         tools: toolsToRefresh,
         itemSelectors: entry.items,
         disableModelInvocation: entry.disable_model_invocation,
+        resolvedSkillRefs,
       });
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
@@ -2231,6 +2238,7 @@ async function updateBundles(options: {
           rootInstructionBaseContents,
           resolveFileConflict: options.prompts.resolveFileConflict,
           disableModelInvocation: entry.disable_model_invocation,
+          resolvedSkillRefs,
         });
 
         currentBundles = {
@@ -2482,6 +2490,11 @@ async function applyBundle(options: {
     existingWorktreeState?.root_instruction_base_contents;
   const existingBundleState =
     existingWorktreeState?.bundles[preparedBundle.cachedBundle.bundle];
+  const resolvedSkillRefs = await resolveBundleSkillRefs({
+    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    libraryDir: options.libraryDir,
+    protocol: options.protocol,
+  });
   const plannedWriteTargets = previewMaterializeBundleWriteTargets({
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
@@ -2489,6 +2502,7 @@ async function applyBundle(options: {
     tools: preparedBundle.selectedTools,
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
+    resolvedSkillRefs,
   });
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -2623,6 +2637,7 @@ async function applyBundle(options: {
     rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
     disableModelInvocation: options.disableModelInvocation,
+    resolvedSkillRefs,
   });
   currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
     repoRoot: gitContext.worktreeRoot,
@@ -5089,12 +5104,18 @@ async function applyWorktree(options: {
     const replacesExistingToolState =
       replacementState !== undefined &&
       flattenBundleState(replacementState).files.length > 0;
+    const resolvedSkillRefs = await resolveBundleSkillRefs({
+      bundleDir: path.dirname(cachedBundle.manifestFile),
+      libraryDir: options.libraryDir,
+      protocol: entry.protocol,
+    });
     const plannedWriteTargets = previewMaterializeBundleWriteTargets({
       repoRoot: gitContext.worktreeRoot,
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
       itemSelectors: entry.items,
+      resolvedSkillRefs,
     });
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -5227,6 +5248,7 @@ async function applyWorktree(options: {
         trackedRootInstructionShadowPlan.deferredMaterializationTargets,
       rootInstructionBaseContents,
       resolveFileConflict: options.prompts.resolveFileConflict,
+      resolvedSkillRefs,
     });
 
     currentBundles = {
@@ -6425,6 +6447,11 @@ async function applyBundleGlobal(options: {
       preparedBundle.cachedBundle.bundle
     ];
 
+  const resolvedSkillRefs = await resolveBundleSkillRefs({
+    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    libraryDir: options.libraryDir,
+    protocol: options.protocol,
+  });
   const plannedWriteTargets = previewMaterializeBundleWriteTargets({
     repoRoot: options.homeDir,
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
@@ -6433,6 +6460,7 @@ async function applyBundleGlobal(options: {
     pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
+    resolvedSkillRefs,
   });
 
   const plannedRootInstructionTargets = new Set(
@@ -6526,6 +6554,7 @@ async function applyBundleGlobal(options: {
     pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
+    resolvedSkillRefs,
   });
 
   const newBundleState = buildMaterializedBundleState({

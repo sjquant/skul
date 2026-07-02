@@ -6,6 +6,7 @@ import {
   isRootInstructionItemSelected,
 } from "./bundle-items";
 import type { BundleManifest } from "./bundle-manifest";
+import { isSkillRefFileName } from "./bundle-skill-refs";
 import {
   toTranslationToolName,
   translateAgent,
@@ -49,6 +50,7 @@ export function previewMaterializeBundleWriteTargets(options: {
   itemSelectors?: BundleItemSelector[];
   pathLayout?: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
+  resolvedSkillRefs?: Map<string, string>;
 }): string[] {
   const writeTargets = new Set<string>();
   const pathLayout = options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT;
@@ -133,6 +135,7 @@ export function previewMaterializeBundleWriteTargets(options: {
         itemSelectors: options.itemSelectors,
         pathLayout,
         disableModelInvocation: options.disableModelInvocation,
+        resolvedSkillRefs: options.resolvedSkillRefs,
       })) {
         writeTargets.add(repoRelativePath);
       }
@@ -169,6 +172,7 @@ export async function materializeBundle(options: {
   ) => Promise<FileConflictResolution>;
   pathLayout?: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
+  resolvedSkillRefs?: Map<string, string>;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const writtenSharedFileTargets = new Set<string>();
@@ -295,6 +299,7 @@ export async function materializeBundle(options: {
           itemSelectors: options.itemSelectors,
           pathLayout,
           disableModelInvocation: options.disableModelInvocation,
+          resolvedSkillRefs: options.resolvedSkillRefs,
         });
       }
     }
@@ -590,6 +595,32 @@ function listRelativeFiles(sourceDir: string, prefix = ""): string[] {
 
   return relativeFiles;
 }
+function resolveSkillEntryDir(options: {
+  entry: fs.Dirent;
+  sourceDir: string;
+  sourcePath: string;
+  resolvedSkillRefs?: Map<string, string>;
+}): string | undefined {
+  if (options.entry.isDirectory()) {
+    return path.join(options.sourceDir, options.entry.name);
+  }
+
+  if (!options.entry.isFile() || !isSkillRefFileName(options.entry.name)) {
+    return undefined;
+  }
+
+  const key = `${options.sourcePath}/${options.entry.name}`
+    .split(path.sep)
+    .join("/");
+  const resolved = options.resolvedSkillRefs?.get(key);
+
+  if (!resolved) {
+    throw new Error(`Unresolved skill reference: ${key}`);
+  }
+
+  return resolved;
+}
+
 function assertNotSymlink(entry: fs.Dirent, parentDir: string): void {
   if (entry.isSymbolicLink()) {
     throw new Error(
@@ -644,6 +675,7 @@ async function materializeCanonicalTarget(options: {
   itemSelectors?: BundleItemSelector[];
   pathLayout: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
+  resolvedSkillRefs?: Map<string, string>;
 }): Promise<void> {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
@@ -667,9 +699,15 @@ async function materializeCanonicalTarget(options: {
     let translated: Record<string, string>;
 
     if (options.targetName === "skills") {
-      if (!entry.isDirectory()) continue;
+      const skillDir = resolveSkillEntryDir({
+        entry,
+        sourceDir,
+        sourcePath: options.sourcePath,
+        resolvedSkillRefs: options.resolvedSkillRefs,
+      });
 
-      const skillDir = path.join(sourceDir, entry.name);
+      if (!skillDir) continue;
+
       const files: Record<string, string> = {};
       readFilesIntoRecord(skillDir, "", files);
       translated = translateSkill({
@@ -755,6 +793,7 @@ function previewCanonicalTargetWriteTargets(options: {
   itemSelectors?: BundleItemSelector[];
   pathLayout: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
+  resolvedSkillRefs?: Map<string, string>;
 }): string[] {
   const sourceDir = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetDirectory(sourceDir, options.sourcePath);
@@ -778,9 +817,15 @@ function previewCanonicalTargetWriteTargets(options: {
     let translated: Record<string, string>;
 
     if (options.targetName === "skills") {
-      if (!entry.isDirectory()) continue;
+      const skillDir = resolveSkillEntryDir({
+        entry,
+        sourceDir,
+        sourcePath: options.sourcePath,
+        resolvedSkillRefs: options.resolvedSkillRefs,
+      });
 
-      const skillDir = path.join(sourceDir, entry.name);
+      if (!skillDir) continue;
+
       const files: Record<string, string> = {};
       readFilesIntoRecord(skillDir, "", files);
       translated = translateSkill({

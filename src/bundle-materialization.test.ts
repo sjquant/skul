@@ -1004,6 +1004,102 @@ describe("materializeBundle – canonical skill source", () => {
   });
 });
 
+describe("materializeBundle – cross-repo skill references", () => {
+  it("materializes a resolved skill reference using the referenced skill's directory", async () => {
+    // Given: bundleDir carries only a .ref.json placeholder; the real skill
+    // files live in an unrelated directory that stands in for another
+    // cached bundle in the library.
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalSkillDir = createTempDir("skul-external-skill-");
+    writeFile(
+      path.join(bundleDir, "skills", "insane-search.ref.json"),
+      JSON.stringify({ source: "fivetaku/insane-search" }),
+    );
+    writeFile(
+      path.join(externalSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: insane-search",
+        "description: Search things fast",
+        "---",
+        "",
+        "Search aggressively.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+      resolvedSkillRefs: new Map([
+        ["skills/insane-search.ref.json", externalSkillDir],
+      ]),
+    });
+
+    // Then
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/skills/insane-search/SKILL.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "insane-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Search aggressively.");
+  });
+
+  it("throws a clear error when a skill reference has no resolved entry", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "insane-search.ref.json"),
+      JSON.stringify({ source: "fivetaku/insane-search" }),
+    );
+
+    // When / Then
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+      }),
+    ).rejects.toThrowError(
+      /Unresolved skill reference: skills\/insane-search\.ref\.json/,
+    );
+  });
+
+  it("includes the resolved skill's output path in the write-target preview", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalSkillDir = createTempDir("skul-external-skill-");
+    writeFile(
+      path.join(bundleDir, "skills", "insane-search.ref.json"),
+      JSON.stringify({ source: "fivetaku/insane-search" }),
+    );
+    writeFile(
+      path.join(externalSkillDir, "SKILL.md"),
+      "---\nname: insane-search\ndescription: Search things fast\n---\n",
+    );
+
+    // When
+    const targets = previewMaterializeBundleWriteTargets({
+      repoRoot: createTempDir("skul-repo-"),
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+      resolvedSkillRefs: new Map([
+        ["skills/insane-search.ref.json", externalSkillDir],
+      ]),
+    });
+
+    // Then
+    expect(targets).toContain(".claude/skills/insane-search/SKILL.md");
+  });
+});
+
 describe("materializeBundle – canonical command source", () => {
   it("translates a canonical command to claude-code format", async () => {
     // Given
