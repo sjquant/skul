@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-
+import { listBundleItemRefSelectors } from "./bundle-item-refs";
 import type { BundleManifest } from "./bundle-manifest";
-import { isSkillRefFileName, SKILL_REF_SUFFIX } from "./bundle-skill-refs";
 import {
   getToolDefinition,
   type ToolName,
@@ -77,10 +76,6 @@ function stripKnownItemExtension(value: string): string {
     return value.slice(0, -".agent.md".length);
   }
 
-  if (value.endsWith(SKILL_REF_SUFFIX)) {
-    return value.slice(0, -SKILL_REF_SUFFIX.length);
-  }
-
   return value.replace(/\.(md|toml|yaml|yml|json)$/i, "");
 }
 
@@ -152,6 +147,14 @@ export function listSelectableBundleItems(options: {
     }
   }
 
+  for (const selector of listBundleItemRefSelectors({
+    bundleDir: options.bundleDir,
+    manifest: options.manifest,
+    tools: options.tools,
+  })) {
+    selectors.add(selector);
+  }
+
   return Array.from(selectors).sort((left, right) => left.localeCompare(right));
 }
 
@@ -178,21 +181,23 @@ function listTargetItemNames(options: {
 
   return fs
     .readdirSync(options.sourceDir, { withFileTypes: true })
-    .filter((entry) => isSelectableTargetEntry(entry, options.targetName))
-    .map((entry) => stripKnownItemExtension(entry.name));
+    .filter((entry) => isSelectableBundleItemEntry(entry, options.targetName))
+    .map((entry) => stripKnownBundleItemExtension(entry.name));
 }
 
-function isSelectableTargetEntry(
+export function isSelectableBundleItemEntry(
   entry: fs.Dirent,
   targetName: ToolTargetName,
 ): boolean {
   if (targetName === "skills") {
-    return (
-      entry.isDirectory() || (entry.isFile() && isSkillRefFileName(entry.name))
-    );
+    return entry.isDirectory();
   }
 
   return entry.isFile();
+}
+
+export function stripKnownBundleItemExtension(value: string): string {
+  return stripKnownItemExtension(value);
 }
 
 /** Throws when requested item selectors are not present in the selected bundle scope. */

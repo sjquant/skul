@@ -27,19 +27,26 @@ import {
   updateCachedRemoteSource,
 } from "./bundle-fetch";
 import {
+  BUNDLE_ITEM_REFS_FILE_NAME,
+  listBundleItemRefSelectors,
+  type ResolvedBundleItemRef,
+  resolveBundleItemRefs,
+} from "./bundle-item-refs";
+import {
   assertBundleSupportsRequestedItems,
   type BundleItemSelector,
   bundleItemSelectionsEqual,
+  isSelectableBundleItemEntry,
   listSelectableBundleItems,
   mergeDesiredBundleItems,
   normalizeBundleItemSelectors,
+  stripKnownBundleItemExtension,
 } from "./bundle-items";
 import {
   type MaterializeBundleResult,
   materializeBundle,
   previewMaterializeBundleWriteTargets,
 } from "./bundle-materialization";
-import { resolveBundleSkillRefs } from "./bundle-skill-refs";
 import {
   type BundleItemChoice,
   type BundleSelection,
@@ -99,6 +106,7 @@ import {
   getToolDefinition,
   globalCapableToolNames,
   type ToolName,
+  type ToolTargetName,
 } from "./tool-mapping";
 
 // Lazily evaluated so that SKUL_NO_TUI set after module load (e.g. in tests) is respected.
@@ -691,6 +699,16 @@ async function removeAllWorktreeBundles(options: {
     });
   }
 
+  const remainingRootInstructionRefs =
+    Object.keys(remainingBundles).length > 0
+      ? await resolveMaterializedBundleItemRefsByBundle({
+          desiredState: remainingDesiredState,
+          materializedBundles: remainingBundles,
+          libraryDir: options.libraryDir,
+          itemSelectors: ["root-instruction"],
+        })
+      : undefined;
+
   removeManagedPaths(gitContext.worktreeRoot, removedBundlePaths);
   const rootInstructionBaseContents =
     worktreeState?.materialized_state.root_instruction_base_contents;
@@ -723,6 +741,7 @@ async function removeAllWorktreeBundles(options: {
       targetPaths: rewrittenRootInstructionPaths,
       resolveCachedBundle: (entry) =>
         resolveDesiredCachedBundle(options.libraryDir, entry),
+      resolvedBundleItemRefsByBundle: remainingRootInstructionRefs,
     });
     const refreshedRemainingBundles = refreshManagedFileFingerprintsForPaths(
       gitContext.worktreeRoot,
@@ -929,6 +948,16 @@ async function removeAllGlobalBundles(options: {
     }
   }
 
+  const remainingRootInstructionRefs =
+    Object.keys(remainingBundles).length > 0
+      ? await resolveMaterializedBundleItemRefsByBundle({
+          desiredState: remainingDesiredState,
+          materializedBundles: remainingBundles,
+          libraryDir: options.libraryDir,
+          itemSelectors: ["root-instruction"],
+        })
+      : undefined;
+
   removeManagedPaths(options.homeDir, removedBundlePaths);
 
   const rootInstructionBaseContents =
@@ -968,6 +997,7 @@ async function removeAllGlobalBundles(options: {
           resolveDesiredCachedBundle(options.libraryDir, entry),
         repoRelPathRemapper:
           GLOBAL_TOOL_MATERIALIZATION_LAYOUT.remapRepoRelPath,
+        resolvedBundleItemRefsByBundle: remainingRootInstructionRefs,
       });
       const refreshedBundles = refreshManagedFileFingerprintsForPaths(
         options.homeDir,
@@ -2112,8 +2142,11 @@ async function updateBundles(options: {
         bundle: entry.bundle,
         source: entry.source,
       });
-      const resolvedSkillRefs = await resolveBundleSkillRefs({
+      const resolvedBundleItemRefs = await resolveBundleItemRefs({
         bundleDir: path.dirname(cachedBundle.manifestFile),
+        manifest: cachedBundle.manifest,
+        tools: toolsToRefresh,
+        itemSelectors: entry.items,
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
       });
@@ -2125,7 +2158,7 @@ async function updateBundles(options: {
         tools: toolsToRefresh,
         itemSelectors: entry.items,
         disableModelInvocation: entry.disable_model_invocation,
-        resolvedSkillRefs,
+        resolvedBundleItemRefs,
       });
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
@@ -2147,6 +2180,7 @@ async function updateBundles(options: {
           targetPaths: plannedRootInstructionTargets,
           bundleName: entry.bundle,
           bundleSource: entry.source,
+          resolvedBundleItemRefs,
           existingShadowedFiles: currentShadowedFiles,
           materializedBundles: currentBundles,
         });
@@ -2238,7 +2272,7 @@ async function updateBundles(options: {
           rootInstructionBaseContents,
           resolveFileConflict: options.prompts.resolveFileConflict,
           disableModelInvocation: entry.disable_model_invocation,
-          resolvedSkillRefs,
+          resolvedBundleItemRefs,
         });
 
         currentBundles = {
@@ -2268,6 +2302,14 @@ async function updateBundles(options: {
           targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
           resolveCachedBundle: (entry) =>
             resolveDesiredCachedBundle(options.libraryDir, entry),
+          resolvedBundleItemRefsByBundle:
+            await resolveMaterializedBundleItemRefsByBundle({
+              desiredState: nextDesiredState,
+              materializedBundles: currentBundles,
+              libraryDir: options.libraryDir,
+              seed: new Map([[entry.bundle, resolvedBundleItemRefs]]),
+              itemSelectors: ["root-instruction"],
+            }),
         });
         currentBundles = refreshManagedFileFingerprintsForPaths(
           gitContext.worktreeRoot,
@@ -2490,8 +2532,11 @@ async function applyBundle(options: {
     existingWorktreeState?.root_instruction_base_contents;
   const existingBundleState =
     existingWorktreeState?.bundles[preparedBundle.cachedBundle.bundle];
-  const resolvedSkillRefs = await resolveBundleSkillRefs({
+  const resolvedBundleItemRefs = await resolveBundleItemRefs({
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    manifest: preparedBundle.cachedBundle.manifest,
+    tools: preparedBundle.selectedTools,
+    itemSelectors: preparedBundle.selectedItems,
     libraryDir: options.libraryDir,
     protocol: options.protocol,
   });
@@ -2502,7 +2547,7 @@ async function applyBundle(options: {
     tools: preparedBundle.selectedTools,
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
-    resolvedSkillRefs,
+    resolvedBundleItemRefs,
   });
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -2519,6 +2564,7 @@ async function applyBundle(options: {
     targetPaths: plannedRootInstructionTargets,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
+    resolvedBundleItemRefs,
     existingShadowedFiles: currentShadowedFiles,
     materializedBundles: existingWorktreeState?.bundles ?? {},
   });
@@ -2637,7 +2683,7 @@ async function applyBundle(options: {
     rootInstructionBaseContents,
     resolveFileConflict: options.prompts.resolveFileConflict,
     disableModelInvocation: options.disableModelInvocation,
-    resolvedSkillRefs,
+    resolvedBundleItemRefs,
   });
   currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
     repoRoot: gitContext.worktreeRoot,
@@ -2697,6 +2743,16 @@ async function applyBundle(options: {
     targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
     resolveCachedBundle: (entry) =>
       resolveDesiredCachedBundle(options.libraryDir, entry),
+    resolvedBundleItemRefsByBundle:
+      await resolveMaterializedBundleItemRefsByBundle({
+        desiredState: newDesiredState,
+        materializedBundles: newMatState.bundles,
+        libraryDir: options.libraryDir,
+        seed: new Map([
+          [preparedBundle.cachedBundle.bundle, resolvedBundleItemRefs],
+        ]),
+        itemSelectors: ["root-instruction"],
+      }),
   });
   newMatState.bundles = refreshManagedFileFingerprintsForPaths(
     gitContext.worktreeRoot,
@@ -3694,6 +3750,18 @@ function listBundleItemSourcePaths(options: {
   item: BundleItemSelector;
 }): string[] {
   const sourcePaths: string[] = [];
+  const refsFilePath = path.join(options.bundleDir, BUNDLE_ITEM_REFS_FILE_NAME);
+
+  if (
+    fs.existsSync(refsFilePath) &&
+    listBundleItemRefSelectors({
+      bundleDir: options.bundleDir,
+      manifest: options.manifest,
+      tools: options.tools,
+    }).includes(options.item)
+  ) {
+    sourcePaths.push(refsFilePath);
+  }
 
   for (const toolName of options.tools) {
     const targets = options.manifest.tools[toolName];
@@ -3718,7 +3786,7 @@ function listBundleItemSourcePaths(options: {
     sourcePaths.push(
       ...listDirectoryItemSourcePaths({
         sourceDir: path.join(options.bundleDir, target.path),
-        targetName,
+        targetName: targetName as ToolTargetName,
         itemName,
       }),
     );
@@ -3731,7 +3799,7 @@ function listBundleItemSourcePaths(options: {
 
 function listDirectoryItemSourcePaths(options: {
   sourceDir: string;
-  targetName: string;
+  targetName: ToolTargetName;
   itemName: string;
 }): string[] {
   if (!fs.existsSync(options.sourceDir)) {
@@ -3747,27 +3815,15 @@ function listDirectoryItemSourcePaths(options: {
 function isMatchingBundleItemEntry(
   entry: fs.Dirent,
   options: {
-    targetName: string;
+    targetName: ToolTargetName;
     itemName: string;
   },
 ): boolean {
-  if (options.targetName === "skills" && !entry.isDirectory()) {
-    return false;
-  }
-
-  if (options.targetName !== "skills" && !entry.isFile()) {
+  if (!isSelectableBundleItemEntry(entry, options.targetName)) {
     return false;
   }
 
   return stripKnownBundleItemExtension(entry.name) === options.itemName;
-}
-
-function stripKnownBundleItemExtension(value: string): string {
-  if (value.endsWith(".agent.md")) {
-    return value.slice(0, -".agent.md".length);
-  }
-
-  return value.replace(/\.(md|toml|yaml|yml|json)$/i, "");
 }
 
 function fingerprintPath(filePath: string): string {
@@ -4243,6 +4299,16 @@ async function removeBundle(options: {
       });
     }
 
+    const remainingRootInstructionRefs =
+      Object.keys(remainingBundles).length > 0
+        ? await resolveMaterializedBundleItemRefsByBundle({
+            desiredState: remainingDesiredState,
+            materializedBundles: remainingBundles,
+            libraryDir: options.libraryDir,
+            itemSelectors: ["root-instruction"],
+          })
+        : undefined;
+
     removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
     const remainingRootInstructionTargets =
       collectManagedRootInstructionTargets(remainingBundles);
@@ -4273,6 +4339,7 @@ async function removeBundle(options: {
         targetPaths: rewrittenRootInstructionPaths,
         resolveCachedBundle: (entry) =>
           resolveDesiredCachedBundle(options.libraryDir, entry),
+        resolvedBundleItemRefsByBundle: remainingRootInstructionRefs,
       });
       const refreshedRemainingBundles = refreshManagedFileFingerprintsForPaths(
         gitContext.worktreeRoot,
@@ -5104,8 +5171,11 @@ async function applyWorktree(options: {
     const replacesExistingToolState =
       replacementState !== undefined &&
       flattenBundleState(replacementState).files.length > 0;
-    const resolvedSkillRefs = await resolveBundleSkillRefs({
+    const resolvedBundleItemRefs = await resolveBundleItemRefs({
       bundleDir: path.dirname(cachedBundle.manifestFile),
+      manifest: cachedBundle.manifest,
+      tools: toolsToApply,
+      itemSelectors: entry.items,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
     });
@@ -5115,7 +5185,7 @@ async function applyWorktree(options: {
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
       itemSelectors: entry.items,
-      resolvedSkillRefs,
+      resolvedBundleItemRefs,
     });
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -5132,6 +5202,7 @@ async function applyWorktree(options: {
       targetPaths: plannedRootInstructionTargets,
       bundleName: entry.bundle,
       bundleSource: entry.source,
+      resolvedBundleItemRefs,
       existingShadowedFiles: currentShadowedFiles,
       materializedBundles: currentBundles,
     });
@@ -5248,7 +5319,7 @@ async function applyWorktree(options: {
         trackedRootInstructionShadowPlan.deferredMaterializationTargets,
       rootInstructionBaseContents,
       resolveFileConflict: options.prompts.resolveFileConflict,
-      resolvedSkillRefs,
+      resolvedBundleItemRefs,
     });
 
     currentBundles = {
@@ -5278,6 +5349,14 @@ async function applyWorktree(options: {
       targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
       resolveCachedBundle: (entry) =>
         resolveDesiredCachedBundle(options.libraryDir, entry),
+      resolvedBundleItemRefsByBundle:
+        await resolveMaterializedBundleItemRefsByBundle({
+          desiredState: repoState.desired_state,
+          materializedBundles: currentBundles,
+          libraryDir: options.libraryDir,
+          seed: new Map([[entry.bundle, resolvedBundleItemRefs]]),
+          itemSelectors: ["root-instruction"],
+        }),
     });
     currentBundles = refreshManagedFileFingerprintsForPaths(
       gitContext.worktreeRoot,
@@ -5345,6 +5424,68 @@ function selectTrackedRootInstructionShadowToolNames(options: {
   ) as ToolName[];
 }
 
+async function resolveMaterializedBundleItemRefsByBundle(options: {
+  desiredState: DesiredBundleEntry[];
+  materializedBundles: MaterializedState["bundles"];
+  libraryDir: string;
+  seed?: ReadonlyMap<string, ReadonlyMap<string, ResolvedBundleItemRef>>;
+  itemSelectors?: BundleItemSelector[];
+}): Promise<Map<string, ReadonlyMap<string, ResolvedBundleItemRef>>> {
+  const resolvedByBundle = new Map(options.seed);
+
+  for (const desiredEntry of options.desiredState) {
+    if (resolvedByBundle.has(desiredEntry.bundle)) {
+      continue;
+    }
+
+    const materializedBundleState =
+      options.materializedBundles[desiredEntry.bundle];
+
+    if (!materializedBundleState) {
+      continue;
+    }
+
+    const cachedBundle = resolveDesiredCachedBundle(
+      options.libraryDir,
+      desiredEntry,
+    );
+    const resolvedBundleItemRefs = await resolveBundleItemRefs({
+      bundleDir: path.dirname(cachedBundle.manifestFile),
+      manifest: cachedBundle.manifest,
+      tools: Object.keys(materializedBundleState.tools) as ToolName[],
+      itemSelectors: intersectDesiredItemSelectors({
+        desiredItems: desiredEntry.items,
+        itemSelectors: options.itemSelectors,
+      }),
+      libraryDir: options.libraryDir,
+      protocol: desiredEntry.protocol,
+    });
+
+    if (resolvedBundleItemRefs.size > 0) {
+      resolvedByBundle.set(desiredEntry.bundle, resolvedBundleItemRefs);
+    }
+  }
+
+  return resolvedByBundle;
+}
+
+function intersectDesiredItemSelectors(options: {
+  desiredItems?: BundleItemSelector[];
+  itemSelectors?: BundleItemSelector[];
+}): BundleItemSelector[] | undefined {
+  if (!options.itemSelectors) {
+    return options.desiredItems;
+  }
+
+  if (!options.desiredItems) {
+    return options.itemSelectors;
+  }
+
+  return options.itemSelectors.filter((item) =>
+    options.desiredItems?.includes(item),
+  );
+}
+
 function planTrackedRootInstructionShadows(options: {
   repoRoot: string;
   bundleDir: string;
@@ -5354,6 +5495,7 @@ function planTrackedRootInstructionShadows(options: {
   targetPaths: Set<string>;
   bundleName: string;
   bundleSource?: string;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
   existingShadowedFiles: Record<string, ShadowedFileState>;
   materializedBundles: MaterializedState["bundles"];
 }): TrackedRootInstructionShadowPlan {
@@ -5362,6 +5504,7 @@ function planTrackedRootInstructionShadows(options: {
     manifest: options.manifest,
     toolNames: options.toolNames,
     itemSelectors: options.itemSelectors,
+    resolvedBundleItemRefs: options.resolvedBundleItemRefs,
   });
   const activeRootInstructionPaths = new Set(
     Object.keys(activeOverlayContents).filter((targetPath) =>
@@ -6447,8 +6590,11 @@ async function applyBundleGlobal(options: {
       preparedBundle.cachedBundle.bundle
     ];
 
-  const resolvedSkillRefs = await resolveBundleSkillRefs({
+  const resolvedBundleItemRefs = await resolveBundleItemRefs({
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    manifest: preparedBundle.cachedBundle.manifest,
+    tools: availableGlobalTools,
+    itemSelectors: preparedBundle.selectedItems,
     libraryDir: options.libraryDir,
     protocol: options.protocol,
   });
@@ -6460,7 +6606,7 @@ async function applyBundleGlobal(options: {
     pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
-    resolvedSkillRefs,
+    resolvedBundleItemRefs,
   });
 
   const plannedRootInstructionTargets = new Set(
@@ -6554,7 +6700,7 @@ async function applyBundleGlobal(options: {
     pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
-    resolvedSkillRefs,
+    resolvedBundleItemRefs,
   });
 
   const newBundleState = buildMaterializedBundleState({
@@ -6599,6 +6745,16 @@ async function applyBundleGlobal(options: {
     resolveCachedBundle: (entry) =>
       resolveDesiredCachedBundle(options.libraryDir, entry),
     repoRelPathRemapper,
+    resolvedBundleItemRefsByBundle:
+      await resolveMaterializedBundleItemRefsByBundle({
+        desiredState: newDesiredState,
+        materializedBundles: newBundles,
+        libraryDir: options.libraryDir,
+        seed: new Map([
+          [preparedBundle.cachedBundle.bundle, resolvedBundleItemRefs],
+        ]),
+        itemSelectors: ["root-instruction"],
+      }),
   });
 
   const refreshedBundles = refreshManagedFileFingerprintsForPaths(
@@ -6972,6 +7128,16 @@ async function removeGlobalBundle(options: {
       );
     }
 
+    const remainingRootInstructionRefs =
+      Object.keys(remainingBundles).length > 0
+        ? await resolveMaterializedBundleItemRefsByBundle({
+            desiredState: remainingDesiredState,
+            materializedBundles: remainingBundles,
+            libraryDir: options.libraryDir,
+            itemSelectors: ["root-instruction"],
+          })
+        : undefined;
+
     removeManagedPaths(options.homeDir, bundlePaths);
 
     const remainingRootInstructionTargets =
@@ -7005,6 +7171,7 @@ async function removeGlobalBundle(options: {
         resolveCachedBundle: (entry) =>
           resolveDesiredCachedBundle(options.libraryDir, entry),
         repoRelPathRemapper,
+        resolvedBundleItemRefsByBundle: remainingRootInstructionRefs,
       });
       const refreshedBundles = refreshManagedFileFingerprintsForPaths(
         options.homeDir,

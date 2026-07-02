@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { ResolvedBundleItemRef } from "./bundle-item-refs";
 import {
   type BundleItemSelector,
   isDirectoryItemSelected,
   isRootInstructionItemSelected,
+  stripKnownBundleItemExtension,
 } from "./bundle-items";
 import type { BundleManifest } from "./bundle-manifest";
-import { isSkillRefFileName } from "./bundle-skill-refs";
 import {
   toTranslationToolName,
   translateAgent,
@@ -33,6 +34,15 @@ export interface MaterializeBundleResult {
   byTool: Partial<Record<ToolName, { files: string[]; directories: string[] }>>;
 }
 
+interface CanonicalTargetItem {
+  selector: BundleItemSelector;
+  itemName: string;
+  kind?: "directory" | "file";
+  localPath?: string;
+  nativeRelativePath?: string;
+  resolvedRef?: ResolvedBundleItemRef;
+}
+
 /**
  * Predicts the initial repo-relative files a bundle targets before any
  * conflict-resolution overwrites are applied.
@@ -50,7 +60,7 @@ export function previewMaterializeBundleWriteTargets(options: {
   itemSelectors?: BundleItemSelector[];
   pathLayout?: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
-  resolvedSkillRefs?: Map<string, string>;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): string[] {
   const writeTargets = new Set<string>();
   const pathLayout = options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT;
@@ -78,6 +88,7 @@ export function previewMaterializeBundleWriteTargets(options: {
           toolName: toolName as ToolName,
           targetName: targetName as ToolTargetName,
           pathLayout,
+          resolvedBundleItemRefs: options.resolvedBundleItemRefs,
         })) {
           writeTargets.add(repoRelativePath);
         }
@@ -92,36 +103,17 @@ export function previewMaterializeBundleWriteTargets(options: {
           target.path,
         )
       ) {
-        const sourceDir = path.join(options.bundleDir, target.path);
-        const destinationDir = pathLayout.resolveToolTargetPath(
-          toolName as ToolName,
-          targetName as ToolTargetName,
-          options.repoRoot,
-        );
-
-        if (!destinationDir) {
-          continue;
-        }
-
-        assertBundleTargetDirectory(sourceDir, target.path);
-
-        for (const relativePath of listRelativeFiles(sourceDir)) {
-          if (
-            !isDirectoryItemSelected({
-              selectors: options.itemSelectors,
-              targetName: targetName as ToolTargetName,
-              entryName: relativePath.split(path.sep)[0] ?? relativePath,
-            })
-          ) {
-            continue;
-          }
-
-          writeTargets.add(
-            path.relative(
-              options.repoRoot,
-              path.join(destinationDir, relativePath),
-            ),
-          );
+        for (const repoRelativePath of previewNativeTargetWriteTargets({
+          bundleDir: options.bundleDir,
+          sourcePath: target.path,
+          toolName: toolName as ToolName,
+          targetName: targetName as ToolTargetName,
+          repoRoot: options.repoRoot,
+          itemSelectors: options.itemSelectors,
+          pathLayout,
+          resolvedBundleItemRefs: options.resolvedBundleItemRefs,
+        })) {
+          writeTargets.add(repoRelativePath);
         }
 
         continue;
@@ -135,7 +127,7 @@ export function previewMaterializeBundleWriteTargets(options: {
         itemSelectors: options.itemSelectors,
         pathLayout,
         disableModelInvocation: options.disableModelInvocation,
-        resolvedSkillRefs: options.resolvedSkillRefs,
+        resolvedBundleItemRefs: options.resolvedBundleItemRefs,
       })) {
         writeTargets.add(repoRelativePath);
       }
@@ -172,7 +164,7 @@ export async function materializeBundle(options: {
   ) => Promise<FileConflictResolution>;
   pathLayout?: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
-  resolvedSkillRefs?: Map<string, string>;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const writtenSharedFileTargets = new Set<string>();
@@ -199,6 +191,7 @@ export async function materializeBundle(options: {
             ),
           )
           .map(([toolName]) => toolName as ToolName),
+        resolvedBundleItemRefs: options.resolvedBundleItemRefs,
       })
     : {};
 
@@ -234,6 +227,7 @@ export async function materializeBundle(options: {
           bundleSource: options.bundleSource,
           resolveFileConflict: options.resolveFileConflict,
           pathLayout,
+          resolvedBundleItemRefs: options.resolvedBundleItemRefs,
         });
         continue;
       }
@@ -245,45 +239,20 @@ export async function materializeBundle(options: {
           target.path,
         )
       ) {
-        // Native dotdir path: raw copy verbatim into the tool's target directory.
-        const reservedDestinations = new Set<string>();
-        const sourceDir = path.join(options.bundleDir, target.path);
-        const destinationDir = pathLayout.resolveToolTargetPath(
-          toolName as ToolName,
-          targetName as ToolTargetName,
-          options.repoRoot,
-        );
-
-        if (!destinationDir) {
-          continue;
-        }
-
-        const destinationDirExisted = fs.existsSync(destinationDir);
-        assertBundleTargetDirectory(sourceDir, target.path);
-        fs.mkdirSync(destinationDir, { recursive: true });
-
-        if (!destinationDirExisted) {
-          toolDirectories.add(path.relative(options.repoRoot, destinationDir));
-        }
-
-        await copyDirectory(
-          sourceDir,
-          destinationDir,
-          destinationDir,
-          toolFiles,
-          toolDirectories,
-          reservedDestinations,
-          options.repoRoot,
-          options.assertSafeWriteTarget,
-          options.resolveFileConflict,
-          options.itemSelectors
-            ? {
-                targetName: targetName as ToolTargetName,
-                selectors: options.itemSelectors,
-                sourceRoot: sourceDir,
-              }
-            : undefined,
-        );
+        await materializeNativeTarget({
+          bundleDir: options.bundleDir,
+          sourcePath: target.path,
+          toolName: toolName as ToolName,
+          targetName: targetName as ToolTargetName,
+          repoRoot: options.repoRoot,
+          writtenFiles: toolFiles,
+          ownedDirectories: toolDirectories,
+          assertSafeWriteTarget: options.assertSafeWriteTarget,
+          resolveFileConflict: options.resolveFileConflict,
+          itemSelectors: options.itemSelectors,
+          pathLayout,
+          resolvedBundleItemRefs: options.resolvedBundleItemRefs,
+        });
       } else {
         // Canonical path: apply cross-tool content transforms via bundle-translation.
         await materializeCanonicalTarget({
@@ -299,7 +268,7 @@ export async function materializeBundle(options: {
           itemSelectors: options.itemSelectors,
           pathLayout,
           disableModelInvocation: options.disableModelInvocation,
-          resolvedSkillRefs: options.resolvedSkillRefs,
+          resolvedBundleItemRefs: options.resolvedBundleItemRefs,
         });
       }
     }
@@ -345,6 +314,7 @@ async function materializeRootInstructionTarget(options: {
     | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined;
   pathLayout: ToolMaterializationLayout;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): Promise<void> {
   if (options.targetName !== "root_instruction") {
     throw new Error(`Unsupported file target: ${options.targetName}`);
@@ -354,6 +324,7 @@ async function materializeRootInstructionTarget(options: {
     bundleDir: options.bundleDir,
     sourcePath: options.sourcePath,
     toolName: options.toolName,
+    resolvedBundleItemRefs: options.resolvedBundleItemRefs,
   });
 
   for (const [origRelPath, content] of Object.entries(
@@ -398,12 +369,280 @@ async function materializeRootInstructionTarget(options: {
   }
 }
 
+async function materializeNativeTarget(options: {
+  bundleDir: string;
+  sourcePath: string;
+  toolName: ToolName;
+  targetName: ToolTargetName;
+  repoRoot: string;
+  writtenFiles: string[];
+  ownedDirectories: Set<string>;
+  assertSafeWriteTarget?: (repoRelativePath: string) => void;
+  resolveFileConflict:
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
+    | undefined;
+  itemSelectors?: BundleItemSelector[];
+  pathLayout: ToolMaterializationLayout;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
+}): Promise<void> {
+  const destinationDir = options.pathLayout.resolveToolTargetPath(
+    options.toolName,
+    options.targetName,
+    options.repoRoot,
+  );
+
+  if (!destinationDir) {
+    return;
+  }
+
+  const reservedDestinations = new Set<string>();
+  const destinationDirExisted = fs.existsSync(destinationDir);
+  fs.mkdirSync(destinationDir, { recursive: true });
+
+  if (!destinationDirExisted) {
+    options.ownedDirectories.add(
+      path.relative(options.repoRoot, destinationDir),
+    );
+  }
+
+  for (const item of listNativeTargetItems(options)) {
+    const sourcePath = item.resolvedRef?.path ?? item.localPath;
+    const nativeRelativePath = item.nativeRelativePath;
+
+    if (!sourcePath || !nativeRelativePath) {
+      throw new Error(`Bundle item has no source path: ${item.selector}`);
+    }
+
+    const destinationPath = path.join(destinationDir, nativeRelativePath);
+
+    if (item.kind === "directory") {
+      await copyDirectory(
+        sourcePath,
+        destinationPath,
+        destinationDir,
+        options.writtenFiles,
+        options.ownedDirectories,
+        reservedDestinations,
+        options.repoRoot,
+        options.assertSafeWriteTarget,
+        options.resolveFileConflict,
+      );
+      continue;
+    }
+
+    await copyFileToDestination({
+      sourcePath,
+      destinationPath,
+      targetRoot: destinationDir,
+      writtenFiles: options.writtenFiles,
+      ownedDirectories: options.ownedDirectories,
+      reservedDestinations,
+      repoRoot: options.repoRoot,
+      assertSafeWriteTarget: options.assertSafeWriteTarget,
+      resolveFileConflict: options.resolveFileConflict,
+    });
+  }
+}
+
+function previewNativeTargetWriteTargets(options: {
+  bundleDir: string;
+  sourcePath: string;
+  toolName: ToolName;
+  targetName: ToolTargetName;
+  repoRoot: string;
+  itemSelectors?: BundleItemSelector[];
+  pathLayout: ToolMaterializationLayout;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
+}): string[] {
+  const destinationDir = options.pathLayout.resolveToolTargetPath(
+    options.toolName,
+    options.targetName,
+    options.repoRoot,
+  );
+
+  if (!destinationDir) {
+    return [];
+  }
+
+  return listNativeTargetItems(options).flatMap((item) => {
+    const sourcePath = item.resolvedRef?.path ?? item.localPath;
+    const nativeRelativePath = item.nativeRelativePath;
+
+    if (!sourcePath || !nativeRelativePath) {
+      return [];
+    }
+
+    if (item.kind === "directory") {
+      return listRelativeFiles(sourcePath).map((relativePath) =>
+        path.relative(
+          options.repoRoot,
+          path.join(destinationDir, nativeRelativePath, relativePath),
+        ),
+      );
+    }
+
+    return [
+      path.relative(
+        options.repoRoot,
+        path.join(destinationDir, nativeRelativePath),
+      ),
+    ];
+  });
+}
+
+function listNativeTargetItems(options: {
+  bundleDir: string;
+  sourcePath: string;
+  targetName: ToolTargetName;
+  itemSelectors?: BundleItemSelector[];
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
+}): CanonicalTargetItem[] {
+  const sourceDir = path.join(options.bundleDir, options.sourcePath);
+  const items = new Map<BundleItemSelector, CanonicalTargetItem>();
+
+  if (fs.existsSync(sourceDir)) {
+    assertBundleTargetDirectory(sourceDir, options.sourcePath);
+
+    for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+      assertNotSymlink(entry, sourceDir);
+      const item = nativeTargetItemFromLocalEntry({
+        entry,
+        sourceDir,
+        targetName: options.targetName,
+      });
+
+      if (!item || !isBundleItemSelectorSelected(options.itemSelectors, item)) {
+        continue;
+      }
+
+      items.set(item.selector, item);
+    }
+  }
+
+  for (const [selector, resolvedRef] of options.resolvedBundleItemRefs ?? []) {
+    const item = nativeTargetItemFromResolvedRef({
+      selector,
+      targetName: options.targetName,
+      resolvedRef,
+    });
+
+    if (!item || !isBundleItemSelectorSelected(options.itemSelectors, item)) {
+      continue;
+    }
+
+    if (items.has(item.selector)) {
+      throw new Error(
+        `Bundle item reference conflicts with local bundle item: ${item.selector}`,
+      );
+    }
+
+    items.set(item.selector, item);
+  }
+
+  if (
+    !fs.existsSync(sourceDir) &&
+    items.size === 0 &&
+    isDirectoryTargetSelected(options.itemSelectors, options.targetName)
+  ) {
+    assertBundleTargetDirectory(sourceDir, options.sourcePath);
+  }
+
+  return Array.from(items.values()).sort((left, right) =>
+    left.selector.localeCompare(right.selector),
+  );
+}
+
+function nativeTargetItemFromLocalEntry(options: {
+  entry: fs.Dirent;
+  sourceDir: string;
+  targetName: ToolTargetName;
+}): CanonicalTargetItem | undefined {
+  if (options.targetName === "skills") {
+    if (options.entry.isDirectory()) {
+      return {
+        selector: `skills/${options.entry.name}`,
+        itemName: options.entry.name,
+        kind: "directory",
+        localPath: path.join(options.sourceDir, options.entry.name),
+        nativeRelativePath: options.entry.name,
+      };
+    }
+
+    if (!options.entry.isFile()) {
+      return undefined;
+    }
+
+    const itemName = stripKnownBundleItemExtension(options.entry.name);
+    return {
+      selector: `skills/${itemName}`,
+      itemName,
+      kind: "file",
+      localPath: path.join(options.sourceDir, options.entry.name),
+      nativeRelativePath: options.entry.name,
+    };
+  }
+
+  if (options.targetName === "commands" || options.targetName === "agents") {
+    if (!options.entry.isFile()) {
+      return undefined;
+    }
+
+    const itemName = stripKnownBundleItemExtension(options.entry.name);
+    return {
+      selector: `${options.targetName}/${itemName}`,
+      itemName,
+      kind: "file",
+      localPath: path.join(options.sourceDir, options.entry.name),
+      nativeRelativePath: options.entry.name,
+    };
+  }
+
+  return undefined;
+}
+
+function nativeTargetItemFromResolvedRef(options: {
+  selector: BundleItemSelector;
+  targetName: ToolTargetName;
+  resolvedRef: ResolvedBundleItemRef;
+}): CanonicalTargetItem | undefined {
+  const [targetName, itemName] = options.selector.split("/");
+
+  if (targetName !== options.targetName || !itemName) {
+    return undefined;
+  }
+
+  const kind = targetName === "skills" ? "directory" : "file";
+  const nativeRelativePath =
+    kind === "directory"
+      ? itemName
+      : `${itemName}${nativeFileSuffix(options.resolvedRef.path)}`;
+
+  return {
+    selector: options.selector,
+    itemName,
+    kind,
+    nativeRelativePath,
+    resolvedRef: options.resolvedRef,
+  };
+}
+
+function nativeFileSuffix(filePath: string): string {
+  const basename = path.basename(filePath);
+  const strippedName = stripKnownBundleItemExtension(basename);
+  const suffix = basename.slice(strippedName.length);
+
+  return suffix || ".md";
+}
+
 function readTranslatedRootInstructionTargets(options: {
   bundleDir: string;
   sourcePath: string;
   toolName: ToolName;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): Record<string, string> {
-  const sourceFile = path.join(options.bundleDir, options.sourcePath);
+  const sourceFile =
+    options.resolvedBundleItemRefs?.get("root-instruction")?.path ??
+    path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetFile(sourceFile, options.sourcePath);
 
   return translateRootInstruction({
@@ -520,6 +759,48 @@ async function copyDirectory(
   }
 }
 
+async function copyFileToDestination(options: {
+  sourcePath: string;
+  destinationPath: string;
+  targetRoot: string;
+  writtenFiles: string[];
+  ownedDirectories: Set<string>;
+  reservedDestinations: Set<string>;
+  repoRoot: string;
+  assertSafeWriteTarget: ((repoRelativePath: string) => void) | undefined;
+  resolveFileConflict:
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
+    | undefined;
+}): Promise<void> {
+  assertBundleTargetFile(options.sourcePath, options.sourcePath);
+  const finalDestinationPath = await resolveDestinationPath({
+    destinationPath: options.destinationPath,
+    targetRoot: options.targetRoot,
+    reservedDestinations: options.reservedDestinations,
+    resolveFileConflict: options.resolveFileConflict,
+  });
+
+  ensureOwnedParentDirectories(
+    path.dirname(finalDestinationPath),
+    options.targetRoot,
+    options.ownedDirectories,
+    options.repoRoot,
+  );
+  options.assertSafeWriteTarget?.(
+    path.relative(options.repoRoot, finalDestinationPath),
+  );
+  fs.copyFileSync(options.sourcePath, finalDestinationPath);
+  options.reservedDestinations.add(
+    path
+      .relative(options.targetRoot, finalDestinationPath)
+      .split(path.sep)
+      .join("/"),
+  );
+  options.writtenFiles.push(
+    path.relative(options.repoRoot, finalDestinationPath),
+  );
+}
+
 async function resolveDestinationPath(options: {
   destinationPath: string;
   targetRoot: string;
@@ -595,32 +876,6 @@ function listRelativeFiles(sourceDir: string, prefix = ""): string[] {
 
   return relativeFiles;
 }
-function resolveSkillEntryDir(options: {
-  entry: fs.Dirent;
-  sourceDir: string;
-  sourcePath: string;
-  resolvedSkillRefs?: Map<string, string>;
-}): string | undefined {
-  if (options.entry.isDirectory()) {
-    return path.join(options.sourceDir, options.entry.name);
-  }
-
-  if (!options.entry.isFile() || !isSkillRefFileName(options.entry.name)) {
-    return undefined;
-  }
-
-  const key = `${options.sourcePath}/${options.entry.name}`
-    .split(path.sep)
-    .join("/");
-  const resolved = options.resolvedSkillRefs?.get(key);
-
-  if (!resolved) {
-    throw new Error(`Unresolved skill reference: ${key}`);
-  }
-
-  return resolved;
-}
-
 function assertNotSymlink(entry: fs.Dirent, parentDir: string): void {
   if (entry.isSymbolicLink()) {
     throw new Error(
@@ -675,77 +930,12 @@ async function materializeCanonicalTarget(options: {
   itemSelectors?: BundleItemSelector[];
   pathLayout: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
-  resolvedSkillRefs?: Map<string, string>;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): Promise<void> {
-  const sourceDir = path.join(options.bundleDir, options.sourcePath);
-  assertBundleTargetDirectory(sourceDir, options.sourcePath);
-
-  const translTool = toTranslationToolName(options.toolName);
   const reservedDestinations = new Set<string>();
 
-  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    assertNotSymlink(entry, sourceDir);
-
-    if (
-      !isDirectoryItemSelected({
-        selectors: options.itemSelectors,
-        targetName: options.targetName,
-        entryName: entry.name,
-      })
-    ) {
-      continue;
-    }
-
-    let translated: Record<string, string>;
-
-    if (options.targetName === "skills") {
-      const skillDir = resolveSkillEntryDir({
-        entry,
-        sourceDir,
-        sourcePath: options.sourcePath,
-        resolvedSkillRefs: options.resolvedSkillRefs,
-      });
-
-      if (!skillDir) continue;
-
-      const files: Record<string, string> = {};
-      readFilesIntoRecord(skillDir, "", files);
-      translated = translateSkill({
-        sourceTool: "claude",
-        targetTool: translTool,
-        files,
-        options: options.disableModelInvocation
-          ? { disableModelInvocation: true }
-          : undefined,
-      });
-    } else if (options.targetName === "commands") {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-
-      const commandName = entry.name.slice(0, -3);
-      const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
-      translated = translateCommand({
-        sourceTool: "claude",
-        targetTool: translTool as Parameters<
-          typeof translateCommand
-        >[0]["targetTool"],
-        source: content,
-        options: { name: commandName },
-      });
-    } else if (options.targetName === "agents") {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-
-      const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
-      translated = translateAgent({
-        sourceTool: "claude",
-        targetTool: translTool as Parameters<
-          typeof translateAgent
-        >[0]["targetTool"],
-        source: content,
-      });
-    } else {
-      continue;
-    }
-
+  for (const item of listCanonicalTargetItems(options)) {
+    const translated = translateCanonicalTargetItem({ ...options, item });
     for (const [origRelPath, content] of Object.entries(translated)) {
       const repoRelPath = options.pathLayout.remapRepoRelPath(
         options.toolName,
@@ -772,6 +962,189 @@ async function materializeCanonicalTarget(options: {
   }
 }
 
+function listCanonicalTargetItems(options: {
+  bundleDir: string;
+  sourcePath: string;
+  targetName: ToolTargetName;
+  itemSelectors?: BundleItemSelector[];
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
+}): CanonicalTargetItem[] {
+  const sourceDir = path.join(options.bundleDir, options.sourcePath);
+  const items = new Map<BundleItemSelector, CanonicalTargetItem>();
+
+  if (fs.existsSync(sourceDir)) {
+    assertBundleTargetDirectory(sourceDir, options.sourcePath);
+
+    for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+      assertNotSymlink(entry, sourceDir);
+      const item = localCanonicalTargetItem({
+        entry,
+        sourceDir,
+        targetName: options.targetName,
+      });
+
+      if (!item || !isBundleItemSelectorSelected(options.itemSelectors, item)) {
+        continue;
+      }
+
+      items.set(item.selector, item);
+    }
+  }
+
+  for (const [selector, resolvedRef] of options.resolvedBundleItemRefs ?? []) {
+    const item = resolvedCanonicalTargetItem({
+      selector,
+      targetName: options.targetName,
+      resolvedRef,
+    });
+
+    if (!item || !isBundleItemSelectorSelected(options.itemSelectors, item)) {
+      continue;
+    }
+
+    if (items.has(item.selector)) {
+      throw new Error(
+        `Bundle item reference conflicts with local bundle item: ${item.selector}`,
+      );
+    }
+
+    items.set(item.selector, item);
+  }
+
+  if (
+    !fs.existsSync(sourceDir) &&
+    items.size === 0 &&
+    isDirectoryTargetSelected(options.itemSelectors, options.targetName)
+  ) {
+    assertBundleTargetDirectory(sourceDir, options.sourcePath);
+  }
+
+  return Array.from(items.values()).sort((left, right) =>
+    left.selector.localeCompare(right.selector),
+  );
+}
+
+function isDirectoryTargetSelected(
+  selectors: BundleItemSelector[] | undefined,
+  targetName: ToolTargetName,
+): boolean {
+  return (
+    !selectors ||
+    selectors.some((selector) => selector.startsWith(`${targetName}/`))
+  );
+}
+
+function localCanonicalTargetItem(options: {
+  entry: fs.Dirent;
+  sourceDir: string;
+  targetName: ToolTargetName;
+}): CanonicalTargetItem | undefined {
+  if (options.targetName === "skills") {
+    if (!options.entry.isDirectory()) {
+      return undefined;
+    }
+
+    const itemName = options.entry.name;
+    return {
+      selector: `skills/${itemName}`,
+      itemName,
+      localPath: path.join(options.sourceDir, options.entry.name),
+    };
+  }
+
+  if (options.targetName === "commands" || options.targetName === "agents") {
+    if (!options.entry.isFile() || !options.entry.name.endsWith(".md")) {
+      return undefined;
+    }
+
+    const itemName = stripKnownBundleItemExtension(options.entry.name);
+    return {
+      selector: `${options.targetName}/${itemName}`,
+      itemName,
+      localPath: path.join(options.sourceDir, options.entry.name),
+    };
+  }
+
+  return undefined;
+}
+
+function resolvedCanonicalTargetItem(options: {
+  selector: BundleItemSelector;
+  targetName: ToolTargetName;
+  resolvedRef: ResolvedBundleItemRef;
+}): CanonicalTargetItem | undefined {
+  const [targetName, itemName] = options.selector.split("/");
+
+  if (targetName !== options.targetName || !itemName) {
+    return undefined;
+  }
+
+  return {
+    selector: options.selector,
+    itemName,
+    resolvedRef: options.resolvedRef,
+  };
+}
+
+function isBundleItemSelectorSelected(
+  selectors: BundleItemSelector[] | undefined,
+  item: CanonicalTargetItem,
+): boolean {
+  return !selectors || selectors.includes(item.selector);
+}
+
+function translateCanonicalTargetItem(options: {
+  item: CanonicalTargetItem;
+  toolName: ToolName;
+  targetName: ToolTargetName;
+  disableModelInvocation?: boolean;
+}): Record<string, string> {
+  const translTool = toTranslationToolName(options.toolName);
+  const sourcePath = options.item.resolvedRef?.path ?? options.item.localPath;
+
+  if (!sourcePath) {
+    throw new Error(`Bundle item has no source path: ${options.item.selector}`);
+  }
+
+  if (options.targetName === "skills") {
+    const files: Record<string, string> = {};
+    readFilesIntoRecord(sourcePath, "", files);
+    return translateSkill({
+      sourceTool: "claude",
+      targetTool: translTool,
+      files,
+      options:
+        options.disableModelInvocation ||
+        options.item.resolvedRef?.disableModelInvocation
+          ? { disableModelInvocation: true }
+          : undefined,
+    });
+  }
+
+  if (options.targetName === "commands") {
+    return translateCommand({
+      sourceTool: "claude",
+      targetTool: translTool as Parameters<
+        typeof translateCommand
+      >[0]["targetTool"],
+      source: fs.readFileSync(sourcePath, "utf8"),
+      options: { name: options.item.itemName },
+    });
+  }
+
+  if (options.targetName === "agents") {
+    return translateAgent({
+      sourceTool: "claude",
+      targetTool: translTool as Parameters<
+        typeof translateAgent
+      >[0]["targetTool"],
+      source: fs.readFileSync(sourcePath, "utf8"),
+    });
+  }
+
+  return {};
+}
+
 function readExistingRootInstructionBaseContent(
   repoRoot: string,
   repoRelPath: string,
@@ -793,77 +1166,12 @@ function previewCanonicalTargetWriteTargets(options: {
   itemSelectors?: BundleItemSelector[];
   pathLayout: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
-  resolvedSkillRefs?: Map<string, string>;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): string[] {
-  const sourceDir = path.join(options.bundleDir, options.sourcePath);
-  assertBundleTargetDirectory(sourceDir, options.sourcePath);
-
-  const translTool = toTranslationToolName(options.toolName);
   const writeTargets: string[] = [];
 
-  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    assertNotSymlink(entry, sourceDir);
-
-    if (
-      !isDirectoryItemSelected({
-        selectors: options.itemSelectors,
-        targetName: options.targetName,
-        entryName: entry.name,
-      })
-    ) {
-      continue;
-    }
-
-    let translated: Record<string, string>;
-
-    if (options.targetName === "skills") {
-      const skillDir = resolveSkillEntryDir({
-        entry,
-        sourceDir,
-        sourcePath: options.sourcePath,
-        resolvedSkillRefs: options.resolvedSkillRefs,
-      });
-
-      if (!skillDir) continue;
-
-      const files: Record<string, string> = {};
-      readFilesIntoRecord(skillDir, "", files);
-      translated = translateSkill({
-        sourceTool: "claude",
-        targetTool: translTool,
-        files,
-        options: options.disableModelInvocation
-          ? { disableModelInvocation: true }
-          : undefined,
-      });
-    } else if (options.targetName === "commands") {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-
-      const commandName = entry.name.slice(0, -3);
-      const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
-      translated = translateCommand({
-        sourceTool: "claude",
-        targetTool: translTool as Parameters<
-          typeof translateCommand
-        >[0]["targetTool"],
-        source: content,
-        options: { name: commandName },
-      });
-    } else if (options.targetName === "agents") {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-
-      const content = fs.readFileSync(path.join(sourceDir, entry.name), "utf8");
-      translated = translateAgent({
-        sourceTool: "claude",
-        targetTool: translTool as Parameters<
-          typeof translateAgent
-        >[0]["targetTool"],
-        source: content,
-      });
-    } else {
-      continue;
-    }
-
+  for (const item of listCanonicalTargetItems(options)) {
+    const translated = translateCanonicalTargetItem({ ...options, item });
     writeTargets.push(
       ...Object.keys(translated).map((repoRelPath) =>
         options.pathLayout.remapRepoRelPath(options.toolName, repoRelPath),
@@ -880,6 +1188,7 @@ function previewRootInstructionWriteTargets(options: {
   toolName: ToolName;
   targetName: ToolTargetName;
   pathLayout: ToolMaterializationLayout;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): string[] {
   if (options.targetName !== "root_instruction") {
     throw new Error(`Unsupported file target: ${options.targetName}`);

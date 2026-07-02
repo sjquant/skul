@@ -1004,18 +1004,13 @@ describe("materializeBundle – canonical skill source", () => {
   });
 });
 
-describe("materializeBundle – cross-repo skill references", () => {
-  it("materializes a resolved skill reference using the referenced skill's directory", async () => {
-    // Given: bundleDir carries only a .ref.json placeholder; the real skill
-    // files live in an unrelated directory that stands in for another
-    // cached bundle in the library.
+describe("materializeBundle – cross-repo bundle item references", () => {
+  it("materializes a resolved bundle item reference using the referenced skill's directory", async () => {
+    // Given: bundleDir carries no local skill files; the real skill files live
+    // in an unrelated directory that stands in for another cached bundle.
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
     const externalSkillDir = createTempDir("skul-external-skill-");
-    writeFile(
-      path.join(bundleDir, "skills", "insane-search.ref.json"),
-      JSON.stringify({ source: "fivetaku/insane-search" }),
-    );
     writeFile(
       path.join(externalSkillDir, "SKILL.md"),
       [
@@ -1034,8 +1029,8 @@ describe("materializeBundle – cross-repo skill references", () => {
       repoRoot,
       bundleDir,
       manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
-      resolvedSkillRefs: new Map([
-        ["skills/insane-search.ref.json", externalSkillDir],
+      resolvedBundleItemRefs: new Map([
+        ["skills/insane-search", { path: externalSkillDir }],
       ]),
     });
 
@@ -1051,7 +1046,7 @@ describe("materializeBundle – cross-repo skill references", () => {
     ).toContain("Search aggressively.");
   });
 
-  it("throws a clear error when a skill reference has no resolved entry", async () => {
+  it("does not treat per-item .ref.json files as bundle item refs", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -1060,26 +1055,21 @@ describe("materializeBundle – cross-repo skill references", () => {
       JSON.stringify({ source: "fivetaku/insane-search" }),
     );
 
-    // When / Then
-    await expect(
-      materializeBundle({
-        repoRoot,
-        bundleDir,
-        manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
-      }),
-    ).rejects.toThrowError(
-      /Unresolved skill reference: skills\/insane-search\.ref\.json/,
-    );
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+    });
+
+    // Then
+    expect(result.byTool["claude-code"]!.files).toEqual([]);
   });
 
   it("includes the resolved skill's output path in the write-target preview", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");
     const externalSkillDir = createTempDir("skul-external-skill-");
-    writeFile(
-      path.join(bundleDir, "skills", "insane-search.ref.json"),
-      JSON.stringify({ source: "fivetaku/insane-search" }),
-    );
     writeFile(
       path.join(externalSkillDir, "SKILL.md"),
       "---\nname: insane-search\ndescription: Search things fast\n---\n",
@@ -1090,13 +1080,53 @@ describe("materializeBundle – cross-repo skill references", () => {
       repoRoot: createTempDir("skul-repo-"),
       bundleDir,
       manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
-      resolvedSkillRefs: new Map([
-        ["skills/insane-search.ref.json", externalSkillDir],
+      resolvedBundleItemRefs: new Map([
+        ["skills/insane-search", { path: externalSkillDir }],
       ]),
     });
 
     // Then
     expect(targets).toContain(".claude/skills/insane-search/SKILL.md");
+  });
+
+  it("applies disable-model-invocation metadata only to referenced skills", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalSkillDir = createTempDir("skul-external-skill-");
+    writeFile(
+      path.join(externalSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: reviewer",
+        "description: Review changes",
+        "---",
+        "",
+        "Review the diff.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+      resolvedBundleItemRefs: new Map([
+        [
+          "skills/reviewer",
+          { path: externalSkillDir, disableModelInvocation: true },
+        ],
+      ]),
+    });
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "reviewer", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("disable-model-invocation: true");
   });
 });
 

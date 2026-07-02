@@ -9,6 +9,8 @@ import {
 } from "./tool-mapping";
 
 export const MANIFEST_FILE_NAME = "manifest.json";
+const BUNDLE_ITEM_REFS_FILE_NAME = "skul.refs.json";
+const ROOT_INSTRUCTION_REF_TARGET = "root-instruction";
 
 export interface BundleManifestTarget {
   path: string;
@@ -108,6 +110,8 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
     }
   }
 
+  addRefsFileTargets(bundleDir, tools, allTools);
+
   // Process native dotdirs (.claude/skills/, .cursor/commands/, etc.) — pre-authored native format.
   // Native paths override canonical paths for the same tool + target.
   for (const toolDef of allTools) {
@@ -127,6 +131,99 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   }
 
   return expandRootInstructionTargets({ tools });
+}
+
+function addRefsFileTargets(
+  bundleDir: string,
+  tools: Partial<
+    Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
+  >,
+  allTools: ToolDefinition[],
+): void {
+  for (const refTarget of listRefsFileTargets(bundleDir)) {
+    if (refTarget.target === ROOT_INSTRUCTION_REF_TARGET) {
+      addRootInstructionRefTarget(
+        tools,
+        refTarget.path ?? "AGENTS.md",
+        allTools,
+      );
+      continue;
+    }
+
+    for (const toolDef of allTools) {
+      const targetDef = toolDef.targets[refTarget.target];
+
+      if (targetDef?.kind === "directory") {
+        if (!tools[toolDef.name]) tools[toolDef.name] = {};
+        tools[toolDef.name]![refTarget.target] = { path: refTarget.target };
+      }
+    }
+  }
+}
+
+function listRefsFileTargets(bundleDir: string): Array<{
+  target: "skills" | "commands" | "agents" | "root-instruction";
+  path?: string;
+}> {
+  const refsFile = path.join(bundleDir, BUNDLE_ITEM_REFS_FILE_NAME);
+
+  if (!fs.existsSync(refsFile)) {
+    return [];
+  }
+
+  const raw = JSON.parse(fs.readFileSync(refsFile, "utf8")) as unknown;
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return [];
+  }
+
+  const refs = (raw as UnknownRecord).refs;
+
+  if (!Array.isArray(refs)) {
+    return [];
+  }
+
+  return refs.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+
+    const record = entry as UnknownRecord;
+    if (
+      record.target === "skills" ||
+      record.target === "commands" ||
+      record.target === "agents" ||
+      record.target === ROOT_INSTRUCTION_REF_TARGET
+    ) {
+      return [
+        {
+          target: record.target,
+          ...(typeof record.path === "string" && record.path.trim() !== ""
+            ? { path: record.path }
+            : {}),
+        },
+      ];
+    }
+
+    return [];
+  });
+}
+
+function addRootInstructionRefTarget(
+  tools: Partial<
+    Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
+  >,
+  sourcePath: string,
+  allTools: ToolDefinition[],
+): void {
+  for (const toolDef of allTools) {
+    if (!toolDef.targets.root_instruction) {
+      continue;
+    }
+
+    if (!tools[toolDef.name]) tools[toolDef.name] = {};
+    tools[toolDef.name]!.root_instruction = { path: sourcePath };
+  }
 }
 
 function isExistingDirectory(dirPath: string): boolean {

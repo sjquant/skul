@@ -474,14 +474,22 @@ describe("listSelectableBundleItems", () => {
     expect(items).not.toContain("skills/loose");
   });
 
-  it("lists skill reference files alongside skill directories", () => {
+  it("lists bundle item refs alongside local skill directories", () => {
     // Given
     const bundleDir = createTempDir();
     fs.mkdirSync(path.join(bundleDir, "skills", "react"), { recursive: true });
     writeFile(path.join(bundleDir, "skills", "react", "SKILL.md"), "# react");
     writeFile(
-      path.join(bundleDir, "skills", "insane-search.ref.json"),
-      JSON.stringify({ source: "fivetaku/insane-search" }),
+      path.join(bundleDir, "skul.refs.json"),
+      JSON.stringify({
+        refs: [
+          {
+            target: "skills",
+            name: "insane-search",
+            source: "fivetaku/insane-search",
+          },
+        ],
+      }),
     );
     const manifest: BundleManifest = {
       tools: { "claude-code": { skills: { path: "skills" } } },
