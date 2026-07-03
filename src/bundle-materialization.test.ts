@@ -1004,6 +1004,132 @@ describe("materializeBundle – canonical skill source", () => {
   });
 });
 
+describe("materializeBundle – cross-repo bundle item references", () => {
+  it("materializes a resolved bundle item reference using the referenced skill's directory", async () => {
+    // Given: bundleDir carries no local skill files; the real skill files live
+    // in an unrelated directory that stands in for another cached bundle.
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalSkillDir = createTempDir("skul-external-skill-");
+    writeFile(
+      path.join(externalSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: insane-search",
+        "description: Search things fast",
+        "---",
+        "",
+        "Search aggressively.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+      resolvedBundleItemRefs: new Map([
+        ["skills/insane-search", { path: externalSkillDir }],
+      ]),
+    });
+
+    // Then
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/skills/insane-search/SKILL.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "insane-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Search aggressively.");
+  });
+
+  it("does not treat per-item .ref.json files as bundle item refs", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "insane-search.ref.json"),
+      JSON.stringify({ source: "fivetaku/insane-search" }),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+    });
+
+    // Then
+    expect(result.byTool["claude-code"]!.files).toEqual([]);
+  });
+
+  it("includes the resolved skill's output path in the write-target preview", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalSkillDir = createTempDir("skul-external-skill-");
+    writeFile(
+      path.join(externalSkillDir, "SKILL.md"),
+      "---\nname: insane-search\ndescription: Search things fast\n---\n",
+    );
+
+    // When
+    const targets = previewMaterializeBundleWriteTargets({
+      repoRoot: createTempDir("skul-repo-"),
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+      resolvedBundleItemRefs: new Map([
+        ["skills/insane-search", { path: externalSkillDir }],
+      ]),
+    });
+
+    // Then
+    expect(targets).toContain(".claude/skills/insane-search/SKILL.md");
+  });
+
+  it("applies disable-model-invocation metadata only to referenced skills", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalSkillDir = createTempDir("skul-external-skill-");
+    writeFile(
+      path.join(externalSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: reviewer",
+        "description: Review changes",
+        "---",
+        "",
+        "Review the diff.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+      resolvedBundleItemRefs: new Map([
+        [
+          "skills/reviewer",
+          { path: externalSkillDir, disableModelInvocation: true },
+        ],
+      ]),
+    });
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "reviewer", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("disable-model-invocation: true");
+  });
+});
+
 describe("materializeBundle – canonical command source", () => {
   it("translates a canonical command to claude-code format", async () => {
     // Given

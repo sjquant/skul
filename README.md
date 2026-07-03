@@ -151,6 +151,41 @@ Inside a bundle, two content layouts are supported:
 
 **Native** — tool-specific dotdirs (`.claude/skills/`, `.cursor/commands/`, `.github/agents/`, `.kiro/skills/`, etc.) for content targeting a single tool only.
 
+### Cross-Repo Bundle Item References
+
+Instead of copying an item from another repository into your bundle, you can reference it. Add `skul.refs.json` at the bundle root:
+
+```json
+{
+  "refs": [
+    {
+      "target": "skills",
+      "name": "insane-search",
+      "source": "fivetaku/insane-search"
+    },
+    {
+      "target": "root-instruction",
+      "path": "AGENTS.md",
+      "source": "fivetaku/standards"
+    }
+  ]
+}
+```
+
+| Ref field | Required | Description |
+|---|---|---|
+| `target` | yes | Local item target: `skills`, `agents`, `commands`, or `root-instruction`. |
+| `name` | for `skills`, `agents`, `commands` | Local item name materialized from this ref. |
+| `path` | no | Root instruction refs only. Optional local root instruction path, such as `AGENTS.md`. |
+| `source` | yes | The referenced repo, in any form `skul add` accepts. |
+| `bundle` | when ambiguous | The bundle name inside `source`. Required when `source` has more than one bundle; otherwise defaults to the repo slug. |
+| `item` | no | The external item selector, e.g. `skills/other-name`, `agents/reviewer`, `commands/review`, or `root-instruction`. Defaults from local `target` / `name`, or to `root-instruction`. |
+| `ref` | no | Branch, tag, or commit to fetch. Mutually exclusive with `pin`. |
+| `pin` | no | Commit SHA to fetch. Mutually exclusive with `ref`. |
+| `disable-model-invocation` | no | Skill refs only. When `true`, forces the referenced skill to materialize with model invocation disabled. |
+
+Skul fetches the referenced source into `~/.skul/library/` (same cache used for regular bundles) and materializes the referenced item as if it were local. `ref` and `pin` only take effect the first time the referenced source is cloned — use `skul update` semantics on the referencing bundle to control refresh timing, since skul does not currently re-check referenced sources independently.
+
 ### Root Instruction Targets
 
 Skul supports three root instruction target files:

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-
+import { listBundleItemRefSelectors } from "./bundle-item-refs";
 import type { BundleManifest } from "./bundle-manifest";
 import {
   getToolDefinition,
@@ -147,6 +147,14 @@ export function listSelectableBundleItems(options: {
     }
   }
 
+  for (const selector of listBundleItemRefSelectors({
+    bundleDir: options.bundleDir,
+    manifest: options.manifest,
+    tools: options.tools,
+  })) {
+    selectors.add(selector);
+  }
+
   return Array.from(selectors).sort((left, right) => left.localeCompare(right));
 }
 
@@ -173,11 +181,11 @@ function listTargetItemNames(options: {
 
   return fs
     .readdirSync(options.sourceDir, { withFileTypes: true })
-    .filter((entry) => isSelectableTargetEntry(entry, options.targetName))
-    .map((entry) => stripKnownItemExtension(entry.name));
+    .filter((entry) => isSelectableBundleItemEntry(entry, options.targetName))
+    .map((entry) => stripKnownBundleItemExtension(entry.name));
 }
 
-function isSelectableTargetEntry(
+export function isSelectableBundleItemEntry(
   entry: fs.Dirent,
   targetName: ToolTargetName,
 ): boolean {
@@ -186,6 +194,10 @@ function isSelectableTargetEntry(
   }
 
   return entry.isFile();
+}
+
+export function stripKnownBundleItemExtension(value: string): string {
+  return stripKnownItemExtension(value);
 }
 
 /** Throws when requested item selectors are not present in the selected bundle scope. */

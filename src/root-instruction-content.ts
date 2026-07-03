@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { ResolvedBundleItemRef } from "./bundle-item-refs";
 import {
   type BundleItemSelector,
   isRootInstructionItemSelected,
@@ -17,6 +18,7 @@ function collectRootInstructionContents(options: {
   bundleDir: string;
   manifest: BundleManifest;
   toolName: ToolName;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): Record<string, string> {
   const target = options.manifest.tools[options.toolName]?.root_instruction;
 
@@ -24,7 +26,9 @@ function collectRootInstructionContents(options: {
     return {};
   }
 
-  const sourceFile = path.join(options.bundleDir, target.path);
+  const sourceFile =
+    options.resolvedBundleItemRefs?.get("root-instruction")?.path ??
+    path.join(options.bundleDir, target.path);
   const source = fs.readFileSync(sourceFile, "utf8");
 
   return translateRootInstruction({
@@ -40,6 +44,7 @@ export function collectComposedRootInstructionContents(options: {
   toolNames: ToolName[];
   targetPaths?: Set<string>;
   itemSelectors?: BundleItemSelector[];
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }): Record<string, string> {
   if (!isRootInstructionItemSelected(options.itemSelectors)) {
     return {};
@@ -59,6 +64,7 @@ export function collectComposedRootInstructionContents(options: {
       bundleDir: options.bundleDir,
       manifest: options.manifest,
       toolName,
+      resolvedBundleItemRefs: options.resolvedBundleItemRefs,
     });
 
     for (const [repoRelativePath, content] of Object.entries(translated)) {

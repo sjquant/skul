@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { CachedBundle } from "./bundle-discovery";
+import type { ResolvedBundleItemRef } from "./bundle-item-refs";
 import type {
   DesiredBundleEntry,
   MaterializedBundleState,
@@ -62,6 +63,10 @@ export function syncManagedRootInstructionFiles(options: {
   targetPaths?: Set<string>;
   resolveCachedBundle: (entry: DesiredBundleEntry) => CachedBundle;
   repoRelPathRemapper?: (toolName: string, relPath: string) => string;
+  resolvedBundleItemRefsByBundle?: ReadonlyMap<
+    string,
+    ReadonlyMap<string, ResolvedBundleItemRef>
+  >;
 }): Set<string> {
   const contentByPath = collectRootInstructionContentByPath(options);
   const writtenPaths = new Set<string>();
@@ -86,6 +91,10 @@ function collectRootInstructionContentByPath(options: {
   targetPaths?: Set<string>;
   resolveCachedBundle: (entry: DesiredBundleEntry) => CachedBundle;
   repoRelPathRemapper?: (toolName: string, relPath: string) => string;
+  resolvedBundleItemRefsByBundle?: ReadonlyMap<
+    string,
+    ReadonlyMap<string, ResolvedBundleItemRef>
+  >;
 }): Map<string, string[]> {
   const contentByPath = new Map<string, string[]>();
   const seenBundleTargets = new Set<string>();
@@ -116,6 +125,9 @@ function collectRootInstructionContentByPath(options: {
           toolNames: [toolName],
           targetPaths: undefined,
           itemSelectors: desiredEntry.items,
+          resolvedBundleItemRefs: options.resolvedBundleItemRefsByBundle?.get(
+            desiredEntry.bundle,
+          ),
         });
 
         const toolContentByPath = Object.fromEntries(
@@ -171,6 +183,9 @@ function collectRootInstructionContentByPath(options: {
         toolNames,
         targetPaths: options.targetPaths,
         itemSelectors: desiredEntry.items,
+        resolvedBundleItemRefs: options.resolvedBundleItemRefsByBundle?.get(
+          desiredEntry.bundle,
+        ),
       });
 
       for (const toolName of toolNames) {
