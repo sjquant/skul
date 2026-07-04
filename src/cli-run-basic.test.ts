@@ -76,6 +76,17 @@ describe("run", () => {
     expect(output).toContain("skul shadow --refresh");
   });
 
+  it("prints the package version", async () => {
+    // Given
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
+    ) as { version: string };
+
+    // When / Then
+    await expect(run(["--version"])).resolves.toBe(packageJson.version);
+    await expect(run(["-v"])).resolves.toBe(packageJson.version);
+  });
+
   it("lists cached bundles from the global library", async () => {
     // Given
     const homeDir = createHomeDir();

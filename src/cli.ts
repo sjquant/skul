@@ -8,6 +8,7 @@ import {
   normalizeBundleItemSelector,
 } from "./bundle-items";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
+import { getPackageVersion } from "./version";
 
 const VALID_TOOL_NAMES = new Set<string>(
   listToolDefinitions().map((t) => t.name),
@@ -27,6 +28,7 @@ export type CommandName =
 
 export type CliParseResult =
   | { kind: "help"; command?: CommandName }
+  | { kind: "version" }
   | {
       kind: "command";
       command: "list";
@@ -489,6 +491,10 @@ export async function parseCliArgs(
     return { kind: "help" };
   }
 
+  if (command === "-v" || command === "--version") {
+    return { kind: "version" };
+  }
+
   if (!COMMANDS.includes(command as CommandName)) {
     const suggestion = findClosestCommand(command, COMMANDS);
     const hint = suggestion ? `, did you mean "${suggestion}"?` : "";
@@ -572,6 +578,7 @@ function createProgram(
     .description(
       "Manage project-scoped AI configuration bundles\n\nEnv vars:\n  SKUL_NO_TUI=1   Run in headless/non-interactive mode (auto-resolves prompts)",
     )
+    .version(getPackageVersion(), "-v, --version", "display version")
     .addHelpText("after", PROGRAM_HELP_DETAILS)
     .helpCommand(false)
     .configureOutput({
