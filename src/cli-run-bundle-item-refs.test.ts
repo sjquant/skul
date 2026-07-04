@@ -607,7 +607,7 @@ describe("run add — cross-repo bundle item references", () => {
           target: "skills",
           name: "insane-search",
           source: "fivetaku/insane-search",
-          ref: remoteSource.initialCommit,
+          ref: remoteSource.initialCommit.slice(0, 7),
         },
       ],
     });

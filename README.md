@@ -182,7 +182,7 @@ Instead of copying an item from another repository into your bundle, you can ref
 | `ref` | no | Branch, tag, or commit to fetch. |
 | `disable-model-invocation` | no | Skill refs only. When `true`, forces the referenced skill to materialize with model invocation disabled. |
 
-Skul fetches the referenced source into `~/.skul/library/` (same cache used for regular bundles) and materializes the referenced item as if it were local. `ref` only takes effect the first time the referenced source is cloned — use `skul update` semantics on the referencing bundle to control refresh timing, since skul does not currently re-check referenced sources independently.
+Skul fetches the referenced source into `~/.skul/library/` (same cache used for regular bundles) and materializes the referenced item as if it were local. When `ref` is set, Skul aligns the referenced source cache to that branch, tag, or commit before materializing the item; without `ref`, the referenced source follows its cached default-branch checkout.
 
 ### Root Instruction Targets
 

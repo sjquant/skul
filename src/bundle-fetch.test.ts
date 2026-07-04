@@ -152,6 +152,10 @@ describe("fetchRemoteSource", () => {
         return Buffer.from(`${commit}\trefs/heads/main\n`);
       }
 
+      if (args.includes("cat-file")) {
+        throw new Error("missing object");
+      }
+
       return Buffer.from("");
     });
 
@@ -170,7 +174,65 @@ describe("fetchRemoteSource", () => {
     );
     expect(execFileSync).toHaveBeenCalledWith(
       "git",
-      ["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"],
+      ["-C", targetDir, "checkout", "--detach", commit],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+  });
+
+  it("resolves an unadvertised short commit ref from fetched history", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
+    const commit = "2714e72282b915c6983723652d0c365af08e9e1f";
+    vi.mocked(execFileSync).mockImplementation((command, args) => {
+      if (command !== "git" || !Array.isArray(args)) {
+        return Buffer.from("");
+      }
+
+      if (args[0] === "ls-remote") {
+        return Buffer.from("");
+      }
+
+      if (args.includes("--is-shallow-repository")) {
+        return Buffer.from("true\n");
+      }
+
+      if (args.includes("rev-parse") && args.includes("--verify")) {
+        return Buffer.from(`${commit}\n`);
+      }
+
+      return Buffer.from("");
+    });
+
+    // When
+    await fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+      ref: "2714e72",
+    });
+
+    // Then
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      [
+        "-C",
+        targetDir,
+        "fetch",
+        "--unshallow",
+        "--tags",
+        "origin",
+        "+refs/heads/*:refs/remotes/origin/*",
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["-C", targetDir, "checkout", "--detach", commit],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
   });

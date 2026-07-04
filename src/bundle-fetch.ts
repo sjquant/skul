@@ -212,7 +212,11 @@ export async function inspectRemoteSource(
   };
 
   try {
-    resolvedRemote = resolveRemoteRef(remoteUrl, options.ref);
+    resolvedRemote = resolveRemoteRef(
+      remoteUrl,
+      options.ref,
+      cached.cached ? cached.targetDir : undefined,
+    );
   } catch (error) {
     throw normalizeGitError(error, `Failed to inspect ${options.source}`, {
       source: options.source,
@@ -448,8 +452,9 @@ function getCloneUrl(
 function resolveRemoteRef(
   remoteUrl: string,
   requestedRef?: string,
+  targetDir?: string,
 ): { kind: "branch" | "tag" | "commit"; resolvedRef?: string; commit: string } {
-  if (requestedRef && isFullCommitSha(requestedRef)) {
+  if (requestedRef && requestedRef.length === 40 && isCommitSha(requestedRef)) {
     return { kind: "commit", commit: requestedRef };
   }
 
@@ -479,10 +484,20 @@ function resolveRemoteRef(
     }
 
     if (isCommitSha(requestedRef)) {
-      const commit = resolveAdvertisedCommitSha(remoteUrl, requestedRef);
+      const commit = parseUniqueShaPrefix(
+        runGit(["ls-remote", remoteUrl]),
+        requestedRef,
+      );
 
       if (commit) {
         return { kind: "commit", commit };
+      }
+
+      if (targetDir) {
+        return {
+          kind: "commit",
+          commit: resolveShortCommitFromFetchedHistory(targetDir, requestedRef),
+        };
       }
     }
 
@@ -505,7 +520,7 @@ function checkoutGitRemoteRef(
   remoteUrl: string,
   requestedRef: string,
 ): void {
-  const resolved = resolveRemoteRef(remoteUrl, requestedRef);
+  const resolved = resolveRemoteRef(remoteUrl, requestedRef, targetDir);
 
   checkoutResolvedRemoteRef(targetDir, resolved);
 }
@@ -546,8 +561,10 @@ function checkoutResolvedRemoteRef(
     return;
   }
 
-  runGit(["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit]);
-  runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
+  if (!hasCommit(targetDir, resolved.commit)) {
+    runGit(["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit]);
+  }
+  runGit(["-C", targetDir, "checkout", "--detach", resolved.commit]);
 }
 
 function requireResolvedRemoteRef(resolved: {
@@ -616,14 +633,6 @@ function parsePreferredTagSha(
   return directCommit;
 }
 
-function resolveAdvertisedCommitSha(
-  remoteUrl: string,
-  requestedRef: string,
-): string | undefined {
-  const refsOutput = runGit(["ls-remote", remoteUrl]);
-  return parseUniqueShaPrefix(refsOutput, requestedRef);
-}
-
 function parseUniqueShaPrefix(
   output: string,
   requestedRef: string,
@@ -643,6 +652,54 @@ function parseUniqueShaPrefix(
   }
 
   return Array.from(matches)[0];
+}
+
+function resolveShortCommitFromFetchedHistory(
+  targetDir: string,
+  requestedRef: string,
+): string {
+  fetchRemoteHistory(targetDir);
+
+  try {
+    return runGit([
+      "-C",
+      targetDir,
+      "rev-parse",
+      "--verify",
+      `${requestedRef}^{commit}`,
+    ]);
+  } catch {
+    throw new Error(`Remote ref not found: ${requestedRef}`);
+  }
+}
+
+function fetchRemoteHistory(targetDir: string): void {
+  const args = [
+    "-C",
+    targetDir,
+    "fetch",
+    "--tags",
+    "origin",
+    "+refs/heads/*:refs/remotes/origin/*",
+  ];
+
+  if (
+    tryRunGit(["-C", targetDir, "rev-parse", "--is-shallow-repository"]) ===
+    "true"
+  ) {
+    args.splice(3, 0, "--unshallow");
+  }
+
+  runGit(args);
+}
+
+function hasCommit(targetDir: string, commit: string): boolean {
+  try {
+    runGit(["-C", targetDir, "cat-file", "-e", `${commit}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseFirstSha(output: string): string | undefined {
@@ -1350,8 +1407,4 @@ function assertSafeSource(source: string): void {
 
 function isCommitSha(value: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(value);
-}
-
-function isFullCommitSha(value: string): boolean {
-  return /^[0-9a-f]{40}$/i.test(value);
 }
