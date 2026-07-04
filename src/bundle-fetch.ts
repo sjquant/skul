@@ -494,10 +494,42 @@ function resolveRemoteRef(
       }
 
       if (targetDir) {
-        return {
-          kind: "commit",
-          commit: resolveShortCommitFromFetchedHistory(targetDir, requestedRef),
-        };
+        const fetchArgs = [
+          "-C",
+          targetDir,
+          "fetch",
+          "--tags",
+          "origin",
+          "+refs/heads/*:refs/remotes/origin/*",
+        ];
+
+        if (
+          tryRunGit([
+            "-C",
+            targetDir,
+            "rev-parse",
+            "--is-shallow-repository",
+          ]) === "true"
+        ) {
+          fetchArgs.splice(3, 0, "--unshallow");
+        }
+
+        runGit(fetchArgs);
+
+        try {
+          return {
+            kind: "commit",
+            commit: runGit([
+              "-C",
+              targetDir,
+              "rev-parse",
+              "--verify",
+              `${requestedRef}^{commit}`,
+            ]),
+          };
+        } catch {
+          throw new Error(`Remote ref not found: ${requestedRef}`);
+        }
       }
     }
 
@@ -561,9 +593,12 @@ function checkoutResolvedRemoteRef(
     return;
   }
 
-  if (!hasCommit(targetDir, resolved.commit)) {
+  try {
+    runGit(["-C", targetDir, "cat-file", "-e", `${resolved.commit}^{commit}`]);
+  } catch {
     runGit(["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit]);
   }
+
   runGit(["-C", targetDir, "checkout", "--detach", resolved.commit]);
 }
 
@@ -652,54 +687,6 @@ function parseUniqueShaPrefix(
   }
 
   return Array.from(matches)[0];
-}
-
-function resolveShortCommitFromFetchedHistory(
-  targetDir: string,
-  requestedRef: string,
-): string {
-  fetchRemoteHistory(targetDir);
-
-  try {
-    return runGit([
-      "-C",
-      targetDir,
-      "rev-parse",
-      "--verify",
-      `${requestedRef}^{commit}`,
-    ]);
-  } catch {
-    throw new Error(`Remote ref not found: ${requestedRef}`);
-  }
-}
-
-function fetchRemoteHistory(targetDir: string): void {
-  const args = [
-    "-C",
-    targetDir,
-    "fetch",
-    "--tags",
-    "origin",
-    "+refs/heads/*:refs/remotes/origin/*",
-  ];
-
-  if (
-    tryRunGit(["-C", targetDir, "rev-parse", "--is-shallow-repository"]) ===
-    "true"
-  ) {
-    args.splice(3, 0, "--unshallow");
-  }
-
-  runGit(args);
-}
-
-function hasCommit(targetDir: string, commit: string): boolean {
-  try {
-    runGit(["-C", targetDir, "cat-file", "-e", `${commit}^{commit}`]);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function parseFirstSha(output: string): string | undefined {
