@@ -108,6 +108,7 @@ import {
   type ToolName,
   type ToolTargetName,
 } from "./tool-mapping";
+import { getPackageVersion } from "./version";
 
 // Lazily evaluated so that SKUL_NO_TUI set after module load (e.g. in tests) is respected.
 const pc = new Proxy({} as ReturnType<typeof createColors>, {
@@ -150,6 +151,10 @@ export async function run(
 
   if (parsed.kind === "help") {
     return createHelpText(parsed.command);
+  }
+
+  if (parsed.kind === "version") {
+    return getPackageVersion();
   }
 
   switch (parsed.command) {

@@ -56,6 +56,16 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(argv)).resolves.toEqual({ kind: "help" });
   });
 
+  it("returns version when a version flag is provided", async () => {
+    // Given
+    const longFlag = ["--version"];
+    const shortFlag = ["-v"];
+
+    // When / Then
+    await expect(parseCliArgs(longFlag)).resolves.toEqual({ kind: "version" });
+    await expect(parseCliArgs(shortFlag)).resolves.toEqual({ kind: "version" });
+  });
+
   it("parses non-mutating commands without arguments", async () => {
     // Given
     const listArgs = ["list"];
