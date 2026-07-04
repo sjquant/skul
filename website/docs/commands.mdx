@@ -49,7 +49,6 @@ skul add [options] [source] [bundle]
 | --- | --- |
 | `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
 | `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. Persisted in the registry and reused by `skul apply`. |
-| `--pin <commit>` | Pin the bundle to one commit SHA (7–40 hex chars). Mutually exclusive with `--ref`. |
 | `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
 | `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
 | `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
