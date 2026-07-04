@@ -449,7 +449,7 @@ function resolveRemoteRef(
   remoteUrl: string,
   requestedRef?: string,
 ): { kind: "branch" | "tag" | "commit"; resolvedRef?: string; commit: string } {
-  if (requestedRef && isCommitSha(requestedRef)) {
+  if (requestedRef && isFullCommitSha(requestedRef)) {
     return { kind: "commit", commit: requestedRef };
   }
 
@@ -476,6 +476,14 @@ function resolveRemoteRef(
 
     if (tagCommit) {
       return { kind: "tag", resolvedRef: requestedRef, commit: tagCommit };
+    }
+
+    if (isCommitSha(requestedRef)) {
+      const commit = resolveAdvertisedCommitSha(remoteUrl, requestedRef);
+
+      if (commit) {
+        return { kind: "commit", commit };
+      }
     }
 
     throw new Error(`Remote ref not found: ${requestedRef}`);
@@ -606,6 +614,35 @@ function parsePreferredTagSha(
   }
 
   return directCommit;
+}
+
+function resolveAdvertisedCommitSha(
+  remoteUrl: string,
+  requestedRef: string,
+): string | undefined {
+  const refsOutput = runGit(["ls-remote", remoteUrl]);
+  return parseUniqueShaPrefix(refsOutput, requestedRef);
+}
+
+function parseUniqueShaPrefix(
+  output: string,
+  requestedRef: string,
+): string | undefined {
+  const matches = new Set<string>();
+
+  for (const line of output.split("\n")) {
+    const match = line.match(/^([0-9a-f]{40})\s+/i);
+
+    if (match?.[1]?.toLowerCase().startsWith(requestedRef.toLowerCase())) {
+      matches.add(match[1]);
+    }
+  }
+
+  if (matches.size > 1) {
+    throw new Error(`Remote commit ref is ambiguous: ${requestedRef}`);
+  }
+
+  return Array.from(matches)[0];
 }
 
 function parseFirstSha(output: string): string | undefined {
@@ -1313,4 +1350,8 @@ function assertSafeSource(source: string): void {
 
 function isCommitSha(value: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(value);
+}
+
+function isFullCommitSha(value: string): boolean {
+  return /^[0-9a-f]{40}$/i.test(value);
 }

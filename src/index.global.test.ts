@@ -1027,8 +1027,8 @@ describe("run --global", () => {
     expect(output).toContain(
       "Applied opencode-canonical globally for opencode",
     );
-    // Then: callback is called with the path relative to the tool target root (not the remapped abs path)
-    expect(resolveFileConflict).toHaveBeenCalledWith("review/SKILL.md");
+    // Then: callback is called once for the skill item relative to the tool target root
+    expect(resolveFileConflict).toHaveBeenCalledWith("review");
     // Then: bundle file overwrites the user's file at the same location
     expect(
       fs.readFileSync(
@@ -1117,6 +1117,73 @@ describe("run --global", () => {
       registry.global!.materialized_state.bundles["codex-only"]!.tools.codex!
         .items,
     ).toEqual(["skills/review"]);
+  });
+
+  it("offers refs-only subdirectory bundle items across global source selection", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const selectBundleItemChoices = vi.fn(
+      async (choices: Array<{ value: string }>) =>
+        choices.map((choice) => choice.value),
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/fivetaku/insane-search",
+      "insane-search",
+      "skills/insane-search/SKILL.md",
+      "---\nname: insane-search\ndescription: Search fast\n---\nSearch fast.\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/sjquant/ghosts",
+      "vendors",
+      "skul.refs.json",
+      JSON.stringify({
+        refs: [
+          {
+            target: "skills",
+            name: "insane-search",
+            source: "fivetaku/insane-search",
+          },
+        ],
+      }),
+    );
+
+    // When
+    const output = await run(
+      [
+        "add",
+        "sjquant/ghosts",
+        "--global",
+        "--select-items",
+        "--agent",
+        "codex",
+      ],
+      {
+        homeDir,
+        prompts: createPromptStub({ selectBundleItemChoices }),
+      },
+    );
+
+    // Then
+    expect(output).toContain(
+      "Applied vendors globally for codex: skills/insane-search",
+    );
+    expect(selectBundleItemChoices).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          label: "vendors: skills/insane-search",
+        }),
+      ],
+      [],
+      "install",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".agents", "skills", "insane-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Search fast.");
   });
 
   it("offers only active bundle items when removing selected global items", async () => {

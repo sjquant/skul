@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BundleManifest } from "./bundle-manifest";
 import {
@@ -341,8 +341,75 @@ describe("materializeBundle", () => {
       },
     });
 
-    // Then — path is relative to the tool target root
-    expect(capturedConflictPath).toBe("react/SKILL.md");
+    // Then
+    expect(capturedConflictPath).toBe("react");
+  });
+
+  it("asks once for a conflicting skill directory with nested files", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(repoRoot, ".agents", "skills", "insane-search", "SKILL.md"),
+      "user skill\n",
+    );
+    writeFile(
+      path.join(
+        repoRoot,
+        ".agents",
+        "skills",
+        "insane-search",
+        "references",
+        "jina.md",
+      ),
+      "user ref\n",
+    );
+    writeFile(
+      path.join(bundleDir, "skills", "insane-search", "SKILL.md"),
+      "---\nname: insane-search\ndescription: Search fast\n---\nSearch fast.\n",
+    );
+    writeFile(
+      path.join(bundleDir, "skills", "insane-search", "references", "jina.md"),
+      "# jina\n",
+    );
+    const resolveFileConflict = vi
+      .fn()
+      .mockResolvedValue({ action: "overwrite" });
+
+    // When
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { codex: { skills: { path: "skills" } } },
+      },
+      resolveFileConflict,
+    });
+
+    // Then
+    expect(resolveFileConflict).toHaveBeenCalledTimes(1);
+    expect(resolveFileConflict).toHaveBeenCalledWith("insane-search");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "insane-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe(
+      "---\nname: insane-search\ndescription: Search fast\n---\nSearch fast.\n",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          ".agents",
+          "skills",
+          "insane-search",
+          "references",
+          "jina.md",
+        ),
+        "utf8",
+      ),
+    ).toBe("# jina\n");
   });
 
   it("throws without calling the callback when the destination is already reserved by a prior file in the same run", async () => {

@@ -125,6 +125,56 @@ describe("fetchRemoteSource", () => {
     );
   });
 
+  it("resolves a short commit ref to its advertised full SHA before fetching", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "react-bundle",
+    );
+    const commit = "2714e72282b915c6983723652d0c365af08e9e1f";
+    vi.mocked(execFileSync).mockImplementation((command, args) => {
+      if (command !== "git" || !Array.isArray(args)) {
+        return Buffer.from("");
+      }
+
+      if (args[0] === "ls-remote" && args[2] === "refs/heads/2714e72") {
+        return Buffer.from("");
+      }
+
+      if (args[0] === "ls-remote" && args[2] === "refs/tags/2714e72") {
+        return Buffer.from("");
+      }
+
+      if (args[0] === "ls-remote" && args.length === 2) {
+        return Buffer.from(`${commit}\trefs/heads/main\n`);
+      }
+
+      return Buffer.from("");
+    });
+
+    // When
+    await fetchRemoteSource({
+      source: "github.com/user/react-bundle",
+      libraryDir,
+      ref: "2714e72",
+    });
+
+    // Then
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["-C", targetDir, "fetch", "--depth=1", "origin", commit],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect(execFileSync).toHaveBeenCalledWith(
+      "git",
+      ["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+  });
+
   it("creates the parent directory before cloning so git has a place to write", async () => {
     // Given
     const libraryDir = createLibraryDir();

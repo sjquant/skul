@@ -407,8 +407,8 @@ describe("run", () => {
       }),
     ).resolves.toBe("Applied next-expert for claude-code");
 
-    // Then: conflict callback was invoked with the relative conflict path
-    expect(resolveFileConflict).toHaveBeenCalledWith("react/SKILL.md");
+    // Then: conflict callback was invoked with the relative skill item path
+    expect(resolveFileConflict).toHaveBeenCalledWith("react");
 
     // Then: next-expert's file overwrites react-expert's managed file
     expect(
