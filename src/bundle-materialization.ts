@@ -414,6 +414,13 @@ async function materializeNativeTarget(options: {
     }
 
     const destinationPath = path.join(destinationDir, nativeRelativePath);
+    const resolveFileConflict =
+      item.kind === "directory"
+        ? createItemScopedConflictResolver({
+            itemRelativePath: nativeRelativePath,
+            resolveFileConflict: options.resolveFileConflict,
+          })
+        : options.resolveFileConflict;
 
     if (item.kind === "directory") {
       await copyDirectory(
@@ -425,7 +432,7 @@ async function materializeNativeTarget(options: {
         reservedDestinations,
         options.repoRoot,
         options.assertSafeWriteTarget,
-        options.resolveFileConflict,
+        resolveFileConflict,
       );
       continue;
     }
@@ -439,9 +446,37 @@ async function materializeNativeTarget(options: {
       reservedDestinations,
       repoRoot: options.repoRoot,
       assertSafeWriteTarget: options.assertSafeWriteTarget,
-      resolveFileConflict: options.resolveFileConflict,
+      resolveFileConflict,
     });
   }
+}
+
+function createItemScopedConflictResolver(options: {
+  itemRelativePath: string;
+  resolveFileConflict:
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
+    | undefined;
+}): ((conflictPath: string) => Promise<FileConflictResolution>) | undefined {
+  if (!options.resolveFileConflict) {
+    return undefined;
+  }
+
+  const resolveFileConflict = options.resolveFileConflict;
+  let itemConflictResolved = false;
+  const itemPath = options.itemRelativePath.split(path.sep).join("/");
+
+  return async (conflictPath) => {
+    if (conflictPath === itemPath || conflictPath.startsWith(`${itemPath}/`)) {
+      if (!itemConflictResolved) {
+        itemConflictResolved = true;
+        return resolveFileConflict(itemPath);
+      }
+
+      return { action: "overwrite" };
+    }
+
+    return resolveFileConflict(conflictPath);
+  };
 }
 
 function previewNativeTargetWriteTargets(options: {
@@ -936,6 +971,14 @@ async function materializeCanonicalTarget(options: {
 
   for (const item of listCanonicalTargetItems(options)) {
     const translated = translateCanonicalTargetItem({ ...options, item });
+    const itemResolveFileConflict =
+      options.targetName === "skills"
+        ? createItemScopedConflictResolver({
+            itemRelativePath: item.itemName,
+            resolveFileConflict: options.resolveFileConflict,
+          })
+        : options.resolveFileConflict;
+
     for (const [origRelPath, content] of Object.entries(translated)) {
       const repoRelPath = options.pathLayout.remapRepoRelPath(
         options.toolName,
@@ -955,7 +998,7 @@ async function materializeCanonicalTarget(options: {
         ownedDirectories: options.ownedDirectories,
         reservedDestinations,
         assertSafeWriteTarget: options.assertSafeWriteTarget,
-        resolveFileConflict: options.resolveFileConflict,
+        resolveFileConflict: itemResolveFileConflict,
         targetRoot,
       });
     }

@@ -437,20 +437,19 @@ describe("resolveBundleItemRefs", () => {
     ).rejects.toThrowError(/conflicts with a local bundle item/);
   });
 
-  it("throws when source is missing or ref and pin are both set", async () => {
+  it("throws when source is missing or pin is set", async () => {
     // Given
     const libraryDir = createTempDir("skul-library-");
     const missingSourceBundleDir = createTempDir("skul-missing-source-");
-    const refPinBundleDir = createTempDir("skul-ref-pin-");
+    const pinBundleDir = createTempDir("skul-pin-");
     writeRefsFile(missingSourceBundleDir, [
       { target: "skills", name: "search" },
     ]);
-    writeRefsFile(refPinBundleDir, [
+    writeRefsFile(pinBundleDir, [
       {
         target: "skills",
         name: "search",
         source: "fivetaku/search",
-        ref: "main",
         pin: "abc1234",
       },
     ]);
@@ -460,8 +459,8 @@ describe("resolveBundleItemRefs", () => {
       resolveBundleItemRefs({ bundleDir: missingSourceBundleDir, libraryDir }),
     ).rejects.toThrowError(/"source" is required/);
     await expect(
-      resolveBundleItemRefs({ bundleDir: refPinBundleDir, libraryDir }),
-    ).rejects.toThrowError(/cannot set both "ref" and "pin"/);
+      resolveBundleItemRefs({ bundleDir: pinBundleDir, libraryDir }),
+    ).rejects.toThrowError(/"pin" is not supported; use "ref" instead/);
   });
 
   it("rejects unsafe local names and root paths", async () => {

@@ -70,7 +70,6 @@ skul add [options] [source] [bundle]
 |---|---|
 | `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
 | `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. Persisted in the registry and reused by `skul apply`. |
-| `--pin <commit>` | Pin the bundle to one commit SHA (7–40 hex chars). Mutually exclusive with `--ref`. |
 | `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
 | `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
 | `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
@@ -85,8 +84,8 @@ skul add [options] [source] [bundle]
 # Track a branch or tag instead of HEAD
 skul add github.com/sjquant/ai-bundles react-expert --ref stable
 
-# Pin to an exact commit
-skul add github.com/sjquant/ai-bundles react-expert --pin 2813b88
+# Track an exact commit
+skul add github.com/sjquant/ai-bundles react-expert --ref 2813b88
 
 # Install only the diagnose skill, for Codex only
 skul add react-expert --agent codex --include skills/diagnose
@@ -180,11 +179,10 @@ Instead of copying an item from another repository into your bundle, you can ref
 | `source` | yes | The referenced repo, in any form `skul add` accepts. |
 | `bundle` | when ambiguous | The bundle name inside `source`. Required when `source` has more than one bundle; otherwise defaults to the repo slug. |
 | `item` | no | The external item selector, e.g. `skills/other-name`, `agents/reviewer`, `commands/review`, or `root-instruction`. Defaults from local `target` / `name`, or to `root-instruction`. |
-| `ref` | no | Branch, tag, or commit to fetch. Mutually exclusive with `pin`. |
-| `pin` | no | Commit SHA to fetch. Mutually exclusive with `ref`. |
+| `ref` | no | Branch, tag, or commit to fetch. |
 | `disable-model-invocation` | no | Skill refs only. When `true`, forces the referenced skill to materialize with model invocation disabled. |
 
-Skul fetches the referenced source into `~/.skul/library/` (same cache used for regular bundles) and materializes the referenced item as if it were local. `ref` and `pin` only take effect the first time the referenced source is cloned — use `skul update` semantics on the referencing bundle to control refresh timing, since skul does not currently re-check referenced sources independently.
+Skul fetches the referenced source into `~/.skul/library/` (same cache used for regular bundles) and materializes the referenced item as if it were local. When `ref` is set, Skul aligns the referenced source cache to that branch, tag, or commit before materializing the item; without `ref`, the referenced source follows its cached default-branch checkout.
 
 ### Root Instruction Targets
 

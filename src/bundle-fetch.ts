@@ -212,7 +212,11 @@ export async function inspectRemoteSource(
   };
 
   try {
-    resolvedRemote = resolveRemoteRef(remoteUrl, options.ref);
+    resolvedRemote = resolveRemoteRef(
+      remoteUrl,
+      options.ref,
+      cached.cached ? cached.targetDir : undefined,
+    );
   } catch (error) {
     throw normalizeGitError(error, `Failed to inspect ${options.source}`, {
       source: options.source,
@@ -448,8 +452,9 @@ function getCloneUrl(
 function resolveRemoteRef(
   remoteUrl: string,
   requestedRef?: string,
+  targetDir?: string,
 ): { kind: "branch" | "tag" | "commit"; resolvedRef?: string; commit: string } {
-  if (requestedRef && isCommitSha(requestedRef)) {
+  if (requestedRef && requestedRef.length === 40 && isCommitSha(requestedRef)) {
     return { kind: "commit", commit: requestedRef };
   }
 
@@ -478,6 +483,56 @@ function resolveRemoteRef(
       return { kind: "tag", resolvedRef: requestedRef, commit: tagCommit };
     }
 
+    if (isCommitSha(requestedRef)) {
+      const commit = parseUniqueShaPrefix(
+        runGit(["ls-remote", remoteUrl]),
+        requestedRef,
+      );
+
+      if (commit) {
+        return { kind: "commit", commit };
+      }
+
+      if (targetDir) {
+        const fetchArgs = [
+          "-C",
+          targetDir,
+          "fetch",
+          "--tags",
+          "origin",
+          "+refs/heads/*:refs/remotes/origin/*",
+        ];
+
+        if (
+          tryRunGit([
+            "-C",
+            targetDir,
+            "rev-parse",
+            "--is-shallow-repository",
+          ]) === "true"
+        ) {
+          fetchArgs.splice(3, 0, "--unshallow");
+        }
+
+        runGit(fetchArgs);
+
+        try {
+          return {
+            kind: "commit",
+            commit: runGit([
+              "-C",
+              targetDir,
+              "rev-parse",
+              "--verify",
+              `${requestedRef}^{commit}`,
+            ]),
+          };
+        } catch {
+          throw new Error(`Remote ref not found: ${requestedRef}`);
+        }
+      }
+    }
+
     throw new Error(`Remote ref not found: ${requestedRef}`);
   }
 
@@ -497,7 +552,7 @@ function checkoutGitRemoteRef(
   remoteUrl: string,
   requestedRef: string,
 ): void {
-  const resolved = resolveRemoteRef(remoteUrl, requestedRef);
+  const resolved = resolveRemoteRef(remoteUrl, requestedRef, targetDir);
 
   checkoutResolvedRemoteRef(targetDir, resolved);
 }
@@ -538,8 +593,13 @@ function checkoutResolvedRemoteRef(
     return;
   }
 
-  runGit(["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit]);
-  runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
+  try {
+    runGit(["-C", targetDir, "cat-file", "-e", `${resolved.commit}^{commit}`]);
+  } catch {
+    runGit(["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit]);
+  }
+
+  runGit(["-C", targetDir, "checkout", "--detach", resolved.commit]);
 }
 
 function requireResolvedRemoteRef(resolved: {
@@ -606,6 +666,27 @@ function parsePreferredTagSha(
   }
 
   return directCommit;
+}
+
+function parseUniqueShaPrefix(
+  output: string,
+  requestedRef: string,
+): string | undefined {
+  const matches = new Set<string>();
+
+  for (const line of output.split("\n")) {
+    const match = line.match(/^([0-9a-f]{40})\s+/i);
+
+    if (match?.[1]?.toLowerCase().startsWith(requestedRef.toLowerCase())) {
+      matches.add(match[1]);
+    }
+  }
+
+  if (matches.size > 1) {
+    throw new Error(`Remote commit ref is ambiguous: ${requestedRef}`);
+  }
+
+  return Array.from(matches)[0];
 }
 
 function parseFirstSha(output: string): string | undefined {

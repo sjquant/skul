@@ -35,7 +35,6 @@ export interface BundleItemRef {
   bundle?: string;
   item: BundleItemSelector;
   ref?: string;
-  pin?: string;
   disableModelInvocation?: boolean;
   localSelector: BundleItemSelector;
 }
@@ -73,7 +72,7 @@ export async function resolveBundleItemRefs(options: {
       detectSourceProtocol(itemRef.source) === "ssh"
         ? "ssh"
         : (options.protocol ?? "https");
-    const ref = itemRef.pin ?? itemRef.ref;
+    const ref = itemRef.ref;
 
     await ensureReferencedSourceRevision({
       source,
@@ -240,7 +239,7 @@ function parseBundleItemRefEntry(
     location,
   );
   const ref = expectOptionalNonEmptyString(record.ref, "ref", location);
-  const pin = expectOptionalNonEmptyString(record.pin, "pin", location);
+  assertNoPin(record, location);
   const hasDisableModelInvocation = Object.hasOwn(
     record,
     "disable-model-invocation",
@@ -252,12 +251,6 @@ function parseBundleItemRefEntry(
         location,
       )
     : undefined;
-
-  if (ref && pin) {
-    throw new Error(
-      `Bundle item ref cannot set both "ref" and "pin": ${location}`,
-    );
-  }
 
   if (hasDisableModelInvocation && target !== "skills") {
     throw new Error(
@@ -282,10 +275,17 @@ function parseBundleItemRefEntry(
     ...(bundle ? { bundle } : {}),
     item,
     ...(ref ? { ref } : {}),
-    ...(pin ? { pin } : {}),
     ...(disableModelInvocation ? { disableModelInvocation: true } : {}),
     localSelector,
   };
+}
+
+function assertNoPin(record: Record<string, unknown>, location: string): void {
+  if (Object.hasOwn(record, "pin")) {
+    throw new Error(
+      `Bundle item ref "pin" is not supported; use "ref" instead: ${location}`,
+    );
+  }
 }
 
 function expectTarget(value: unknown, location: string): BundleItemRefTarget {

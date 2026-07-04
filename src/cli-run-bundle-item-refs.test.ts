@@ -561,7 +561,7 @@ describe("run add — cross-repo bundle item references", () => {
     expect(fs.existsSync(path.join(repoRoot, ".agents", "skills"))).toBe(false);
   });
 
-  it("checks out a pinned referenced source even when another revision is cached", async () => {
+  it("checks out a commit ref referenced source even when another revision is cached", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -607,7 +607,7 @@ describe("run add — cross-repo bundle item references", () => {
           target: "skills",
           name: "insane-search",
           source: "fivetaku/insane-search",
-          pin: remoteSource.initialCommit,
+          ref: remoteSource.initialCommit.slice(0, 7),
         },
       ],
     });
