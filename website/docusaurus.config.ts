@@ -9,8 +9,8 @@ const config: Config = {
   future: {
     v4: true,
   },
-  url: "https://sjquant.github.io",
-  baseUrl: "/skul/",
+  url: "https://skul.solaqua.dev",
+  baseUrl: "/",
   organizationName: "sjquant",
   projectName: "skul",
   deploymentBranch: "gh-pages",
