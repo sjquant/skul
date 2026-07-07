@@ -2,7 +2,7 @@
   "name": "@solaqua/skul",
   "version": "0.1.5",
   "description": "AI configuration layer manager for project-scoped bundles (project setup only)",
-  "homepage": "https://sjquant.github.io/skul/",
+  "homepage": "https://skul.solaqua.dev/",
   "bugs": {
     "url": "https://github.com/sjquant/skul/issues"
   },
