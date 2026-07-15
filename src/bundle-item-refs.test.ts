@@ -258,6 +258,55 @@ describe("resolveBundleItemRefs", () => {
     });
   });
 
+  it("falls back to a repo-root item absent from its Claude marketplace plugin", async () => {
+    // Given
+    const libraryDir = createTempDir("skul-library-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const sourceDir = path.join(
+      libraryDir,
+      "github.com",
+      "upstash",
+      "context7",
+    );
+    const canonicalSkillDir = path.join(sourceDir, "skills", "context7-cli");
+    writeFile(
+      path.join(canonicalSkillDir, "SKILL.md"),
+      "---\nname: context7-cli\ndescription: Context7 CLI\n---\n",
+    );
+    writeFile(
+      path.join(
+        sourceDir,
+        "plugins",
+        "claude",
+        "context7",
+        "commands",
+        "context7.md",
+      ),
+      "# Context7\n",
+    );
+    writeFile(
+      path.join(sourceDir, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ name: "context7", source: "./plugins/claude/context7" }],
+      }),
+    );
+    writeRefsFile(bundleDir, [
+      {
+        target: "skills",
+        name: "context7-cli",
+        source: "upstash/context7",
+      },
+    ]);
+
+    // When
+    const result = await resolveBundleItemRefs({ bundleDir, libraryDir });
+
+    // Then
+    expect(result.get("skills/context7-cli")).toEqual({
+      path: canonicalSkillDir,
+    });
+  });
+
   it("requires an explicit bundle when multiple bundles contain the referenced item", async () => {
     // Given
     const libraryDir = createTempDir("skul-library-");

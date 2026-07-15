@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  type CachedBundle,
   detectSourceProtocol,
   findCachedBundle,
   listCachedBundles,
@@ -13,7 +14,11 @@ import {
   normalizeBundleItemSelector,
   stripKnownBundleItemExtension,
 } from "./bundle-items";
-import type { BundleManifest } from "./bundle-manifest";
+import {
+  type BundleManifest,
+  inferBundleManifest,
+  MANIFEST_FILE_NAME,
+} from "./bundle-manifest";
 import type { ToolName, ToolTargetName } from "./tool-mapping";
 
 export const BUNDLE_ITEM_REFS_FILE_NAME = "skul.refs.json";
@@ -618,13 +623,6 @@ function resolveReferencedCachedBundle(options: {
   const matches = listCachedBundles({
     libraryDir: options.libraryDir,
   }).filter((bundle) => bundle.source === options.source);
-
-  if (matches.length === 0) {
-    throw new Error(
-      `No bundle found in ${options.source} for bundle item ref: ${options.refFilePath}`,
-    );
-  }
-
   const itemMatches = matches.filter((bundle) =>
     findReferencedItemPath({
       cachedBundleDir: path.dirname(bundle.manifestFile),
@@ -638,6 +636,17 @@ function resolveReferencedCachedBundle(options: {
   }
 
   if (itemMatches.length === 0) {
+    const repoRootBundle = findReferencedRepoRootBundle(options);
+    if (repoRootBundle) {
+      return repoRootBundle;
+    }
+
+    if (matches.length === 0) {
+      throw new Error(
+        `No bundle found in ${options.source} for bundle item ref: ${options.refFilePath}`,
+      );
+    }
+
     throw new Error(
       `Referenced bundle item "${options.item}" not found in ${options.source}: ${options.refFilePath}`,
     );
@@ -646,6 +655,39 @@ function resolveReferencedCachedBundle(options: {
   throw new Error(
     `${options.source} has multiple bundles containing "${options.item}"; set "bundle" in the bundle item ref: ${options.refFilePath}`,
   );
+}
+
+function findReferencedRepoRootBundle(options: {
+  libraryDir: string;
+  source: string;
+  item: BundleItemSelector;
+}): CachedBundle | undefined {
+  const cachedBundleDir = path.join(
+    options.libraryDir,
+    ...options.source.split("/"),
+  );
+
+  try {
+    const manifest = inferBundleManifest(cachedBundleDir);
+    if (
+      !findReferencedItemPath({
+        cachedBundleDir,
+        manifest,
+        item: options.item,
+      })
+    ) {
+      return undefined;
+    }
+
+    return {
+      source: options.source,
+      bundle: options.source.split("/").at(-1)!,
+      manifestFile: path.join(cachedBundleDir, MANIFEST_FILE_NAME),
+      manifest,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveReferencedItemPath(options: {
