@@ -290,7 +290,6 @@ function resolveLocalMarketplaceSource(
   const bundleDir = path.resolve(sourceDir, value);
   const relativeBundleDir = path.relative(sourceDir, bundleDir);
   if (
-    !relativeBundleDir ||
     relativeBundleDir === ".." ||
     relativeBundleDir.startsWith(`..${path.sep}`) ||
     path.isAbsolute(relativeBundleDir)
@@ -307,7 +306,6 @@ function resolveLocalMarketplaceSource(
     const realBundleDir = fs.realpathSync(bundleDir);
     const relativeRealBundleDir = path.relative(realSourceDir, realBundleDir);
     if (
-      !relativeRealBundleDir ||
       relativeRealBundleDir === ".." ||
       relativeRealBundleDir.startsWith(`..${path.sep}`) ||
       path.isAbsolute(relativeRealBundleDir)
@@ -368,16 +366,16 @@ export function findCachedBundle(options: {
     }
 
     // Fall back to inferred repo-as-bundle: repo slug must match the requested bundle name,
-    // and the repo must not expose valid subdirectory bundle manifests.
+    // and the repo must not expose another named bundle.
     const repoBundleManifestFile = path.join(
       layout.sourceDir,
       MANIFEST_FILE_NAME,
     );
     const repoSlug = source.split("/").at(-1)!;
     if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
-      const hasNestedBundle = hasAnySubdirectoryBundle(layout.sourceDir);
+      const hasNamedBundle = hasAnyNamedBundle(layout.sourceDir);
 
-      if (!hasNestedBundle) {
+      if (!hasNamedBundle) {
         const manifest = inferBundleManifest(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
           return {
@@ -499,9 +497,10 @@ function inferSubdirectoryBundles(
   });
 }
 
-function hasAnySubdirectoryBundle(sourceDir: string): boolean {
+function hasAnyNamedBundle(sourceDir: string): boolean {
   return (
     hasValidSubdirectoryBundleManifest(sourceDir) ||
+    inferClaudeMarketplaceBundles(sourceDir, new Set()).length > 0 ||
     inferSubdirectoryBundles(sourceDir, new Set()).length > 0
   );
 }

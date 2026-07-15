@@ -320,6 +320,29 @@ describe("listCachedBundles", () => {
     });
   });
 
+  it("discovers a repository-root Claude marketplace plugin by its declared name", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(
+      libraryDir,
+      "github.com",
+      "kepano",
+      "obsidian-skills",
+    );
+    writeClaudeMarketplacePlugin(repoDir, "obsidian", "./");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      source: "github.com/kepano/obsidian-skills",
+      bundle: "obsidian",
+      manifestFile: path.join(repoDir, "manifest.json"),
+    });
+  });
+
   it("ignores Claude marketplace plugin sources outside the repository", () => {
     // Given
     const libraryDir = createLibraryDir();
@@ -546,6 +569,32 @@ describe("findCachedBundle", () => {
         "sentry-cli",
         "manifest.json",
       ),
+    });
+  });
+
+  it("finds a repository-root Claude marketplace plugin when its name differs from the repo slug", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(
+      libraryDir,
+      "github.com",
+      "kepano",
+      "obsidian-skills",
+    );
+    writeClaudeMarketplacePlugin(repoDir, "obsidian", "./");
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source: "kepano/obsidian-skills",
+      bundle: "obsidian",
+    });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/kepano/obsidian-skills",
+      bundle: "obsidian",
+      manifestFile: path.join(repoDir, "manifest.json"),
     });
   });
 
@@ -805,8 +854,12 @@ function writeManifestAtRepoRoot(
   );
 }
 
-function writeClaudeMarketplacePlugin(repoDir: string, name: string): void {
-  const pluginDir = path.join(repoDir, "plugins", name);
+function writeClaudeMarketplacePlugin(
+  repoDir: string,
+  name: string,
+  pluginSource = `./plugins/${name}`,
+): void {
+  const pluginDir = path.resolve(repoDir, pluginSource);
   fs.mkdirSync(path.join(pluginDir, "skills", name), { recursive: true });
   fs.writeFileSync(
     path.join(pluginDir, "skills", name, "SKILL.md"),
@@ -815,6 +868,6 @@ function writeClaudeMarketplacePlugin(repoDir: string, name: string): void {
   fs.mkdirSync(path.join(repoDir, ".claude-plugin"), { recursive: true });
   fs.writeFileSync(
     path.join(repoDir, ".claude-plugin", "marketplace.json"),
-    JSON.stringify({ plugins: [{ name, source: `./plugins/${name}` }] }),
+    JSON.stringify({ plugins: [{ name, source: pluginSource }] }),
   );
 }
