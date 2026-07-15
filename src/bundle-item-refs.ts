@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
-  type CachedBundle,
   detectSourceProtocol,
   findCachedBundle,
   listCachedBundles,
@@ -60,11 +59,6 @@ export async function resolveBundleItemRefs(options: {
     tools: options.tools,
     itemSelectors: options.itemSelectors,
   });
-  let cachedBundles: CachedBundle[] | undefined;
-  const listCachedBundlesForSource = (source: string): CachedBundle[] => {
-    cachedBundles ??= listCachedBundles({ libraryDir: options.libraryDir });
-    return cachedBundles.filter((bundle) => bundle.source === source);
-  };
 
   for (const itemRef of candidates) {
     const source = normalizeBundleSource(itemRef.source);
@@ -87,7 +81,6 @@ export async function resolveBundleItemRefs(options: {
       bundle: itemRef.bundle,
       item: itemRef.item,
       refFilePath: refsFilePath(options.bundleDir),
-      listCachedBundlesForSource,
     });
     const resolvedPath = resolveReferencedItemPath({
       cachedBundleDir: path.dirname(cachedBundle.manifestFile),
@@ -613,7 +606,6 @@ function resolveReferencedCachedBundle(options: {
   bundle?: string;
   item: BundleItemSelector;
   refFilePath: string;
-  listCachedBundlesForSource: (source: string) => CachedBundle[];
 }): ReturnType<typeof findCachedBundle> {
   if (options.bundle) {
     return findCachedBundle({
@@ -623,7 +615,9 @@ function resolveReferencedCachedBundle(options: {
     });
   }
 
-  const matches = options.listCachedBundlesForSource(options.source);
+  const matches = listCachedBundles({
+    libraryDir: options.libraryDir,
+  }).filter((bundle) => bundle.source === options.source);
 
   if (matches.length === 0) {
     throw new Error(
