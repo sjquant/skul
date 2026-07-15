@@ -184,6 +184,8 @@ Instead of copying an item from another repository into your bundle, you can ref
 
 Skul fetches the referenced source into `~/.skul/library/` (same cache used for regular bundles) and materializes the referenced item as if it were local. When `ref` is set, Skul aligns the referenced source cache to that branch, tag, or commit before materializing the item; without `ref`, the referenced source follows its cached default-branch checkout.
 
+Repositories with a `.claude-plugin/marketplace.json` can expose local plugin sources as bundles. Use the plugin's declared `name` as the `bundle` value; Skul resolves items from the canonical plugin source instead of tool-specific symlink facades.
+
 ### Root Instruction Targets
 
 Skul supports three root instruction target files:
