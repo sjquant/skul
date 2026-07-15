@@ -297,6 +297,96 @@ describe("listCachedBundles", () => {
     });
   });
 
+  it("discovers a local Claude marketplace plugin by its declared name", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "getsentry", "cli");
+    writeClaudeMarketplacePlugin(repoDir, "sentry-cli");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      source: "github.com/getsentry/cli",
+      bundle: "sentry-cli",
+      manifestFile: path.join(
+        repoDir,
+        "plugins",
+        "sentry-cli",
+        "manifest.json",
+      ),
+    });
+  });
+
+  it("discovers a repository-root Claude marketplace plugin by its declared name", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(
+      libraryDir,
+      "github.com",
+      "kepano",
+      "obsidian-skills",
+    );
+    writeClaudeMarketplacePlugin(repoDir, "obsidian", "./");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      source: "github.com/kepano/obsidian-skills",
+      bundle: "obsidian",
+      manifestFile: path.join(repoDir, "manifest.json"),
+    });
+  });
+
+  it("ignores Claude marketplace plugin sources outside the repository", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "getsentry", "cli");
+    fs.mkdirSync(path.join(repoDir, ".claude-plugin"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoDir, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ name: "unsafe", source: "../../../../outside" }],
+      }),
+    );
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toEqual([]);
+  });
+
+  it("ignores Claude marketplace plugin symlinks that escape the repository", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "getsentry", "cli");
+    const externalPluginDir = path.join(libraryDir, "external-plugin");
+    fs.mkdirSync(path.join(externalPluginDir, "skills", "unsafe"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(repoDir, "plugins"), { recursive: true });
+    fs.symlinkSync(externalPluginDir, path.join(repoDir, "plugins", "unsafe"));
+    fs.mkdirSync(path.join(repoDir, ".claude-plugin"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoDir, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ name: "unsafe", source: "./plugins/unsafe" }],
+      }),
+    );
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toEqual([]);
+  });
+
   it("ignores a repo-root manifest and still infers the bundle from the repo slug", () => {
     // Given
     const libraryDir = createLibraryDir();
@@ -454,6 +544,58 @@ describe("findCachedBundle", () => {
       bundle: "core",
     });
     expect(Object.keys(bundle.manifest.tools).length).toBeGreaterThan(0);
+  });
+
+  it("finds a local Claude marketplace plugin by source and declared name", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(libraryDir, "github.com", "getsentry", "cli");
+    writeClaudeMarketplacePlugin(repoDir, "sentry-cli");
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source: "getsentry/cli",
+      bundle: "sentry-cli",
+    });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/getsentry/cli",
+      bundle: "sentry-cli",
+      manifestFile: path.join(
+        repoDir,
+        "plugins",
+        "sentry-cli",
+        "manifest.json",
+      ),
+    });
+  });
+
+  it("finds a repository-root Claude marketplace plugin when its name differs from the repo slug", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const repoDir = path.join(
+      libraryDir,
+      "github.com",
+      "kepano",
+      "obsidian-skills",
+    );
+    writeClaudeMarketplacePlugin(repoDir, "obsidian", "./");
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source: "kepano/obsidian-skills",
+      bundle: "obsidian",
+    });
+
+    // Then
+    expect(bundle).toMatchObject({
+      source: "github.com/kepano/obsidian-skills",
+      bundle: "obsidian",
+      manifestFile: path.join(repoDir, "manifest.json"),
+    });
   });
 
   it("does not find an inferred repo-root bundle via source when only manifest-free subdirectory bundles exist", () => {
@@ -709,5 +851,23 @@ function writeManifestAtRepoRoot(
   fs.writeFileSync(
     path.join(sourceDir, "manifest.json"),
     JSON.stringify(manifest, null, 2),
+  );
+}
+
+function writeClaudeMarketplacePlugin(
+  repoDir: string,
+  name: string,
+  pluginSource = `./plugins/${name}`,
+): void {
+  const pluginDir = path.resolve(repoDir, pluginSource);
+  fs.mkdirSync(path.join(pluginDir, "skills", name), { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, "skills", name, "SKILL.md"),
+    `---\nname: ${name}\ndescription: Plugin skill\n---\n`,
+  );
+  fs.mkdirSync(path.join(repoDir, ".claude-plugin"), { recursive: true });
+  fs.writeFileSync(
+    path.join(repoDir, ".claude-plugin", "marketplace.json"),
+    JSON.stringify({ plugins: [{ name, source: pluginSource }] }),
   );
 }

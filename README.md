@@ -177,12 +177,14 @@ Instead of copying an item from another repository into your bundle, you can ref
 | `name` | for `skills`, `agents`, `commands` | Local item name materialized from this ref. |
 | `path` | no | Root instruction refs only. Optional local root instruction path, such as `AGENTS.md`. |
 | `source` | yes | The referenced repo, in any form `skul add` accepts. |
-| `bundle` | when ambiguous | The bundle name inside `source`. Required when `source` has more than one bundle; otherwise defaults to the repo slug. |
+| `bundle` | when ambiguous | The bundle name inside `source`. When omitted, Skul selects the only bundle containing the referenced item; set it when multiple bundles contain that item. |
 | `item` | no | The external item selector, e.g. `skills/other-name`, `agents/reviewer`, `commands/review`, or `root-instruction`. Defaults from local `target` / `name`, or to `root-instruction`. |
 | `ref` | no | Branch, tag, or commit to fetch. |
 | `disable-model-invocation` | no | Skill refs only. When `true`, forces the referenced skill to materialize with model invocation disabled. |
 
 Skul fetches the referenced source into `~/.skul/library/` (same cache used for regular bundles) and materializes the referenced item as if it were local. When `ref` is set, Skul aligns the referenced source cache to that branch, tag, or commit before materializing the item; without `ref`, the referenced source follows its cached default-branch checkout.
+
+Repositories with a `.claude-plugin/marketplace.json` can expose local plugin sources as bundles. Skul resolves items from the canonical plugin source instead of tool-specific symlink facades. If multiple plugins expose the same referenced item, use the plugin's declared `name` as the `bundle` value.
 
 ### Root Instruction Targets
 

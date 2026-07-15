@@ -170,6 +170,105 @@ describe("run add — cross-repo bundle item references", () => {
     );
   });
 
+  it("materializes bundle item refs from multiple sources into a cold cache", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const searchSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/fivetaku/insane-search",
+      bundle: "insane-search",
+      manifest: {
+        tools: { "claude-code": { skills: { path: "skills" } } },
+      },
+      files: {
+        "skills/insane-search/SKILL.md":
+          "---\nname: insane-search\ndescription: Search\n---\nSearch aggressively.\n",
+      },
+    });
+    const reviewSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/fivetaku/reviewer",
+      bundle: "reviewer",
+      manifest: {
+        tools: { "claude-code": { skills: { path: "skills" } } },
+      },
+      files: {
+        "skills/reviewer/SKILL.md":
+          "---\nname: reviewer\ndescription: Review\n---\nReview carefully.\n",
+      },
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "ghosts", {
+      name: "ghosts",
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+    writeBundleRefs({
+      homeDir,
+      source: "github.com/user/ai-vault",
+      bundle: "ghosts",
+      refs: [
+        {
+          target: "skills",
+          name: "insane-search",
+          source: searchSource.source,
+        },
+        {
+          target: "skills",
+          name: "reviewer",
+          source: reviewSource.source,
+        },
+      ],
+    });
+    fs.rmSync(
+      path.join(homeDir, ".skul", "library", ...searchSource.source.split("/")),
+      { recursive: true, force: true },
+    );
+    fs.rmSync(
+      path.join(homeDir, ".skul", "library", ...reviewSource.source.split("/")),
+      { recursive: true, force: true },
+    );
+    const previousGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
+    const gitConfigFile = path.join(homeDir, "gitconfig");
+    fs.writeFileSync(
+      gitConfigFile,
+      [
+        `[url "${searchSource.remoteRepoPath}"]`,
+        `\tinsteadOf = https://${searchSource.source}`,
+        `[url "${reviewSource.remoteRepoPath}"]`,
+        `\tinsteadOf = https://${reviewSource.source}`,
+        "",
+      ].join("\n"),
+    );
+    process.env.GIT_CONFIG_GLOBAL = gitConfigFile;
+
+    // When
+    try {
+      await run(["add", "ghosts"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      });
+    } finally {
+      if (previousGitConfigGlobal === undefined) {
+        delete process.env.GIT_CONFIG_GLOBAL;
+      } else {
+        process.env.GIT_CONFIG_GLOBAL = previousGitConfigGlobal;
+      }
+    }
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "insane-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Search aggressively.");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "reviewer", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Review carefully.");
+  });
+
   it("surfaces a clear error when the referenced bundle item does not exist", async () => {
     // Given
     const homeDir = createHomeDir();

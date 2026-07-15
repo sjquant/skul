@@ -17,6 +17,8 @@ export interface CachedBundle {
   manifest: BundleManifest;
 }
 
+const CLAUDE_MARKETPLACE_FILE = path.join(".claude-plugin", "marketplace.json");
+
 /**
  * Infers the preferred clone protocol from a raw user-supplied source string.
  *
@@ -139,14 +141,24 @@ export function listCachedBundles(options: {
     explicit.map((bundle) => `${bundle.source}::${bundle.bundle}`),
   );
 
-  const inferredSubdirectory = findSourceDirs(options.libraryDir).flatMap(
-    (sourceDir) => inferSubdirectoryBundles(sourceDir, explicitBundleKeys),
+  const sourceDirs = findSourceDirs(options.libraryDir);
+  const marketplace = sourceDirs.flatMap((sourceDir) =>
+    inferClaudeMarketplaceBundles(sourceDir, explicitBundleKeys),
+  );
+
+  const declaredBundleKeys = new Set([
+    ...explicitBundleKeys,
+    ...marketplace.map((bundle) => `${bundle.source}::${bundle.bundle}`),
+  ]);
+
+  const inferredSubdirectory = sourceDirs.flatMap((sourceDir) =>
+    inferSubdirectoryBundles(sourceDir, declaredBundleKeys),
   );
 
   // Repos with any valid or inferred bundle subdirectory are treated as multi-bundle
   // sources and excluded from repo-root inference.
   const sourceDirsWithSubdirectoryBundle = new Set(
-    [...explicit, ...inferredSubdirectory].map((bundle) =>
+    [...explicit, ...marketplace, ...inferredSubdirectory].map((bundle) =>
       path.join(options.libraryDir, ...bundle.source.split("/")),
     ),
   );
@@ -154,7 +166,7 @@ export function listCachedBundles(options: {
   // Inferred repo-as-bundle: repos without subdirectory bundle manifests but with
   // recognisable bundle directories (skills/, commands/, agents/, .claude/, etc.).
   // The bundle name defaults to the repository slug.
-  const inferred = findSourceDirs(options.libraryDir).flatMap((sourceDir) => {
+  const inferred = sourceDirs.flatMap((sourceDir) => {
     if (sourceDirsWithSubdirectoryBundle.has(sourceDir)) {
       return [];
     }
@@ -182,11 +194,129 @@ export function listCachedBundles(options: {
     }
   });
 
-  return [...explicit, ...inferredSubdirectory, ...inferred].sort(
+  return [
+    ...explicit,
+    ...marketplace,
+    ...inferredSubdirectory,
+    ...inferred,
+  ].sort(
     (left, right) =>
       left.source.localeCompare(right.source) ||
       left.bundle.localeCompare(right.bundle),
   );
+}
+
+function inferClaudeMarketplaceBundles(
+  sourceDir: string,
+  excludedBundleKeys: Set<string>,
+): CachedBundle[] {
+  const marketplaceFile = path.join(sourceDir, CLAUDE_MARKETPLACE_FILE);
+  const source = path.normalize(sourceDir).split(path.sep).slice(-3).join("/");
+  const bundleKeys = new Set(excludedBundleKeys);
+  let marketplace: unknown;
+
+  try {
+    marketplace = JSON.parse(fs.readFileSync(marketplaceFile, "utf8"));
+  } catch {
+    return [];
+  }
+
+  if (
+    !marketplace ||
+    typeof marketplace !== "object" ||
+    Array.isArray(marketplace)
+  ) {
+    return [];
+  }
+
+  const plugins = (marketplace as Record<string, unknown>).plugins;
+  if (!Array.isArray(plugins)) {
+    return [];
+  }
+
+  return plugins.flatMap((plugin) => {
+    if (!plugin || typeof plugin !== "object" || Array.isArray(plugin)) {
+      return [];
+    }
+
+    const { name, source: pluginSource } = plugin as Record<string, unknown>;
+    const bundle = typeof name === "string" ? name.trim() : "";
+    if (
+      !bundle ||
+      bundle.includes("/") ||
+      bundle === "." ||
+      bundle === ".." ||
+      typeof pluginSource !== "string"
+    ) {
+      return [];
+    }
+
+    const bundleKey = `${source}::${bundle}`;
+    if (bundleKeys.has(bundleKey)) {
+      return [];
+    }
+
+    const bundleDir = resolveLocalMarketplaceSource(sourceDir, pluginSource);
+    if (!bundleDir) {
+      return [];
+    }
+
+    const manifest = inferBundleManifest(bundleDir);
+    if (Object.keys(manifest.tools).length === 0) {
+      return [];
+    }
+    bundleKeys.add(bundleKey);
+
+    return [
+      {
+        source,
+        bundle,
+        manifestFile: path.join(bundleDir, MANIFEST_FILE_NAME),
+        manifest,
+      },
+    ];
+  });
+}
+
+function resolveLocalMarketplaceSource(
+  sourceDir: string,
+  pluginSource: string,
+): string | undefined {
+  const value = pluginSource.trim();
+  if (!value || path.isAbsolute(value)) {
+    return undefined;
+  }
+
+  const bundleDir = path.resolve(sourceDir, value);
+  const relativeBundleDir = path.relative(sourceDir, bundleDir);
+  if (
+    relativeBundleDir === ".." ||
+    relativeBundleDir.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativeBundleDir)
+  ) {
+    return undefined;
+  }
+
+  try {
+    if (!fs.lstatSync(bundleDir).isDirectory()) {
+      return undefined;
+    }
+
+    const realSourceDir = fs.realpathSync(sourceDir);
+    const realBundleDir = fs.realpathSync(bundleDir);
+    const relativeRealBundleDir = path.relative(realSourceDir, realBundleDir);
+    if (
+      relativeRealBundleDir === ".." ||
+      relativeRealBundleDir.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativeRealBundleDir)
+    ) {
+      return undefined;
+    }
+
+    return bundleDir;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Resolves one cached bundle by source and bundle name, inferring repo bundles when needed. */
@@ -227,17 +357,25 @@ export function findCachedBundle(options: {
       }
     }
 
+    const marketplaceBundle = inferClaudeMarketplaceBundles(
+      layout.sourceDir,
+      new Set(),
+    ).find((bundle) => bundle.bundle === options.bundle);
+    if (marketplaceBundle) {
+      return marketplaceBundle;
+    }
+
     // Fall back to inferred repo-as-bundle: repo slug must match the requested bundle name,
-    // and the repo must not expose valid subdirectory bundle manifests.
+    // and the repo must not expose another named bundle.
     const repoBundleManifestFile = path.join(
       layout.sourceDir,
       MANIFEST_FILE_NAME,
     );
     const repoSlug = source.split("/").at(-1)!;
     if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
-      const hasNestedBundle = hasAnySubdirectoryBundle(layout.sourceDir);
+      const hasNamedBundle = hasAnyNamedBundle(layout.sourceDir);
 
-      if (!hasNestedBundle) {
+      if (!hasNamedBundle) {
         const manifest = inferBundleManifest(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
           return {
@@ -359,9 +497,10 @@ function inferSubdirectoryBundles(
   });
 }
 
-function hasAnySubdirectoryBundle(sourceDir: string): boolean {
+function hasAnyNamedBundle(sourceDir: string): boolean {
   return (
     hasValidSubdirectoryBundleManifest(sourceDir) ||
+    inferClaudeMarketplaceBundles(sourceDir, new Set()).length > 0 ||
     inferSubdirectoryBundles(sourceDir, new Set()).length > 0
   );
 }

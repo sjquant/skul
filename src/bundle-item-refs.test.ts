@@ -202,6 +202,148 @@ describe("resolveBundleItemRefs", () => {
     });
   });
 
+  it("finds a referenced item in a multi-bundle Claude marketplace without an explicit bundle", async () => {
+    // Given
+    const libraryDir = createTempDir("skul-library-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const sourceDir = path.join(libraryDir, "github.com", "getsentry", "cli");
+    const canonicalSkillDir = path.join(
+      sourceDir,
+      "plugins",
+      "sentry-cli",
+      "skills",
+      "sentry-cli",
+    );
+    writeFile(
+      path.join(canonicalSkillDir, "SKILL.md"),
+      "---\nname: sentry-cli\ndescription: Sentry CLI\n---\n",
+    );
+    writeFile(
+      path.join(canonicalSkillDir, "references", "issues.md"),
+      "# Issues\n",
+    );
+    writeFile(
+      path.join(sourceDir, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ name: "sentry-cli", source: "./plugins/sentry-cli" }],
+      }),
+    );
+    fs.mkdirSync(path.join(sourceDir, ".cursor", "skills", "sentry-cli"), {
+      recursive: true,
+    });
+    fs.symlinkSync(
+      path.join(canonicalSkillDir, "SKILL.md"),
+      path.join(sourceDir, ".cursor", "skills", "sentry-cli", "SKILL.md"),
+    );
+    fs.symlinkSync(
+      path.join(canonicalSkillDir, "references"),
+      path.join(sourceDir, ".cursor", "skills", "sentry-cli", "references"),
+    );
+    writeFile(path.join(sourceDir, "src", "commands", "api.ts"), "");
+    writeFile(path.join(sourceDir, "test", "commands", "api.test.ts"), "");
+    writeRefsFile(bundleDir, [
+      {
+        target: "skills",
+        name: "sentry-cli",
+        source: "getsentry/cli",
+      },
+    ]);
+
+    // When
+    const result = await resolveBundleItemRefs({ bundleDir, libraryDir });
+
+    // Then
+    expect(result.get("skills/sentry-cli")).toEqual({
+      path: canonicalSkillDir,
+    });
+  });
+
+  it("requires an explicit bundle when multiple bundles contain the referenced item", async () => {
+    // Given
+    const libraryDir = createTempDir("skul-library-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeCachedSkill({
+      libraryDir,
+      source: "github.com/fivetaku/tools",
+      bundle: "core",
+      skillName: "search",
+    });
+    writeCachedSkill({
+      libraryDir,
+      source: "github.com/fivetaku/tools",
+      bundle: "extra",
+      skillName: "search",
+    });
+    writeRefsFile(bundleDir, [
+      {
+        target: "skills",
+        name: "search",
+        source: "fivetaku/tools",
+      },
+    ]);
+
+    // When / Then
+    await expect(
+      resolveBundleItemRefs({ bundleDir, libraryDir }),
+    ).rejects.toThrowError(
+      /multiple bundles containing "skills\/search"; set "bundle"/,
+    );
+  });
+
+  it("resolves the sole marketplace plugin without an explicit bundle instead of its symlink facade", async () => {
+    // Given
+    const libraryDir = createTempDir("skul-library-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const sourceDir = path.join(libraryDir, "github.com", "acme", "cli");
+    const canonicalSkillDir = path.join(
+      sourceDir,
+      "plugins",
+      "sentry-cli",
+      "skills",
+      "sentry-cli",
+    );
+    writeFile(
+      path.join(canonicalSkillDir, "SKILL.md"),
+      "---\nname: sentry-cli\ndescription: Sentry CLI\n---\n",
+    );
+    writeFile(
+      path.join(canonicalSkillDir, "references", "issues.md"),
+      "# Issues\n",
+    );
+    writeFile(
+      path.join(sourceDir, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ name: "sentry-cli", source: "./plugins/sentry-cli" }],
+      }),
+    );
+    fs.mkdirSync(path.join(sourceDir, ".cursor", "skills", "sentry-cli"), {
+      recursive: true,
+    });
+    fs.symlinkSync(
+      path.join(canonicalSkillDir, "SKILL.md"),
+      path.join(sourceDir, ".cursor", "skills", "sentry-cli", "SKILL.md"),
+    );
+    fs.symlinkSync(
+      path.join(canonicalSkillDir, "references"),
+      path.join(sourceDir, ".cursor", "skills", "sentry-cli", "references"),
+    );
+    writeRefsFile(bundleDir, [
+      {
+        target: "skills",
+        name: "sentry-cli",
+        source: "acme/cli",
+      },
+    ]);
+
+    // When
+    const result = await resolveBundleItemRefs({ bundleDir, libraryDir });
+
+    // Then
+    expect(result.get("skills/sentry-cli")).toEqual({
+      path: canonicalSkillDir,
+    });
+  });
+
   it("resolves skill-only disable-model-invocation metadata from a skill ref", async () => {
     // Given
     const libraryDir = createTempDir("skul-library-");
