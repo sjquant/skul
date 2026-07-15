@@ -202,7 +202,7 @@ describe("resolveBundleItemRefs", () => {
     });
   });
 
-  it("resolves a ref through a Claude marketplace plugin instead of its symlink facade", async () => {
+  it("finds a referenced item in a multi-bundle Claude marketplace without an explicit bundle", async () => {
     // Given
     const libraryDir = createTempDir("skul-library-");
     const bundleDir = createTempDir("skul-bundle-");
@@ -246,7 +246,6 @@ describe("resolveBundleItemRefs", () => {
         target: "skills",
         name: "sentry-cli",
         source: "getsentry/cli",
-        bundle: "sentry-cli",
       },
     ]);
 
@@ -257,6 +256,38 @@ describe("resolveBundleItemRefs", () => {
     expect(result.get("skills/sentry-cli")).toEqual({
       path: canonicalSkillDir,
     });
+  });
+
+  it("requires an explicit bundle when multiple bundles contain the referenced item", async () => {
+    // Given
+    const libraryDir = createTempDir("skul-library-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeCachedSkill({
+      libraryDir,
+      source: "github.com/fivetaku/tools",
+      bundle: "core",
+      skillName: "search",
+    });
+    writeCachedSkill({
+      libraryDir,
+      source: "github.com/fivetaku/tools",
+      bundle: "extra",
+      skillName: "search",
+    });
+    writeRefsFile(bundleDir, [
+      {
+        target: "skills",
+        name: "search",
+        source: "fivetaku/tools",
+      },
+    ]);
+
+    // When / Then
+    await expect(
+      resolveBundleItemRefs({ bundleDir, libraryDir }),
+    ).rejects.toThrowError(
+      /multiple bundles containing "skills\/search"; set "bundle"/,
+    );
   });
 
   it("resolves the sole marketplace plugin without an explicit bundle instead of its symlink facade", async () => {

@@ -85,6 +85,7 @@ export async function resolveBundleItemRefs(options: {
       libraryDir: options.libraryDir,
       source,
       bundle: itemRef.bundle,
+      item: itemRef.item,
       refFilePath: refsFilePath(options.bundleDir),
       listCachedBundlesForSource,
     });
@@ -610,6 +611,7 @@ function resolveReferencedCachedBundle(options: {
   libraryDir: string;
   source: string;
   bundle?: string;
+  item: BundleItemSelector;
   refFilePath: string;
   listCachedBundlesForSource: (source: string) => CachedBundle[];
 }): ReturnType<typeof findCachedBundle> {
@@ -621,29 +623,7 @@ function resolveReferencedCachedBundle(options: {
     });
   }
 
-  const repoSlug = options.source.split("/").at(-1);
-
-  if (!repoSlug) {
-    throw new Error(
-      `No repo slug found in ${options.source} for bundle item ref: ${options.refFilePath}`,
-    );
-  }
-
-  try {
-    return findCachedBundle({
-      libraryDir: options.libraryDir,
-      source: options.source,
-      bundle: repoSlug,
-    });
-  } catch {
-    // Fall through to scanning for a unique bundle in this source below.
-  }
-
   const matches = options.listCachedBundlesForSource(options.source);
-
-  if (matches.length === 1) {
-    return matches[0]!;
-  }
 
   if (matches.length === 0) {
     throw new Error(
@@ -651,8 +631,26 @@ function resolveReferencedCachedBundle(options: {
     );
   }
 
+  const itemMatches = matches.filter((bundle) =>
+    findReferencedItemPath({
+      cachedBundleDir: path.dirname(bundle.manifestFile),
+      manifest: bundle.manifest,
+      item: options.item,
+    }),
+  );
+
+  if (itemMatches.length === 1) {
+    return itemMatches[0]!;
+  }
+
+  if (itemMatches.length === 0) {
+    throw new Error(
+      `Referenced bundle item "${options.item}" not found in ${options.source}: ${options.refFilePath}`,
+    );
+  }
+
   throw new Error(
-    `${options.source} has multiple bundles; set "bundle" in the bundle item ref: ${options.refFilePath}`,
+    `${options.source} has multiple bundles containing "${options.item}"; set "bundle" in the bundle item ref: ${options.refFilePath}`,
   );
 }
 
@@ -663,8 +661,24 @@ function resolveReferencedItemPath(options: {
   source: string;
   refFilePath: string;
 }): string {
+  const resolvedPath = findReferencedItemPath(options);
+
+  if (resolvedPath) {
+    return resolvedPath;
+  }
+
+  throw new Error(
+    `Referenced bundle item "${options.item}" not found in ${options.source}: ${options.refFilePath}`,
+  );
+}
+
+function findReferencedItemPath(options: {
+  cachedBundleDir: string;
+  manifest: BundleManifest;
+  item: BundleItemSelector;
+}): string | undefined {
   if (options.item === ROOT_INSTRUCTION_SELECTOR) {
-    return resolveRootInstructionSourceFile(options);
+    return findRootInstructionSourceFile(options);
   }
 
   const [targetName, itemName] = options.item.split("/") as [
@@ -673,31 +687,25 @@ function resolveReferencedItemPath(options: {
   ];
 
   if (targetName === "skills") {
-    return resolveSkillSourceDir({
+    return findSkillSourceDir({
       cachedBundleDir: options.cachedBundleDir,
       manifest: options.manifest,
       skillName: itemName,
-      source: options.source,
-      refFilePath: options.refFilePath,
     });
   }
 
-  return resolveDirectoryItemSourceFile({
+  return findDirectoryItemSourceFile({
     cachedBundleDir: options.cachedBundleDir,
     manifest: options.manifest,
     targetName,
     itemName,
-    source: options.source,
-    refFilePath: options.refFilePath,
   });
 }
 
-function resolveRootInstructionSourceFile(options: {
+function findRootInstructionSourceFile(options: {
   cachedBundleDir: string;
   manifest: BundleManifest;
-  source: string;
-  refFilePath: string;
-}): string {
+}): string | undefined {
   const candidatePaths = new Set<string>();
 
   for (const targets of Object.values(options.manifest.tools)) {
@@ -715,18 +723,14 @@ function resolveRootInstructionSourceFile(options: {
     }
   }
 
-  throw new Error(
-    `Referenced bundle item "root-instruction" not found in ${options.source}: ${options.refFilePath}`,
-  );
+  return undefined;
 }
 
-function resolveSkillSourceDir(options: {
+function findSkillSourceDir(options: {
   cachedBundleDir: string;
   manifest: BundleManifest;
   skillName: string;
-  source: string;
-  refFilePath: string;
-}): string {
+}): string | undefined {
   const candidatePaths = new Set<string>();
 
   for (const targets of Object.values(options.manifest.tools)) {
@@ -748,19 +752,15 @@ function resolveSkillSourceDir(options: {
     }
   }
 
-  throw new Error(
-    `Referenced bundle item "skills/${options.skillName}" not found in ${options.source}: ${options.refFilePath}`,
-  );
+  return undefined;
 }
 
-function resolveDirectoryItemSourceFile(options: {
+function findDirectoryItemSourceFile(options: {
   cachedBundleDir: string;
   manifest: BundleManifest;
   targetName: Exclude<DirectoryTargetName, "skills">;
   itemName: string;
-  source: string;
-  refFilePath: string;
-}): string {
+}): string | undefined {
   const candidatePaths = new Set<string>();
 
   for (const targets of Object.values(options.manifest.tools)) {
@@ -783,9 +783,7 @@ function resolveDirectoryItemSourceFile(options: {
     }
   }
 
-  throw new Error(
-    `Referenced bundle item "${options.targetName}/${options.itemName}" not found in ${options.source}: ${options.refFilePath}`,
-  );
+  return undefined;
 }
 
 function findTopLevelItemFile(options: {
