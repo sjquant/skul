@@ -7,6 +7,7 @@ import {
   type BundleItemSelector,
   normalizeBundleItemSelector,
 } from "./bundle-items";
+import type { RootInstructionMode } from "./registry";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
 import { getPackageVersion } from "./version";
 
@@ -80,6 +81,7 @@ export type CliParseResult =
         inferredBundleFromSource?: true;
         global: boolean;
         disableModelInvocation?: boolean;
+        rootInstructionMode?: RootInstructionMode;
         yes?: boolean;
         all?: boolean;
       };
@@ -170,6 +172,7 @@ const ADD_HELP_DETAILS = [
   "Root instruction targets:",
   "  Bundles may contribute root instruction files alongside skills/ and commands/ content.",
   "  If the target root instruction file is already tracked, Skul creates a tracked shadow instead of leaving a visible git diff.",
+  "  Use --root-instruction-mode replace to explicitly replace existing root instruction content; append is the default.",
 ].join("\n");
 const SHADOW_HELP_DETAILS = [
   "",
@@ -626,6 +629,10 @@ function createProgram(
       "--disable-model-invocation",
       "Force disable-model-invocation on all skills even when the skill does not set it",
     )
+    .option(
+      "--root-instruction-mode <mode>",
+      "Compose root instructions by appending (default) or replacing existing content",
+    )
     .addHelpText("after", ADD_HELP_DETAILS)
     .action(
       async (
@@ -642,6 +649,7 @@ function createProgram(
           global?: boolean;
           yes?: boolean;
           disableModelInvocation?: boolean;
+          rootInstructionMode?: RootInstructionMode;
         },
       ) => {
         const agents = opts.agent;
@@ -652,6 +660,16 @@ function createProgram(
         const global = opts.global ?? false;
         const yes = opts.yes ?? false;
         const disableModelInvocation = opts.disableModelInvocation ?? false;
+        const rootInstructionMode = opts.rootInstructionMode;
+        if (
+          rootInstructionMode !== undefined &&
+          rootInstructionMode !== "append" &&
+          rootInstructionMode !== "replace"
+        ) {
+          throw new Error(
+            '--root-instruction-mode must be "append" or "replace"',
+          );
+        }
         const ref = resolveRequestedRefSelector(opts);
 
         if (all) {
@@ -694,6 +712,9 @@ function createProgram(
               global,
               ...(yes ? { yes } : {}),
               ...(disableModelInvocation ? { disableModelInvocation } : {}),
+              ...(rootInstructionMode !== undefined
+                ? { rootInstructionMode }
+                : {}),
               all: true,
             },
           };
@@ -737,6 +758,9 @@ function createProgram(
                 global,
                 ...(yes ? { yes } : {}),
                 ...(disableModelInvocation ? { disableModelInvocation } : {}),
+                ...(rootInstructionMode !== undefined
+                  ? { rootInstructionMode }
+                  : {}),
               },
             };
           } catch {
@@ -755,6 +779,9 @@ function createProgram(
                 global,
                 ...(yes ? { yes } : {}),
                 ...(disableModelInvocation ? { disableModelInvocation } : {}),
+                ...(rootInstructionMode !== undefined
+                  ? { rootInstructionMode }
+                  : {}),
               },
             };
           }
@@ -782,6 +809,9 @@ function createProgram(
             global,
             ...(yes ? { yes } : {}),
             ...(disableModelInvocation ? { disableModelInvocation } : {}),
+            ...(rootInstructionMode !== undefined
+              ? { rootInstructionMode }
+              : {}),
           },
         };
       },

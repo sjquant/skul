@@ -439,6 +439,48 @@ describe("run", () => {
     ).toContain("CLAUDE.md");
   });
 
+  it("replaces existing root instruction content only when replace mode is explicit", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\n",
+    });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user rules\n");
+
+    // When
+    await run(
+      [
+        "add",
+        "repo-standards",
+        "--agent",
+        "codex",
+        "--root-instruction-mode",
+        "replace",
+      ],
+      { homeDir, cwd: repoRoot, prompts: createPromptClientStub() },
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      `${formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\n",
+        "github.com/user/ai-vault",
+      )}\n`,
+    );
+
+    // When: removing the bundle restores the discarded base content.
+    await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "user rules\n",
+    );
+  });
+
   it("restores pre-existing AGENTS.md content when the last shared root bundle is removed", async () => {
     // Given
     const homeDir = createHomeDir();

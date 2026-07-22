@@ -20,6 +20,8 @@ function isToolName(value: string): value is ToolName {
   return KNOWN_TOOL_NAMES.has(value as ToolName);
 }
 
+export type RootInstructionMode = "append" | "replace";
+
 export interface DesiredBundleEntry {
   bundle: string;
   source?: string;
@@ -36,6 +38,8 @@ export interface DesiredBundleEntry {
   resolved_commit?: string;
   /** When true, all skills are materialized with disable-model-invocation regardless of source metadata. */
   disable_model_invocation?: boolean;
+  /** Root-instruction composition strategy. Defaults to append for legacy entries. */
+  root_instruction_mode?: RootInstructionMode;
 }
 
 export interface MaterializedToolState {
@@ -295,6 +299,13 @@ function parseDesiredBundleEntry(
 ): DesiredBundleEntry {
   const entry = expectRecord(input, label);
   const bundle = expectNonEmptyString(entry.bundle, `${label}.bundle`);
+  const rootInstructionMode =
+    entry.root_instruction_mode === undefined
+      ? undefined
+      : expectRootInstructionMode(
+          entry.root_instruction_mode,
+          `${label}.root_instruction_mode`,
+        );
   const source =
     entry.source === undefined
       ? undefined
@@ -343,6 +354,9 @@ function parseDesiredBundleEntry(
     ...(resolvedRef !== undefined ? { resolved_ref: resolvedRef } : {}),
     ...(resolvedCommit !== undefined
       ? { resolved_commit: resolvedCommit }
+      : {}),
+    ...(rootInstructionMode !== undefined
+      ? { root_instruction_mode: rootInstructionMode }
       : {}),
   };
 }
@@ -855,6 +869,17 @@ function expectProtocol(input: unknown, label: string): "https" | "ssh" {
 function expectShadowStrategy(input: unknown, label: string): ShadowStrategy {
   if (input !== "append" && input !== "prepend" && input !== "replace") {
     throw new Error(`${label} must be "append", "prepend", or "replace"`);
+  }
+
+  return input;
+}
+
+function expectRootInstructionMode(
+  input: unknown,
+  label: string,
+): RootInstructionMode {
+  if (input !== "append" && input !== "replace") {
+    throw new Error(`${label} must be "append" or "replace"`);
   }
 
   return input;

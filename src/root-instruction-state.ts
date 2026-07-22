@@ -8,6 +8,7 @@ import type {
   DesiredBundleEntry,
   MaterializedBundleState,
   MaterializedState,
+  RootInstructionMode,
 } from "./registry";
 import { collectComposedRootInstructionContents } from "./root-instruction-content";
 import {
@@ -71,13 +72,16 @@ export function syncManagedRootInstructionFiles(options: {
   const contentByPath = collectRootInstructionContentByPath(options);
   const writtenPaths = new Set<string>();
 
-  for (const [repoRelativePath, parts] of contentByPath.entries()) {
-    const baseContent = options.rootInstructionBaseContents?.[repoRelativePath];
+  for (const [repoRelativePath, composed] of contentByPath.entries()) {
+    const baseContent =
+      composed.mode === "replace"
+        ? undefined
+        : options.rootInstructionBaseContents?.[repoRelativePath];
     const targetPath = path.join(options.repoRoot, repoRelativePath);
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(
       targetPath,
-      `${composeRootInstructionContent([baseContent, ...parts])}\n`,
+      `${composeRootInstructionContent([baseContent, ...composed.parts])}\n`,
     );
     writtenPaths.add(repoRelativePath);
   }
@@ -95,8 +99,11 @@ function collectRootInstructionContentByPath(options: {
     string,
     ReadonlyMap<string, ResolvedBundleItemRef>
   >;
-}): Map<string, string[]> {
-  const contentByPath = new Map<string, string[]>();
+}): Map<string, { parts: string[]; mode: RootInstructionMode }> {
+  const contentByPath = new Map<
+    string,
+    { parts: string[]; mode: RootInstructionMode }
+  >();
   const seenBundleTargets = new Set<string>();
 
   for (const desiredEntry of options.desiredState) {
@@ -163,15 +170,21 @@ function collectRootInstructionContentByPath(options: {
           }
 
           seenBundleTargets.add(bundleTargetKey);
-          const existingParts = contentByPath.get(repoRelativePath) ?? [];
-          existingParts.push(
+          const existing = contentByPath.get(repoRelativePath) ?? {
+            parts: [],
+            mode: desiredEntry.root_instruction_mode ?? "append",
+          };
+          existing.parts.push(
             wrapRootInstructionBundleContent({
               bundleName: desiredEntry.bundle,
               source: desiredEntry.source,
               content,
             }),
           );
-          contentByPath.set(repoRelativePath, existingParts);
+          if (desiredEntry.root_instruction_mode === "replace") {
+            existing.mode = "replace";
+          }
+          contentByPath.set(repoRelativePath, existing);
         }
       }
     } else {
@@ -215,15 +228,21 @@ function collectRootInstructionContentByPath(options: {
           }
 
           seenBundleTargets.add(bundleTargetKey);
-          const existingParts = contentByPath.get(repoRelativePath) ?? [];
-          existingParts.push(
+          const existing = contentByPath.get(repoRelativePath) ?? {
+            parts: [],
+            mode: desiredEntry.root_instruction_mode ?? "append",
+          };
+          existing.parts.push(
             wrapRootInstructionBundleContent({
               bundleName: desiredEntry.bundle,
               source: desiredEntry.source,
               content,
             }),
           );
-          contentByPath.set(repoRelativePath, existingParts);
+          if (desiredEntry.root_instruction_mode === "replace") {
+            existing.mode = "replace";
+          }
+          contentByPath.set(repoRelativePath, existing);
         }
       }
     }

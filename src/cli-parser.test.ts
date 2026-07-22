@@ -183,6 +183,21 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses the explicit root instruction replacement mode", async () => {
+    // Given
+    const argv = ["add", "react-expert", "--root-instruction-mode", "replace"];
+
+    // When
+    const result = await parseCliArgs(argv);
+
+    // Then
+    expect(result).toMatchObject({
+      kind: "command",
+      command: "add",
+      options: { rootInstructionMode: "replace" },
+    });
+  });
+
   it("normalizes explicit HTTPS source URLs for add", async () => {
     // Given / When / Then
     await expect(

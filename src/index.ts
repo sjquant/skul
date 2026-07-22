@@ -77,6 +77,7 @@ import {
   type MaterializedToolState,
   type Registry,
   type RepoState,
+  type RootInstructionMode,
   readRegistryFile,
   removeWorktreeState,
   type ShadowedFileState,
@@ -182,6 +183,7 @@ export async function run(
           ref: parsed.options.ref,
           global: parsed.options.global,
           disableModelInvocation: parsed.options.disableModelInvocation,
+          rootInstructionMode: parsed.options.rootInstructionMode,
         });
       }
 
@@ -206,6 +208,7 @@ export async function run(
           ref: parsed.options.ref,
           inferredBundleFromSource: parsed.options.inferredBundleFromSource,
           disableModelInvocation: parsed.options.disableModelInvocation,
+          rootInstructionMode: parsed.options.rootInstructionMode,
         });
       }
       return applyBundle({
@@ -223,6 +226,7 @@ export async function run(
         ref: parsed.options.ref,
         inferredBundleFromSource: parsed.options.inferredBundleFromSource,
         disableModelInvocation: parsed.options.disableModelInvocation,
+        rootInstructionMode: parsed.options.rootInstructionMode,
       });
     }
     case "list":
@@ -393,6 +397,7 @@ async function applyAllBundles(options: {
   ref?: string;
   global: boolean;
   disableModelInvocation?: boolean;
+  rootInstructionMode?: RootInstructionMode;
 }): Promise<string> {
   if (options.dryRun) {
     const { cached } = readCachedSourceRevision({
@@ -462,6 +467,7 @@ async function applyAllBundles(options: {
             refreshedSources,
             refreshedSourceUpdates,
             disableModelInvocation: options.disableModelInvocation,
+            rootInstructionMode: options.rootInstructionMode,
           })
         : await applyBundle({
             cwd: options.cwd,
@@ -479,6 +485,7 @@ async function applyAllBundles(options: {
             refreshedSources,
             refreshedSourceUpdates,
             disableModelInvocation: options.disableModelInvocation,
+            rootInstructionMode: options.rootInstructionMode,
           }),
     );
   }
@@ -2185,6 +2192,7 @@ async function updateBundles(options: {
           targetPaths: plannedRootInstructionTargets,
           bundleName: entry.bundle,
           bundleSource: entry.source,
+          rootInstructionMode: entry.root_instruction_mode,
           resolvedBundleItemRefs,
           existingShadowedFiles: currentShadowedFiles,
           materializedBundles: currentBundles,
@@ -2220,6 +2228,14 @@ async function updateBundles(options: {
         existingBaseContents: rootInstructionBaseContents,
         managedTargetPaths:
           collectManagedRootInstructionTargets(currentBundles),
+      });
+      await confirmRootInstructionReplacements({
+        repoRoot: gitContext.worktreeRoot,
+        targetPaths: plannedRootInstructionTargets,
+        managedTargetPaths:
+          collectManagedRootInstructionTargets(currentBundles),
+        mode: entry.root_instruction_mode,
+        prompts: options.prompts,
       });
 
       assertManagedRootInstructionSyncSourcesCached({
@@ -2449,6 +2465,7 @@ async function applyBundle(options: {
   refreshedSources?: Set<string>;
   refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
   disableModelInvocation?: boolean;
+  rootInstructionMode?: RootInstructionMode;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -2537,6 +2554,13 @@ async function applyBundle(options: {
     existingWorktreeState?.root_instruction_base_contents;
   const existingBundleState =
     existingWorktreeState?.bundles[preparedBundle.cachedBundle.bundle];
+  const existingDesiredState =
+    registry.repos[gitContext.repoFingerprint]?.desired_state ?? [];
+  const effectiveRootInstructionMode =
+    options.rootInstructionMode ??
+    existingDesiredState.find(
+      (entry) => entry.bundle === preparedBundle.cachedBundle.bundle,
+    )?.root_instruction_mode;
   const resolvedBundleItemRefs = await resolveBundleItemRefs({
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
@@ -2569,6 +2593,7 @@ async function applyBundle(options: {
     targetPaths: plannedRootInstructionTargets,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
+    rootInstructionMode: effectiveRootInstructionMode,
     resolvedBundleItemRefs,
     existingShadowedFiles: currentShadowedFiles,
     materializedBundles: existingWorktreeState?.bundles ?? {},
@@ -2581,9 +2606,15 @@ async function applyBundle(options: {
       existingWorktreeState?.bundles ?? {},
     ),
   });
-  const existingDesiredState =
-    registry.repos[gitContext.repoFingerprint]?.desired_state ?? [];
-
+  await confirmRootInstructionReplacements({
+    repoRoot: gitContext.worktreeRoot,
+    targetPaths: plannedRootInstructionTargets,
+    managedTargetPaths: collectManagedRootInstructionTargets(
+      existingWorktreeState?.bundles ?? {},
+    ),
+    mode: effectiveRootInstructionMode,
+    prompts: options.prompts,
+  });
   assertManagedRootInstructionSyncSourcesCached({
     desiredState: existingDesiredState,
     materializedBundles: existingWorktreeState?.bundles ?? {},
@@ -2718,6 +2749,7 @@ async function applyBundle(options: {
     replaceRequestedItems: preparedBundle.replacesItemSelection,
     sourceRevision: preparedBundle.sourceRevision,
     disableModelInvocation: options.disableModelInvocation,
+    rootInstructionMode: options.rootInstructionMode,
   });
   const newDesiredState = [
     ...upsertDesiredEntryPreservingOrder(existingDesiredState, newDesiredEntry),
@@ -3953,6 +3985,7 @@ function buildDesiredEntryForAppliedBundle(options: {
   replaceRequestedItems?: boolean;
   sourceRevision?: CachedSourceRevision;
   disableModelInvocation?: boolean;
+  rootInstructionMode?: RootInstructionMode;
 }): DesiredBundleEntry {
   const existingDesiredEntry = options.existingDesiredState.find(
     (entry) => entry.bundle === options.cachedBundle.bundle,
@@ -4013,6 +4046,11 @@ function buildDesiredEntryForAppliedBundle(options: {
     existingDesiredEntry?.disable_model_invocation)
       ? { disable_model_invocation: true }
       : {}),
+    ...(options.rootInstructionMode !== undefined
+      ? { root_instruction_mode: options.rootInstructionMode }
+      : existingDesiredEntry?.root_instruction_mode !== undefined
+        ? { root_instruction_mode: existingDesiredEntry.root_instruction_mode }
+        : {}),
   };
 }
 
@@ -5207,6 +5245,7 @@ async function applyWorktree(options: {
       targetPaths: plannedRootInstructionTargets,
       bundleName: entry.bundle,
       bundleSource: entry.source,
+      rootInstructionMode: entry.root_instruction_mode,
       resolvedBundleItemRefs,
       existingShadowedFiles: currentShadowedFiles,
       materializedBundles: currentBundles,
@@ -5216,6 +5255,13 @@ async function applyWorktree(options: {
       targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
       existingBaseContents: rootInstructionBaseContents,
       managedTargetPaths: collectManagedRootInstructionTargets(currentBundles),
+    });
+    await confirmRootInstructionReplacements({
+      repoRoot: gitContext.worktreeRoot,
+      targetPaths: plannedRootInstructionTargets,
+      managedTargetPaths: collectManagedRootInstructionTargets(currentBundles),
+      mode: entry.root_instruction_mode,
+      prompts: options.prompts,
     });
 
     assertManagedRootInstructionSyncSourcesCached({
@@ -5500,6 +5546,7 @@ function planTrackedRootInstructionShadows(options: {
   targetPaths: Set<string>;
   bundleName: string;
   bundleSource?: string;
+  rootInstructionMode?: RootInstructionMode;
   resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
   existingShadowedFiles: Record<string, ShadowedFileState>;
   materializedBundles: MaterializedState["bundles"];
@@ -5554,6 +5601,7 @@ function planTrackedRootInstructionShadows(options: {
         overlayContent: activeOverlayContents[targetPath] ?? "",
         bundleName: options.bundleName,
         toolName: selectShadowToolForPath(options.toolNames, targetPath),
+        strategy: options.rootInstructionMode ?? "append",
       }),
     );
   const untrackedTargetPaths = new Set(
@@ -5611,6 +5659,7 @@ function renderTrackedRootInstructionShadowWrite(options: {
   overlayContent: string;
   bundleName: string;
   toolName: ToolName;
+  strategy: RootInstructionMode;
 }): PlannedTrackedRootInstructionShadow {
   const inspection = inspectRootInstructionShadowTarget({
     repoRoot: options.repoRoot,
@@ -5628,7 +5677,8 @@ function renderTrackedRootInstructionShadowWrite(options: {
     overlayContent: options.overlayContent,
     bundleName: options.bundleName,
     toolName: options.toolName,
-    strategy: "append",
+    strategy: options.strategy,
+    allowReplace: options.strategy === "replace",
   });
 
   return {
@@ -5637,7 +5687,7 @@ function renderTrackedRootInstructionShadowWrite(options: {
     state: {
       tool: options.toolName,
       bundle: options.bundleName,
-      strategy: "append",
+      strategy: options.strategy,
       base_blob: inspection.headBlob.objectId,
       overlay: options.overlayContent,
       overlay_fingerprint: render.overlayFingerprint,
@@ -6401,6 +6451,32 @@ async function confirmManagedFileRemovals(
   return true;
 }
 
+/** Warns before replace mode discards an existing unmanaged root instruction file. */
+async function confirmRootInstructionReplacements(options: {
+  repoRoot: string;
+  targetPaths: Set<string>;
+  managedTargetPaths: Set<string>;
+  mode?: RootInstructionMode;
+  prompts: PromptClient;
+}): Promise<void> {
+  if (options.mode !== "replace") {
+    return;
+  }
+
+  for (const relativePath of options.targetPaths) {
+    if (options.managedTargetPaths.has(relativePath)) {
+      continue;
+    }
+
+    const targetPath = path.join(options.repoRoot, relativePath);
+    if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
+      continue;
+    }
+
+    await options.prompts.resolveFileConflict(relativePath);
+  }
+}
+
 function findModifiedManagedFiles(
   repoRoot: string,
   state: { files: string[]; file_fingerprints?: Record<string, string> },
@@ -6462,6 +6538,7 @@ async function applyBundleGlobal(options: {
   refreshedSources?: Set<string>;
   refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
   disableModelInvocation?: boolean;
+  rootInstructionMode?: RootInstructionMode;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
 
@@ -6594,6 +6671,12 @@ async function applyBundleGlobal(options: {
     existingGlobal?.materialized_state.bundles[
       preparedBundle.cachedBundle.bundle
     ];
+  const existingDesiredState = existingGlobal?.desired_state ?? [];
+  const effectiveRootInstructionMode =
+    options.rootInstructionMode ??
+    existingDesiredState.find(
+      (entry) => entry.bundle === preparedBundle.cachedBundle.bundle,
+    )?.root_instruction_mode;
 
   const resolvedBundleItemRefs = await resolveBundleItemRefs({
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
@@ -6626,8 +6709,13 @@ async function applyBundleGlobal(options: {
     existingBaseContents: rootInstructionBaseContents,
     managedTargetPaths: collectManagedRootInstructionTargets(existingBundles),
   });
-
-  const existingDesiredState = existingGlobal?.desired_state ?? [];
+  await confirmRootInstructionReplacements({
+    repoRoot: options.homeDir,
+    targetPaths: plannedRootInstructionTargets,
+    managedTargetPaths: collectManagedRootInstructionTargets(existingBundles),
+    mode: effectiveRootInstructionMode,
+    prompts: options.prompts,
+  });
 
   assertManagedRootInstructionSyncSourcesCached({
     desiredState: existingDesiredState,
@@ -6730,6 +6818,7 @@ async function applyBundleGlobal(options: {
     replaceRequestedItems: preparedBundle.replacesItemSelection,
     sourceRevision: preparedBundle.sourceRevision,
     disableModelInvocation: options.disableModelInvocation,
+    rootInstructionMode: options.rootInstructionMode,
   });
 
   const newDesiredState = [

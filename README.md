@@ -75,6 +75,7 @@ skul add [options] [source] [bundle]
 | `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
 | `-s, --ssh` | Clone the source via SSH instead of HTTPS. `git@host:owner/repo` URLs are auto-detected as SSH. Protocol is persisted and reused by `skul apply`. |
 | `-g, --global` | Install to global tool config under `~/` instead of the current worktree. |
+| `--root-instruction-mode <mode>` | Choose how root instructions are composed: `append` (default) or `replace`. Applies in project and global modes. |
 | `-y, --yes` | Install without interactive confirmation prompts. Selects all available agents and auto-approves overwrite/replacement confirmations. Also available on `remove`, `apply`, `update`, and `reset` for confirmation prompts. |
 | `-n, --dry-run` | Preview what would be written without making any changes. |
 
@@ -231,6 +232,7 @@ Skul uses two different workflows for root instruction files, depending on wheth
 
 - If the target root instruction file is not tracked, Skul materializes it like any other managed file and hides it through `.git/info/exclude`.
 - If the file already existed locally, Skul preserves that pre-existing content as the base and appends bundle content inside explicit `BEGIN/END SKUL BUNDLE` markers.
+- `--root-instruction-mode replace` explicitly discards the existing base from the effective file after warning, while preserving it for `remove`/`reset` restoration.
 - Multiple bundles can share the same untracked root instruction file. Skul recomposes the file in desired-state order and restores the preserved base content when the last contributing bundle is removed or `skul reset` runs.
 
 Example:
@@ -250,6 +252,7 @@ skul add github.com/sjquant/ai-bundles repo-standards --agent codex
 - Instead, Skul treats the worktree copy as generated output: it renders `HEAD:<path>` plus the bundle overlay, writes the effective file, and sets `git update-index --skip-worktree`.
 - `skul status` reports tracked root instructions in a separate `Shadowed Instructions` section, including whether the base blob is current, whether the overlay still matches, whether `skip-worktree` is set, and whether manual edits are suspected.
 - A tracked root instruction target has one active shadow owner at a time. Multi-bundle composition is supported for untracked root files, not for tracked shadows.
+- `--root-instruction-mode replace` is also supported for tracked shadows. It replaces the committed base in the effective worktree file and records the strategy for later refresh and restoration.
 
 Example:
 

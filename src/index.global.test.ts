@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PromptClient } from "./cli";
+import { createPromptClientStub } from "./cli.test-support";
 import { run } from "./index";
 import { readRegistryFile, writeRegistryFile } from "./registry";
 import {
@@ -181,6 +182,51 @@ describe("run --global", () => {
         ".claude/CLAUDE.md"
       ],
     ).toBe("# My personal rules\n");
+  });
+
+  it("replaces and later restores existing global root instruction content", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const claudePath = path.join(homeDir, ".claude", "CLAUDE.md");
+    fs.mkdirSync(path.dirname(claudePath), { recursive: true });
+    fs.writeFileSync(claudePath, "# Existing global rules\n");
+
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: {
+        "claude-code": { root_instruction: { path: "CLAUDE.md" } },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      "CLAUDE.md",
+      "# React guidance\n",
+    );
+
+    // When
+    await run(
+      ["add", "--global", "react-expert", "--root-instruction-mode", "replace"],
+      { homeDir, prompts: createPromptClientStub() },
+    );
+
+    // Then
+    expect(fs.readFileSync(claudePath, "utf8")).toBe(
+      `${formatRootInstructionBundleBlock(
+        "react-expert",
+        "# React guidance\n",
+        "github.com/user/ai-vault",
+      )}\n`,
+    );
+
+    // When
+    await run(["remove", "--global", "react-expert"], { homeDir });
+
+    // Then
+    expect(fs.readFileSync(claudePath, "utf8")).toBe(
+      "# Existing global rules\n",
+    );
   });
 
   it("restores base content when removing a bundle that owns the root instruction", async () => {
