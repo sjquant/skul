@@ -130,6 +130,40 @@ export function mergeBundleManifests(
   });
 }
 
+/** Applies repository-level manifest defaults before a bundle manifest override. */
+export function mergeBundleManifestDefaults(
+  inferred: BundleManifest,
+  defaults: BundleManifest,
+): BundleManifest {
+  const tools: BundleManifest["tools"] = Object.fromEntries(
+    Object.entries(inferred.tools).map(([toolName, targets]) => [
+      toolName,
+      { ...targets },
+    ]),
+  ) as BundleManifest["tools"];
+
+  for (const [toolName, targets] of Object.entries(defaults.tools)) {
+    tools[toolName as ToolName] = {
+      ...(tools[toolName as ToolName] ?? {}),
+      ...targets,
+    };
+  }
+
+  return expandRootInstructionTargets({
+    ...(defaults.name !== undefined
+      ? { name: defaults.name }
+      : inferred.name !== undefined
+        ? { name: inferred.name }
+        : {}),
+    ...(defaults.root_instruction_mode !== undefined
+      ? { root_instruction_mode: defaults.root_instruction_mode }
+      : inferred.root_instruction_mode !== undefined
+        ? { root_instruction_mode: inferred.root_instruction_mode }
+        : {}),
+    tools,
+  });
+}
+
 function withoutInferredRootInstructionTarget(
   targets: BundleManifest["tools"][ToolName] | undefined,
 ): BundleManifest["tools"][ToolName] {

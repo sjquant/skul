@@ -5,6 +5,7 @@ import {
   type BundleManifest,
   inferBundleManifest,
   MANIFEST_FILE_NAME,
+  mergeBundleManifestDefaults,
   mergeBundleManifests,
   parseBundleManifest,
   resolveCachedBundleLayout,
@@ -108,6 +109,13 @@ export function listCachedBundles(options: {
     return [];
   }
 
+  const sourceDirs = findSourceDirs(options.libraryDir);
+  const repositoryManifests = new Map(
+    sourceDirs.map((sourceDir) => [
+      sourceDir,
+      loadRepositoryManifest(sourceDir),
+    ]),
+  );
   const manifestFiles = findManifestFiles(options.libraryDir);
 
   const explicit = manifestFiles.flatMap((manifestFile) => {
@@ -129,10 +137,12 @@ export function listCachedBundles(options: {
       if (segments.length === 5) {
         const source = segments.slice(0, 3).join("/");
         const bundle = segments[3]!;
-        const mergedManifest = mergeBundleManifests(
+        const sourceDir = path.join(options.libraryDir, ...source.split("/"));
+        const inferred = mergeBundleManifestDefaults(
           inferBundleManifest(path.dirname(manifestFile)),
-          manifest,
+          metadataDefaults(repositoryManifests.get(sourceDir)),
         );
+        const mergedManifest = mergeBundleManifests(inferred, manifest);
         if (Object.keys(mergedManifest.tools).length === 0) {
           return [];
         }
@@ -156,9 +166,12 @@ export function listCachedBundles(options: {
     explicit.map((bundle) => `${bundle.source}::${bundle.bundle}`),
   );
 
-  const sourceDirs = findSourceDirs(options.libraryDir);
   const marketplace = sourceDirs.flatMap((sourceDir) =>
-    inferClaudeMarketplaceBundles(sourceDir, explicitBundleKeys),
+    inferClaudeMarketplaceBundles(
+      sourceDir,
+      explicitBundleKeys,
+      metadataDefaults(repositoryManifests.get(sourceDir)),
+    ),
   );
 
   const declaredBundleKeys = new Set([
@@ -190,7 +203,7 @@ export function listCachedBundles(options: {
       const relativeSourceDir = path.relative(options.libraryDir, sourceDir);
       const sourceSegments = relativeSourceDir.split(path.sep);
       const bundleName = sourceSegments[2]!;
-      const manifest = loadBundleManifestOrInfer(sourceDir);
+      const manifest = loadBundleManifest(sourceDir);
 
       if (Object.keys(manifest.tools).length === 0) {
         return [];
@@ -224,6 +237,7 @@ export function listCachedBundles(options: {
 function inferClaudeMarketplaceBundles(
   sourceDir: string,
   excludedBundleKeys: Set<string>,
+  repositoryManifest: BundleManifest = { tools: {} },
 ): CachedBundle[] {
   const marketplaceFile = path.join(sourceDir, CLAUDE_MARKETPLACE_FILE);
   const source = path.normalize(sourceDir).split(path.sep).slice(-3).join("/");
@@ -278,9 +292,12 @@ function inferClaudeMarketplaceBundles(
 
     let manifest: BundleManifest;
     try {
-      manifest = loadBundleManifest(bundleDir);
+      manifest = loadBundleManifest(bundleDir, repositoryManifest);
     } catch {
-      manifest = inferBundleManifest(bundleDir);
+      manifest = mergeBundleManifestDefaults(
+        inferBundleManifest(bundleDir),
+        repositoryManifest,
+      );
     }
     if (Object.keys(manifest.tools).length === 0) {
       return [];
@@ -352,6 +369,9 @@ export function findCachedBundle(options: {
       source,
       bundle: options.bundle,
     });
+    const repositoryDefaults = metadataDefaults(
+      loadRepositoryManifest(layout.sourceDir),
+    );
 
     // Try subdirectory bundle first: libraryDir/host/owner/repo/bundle-name/manifest.json
     if (fs.existsSync(layout.manifestFile)) {
@@ -359,12 +379,12 @@ export function findCachedBundle(options: {
         source,
         bundle: options.bundle,
         manifestFile: layout.manifestFile,
-        manifest: loadBundleManifest(layout.bundleDir),
+        manifest: loadBundleManifest(layout.bundleDir, repositoryDefaults),
       };
     }
 
     if (fs.existsSync(layout.bundleDir)) {
-      const manifest = loadBundleManifest(layout.bundleDir);
+      const manifest = loadBundleManifest(layout.bundleDir, repositoryDefaults);
       if (Object.keys(manifest.tools).length > 0) {
         return {
           source,
@@ -378,6 +398,7 @@ export function findCachedBundle(options: {
     const marketplaceBundle = inferClaudeMarketplaceBundles(
       layout.sourceDir,
       new Set(),
+      repositoryDefaults,
     ).find((bundle) => bundle.bundle === options.bundle);
     if (marketplaceBundle) {
       return marketplaceBundle;
@@ -394,7 +415,7 @@ export function findCachedBundle(options: {
       const hasNamedBundle = hasAnyNamedBundle(layout.sourceDir);
 
       if (!hasNamedBundle) {
-        const manifest = loadBundleManifestOrInfer(layout.sourceDir);
+        const manifest = loadBundleManifest(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
           return {
             source,
@@ -486,6 +507,9 @@ function inferSubdirectoryBundles(
 ): CachedBundle[] {
   const sourceSegments = path.normalize(sourceDir).split(path.sep).slice(-3);
   const source = sourceSegments.join("/");
+  const repositoryManifest = metadataDefaults(
+    loadRepositoryManifest(sourceDir),
+  );
 
   return safeReaddirSync(sourceDir).flatMap((entry) => {
     if (!entry.isDirectory() || entry.name.startsWith(".")) {
@@ -495,9 +519,12 @@ function inferSubdirectoryBundles(
     const bundleDir = path.join(sourceDir, entry.name);
     let manifest: BundleManifest;
     try {
-      manifest = loadBundleManifest(bundleDir);
+      manifest = loadBundleManifest(bundleDir, repositoryManifest);
     } catch {
-      manifest = inferBundleManifest(bundleDir);
+      manifest = mergeBundleManifestDefaults(
+        inferBundleManifest(bundleDir),
+        repositoryManifest,
+      );
     }
 
     if (Object.keys(manifest.tools).length === 0) {
@@ -521,8 +548,14 @@ function inferSubdirectoryBundles(
 }
 
 /** Loads a bundle's inferred filesystem manifest and overlays explicit metadata. */
-function loadBundleManifest(bundleDir: string): BundleManifest {
-  const inferred = inferBundleManifest(bundleDir);
+function loadBundleManifest(
+  bundleDir: string,
+  repositoryManifest?: BundleManifest,
+): BundleManifest {
+  const inferred = mergeBundleManifestDefaults(
+    inferBundleManifest(bundleDir),
+    repositoryManifest ?? { tools: {} },
+  );
   const manifestFile = path.join(bundleDir, MANIFEST_FILE_NAME);
 
   if (!fs.existsSync(manifestFile)) {
@@ -535,13 +568,35 @@ function loadBundleManifest(bundleDir: string): BundleManifest {
   return mergeBundleManifests(inferred, explicit);
 }
 
-/** Preserves discovery's fallback behavior when an optional root manifest is invalid. */
-function loadBundleManifestOrInfer(bundleDir: string): BundleManifest {
-  try {
-    return loadBundleManifest(bundleDir);
-  } catch {
-    return inferBundleManifest(bundleDir);
+function loadRepositoryManifest(sourceDir: string): BundleManifest | undefined {
+  const manifestFile = path.join(sourceDir, MANIFEST_FILE_NAME);
+  if (!fs.existsSync(manifestFile)) {
+    return undefined;
   }
+
+  try {
+    return parseBundleManifest(
+      JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
+    );
+  } catch (error) {
+    throw new Error(
+      `Invalid ${MANIFEST_FILE_NAME} in ${sourceDir}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
+  }
+}
+
+function metadataDefaults(
+  manifest: BundleManifest | undefined,
+): BundleManifest {
+  return {
+    ...(manifest?.root_instruction_mode !== undefined
+      ? { root_instruction_mode: manifest.root_instruction_mode }
+      : {}),
+    tools: {},
+  };
 }
 
 function hasAnyNamedBundle(sourceDir: string): boolean {
