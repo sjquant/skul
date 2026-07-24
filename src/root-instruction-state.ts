@@ -170,21 +170,12 @@ function collectRootInstructionContentByPath(options: {
           }
 
           seenBundleTargets.add(bundleTargetKey);
-          const existing = contentByPath.get(repoRelativePath) ?? {
-            parts: [],
-            mode: desiredEntry.root_instruction_mode ?? "append",
-          };
-          existing.parts.push(
-            wrapRootInstructionBundleContent({
-              bundleName: desiredEntry.bundle,
-              source: desiredEntry.source,
-              content,
-            }),
-          );
-          if (desiredEntry.root_instruction_mode === "replace") {
-            existing.mode = "replace";
-          }
-          contentByPath.set(repoRelativePath, existing);
+          addRootInstructionPart({
+            contentByPath,
+            repoRelativePath,
+            desiredEntry,
+            content,
+          });
         }
       }
     } else {
@@ -228,27 +219,45 @@ function collectRootInstructionContentByPath(options: {
           }
 
           seenBundleTargets.add(bundleTargetKey);
-          const existing = contentByPath.get(repoRelativePath) ?? {
-            parts: [],
-            mode: desiredEntry.root_instruction_mode ?? "append",
-          };
-          existing.parts.push(
-            wrapRootInstructionBundleContent({
-              bundleName: desiredEntry.bundle,
-              source: desiredEntry.source,
-              content,
-            }),
-          );
-          if (desiredEntry.root_instruction_mode === "replace") {
-            existing.mode = "replace";
-          }
-          contentByPath.set(repoRelativePath, existing);
+          addRootInstructionPart({
+            contentByPath,
+            repoRelativePath,
+            desiredEntry,
+            content,
+          });
         }
       }
     }
   }
 
   return contentByPath;
+}
+
+/** Adds one bundle's root content and rejects ambiguous mixed composition modes. */
+function addRootInstructionPart(options: {
+  contentByPath: Map<string, { parts: string[]; mode: RootInstructionMode }>;
+  repoRelativePath: string;
+  desiredEntry: DesiredBundleEntry;
+  content: string;
+}): void {
+  const mode = options.desiredEntry.root_instruction_mode ?? "append";
+  const existing = options.contentByPath.get(options.repoRelativePath);
+
+  if (existing && existing.mode !== mode) {
+    throw new Error(
+      `Cannot compose ${options.repoRelativePath} because bundles use mixed root instruction modes (${existing.mode} and ${mode})`,
+    );
+  }
+
+  const composed = existing ?? { parts: [], mode };
+  composed.parts.push(
+    wrapRootInstructionBundleContent({
+      bundleName: options.desiredEntry.bundle,
+      source: options.desiredEntry.source,
+      content: options.content,
+    }),
+  );
+  options.contentByPath.set(options.repoRelativePath, composed);
 }
 
 /** Restores preserved base content for root-instruction files that Skul no longer manages. */

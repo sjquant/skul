@@ -246,6 +246,91 @@ describe("listCachedBundles", () => {
     expect(Object.keys(bundles[0]!.manifest.tools).length).toBeGreaterThan(0);
   });
 
+  it("merges repo-root manifest metadata into inferred tools", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/metadata-root";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeManifestAtRepoRoot(libraryDir, source, {
+      root_instruction_mode: "replace",
+    });
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      bundle: "metadata-root",
+      manifest: { root_instruction_mode: "replace" },
+    });
+    expect(Object.keys(bundles[0]!.manifest.tools)).toContain("codex");
+  });
+
+  it("uses bundle-root manifest targets over inferred filesystem targets", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/metadata-bundle";
+    const bundleDir = path.join(libraryDir, ...source.split("/"), "standards");
+    fs.mkdirSync(bundleDir, { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, "AGENTS.md"), "# standards\n");
+    fs.writeFileSync(
+      path.join(bundleDir, "manifest.json"),
+      JSON.stringify({
+        tools: { codex: { skills: { path: "skills" } } },
+        root_instruction_mode: "replace",
+      }),
+    );
+    fs.mkdirSync(path.join(bundleDir, "skills"), { recursive: true });
+
+    // When
+    const bundle = listCachedBundles({ libraryDir }).find(
+      (candidate) => candidate.bundle === "standards",
+    );
+
+    // Then
+    expect(bundle?.manifest).toMatchObject({
+      root_instruction_mode: "replace",
+      tools: {
+        codex: {
+          skills: { path: "skills" },
+        },
+      },
+    });
+  });
+
+  it("uses the bundle directory name instead of a manifest name for identity", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/named-bundles";
+    const bundleDir = path.join(libraryDir, ...source.split("/"), "standards");
+    fs.mkdirSync(path.join(bundleDir, "skills", "review"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(bundleDir, "skills", "review", "SKILL.md"),
+      "# review\n",
+    );
+    fs.writeFileSync(
+      path.join(bundleDir, "manifest.json"),
+      JSON.stringify({ name: "display name" }),
+    );
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles[0]).toMatchObject({
+      bundle: "standards",
+      manifest: { name: "display name" },
+    });
+  });
+
   it("infers a manifest-free subdirectory bundle from canonical directories", () => {
     // Given
     const libraryDir = createLibraryDir();

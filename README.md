@@ -145,6 +145,16 @@ github.com/sjquant/react-bundle
 └── commands/
 ```
 
+An optional `manifest.json` can add metadata without repeating inferred tool targets. For example:
+
+```json
+{
+  "root_instruction_mode": "replace"
+}
+```
+
+When `tools` is present, its targets override inferred targets and any remaining inferred targets are retained. In a multi-bundle repository, a bundle directory manifest takes precedence over repository-root metadata. Bundle identity remains the directory name (or repository slug for repo-as-bundle); `name` is display metadata only.
+
 Inside a bundle, two content layouts are supported:
 
 **Canonical** — `skills/`, `commands/`, `agents/`, `AGENTS.md`, and `CLAUDE.md` at the top level. Skul copies each directory to every tool that supports it, and treats root instruction files as generic cross-tool sources.
@@ -234,6 +244,7 @@ Skul uses two different workflows for root instruction files, depending on wheth
 - If the file already existed locally, Skul preserves that pre-existing content as the base and appends bundle content inside explicit `BEGIN/END SKUL BUNDLE` markers.
 - `--root-instruction-mode replace` explicitly discards the existing base from the effective file after warning, while preserving it for `remove`/`reset` restoration.
 - Multiple bundles can share the same untracked root instruction file. Skul recomposes the file in desired-state order and restores the preserved base content when the last contributing bundle is removed or `skul reset` runs.
+- Mode precedence is CLI option, then bundle manifest, then `append`. Bundles sharing one root instruction file must use the same mode; mixed `append`/`replace` composition is rejected before files are changed.
 
 Example:
 

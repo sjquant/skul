@@ -18,6 +18,7 @@ export interface BundleManifestTarget {
 
 export interface BundleManifest {
   name?: string;
+  root_instruction_mode?: "append" | "replace";
   tools: Partial<
     Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
   >;
@@ -36,10 +37,13 @@ type UnknownRecord = Record<string, unknown>;
 /** Parses and validates a manifest JSON object into the internal bundle schema. */
 export function parseBundleManifest(input: unknown): BundleManifest {
   const manifest = expectRecord(input, "manifest");
-  const toolsInput = expectRecord(manifest.tools, "tools");
+  const toolsInput =
+    manifest.tools === undefined
+      ? undefined
+      : expectRecord(manifest.tools, "tools");
 
   const tools = Object.fromEntries(
-    Object.entries(toolsInput).map(([toolName, targetsInput]) => {
+    Object.entries(toolsInput ?? {}).map(([toolName, targetsInput]) => {
       const toolDef = parseToolDefinition(toolName, `tools.${toolName}`);
       const toolTargetsInput = expectRecord(targetsInput, `tools.${toolName}`);
 
@@ -71,7 +75,7 @@ export function parseBundleManifest(input: unknown): BundleManifest {
     Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
   >;
 
-  if (Object.keys(tools).length === 0) {
+  if (toolsInput !== undefined && Object.keys(tools).length === 0) {
     throw new Error("tools must declare at least one tool");
   }
 
@@ -79,6 +83,48 @@ export function parseBundleManifest(input: unknown): BundleManifest {
     ...(typeof manifest.name === "string" && manifest.name.trim() !== ""
       ? { name: manifest.name }
       : {}),
+    ...(manifest.root_instruction_mode !== undefined
+      ? {
+          root_instruction_mode: expectRootInstructionMode(
+            manifest.root_instruction_mode,
+          ),
+        }
+      : {}),
+    tools,
+  });
+}
+
+/** Merges explicit manifest metadata and tool targets over filesystem inference. */
+export function mergeBundleManifests(
+  inferred: BundleManifest,
+  explicit: BundleManifest,
+): BundleManifest {
+  const tools: BundleManifest["tools"] = {};
+  if (Object.keys(explicit.tools).length === 0) {
+    for (const [toolName, targets] of Object.entries(inferred.tools)) {
+      tools[toolName as ToolName] = { ...targets };
+    }
+  } else {
+    // Explicit tool declarations own the tool target set. Root-only bundles still
+    // use inference because they omit tools entirely.
+    for (const [toolName, targets] of Object.entries(explicit.tools)) {
+      tools[toolName as ToolName] = {
+        ...targets,
+      };
+    }
+  }
+
+  return expandRootInstructionTargets({
+    ...(explicit.name !== undefined
+      ? { name: explicit.name }
+      : inferred.name !== undefined
+        ? { name: inferred.name }
+        : {}),
+    ...(explicit.root_instruction_mode !== undefined
+      ? { root_instruction_mode: explicit.root_instruction_mode }
+      : inferred.root_instruction_mode !== undefined
+        ? { root_instruction_mode: inferred.root_instruction_mode }
+        : {}),
     tools,
   });
 }
@@ -131,6 +177,14 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   }
 
   return expandRootInstructionTargets({ tools });
+}
+
+function expectRootInstructionMode(input: unknown): "append" | "replace" {
+  if (input !== "append" && input !== "replace") {
+    throw new Error('root_instruction_mode must be "append" or "replace"');
+  }
+
+  return input;
 }
 
 function addRefsFileTargets(
@@ -278,6 +332,9 @@ function expandRootInstructionTargets(
 
   return {
     ...(manifest.name !== undefined ? { name: manifest.name } : {}),
+    ...(manifest.root_instruction_mode !== undefined
+      ? { root_instruction_mode: manifest.root_instruction_mode }
+      : {}),
     tools: expandedTools,
   };
 }

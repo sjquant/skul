@@ -2197,6 +2197,13 @@ async function updateBundles(options: {
           existingShadowedFiles: currentShadowedFiles,
           materializedBundles: currentBundles,
         });
+      assertRootInstructionModeCompatibility({
+        desiredState: nextDesiredState,
+        materializedBundles: currentBundles,
+        currentBundle: entry.bundle,
+        targetPaths: plannedRootInstructionTargets,
+        mode: entry.root_instruction_mode,
+      });
 
       if (existingBundleState) {
         const replacementAllowed = await confirmManagedFileRemovals(
@@ -2232,8 +2239,6 @@ async function updateBundles(options: {
       await confirmRootInstructionReplacements({
         repoRoot: gitContext.worktreeRoot,
         targetPaths: plannedRootInstructionTargets,
-        managedTargetPaths:
-          collectManagedRootInstructionTargets(currentBundles),
         mode: entry.root_instruction_mode,
         prompts: options.prompts,
       });
@@ -2291,6 +2296,7 @@ async function updateBundles(options: {
           deferredWriteTargets:
             trackedRootInstructionShadowPlan.deferredMaterializationTargets,
           rootInstructionBaseContents,
+          rootInstructionMode: entry.root_instruction_mode,
           resolveFileConflict: options.prompts.resolveFileConflict,
           disableModelInvocation: entry.disable_model_invocation,
           resolvedBundleItemRefs,
@@ -2558,9 +2564,7 @@ async function applyBundle(options: {
     registry.repos[gitContext.repoFingerprint]?.desired_state ?? [];
   const effectiveRootInstructionMode =
     options.rootInstructionMode ??
-    existingDesiredState.find(
-      (entry) => entry.bundle === preparedBundle.cachedBundle.bundle,
-    )?.root_instruction_mode;
+    preparedBundle.cachedBundle.manifest.root_instruction_mode;
   const resolvedBundleItemRefs = await resolveBundleItemRefs({
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
@@ -2598,6 +2602,13 @@ async function applyBundle(options: {
     existingShadowedFiles: currentShadowedFiles,
     materializedBundles: existingWorktreeState?.bundles ?? {},
   });
+  assertRootInstructionModeCompatibility({
+    desiredState: existingDesiredState,
+    materializedBundles: existingWorktreeState?.bundles ?? {},
+    currentBundle: preparedBundle.cachedBundle.bundle,
+    targetPaths: plannedRootInstructionTargets,
+    mode: effectiveRootInstructionMode,
+  });
   rootInstructionBaseContents = captureRootInstructionBaseContents({
     repoRoot: gitContext.worktreeRoot,
     targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
@@ -2609,9 +2620,6 @@ async function applyBundle(options: {
   await confirmRootInstructionReplacements({
     repoRoot: gitContext.worktreeRoot,
     targetPaths: plannedRootInstructionTargets,
-    managedTargetPaths: collectManagedRootInstructionTargets(
-      existingWorktreeState?.bundles ?? {},
-    ),
     mode: effectiveRootInstructionMode,
     prompts: options.prompts,
   });
@@ -2717,6 +2725,7 @@ async function applyBundle(options: {
     deferredWriteTargets:
       trackedRootInstructionShadowPlan.deferredMaterializationTargets,
     rootInstructionBaseContents,
+    rootInstructionMode: effectiveRootInstructionMode,
     resolveFileConflict: options.prompts.resolveFileConflict,
     disableModelInvocation: options.disableModelInvocation,
     resolvedBundleItemRefs,
@@ -2749,7 +2758,7 @@ async function applyBundle(options: {
     replaceRequestedItems: preparedBundle.replacesItemSelection,
     sourceRevision: preparedBundle.sourceRevision,
     disableModelInvocation: options.disableModelInvocation,
-    rootInstructionMode: options.rootInstructionMode,
+    rootInstructionMode: effectiveRootInstructionMode,
   });
   const newDesiredState = [
     ...upsertDesiredEntryPreservingOrder(existingDesiredState, newDesiredEntry),
@@ -5250,6 +5259,13 @@ async function applyWorktree(options: {
       existingShadowedFiles: currentShadowedFiles,
       materializedBundles: currentBundles,
     });
+    assertRootInstructionModeCompatibility({
+      desiredState: repoState.desired_state,
+      materializedBundles: currentBundles,
+      currentBundle: entry.bundle,
+      targetPaths: plannedRootInstructionTargets,
+      mode: entry.root_instruction_mode,
+    });
     rootInstructionBaseContents = captureRootInstructionBaseContents({
       repoRoot: gitContext.worktreeRoot,
       targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
@@ -5259,7 +5275,6 @@ async function applyWorktree(options: {
     await confirmRootInstructionReplacements({
       repoRoot: gitContext.worktreeRoot,
       targetPaths: plannedRootInstructionTargets,
-      managedTargetPaths: collectManagedRootInstructionTargets(currentBundles),
       mode: entry.root_instruction_mode,
       prompts: options.prompts,
     });
@@ -5369,6 +5384,7 @@ async function applyWorktree(options: {
       deferredWriteTargets:
         trackedRootInstructionShadowPlan.deferredMaterializationTargets,
       rootInstructionBaseContents,
+      rootInstructionMode: entry.root_instruction_mode,
       resolveFileConflict: options.prompts.resolveFileConflict,
       resolvedBundleItemRefs,
     });
@@ -5616,6 +5632,43 @@ function planTrackedRootInstructionShadows(options: {
     untrackedTargetPaths,
     activeShadowPaths: trackedTargetPaths,
   };
+}
+
+/** Rejects append/replace mixtures before any bundle files are removed or written. */
+function assertRootInstructionModeCompatibility(options: {
+  desiredState: DesiredBundleEntry[];
+  materializedBundles: MaterializedState["bundles"];
+  currentBundle: string;
+  targetPaths: Set<string>;
+  mode?: RootInstructionMode;
+}): void {
+  const mode = options.mode ?? "append";
+
+  for (const entry of options.desiredState) {
+    if (entry.bundle === options.currentBundle) {
+      continue;
+    }
+
+    const materializedBundle = options.materializedBundles[entry.bundle];
+    if (!materializedBundle) {
+      continue;
+    }
+
+    const sharesRootPath = Object.values(materializedBundle.tools).some(
+      (toolState) =>
+        toolState.files.some((filePath) => options.targetPaths.has(filePath)),
+    );
+    if (!sharesRootPath) {
+      continue;
+    }
+
+    const existingMode = entry.root_instruction_mode ?? "append";
+    if (existingMode !== mode) {
+      throw new Error(
+        `Cannot compose shared root instructions with mixed modes: ${existingMode} and ${mode}`,
+      );
+    }
+  }
 }
 
 function assertTrackedRootInstructionShadowConflicts(options: {
@@ -6451,11 +6504,10 @@ async function confirmManagedFileRemovals(
   return true;
 }
 
-/** Warns before replace mode discards an existing unmanaged root instruction file. */
+/** Warns before replace mode discards an existing root instruction file. */
 async function confirmRootInstructionReplacements(options: {
   repoRoot: string;
   targetPaths: Set<string>;
-  managedTargetPaths: Set<string>;
   mode?: RootInstructionMode;
   prompts: PromptClient;
 }): Promise<void> {
@@ -6464,10 +6516,6 @@ async function confirmRootInstructionReplacements(options: {
   }
 
   for (const relativePath of options.targetPaths) {
-    if (options.managedTargetPaths.has(relativePath)) {
-      continue;
-    }
-
     const targetPath = path.join(options.repoRoot, relativePath);
     if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
       continue;
@@ -6674,9 +6722,7 @@ async function applyBundleGlobal(options: {
   const existingDesiredState = existingGlobal?.desired_state ?? [];
   const effectiveRootInstructionMode =
     options.rootInstructionMode ??
-    existingDesiredState.find(
-      (entry) => entry.bundle === preparedBundle.cachedBundle.bundle,
-    )?.root_instruction_mode;
+    preparedBundle.cachedBundle.manifest.root_instruction_mode;
 
   const resolvedBundleItemRefs = await resolveBundleItemRefs({
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
@@ -6700,6 +6746,13 @@ async function applyBundleGlobal(options: {
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((p) => isRootInstructionPath(p)),
   );
+  assertRootInstructionModeCompatibility({
+    desiredState: existingDesiredState,
+    materializedBundles: existingGlobal?.materialized_state.bundles ?? {},
+    currentBundle: preparedBundle.cachedBundle.bundle,
+    targetPaths: plannedRootInstructionTargets,
+    mode: effectiveRootInstructionMode,
+  });
 
   const existingBundles = existingGlobal?.materialized_state.bundles ?? {};
 
@@ -6712,7 +6765,6 @@ async function applyBundleGlobal(options: {
   await confirmRootInstructionReplacements({
     repoRoot: options.homeDir,
     targetPaths: plannedRootInstructionTargets,
-    managedTargetPaths: collectManagedRootInstructionTargets(existingBundles),
     mode: effectiveRootInstructionMode,
     prompts: options.prompts,
   });
@@ -6789,6 +6841,7 @@ async function applyBundleGlobal(options: {
     allowFileOverwriteTargets:
       collectManagedRootInstructionTargets(existingBundles),
     rootInstructionBaseContents,
+    rootInstructionMode: effectiveRootInstructionMode,
     resolveFileConflict: options.prompts.resolveFileConflict,
     pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     itemSelectors: preparedBundle.selectedItems,
@@ -6818,7 +6871,7 @@ async function applyBundleGlobal(options: {
     replaceRequestedItems: preparedBundle.replacesItemSelection,
     sourceRevision: preparedBundle.sourceRevision,
     disableModelInvocation: options.disableModelInvocation,
-    rootInstructionMode: options.rootInstructionMode,
+    rootInstructionMode: effectiveRootInstructionMode,
   });
 
   const newDesiredState = [

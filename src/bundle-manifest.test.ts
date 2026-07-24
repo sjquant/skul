@@ -33,6 +33,20 @@ describe("parseBundleManifest", () => {
     });
   });
 
+  it("accepts metadata-only manifests without tools or name", () => {
+    // Given
+    const manifest = { root_instruction_mode: "replace" };
+
+    // When
+    const parsed = parseBundleManifest(manifest);
+
+    // Then
+    expect(parsed).toEqual({
+      root_instruction_mode: "replace",
+      tools: {},
+    });
+  });
+
   it("accepts a multi-tool bundle manifest", () => {
     // Given
     const manifest = {

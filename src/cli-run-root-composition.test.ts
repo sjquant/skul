@@ -481,6 +481,164 @@ describe("run", () => {
     );
   });
 
+  it("uses manifest mode by default but lets the CLI override it", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "repo-standards", {
+      name: "repo-standards",
+      root_instruction_mode: "replace",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "repo-standards",
+      "AGENTS.md",
+      "# Repo standards\n",
+    );
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user rules\n");
+
+    // When
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then: manifest replace mode is used when no CLI mode is provided.
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      `${formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\n",
+        "github.com/user/ai-vault",
+      )}\n`,
+    );
+
+    // When: reset removes materialization but preserves desired state, then apply.
+    await run(["reset"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    await run(["apply"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then: apply keeps the manifest-derived mode.
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      `${formatRootInstructionBundleBlock(
+        "repo-standards",
+        "# Repo standards\n",
+        "github.com/user/ai-vault",
+      )}\n`,
+    );
+
+    // When
+    await run(
+      [
+        "add",
+        "repo-standards",
+        "--agent",
+        "codex",
+        "--root-instruction-mode",
+        "append",
+      ],
+      { homeDir, cwd: repoRoot, prompts: createPromptClientStub() },
+    );
+
+    // Then: the explicit CLI mode overrides manifest metadata.
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toContain(
+      "user rules\n",
+    );
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(Object.values(registry.repos)[0]?.desired_state[0]).toMatchObject({
+      root_instruction_mode: "append",
+    });
+  });
+
+  it("aborts replace mode when the replacement warning is rejected", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\n",
+    });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user rules\n");
+    const resolveFileConflict = vi.fn(async () => {
+      throw new Error("replacement declined");
+    });
+
+    // When / Then
+    await expect(
+      run(
+        [
+          "add",
+          "repo-standards",
+          "--agent",
+          "codex",
+          "--root-instruction-mode",
+          "replace",
+        ],
+        {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub({ resolveFileConflict }),
+        },
+      ),
+    ).rejects.toThrow("replacement declined");
+    expect(resolveFileConflict).toHaveBeenCalledWith("AGENTS.md");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "user rules\n",
+    );
+  });
+
+  it("rejects mixed append and replace bundles before changing the shared file", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\n",
+    });
+    writeManifest(homeDir, "github.com/user/ai-vault", "security", {
+      name: "security",
+      root_instruction_mode: "replace",
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "security",
+      "AGENTS.md",
+      "# Security\n",
+    );
+
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const before = fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
+
+    // When / Then
+    await expect(
+      run(["add", "security", "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrow(/mixed modes/i);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      before,
+    );
+  });
+
   it("restores pre-existing AGENTS.md content when the last shared root bundle is removed", async () => {
     // Given
     const homeDir = createHomeDir();

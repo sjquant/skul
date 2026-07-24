@@ -5,6 +5,7 @@ import {
   type BundleManifest,
   inferBundleManifest,
   MANIFEST_FILE_NAME,
+  mergeBundleManifests,
   parseBundleManifest,
   resolveCachedBundleLayout,
 } from "./bundle-manifest";
@@ -128,7 +129,21 @@ export function listCachedBundles(options: {
       if (segments.length === 5) {
         const source = segments.slice(0, 3).join("/");
         const bundle = segments[3]!;
-        return [{ source, bundle, manifestFile, manifest }];
+        const mergedManifest = mergeBundleManifests(
+          inferBundleManifest(path.dirname(manifestFile)),
+          manifest,
+        );
+        if (Object.keys(mergedManifest.tools).length === 0) {
+          return [];
+        }
+        return [
+          {
+            source,
+            bundle,
+            manifestFile,
+            manifest: mergedManifest,
+          },
+        ];
       }
 
       return [];
@@ -175,7 +190,7 @@ export function listCachedBundles(options: {
       const relativeSourceDir = path.relative(options.libraryDir, sourceDir);
       const sourceSegments = relativeSourceDir.split(path.sep);
       const bundleName = sourceSegments[2]!;
-      const manifest = inferBundleManifest(sourceDir);
+      const manifest = loadBundleManifestOrInfer(sourceDir);
 
       if (Object.keys(manifest.tools).length === 0) {
         return [];
@@ -261,7 +276,12 @@ function inferClaudeMarketplaceBundles(
       return [];
     }
 
-    const manifest = inferBundleManifest(bundleDir);
+    let manifest: BundleManifest;
+    try {
+      manifest = loadBundleManifest(bundleDir);
+    } catch {
+      manifest = inferBundleManifest(bundleDir);
+    }
     if (Object.keys(manifest.tools).length === 0) {
       return [];
     }
@@ -339,14 +359,12 @@ export function findCachedBundle(options: {
         source,
         bundle: options.bundle,
         manifestFile: layout.manifestFile,
-        manifest: parseBundleManifest(
-          JSON.parse(fs.readFileSync(layout.manifestFile, "utf8")) as unknown,
-        ),
+        manifest: loadBundleManifest(layout.bundleDir),
       };
     }
 
     if (fs.existsSync(layout.bundleDir)) {
-      const manifest = inferBundleManifest(layout.bundleDir);
+      const manifest = loadBundleManifest(layout.bundleDir);
       if (Object.keys(manifest.tools).length > 0) {
         return {
           source,
@@ -376,7 +394,7 @@ export function findCachedBundle(options: {
       const hasNamedBundle = hasAnyNamedBundle(layout.sourceDir);
 
       if (!hasNamedBundle) {
-        const manifest = inferBundleManifest(layout.sourceDir);
+        const manifest = loadBundleManifestOrInfer(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
           return {
             source,
@@ -475,7 +493,12 @@ function inferSubdirectoryBundles(
     }
 
     const bundleDir = path.join(sourceDir, entry.name);
-    const manifest = inferBundleManifest(bundleDir);
+    let manifest: BundleManifest;
+    try {
+      manifest = loadBundleManifest(bundleDir);
+    } catch {
+      manifest = inferBundleManifest(bundleDir);
+    }
 
     if (Object.keys(manifest.tools).length === 0) {
       return [];
@@ -495,6 +518,30 @@ function inferSubdirectoryBundles(
       },
     ];
   });
+}
+
+/** Loads a bundle's inferred filesystem manifest and overlays explicit metadata. */
+function loadBundleManifest(bundleDir: string): BundleManifest {
+  const inferred = inferBundleManifest(bundleDir);
+  const manifestFile = path.join(bundleDir, MANIFEST_FILE_NAME);
+
+  if (!fs.existsSync(manifestFile)) {
+    return inferred;
+  }
+
+  const explicit = parseBundleManifest(
+    JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
+  );
+  return mergeBundleManifests(inferred, explicit);
+}
+
+/** Preserves discovery's fallback behavior when an optional root manifest is invalid. */
+function loadBundleManifestOrInfer(bundleDir: string): BundleManifest {
+  try {
+    return loadBundleManifest(bundleDir);
+  } catch {
+    return inferBundleManifest(bundleDir);
+  }
 }
 
 function hasAnyNamedBundle(sourceDir: string): boolean {
@@ -517,10 +564,17 @@ function hasValidSubdirectoryBundleManifest(sourceDir: string): boolean {
     }
 
     try {
-      parseBundleManifest(
+      const manifest = parseBundleManifest(
         JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
       );
-      return true;
+      return (
+        Object.keys(
+          mergeBundleManifests(
+            inferBundleManifest(path.dirname(manifestFile)),
+            manifest,
+          ).tools,
+        ).length > 0
+      );
     } catch {
       return false;
     }

@@ -163,6 +163,9 @@ export function upsertRepoState(
           ...(entry.resolved_commit !== undefined
             ? { resolved_commit: entry.resolved_commit }
             : {}),
+          ...(entry.root_instruction_mode !== undefined
+            ? { root_instruction_mode: entry.root_instruction_mode }
+            : {}),
         })),
       },
     },
@@ -573,6 +576,9 @@ function sortRegistry(registry: Registry): Registry {
                 : {}),
               ...(entry.resolved_commit !== undefined
                 ? { resolved_commit: entry.resolved_commit }
+                : {}),
+              ...(entry.root_instruction_mode !== undefined
+                ? { root_instruction_mode: entry.root_instruction_mode }
                 : {}),
             })),
           },
