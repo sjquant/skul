@@ -496,6 +496,44 @@ describe("run", () => {
     });
   });
 
+  it("preserves manifest root instruction mode during update", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "repo-standards",
+      manifest: {
+        root_instruction_mode: "replace",
+        tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+      },
+      files: { "AGENTS.md": "# standards v1\n" },
+    });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# local rules\n");
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      "AGENTS.md": "# standards v2\n",
+    });
+
+    // When
+    await run(["update"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toContain(
+      "# standards v2",
+    );
+    expect(
+      fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8"),
+    ).not.toContain("# local rules");
+  });
+
   it("updates over a modified managed file without prompting when update uses yes", async () => {
     // Given
     const homeDir = createHomeDir();

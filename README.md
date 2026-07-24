@@ -153,7 +153,7 @@ An optional `manifest.json` can add metadata without repeating inferred tool tar
 }
 ```
 
-When `tools` is present, its targets override inferred targets and any remaining inferred targets are retained. In a multi-bundle repository, a bundle directory manifest takes precedence over repository-root metadata. Bundle identity remains the directory name (or repository slug for repo-as-bundle); `name` is display metadata only.
+When `tools` is present, declared tools are the selection boundary: inferred non-root targets for those tools are retained, while explicit targets override them. Root-instruction targets must be declared explicitly in that mode so stale filesystem files cannot reappear after an update. In a multi-bundle repository, a bundle directory manifest takes precedence over repository-root metadata. Bundle identity remains the directory name (or repository slug for repo-as-bundle); `name` is display metadata only.
 
 Inside a bundle, two content layouts are supported:
 

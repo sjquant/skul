@@ -105,10 +105,11 @@ export function mergeBundleManifests(
       tools[toolName as ToolName] = { ...targets };
     }
   } else {
-    // Explicit tool declarations own the tool target set. Root-only bundles still
-    // use inference because they omit tools entirely.
     for (const [toolName, targets] of Object.entries(explicit.tools)) {
       tools[toolName as ToolName] = {
+        ...withoutInferredRootInstructionTarget(
+          inferred.tools[toolName as ToolName],
+        ),
         ...targets,
       };
     }
@@ -127,6 +128,15 @@ export function mergeBundleManifests(
         : {}),
     tools,
   });
+}
+
+function withoutInferredRootInstructionTarget(
+  targets: BundleManifest["tools"][ToolName] | undefined,
+): BundleManifest["tools"][ToolName] {
+  if (!targets) return {};
+
+  const { root_instruction: _rootInstruction, ...nonRootTargets } = targets;
+  return nonRootTargets;
 }
 
 /** Infers a bundle manifest from canonical directories and native tool paths on disk. */

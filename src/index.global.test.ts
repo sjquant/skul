@@ -193,6 +193,7 @@ describe("run --global", () => {
 
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
+      root_instruction_mode: "replace",
       tools: {
         "claude-code": { root_instruction: { path: "CLAUDE.md" } },
       },
@@ -206,10 +207,10 @@ describe("run --global", () => {
     );
 
     // When
-    await run(
-      ["add", "--global", "react-expert", "--root-instruction-mode", "replace"],
-      { homeDir, prompts: createPromptClientStub() },
-    );
+    await run(["add", "--global", "react-expert"], {
+      homeDir,
+      prompts: createPromptClientStub(),
+    });
 
     // Then
     expect(fs.readFileSync(claudePath, "utf8")).toBe(
@@ -219,6 +220,19 @@ describe("run --global", () => {
         "github.com/user/ai-vault",
       )}\n`,
     );
+
+    // When: reset restores the base, then apply reuses manifest mode.
+    await run(["reset", "--global"], {
+      homeDir,
+      prompts: createPromptStub(),
+    });
+    expect(fs.readFileSync(claudePath, "utf8")).toBe(
+      "# Existing global rules\n",
+    );
+    await run(["apply", "--global"], {
+      homeDir,
+      prompts: createPromptStub(),
+    });
 
     // When
     await run(["remove", "--global", "react-expert"], { homeDir });

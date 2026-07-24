@@ -3,11 +3,42 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  mergeBundleManifests,
   parseBundleManifest,
   resolveCachedBundleLayout,
 } from "./bundle-manifest";
 
 describe("parseBundleManifest", () => {
+  it("merges inferred targets for an explicitly declared tool", () => {
+    // Given
+    const inferred = {
+      tools: {
+        codex: {
+          skills: { path: "skills" },
+          commands: { path: "commands" },
+          root_instruction: { path: "AGENTS.md" },
+        },
+        "claude-code": {
+          root_instruction: { path: "AGENTS.md" },
+        },
+      },
+    };
+    const explicit = parseBundleManifest({
+      tools: { codex: { skills: { path: ".codex/skills" } } },
+    });
+
+    // When
+    const merged = mergeBundleManifests(inferred, explicit);
+
+    // Then
+    expect(merged.tools).toEqual({
+      codex: {
+        skills: { path: ".codex/skills" },
+        commands: { path: "commands" },
+      },
+    });
+  });
+
   it("accepts a single-tool bundle manifest", () => {
     // Given
     const manifest = {
@@ -235,6 +266,11 @@ describe("parseBundleManifest", () => {
       /tools\.claude-code\.skills\.path must be a relative path/i,
     ],
     ["null input", null, /manifest must be an object/i],
+    [
+      "invalid root instruction mode",
+      { root_instruction_mode: "invalid" },
+      /root_instruction_mode must be "append" or "replace"/i,
+    ],
     [
       "tools is an array",
       { tools: [{ "claude-code": { skills: { path: "skills" } } }] },
