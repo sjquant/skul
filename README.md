@@ -157,6 +157,8 @@ When `tools` is present, declared tools are the selection boundary: inferred non
 
 In a multi-bundle repository, the repository-root manifest supplies metadata defaults such as `root_instruction_mode` to child bundles, and a child manifest overrides those defaults. Repository-root `tools` declarations are used for repo-as-bundle layouts; child directories define their own tool targets in multi-bundle layouts.
 
+In a multi-bundle repository, root-level `AGENTS.md` and `CLAUDE.md` are not treated as bundle content. Skul emits one warning with guidance to move shared instructions into `bundles/common/`; child bundle instructions continue to be discovered and composed normally. A repository with no named child bundles remains a repo-as-bundle, so its root instruction files are preserved and inferred as bundle content.
+
 Inside a bundle, two content layouts are supported:
 
 **Canonical** — `skills/`, `commands/`, `agents/`, `AGENTS.md`, and `CLAUDE.md` at the top level. Skul copies each directory to every tool that supports it, and treats root instruction files as generic cross-tool sources.

@@ -20,6 +20,8 @@ export interface CachedBundle {
 }
 
 const CLAUDE_MARKETPLACE_FILE = path.join(".claude-plugin", "marketplace.json");
+const ROOT_INSTRUCTION_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
+const warnedMultiBundleRootInstructions = new Set<string>();
 
 /**
  * Infers the preferred clone protocol from a raw user-supplied source string.
@@ -190,6 +192,10 @@ export function listCachedBundles(options: {
       path.join(options.libraryDir, ...bundle.source.split("/")),
     ),
   );
+
+  for (const sourceDir of sourceDirsWithSubdirectoryBundle) {
+    warnAboutIgnoredMultiBundleRootInstructions(sourceDir);
+  }
 
   // Inferred repo-as-bundle: repos without subdirectory bundle manifests but with
   // recognisable bundle directories (skills/, commands/, agents/, .claude/, etc.).
@@ -372,6 +378,11 @@ export function findCachedBundle(options: {
     const repositoryDefaults = metadataDefaults(
       loadRepositoryManifest(layout.sourceDir),
     );
+    const hasNamedBundle = hasAnyNamedBundle(layout.sourceDir);
+
+    if (hasNamedBundle) {
+      warnAboutIgnoredMultiBundleRootInstructions(layout.sourceDir);
+    }
 
     // Try subdirectory bundle first: libraryDir/host/owner/repo/bundle-name/manifest.json
     if (fs.existsSync(layout.manifestFile)) {
@@ -412,8 +423,6 @@ export function findCachedBundle(options: {
     );
     const repoSlug = source.split("/").at(-1)!;
     if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
-      const hasNamedBundle = hasAnyNamedBundle(layout.sourceDir);
-
       if (!hasNamedBundle) {
         const manifest = loadBundleManifest(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
@@ -634,4 +643,31 @@ function hasValidSubdirectoryBundleManifest(sourceDir: string): boolean {
       return false;
     }
   });
+}
+
+function warnAboutIgnoredMultiBundleRootInstructions(sourceDir: string): void {
+  const rootInstructionFiles = ROOT_INSTRUCTION_FILE_NAMES.filter((fileName) =>
+    isExistingFile(path.join(sourceDir, fileName)),
+  );
+
+  if (
+    rootInstructionFiles.length === 0 ||
+    warnedMultiBundleRootInstructions.has(sourceDir)
+  ) {
+    return;
+  }
+
+  warnedMultiBundleRootInstructions.add(sourceDir);
+  const source = path.normalize(sourceDir).split(path.sep).slice(-3).join("/");
+  console.warn(
+    `[skul] Ignoring repository-root ${rootInstructionFiles.join(" and ")} in multi-bundle source ${source}; move shared instructions to bundles/common/.`,
+  );
+}
+
+function isExistingFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
 }

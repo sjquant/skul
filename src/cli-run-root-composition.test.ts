@@ -48,6 +48,56 @@ import {
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
 
 describe("run", () => {
+  it("composes child root instructions without importing the multi-bundle repository root file", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const source = "github.com/user/multi-bundle";
+    const sourceDir = path.join(
+      homeDir,
+      ".skul",
+      "library",
+      ...source.split("/"),
+    );
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceDir, "AGENTS.md"),
+      "# Repository root instructions\n",
+    );
+    writeManifest(homeDir, source, "common", {
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      source,
+      "common",
+      "AGENTS.md",
+      "# Common child instructions\n",
+    );
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // When
+    await run(["add", source, "common"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then
+    expectAgentsDocument(
+      repoRoot,
+      formatRootInstructionBundleBlock(
+        "common",
+        "# Common child instructions\n",
+        source,
+      ),
+    );
+    expect(
+      fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8"),
+    ).not.toContain("Repository root instructions");
+    expect(warning).toHaveBeenCalledTimes(1);
+  });
+
   it("appends root instructions when multiple bundles target the same root-instruction file", async () => {
     // Given
     const homeDir = createHomeDir();

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   detectSourceProtocol,
@@ -14,6 +14,7 @@ import {
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -582,6 +583,102 @@ describe("listCachedBundles", () => {
     // Then — only the explicit subdir bundle, no ghost inferred bundle
     expect(bundles).toHaveLength(1);
     expect(bundles[0]!.bundle).toBe("react-expert");
+  });
+
+  it("ignores repository-root instructions in multi-bundle repos and warns once with the common-bundle guidance", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/shared-bundles";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    fs.mkdirSync(path.join(repoDir, "standards", "skills", "review"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoDir, "standards", "skills", "review", "SKILL.md"),
+      "# review\n",
+    );
+    fs.writeFileSync(path.join(repoDir, "AGENTS.md"), "# shared\n");
+    fs.writeFileSync(path.join(repoDir, "CLAUDE.md"), "# shared\n");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // When
+    const firstDiscovery = listCachedBundles({ libraryDir });
+    const secondDiscovery = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(firstDiscovery).toHaveLength(1);
+    expect(firstDiscovery[0]).toMatchObject({
+      source,
+      bundle: "standards",
+    });
+    expect(firstDiscovery[0]!.manifest.tools.codex?.root_instruction).toBe(
+      undefined,
+    );
+    expect(secondDiscovery).toEqual(firstDiscovery);
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Ignoring repository-root AGENTS.md and CLAUDE.md in multi-bundle source github.com/user/shared-bundles",
+      ),
+    );
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("bundles/common/"),
+    );
+  });
+
+  it("preserves root instruction detection for a repo-as-bundle", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/repo-bundle";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    fs.mkdirSync(path.join(repoDir, "skills", "review"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "review", "SKILL.md"),
+      "# review\n",
+    );
+    fs.writeFileSync(path.join(repoDir, "AGENTS.md"), "# repo rules\n");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]!.bundle).toBe("repo-bundle");
+    expect(bundles[0]!.manifest.tools.codex?.root_instruction).toEqual({
+      path: "AGENTS.md",
+    });
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("keeps child root instructions and inherited mode in a multi-bundle repo", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/child-instructions";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    writeManifestAtRepoRoot(libraryDir, source, {
+      root_instruction_mode: "replace",
+    });
+    const bundleDir = path.join(repoDir, "common");
+    fs.mkdirSync(bundleDir, { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, "AGENTS.md"), "# common\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      bundle: "common",
+      manifest: {
+        root_instruction_mode: "replace",
+        tools: {
+          codex: { root_instruction: { path: "AGENTS.md" } },
+        },
+      },
+    });
   });
 });
 
