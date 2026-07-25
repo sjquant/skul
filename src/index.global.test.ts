@@ -794,8 +794,8 @@ describe("run --global", () => {
 
     // Then: both bundle blocks appear in ~/.claude/CLAUDE.md
     const composedContent = fs.readFileSync(claudePath, "utf8");
-    expect(composedContent).toContain("BEGIN SKUL BUNDLE: react-expert");
-    expect(composedContent).toContain("BEGIN SKUL BUNDLE: next-expert");
+    expect(composedContent).toContain("SKUL:BUNDLE react-expert");
+    expect(composedContent).toContain("SKUL:BUNDLE next-expert");
     expect(composedContent).toContain("# React guidance");
     expect(composedContent).toContain("# Next.js guidance");
 
@@ -807,8 +807,8 @@ describe("run --global", () => {
 
     // Then: only second bundle remains
     const afterRemove = fs.readFileSync(claudePath, "utf8");
-    expect(afterRemove).not.toContain("BEGIN SKUL BUNDLE: react-expert");
-    expect(afterRemove).toContain("BEGIN SKUL BUNDLE: next-expert");
+    expect(afterRemove).not.toContain("SKUL:BUNDLE react-expert");
+    expect(afterRemove).toContain("SKUL:BUNDLE next-expert");
     expect(afterRemove).not.toContain("# React guidance");
     expect(afterRemove).toContain("# Next.js guidance");
 

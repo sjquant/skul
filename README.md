@@ -243,7 +243,7 @@ Skul uses two different workflows for root instruction files, depending on wheth
 **Untracked stealth**
 
 - If the target root instruction file is not tracked, Skul materializes it like any other managed file and hides it through `.git/info/exclude`.
-- If the file already existed locally, Skul preserves that pre-existing content as the base and appends bundle content inside explicit `BEGIN/END SKUL BUNDLE` markers.
+- If the file already existed locally, Skul preserves that pre-existing content as the base and appends bundle content inside compact `SKUL:BUNDLE` markers.
 - `--root-instruction-mode replace` explicitly discards the existing base from the effective file after warning, while preserving it for `remove`/`reset` restoration.
 - Multiple bundles can share the same untracked root instruction file. Skul recomposes the file in desired-state order and restores the preserved base content when the last contributing bundle is removed or `skul reset` runs.
 - Mode precedence is CLI option, then bundle manifest, then `append`. Bundles sharing one root instruction file must use the same mode; mixed `append`/`replace` composition is rejected before files are changed.

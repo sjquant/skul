@@ -11,7 +11,7 @@ export function formatRootInstructionBundleBlock(
 ): string {
   const label = source ? `${bundle} (${source})` : bundle;
   const normalizedContent = content.replace(/\s+$/, "");
-  return `<!-- BEGIN SKUL BUNDLE: ${label} -->\n${normalizedContent}\n<!-- END SKUL BUNDLE: ${label} -->`;
+  return `<!-- SKUL:BUNDLE ${label} -->\n${normalizedContent}\n<!-- /SKUL:BUNDLE -->`;
 }
 
 /** Formats one expected tracked root-instruction shadow block. */
