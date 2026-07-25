@@ -75,6 +75,7 @@ skul add [options] [source] [bundle]
 | `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
 | `-s, --ssh` | Clone the source via SSH instead of HTTPS. `git@host:owner/repo` URLs are auto-detected as SSH. Protocol is persisted and reused by `skul apply`. |
 | `-g, --global` | Install to global tool config under `~/` instead of the current worktree. |
+| `--root-instruction-mode <mode>` | Choose how root instructions are composed: `append` (default) or `replace`. Applies in project and global modes. |
 | `-y, --yes` | Install without interactive confirmation prompts. Selects all available agents and auto-approves overwrite/replacement confirmations. Also available on `remove`, `apply`, `update`, and `reset` for confirmation prompts. |
 | `-n, --dry-run` | Preview what would be written without making any changes. |
 
@@ -143,6 +144,20 @@ github.com/sjquant/react-bundle
 ├── skills/
 └── commands/
 ```
+
+An optional `manifest.json` can add metadata without repeating inferred tool targets. For example:
+
+```json
+{
+  "root_instruction_mode": "replace"
+}
+```
+
+When `tools` is present, declared tools are the selection boundary: inferred non-root targets for those tools are retained, while explicit targets override them. Root-instruction targets must be declared explicitly in that mode so stale filesystem files cannot reappear after an update. In a multi-bundle repository, a bundle directory manifest takes precedence over repository-root metadata. Bundle identity remains the directory name (or repository slug for repo-as-bundle); `name` is display metadata only.
+
+In a multi-bundle repository, the repository-root manifest supplies metadata defaults such as `root_instruction_mode` to child bundles, and a child manifest overrides those defaults. Repository-root `tools` declarations are used for repo-as-bundle layouts; child directories define their own tool targets in multi-bundle layouts.
+
+In a multi-bundle repository, root-level `AGENTS.md` and `CLAUDE.md` are not treated as bundle content. Skul emits one warning with guidance to move shared instructions into `bundles/common/`; child bundle instructions continue to be discovered and composed normally. A repository with no named child bundles remains a repo-as-bundle, so its root instruction files are preserved and inferred as bundle content.
 
 Inside a bundle, two content layouts are supported:
 
@@ -230,8 +245,10 @@ Skul uses two different workflows for root instruction files, depending on wheth
 **Untracked stealth**
 
 - If the target root instruction file is not tracked, Skul materializes it like any other managed file and hides it through `.git/info/exclude`.
-- If the file already existed locally, Skul preserves that pre-existing content as the base and appends bundle content inside explicit `BEGIN/END SKUL BUNDLE` markers.
+- If the file already existed locally, Skul preserves that pre-existing content as the base and appends bundle content inside compact `SKUL:BUNDLE` markers.
+- `--root-instruction-mode replace` explicitly discards the existing base from the effective file after warning, while preserving it for `remove`/`reset` restoration.
 - Multiple bundles can share the same untracked root instruction file. Skul recomposes the file in desired-state order and restores the preserved base content when the last contributing bundle is removed or `skul reset` runs.
+- Mode precedence is CLI option, then bundle manifest, then `append`. Bundles sharing one root instruction file must use the same mode; mixed `append`/`replace` composition is rejected before files are changed.
 
 Example:
 
@@ -250,6 +267,7 @@ skul add github.com/sjquant/ai-bundles repo-standards --agent codex
 - Instead, Skul treats the worktree copy as generated output: it renders `HEAD:<path>` plus the bundle overlay, writes the effective file, and sets `git update-index --skip-worktree`.
 - `skul status` reports tracked root instructions in a separate `Shadowed Instructions` section, including whether the base blob is current, whether the overlay still matches, whether `skip-worktree` is set, and whether manual edits are suspected.
 - A tracked root instruction target has one active shadow owner at a time. Multi-bundle composition is supported for untracked root files, not for tracked shadows.
+- `--root-instruction-mode replace` is also supported for tracked shadows. It replaces the committed base in the effective worktree file and records the strategy for later refresh and restoration.
 
 Example:
 

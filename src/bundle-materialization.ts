@@ -17,6 +17,7 @@ import {
 } from "./bundle-translation";
 import type { FileConflictResolution } from "./cli";
 import { pathDepth } from "./fs-utils";
+import type { RootInstructionMode } from "./registry";
 import { collectComposedRootInstructionContents } from "./root-instruction-content";
 import {
   composeRootInstructionContent,
@@ -159,6 +160,7 @@ export async function materializeBundle(options: {
   allowFileOverwriteTargets?: Set<string>;
   deferredWriteTargets?: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
+  rootInstructionMode?: RootInstructionMode;
   resolveFileConflict?: (
     conflictPath: string,
   ) => Promise<FileConflictResolution>;
@@ -223,6 +225,7 @@ export async function materializeBundle(options: {
           composedRootInstructionContents,
           writtenSharedFileTargets,
           rootInstructionBaseContents: options.rootInstructionBaseContents,
+          rootInstructionMode: options.rootInstructionMode,
           bundleName: options.bundleName ?? options.manifest.name ?? "bundle",
           bundleSource: options.bundleSource,
           resolveFileConflict: options.resolveFileConflict,
@@ -308,6 +311,7 @@ async function materializeRootInstructionTarget(options: {
   composedRootInstructionContents: Record<string, string>;
   writtenSharedFileTargets: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
+  rootInstructionMode?: RootInstructionMode;
   bundleName: string;
   bundleSource?: string;
   resolveFileConflict:
@@ -350,6 +354,7 @@ async function materializeRootInstructionTarget(options: {
         repoRoot: options.repoRoot,
         repoRelPath,
         rootInstructionBaseContents: options.rootInstructionBaseContents,
+        rootInstructionMode: options.rootInstructionMode,
         bundleName: options.bundleName,
         bundleSource: options.bundleSource,
         composedContent:
@@ -690,17 +695,20 @@ function renderRootInstructionDocument(options: {
   repoRoot: string;
   repoRelPath: string;
   rootInstructionBaseContents?: Record<string, string>;
+  rootInstructionMode?: RootInstructionMode;
   bundleName: string;
   bundleSource?: string;
   composedContent: string;
 }): string {
   return ensureTrailingNewline(
     composeRootInstructionContent([
-      options.rootInstructionBaseContents?.[options.repoRelPath] ??
-        readExistingRootInstructionBaseContent(
-          options.repoRoot,
-          options.repoRelPath,
-        ),
+      options.rootInstructionMode === "replace"
+        ? undefined
+        : (options.rootInstructionBaseContents?.[options.repoRelPath] ??
+          readExistingRootInstructionBaseContent(
+            options.repoRoot,
+            options.repoRelPath,
+          )),
       wrapRootInstructionBundleContent({
         bundleName: options.bundleName,
         source: options.bundleSource,

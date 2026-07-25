@@ -96,9 +96,9 @@ export function wrapRootInstructionBundleContent(options: {
     : options.bundleName;
 
   return [
-    `<!-- BEGIN SKUL BUNDLE: ${label} -->`,
+    `<!-- SKUL:BUNDLE ${label} -->`,
     normalizedContent,
-    `<!-- END SKUL BUNDLE: ${label} -->`,
+    "<!-- /SKUL:BUNDLE -->",
   ].join("\n");
 }
 

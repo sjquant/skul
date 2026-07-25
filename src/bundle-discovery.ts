@@ -5,6 +5,8 @@ import {
   type BundleManifest,
   inferBundleManifest,
   MANIFEST_FILE_NAME,
+  mergeBundleManifestDefaults,
+  mergeBundleManifests,
   parseBundleManifest,
   resolveCachedBundleLayout,
 } from "./bundle-manifest";
@@ -18,6 +20,8 @@ export interface CachedBundle {
 }
 
 const CLAUDE_MARKETPLACE_FILE = path.join(".claude-plugin", "marketplace.json");
+const ROOT_INSTRUCTION_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
+const warnedMultiBundleRootInstructions = new Set<string>();
 
 /**
  * Infers the preferred clone protocol from a raw user-supplied source string.
@@ -107,6 +111,13 @@ export function listCachedBundles(options: {
     return [];
   }
 
+  const sourceDirs = findSourceDirs(options.libraryDir);
+  const repositoryManifests = new Map(
+    sourceDirs.map((sourceDir) => [
+      sourceDir,
+      loadRepositoryManifest(sourceDir),
+    ]),
+  );
   const manifestFiles = findManifestFiles(options.libraryDir);
 
   const explicit = manifestFiles.flatMap((manifestFile) => {
@@ -128,7 +139,23 @@ export function listCachedBundles(options: {
       if (segments.length === 5) {
         const source = segments.slice(0, 3).join("/");
         const bundle = segments[3]!;
-        return [{ source, bundle, manifestFile, manifest }];
+        const sourceDir = path.join(options.libraryDir, ...source.split("/"));
+        const inferred = mergeBundleManifestDefaults(
+          inferBundleManifest(path.dirname(manifestFile)),
+          metadataDefaults(repositoryManifests.get(sourceDir)),
+        );
+        const mergedManifest = mergeBundleManifests(inferred, manifest);
+        if (Object.keys(mergedManifest.tools).length === 0) {
+          return [];
+        }
+        return [
+          {
+            source,
+            bundle,
+            manifestFile,
+            manifest: mergedManifest,
+          },
+        ];
       }
 
       return [];
@@ -141,9 +168,12 @@ export function listCachedBundles(options: {
     explicit.map((bundle) => `${bundle.source}::${bundle.bundle}`),
   );
 
-  const sourceDirs = findSourceDirs(options.libraryDir);
   const marketplace = sourceDirs.flatMap((sourceDir) =>
-    inferClaudeMarketplaceBundles(sourceDir, explicitBundleKeys),
+    inferClaudeMarketplaceBundles(
+      sourceDir,
+      explicitBundleKeys,
+      metadataDefaults(repositoryManifests.get(sourceDir)),
+    ),
   );
 
   const declaredBundleKeys = new Set([
@@ -163,6 +193,10 @@ export function listCachedBundles(options: {
     ),
   );
 
+  for (const sourceDir of sourceDirsWithSubdirectoryBundle) {
+    warnAboutIgnoredMultiBundleRootInstructions(sourceDir);
+  }
+
   // Inferred repo-as-bundle: repos without subdirectory bundle manifests but with
   // recognisable bundle directories (skills/, commands/, agents/, .claude/, etc.).
   // The bundle name defaults to the repository slug.
@@ -175,7 +209,7 @@ export function listCachedBundles(options: {
       const relativeSourceDir = path.relative(options.libraryDir, sourceDir);
       const sourceSegments = relativeSourceDir.split(path.sep);
       const bundleName = sourceSegments[2]!;
-      const manifest = inferBundleManifest(sourceDir);
+      const manifest = loadBundleManifest(sourceDir);
 
       if (Object.keys(manifest.tools).length === 0) {
         return [];
@@ -209,6 +243,7 @@ export function listCachedBundles(options: {
 function inferClaudeMarketplaceBundles(
   sourceDir: string,
   excludedBundleKeys: Set<string>,
+  repositoryManifest: BundleManifest = { tools: {} },
 ): CachedBundle[] {
   const marketplaceFile = path.join(sourceDir, CLAUDE_MARKETPLACE_FILE);
   const source = path.normalize(sourceDir).split(path.sep).slice(-3).join("/");
@@ -261,7 +296,15 @@ function inferClaudeMarketplaceBundles(
       return [];
     }
 
-    const manifest = inferBundleManifest(bundleDir);
+    let manifest: BundleManifest;
+    try {
+      manifest = loadBundleManifest(bundleDir, repositoryManifest);
+    } catch {
+      manifest = mergeBundleManifestDefaults(
+        inferBundleManifest(bundleDir),
+        repositoryManifest,
+      );
+    }
     if (Object.keys(manifest.tools).length === 0) {
       return [];
     }
@@ -332,6 +375,14 @@ export function findCachedBundle(options: {
       source,
       bundle: options.bundle,
     });
+    const repositoryDefaults = metadataDefaults(
+      loadRepositoryManifest(layout.sourceDir),
+    );
+    const hasNamedBundle = hasAnyNamedBundle(layout.sourceDir);
+
+    if (hasNamedBundle) {
+      warnAboutIgnoredMultiBundleRootInstructions(layout.sourceDir);
+    }
 
     // Try subdirectory bundle first: libraryDir/host/owner/repo/bundle-name/manifest.json
     if (fs.existsSync(layout.manifestFile)) {
@@ -339,14 +390,12 @@ export function findCachedBundle(options: {
         source,
         bundle: options.bundle,
         manifestFile: layout.manifestFile,
-        manifest: parseBundleManifest(
-          JSON.parse(fs.readFileSync(layout.manifestFile, "utf8")) as unknown,
-        ),
+        manifest: loadBundleManifest(layout.bundleDir, repositoryDefaults),
       };
     }
 
     if (fs.existsSync(layout.bundleDir)) {
-      const manifest = inferBundleManifest(layout.bundleDir);
+      const manifest = loadBundleManifest(layout.bundleDir, repositoryDefaults);
       if (Object.keys(manifest.tools).length > 0) {
         return {
           source,
@@ -360,6 +409,7 @@ export function findCachedBundle(options: {
     const marketplaceBundle = inferClaudeMarketplaceBundles(
       layout.sourceDir,
       new Set(),
+      repositoryDefaults,
     ).find((bundle) => bundle.bundle === options.bundle);
     if (marketplaceBundle) {
       return marketplaceBundle;
@@ -373,10 +423,8 @@ export function findCachedBundle(options: {
     );
     const repoSlug = source.split("/").at(-1)!;
     if (repoSlug === options.bundle && fs.existsSync(layout.sourceDir)) {
-      const hasNamedBundle = hasAnyNamedBundle(layout.sourceDir);
-
       if (!hasNamedBundle) {
-        const manifest = inferBundleManifest(layout.sourceDir);
+        const manifest = loadBundleManifest(layout.sourceDir);
         if (Object.keys(manifest.tools).length > 0) {
           return {
             source,
@@ -468,6 +516,9 @@ function inferSubdirectoryBundles(
 ): CachedBundle[] {
   const sourceSegments = path.normalize(sourceDir).split(path.sep).slice(-3);
   const source = sourceSegments.join("/");
+  const repositoryManifest = metadataDefaults(
+    loadRepositoryManifest(sourceDir),
+  );
 
   return safeReaddirSync(sourceDir).flatMap((entry) => {
     if (!entry.isDirectory() || entry.name.startsWith(".")) {
@@ -475,7 +526,15 @@ function inferSubdirectoryBundles(
     }
 
     const bundleDir = path.join(sourceDir, entry.name);
-    const manifest = inferBundleManifest(bundleDir);
+    let manifest: BundleManifest;
+    try {
+      manifest = loadBundleManifest(bundleDir, repositoryManifest);
+    } catch {
+      manifest = mergeBundleManifestDefaults(
+        inferBundleManifest(bundleDir),
+        repositoryManifest,
+      );
+    }
 
     if (Object.keys(manifest.tools).length === 0) {
       return [];
@@ -495,6 +554,58 @@ function inferSubdirectoryBundles(
       },
     ];
   });
+}
+
+/** Loads a bundle's inferred filesystem manifest and overlays explicit metadata. */
+function loadBundleManifest(
+  bundleDir: string,
+  repositoryManifest?: BundleManifest,
+): BundleManifest {
+  const inferred = mergeBundleManifestDefaults(
+    inferBundleManifest(bundleDir),
+    repositoryManifest ?? { tools: {} },
+  );
+  const manifestFile = path.join(bundleDir, MANIFEST_FILE_NAME);
+
+  if (!fs.existsSync(manifestFile)) {
+    return inferred;
+  }
+
+  const explicit = parseBundleManifest(
+    JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
+  );
+  return mergeBundleManifests(inferred, explicit);
+}
+
+function loadRepositoryManifest(sourceDir: string): BundleManifest | undefined {
+  const manifestFile = path.join(sourceDir, MANIFEST_FILE_NAME);
+  if (!fs.existsSync(manifestFile)) {
+    return undefined;
+  }
+
+  try {
+    return parseBundleManifest(
+      JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
+    );
+  } catch (error) {
+    throw new Error(
+      `Invalid ${MANIFEST_FILE_NAME} in ${sourceDir}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
+  }
+}
+
+function metadataDefaults(
+  manifest: BundleManifest | undefined,
+): BundleManifest {
+  return {
+    ...(manifest?.root_instruction_mode !== undefined
+      ? { root_instruction_mode: manifest.root_instruction_mode }
+      : {}),
+    tools: {},
+  };
 }
 
 function hasAnyNamedBundle(sourceDir: string): boolean {
@@ -517,12 +628,46 @@ function hasValidSubdirectoryBundleManifest(sourceDir: string): boolean {
     }
 
     try {
-      parseBundleManifest(
+      const manifest = parseBundleManifest(
         JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
       );
-      return true;
+      return (
+        Object.keys(
+          mergeBundleManifests(
+            inferBundleManifest(path.dirname(manifestFile)),
+            manifest,
+          ).tools,
+        ).length > 0
+      );
     } catch {
       return false;
     }
   });
+}
+
+function warnAboutIgnoredMultiBundleRootInstructions(sourceDir: string): void {
+  const rootInstructionFiles = ROOT_INSTRUCTION_FILE_NAMES.filter((fileName) =>
+    isExistingFile(path.join(sourceDir, fileName)),
+  );
+
+  if (
+    rootInstructionFiles.length === 0 ||
+    warnedMultiBundleRootInstructions.has(sourceDir)
+  ) {
+    return;
+  }
+
+  warnedMultiBundleRootInstructions.add(sourceDir);
+  const source = path.normalize(sourceDir).split(path.sep).slice(-3).join("/");
+  console.warn(
+    `[skul] Ignoring repository-root ${rootInstructionFiles.join(" and ")} in multi-bundle source ${source}; move shared instructions to bundles/common/.`,
+  );
+}
+
+function isExistingFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
 }

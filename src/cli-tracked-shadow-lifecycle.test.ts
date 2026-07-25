@@ -171,6 +171,94 @@ describe("tracked root-instruction shadow safety", () => {
     });
   });
 
+  it("creates a tracked replace shadow when explicitly requested", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# team policy\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "Add team policy"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# personal policy\n",
+    });
+
+    // When
+    await run(
+      [
+        "add",
+        "repo-standards",
+        "--agent",
+        "codex",
+        "--root-instruction-mode",
+        "replace",
+      ],
+      { homeDir, cwd: repoRoot, prompts: createPromptClientStub() },
+    );
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# personal policy\n",
+    );
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]!];
+    expect(worktree.shadowed_files["AGENTS.md"]?.strategy).toBe("replace");
+
+    // When
+    await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // Then
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# team policy\n",
+    );
+  });
+
+  it("warns when an existing tracked append shadow changes to replace", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# team policy\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "Add team policy"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# personal policy\n",
+    });
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const resolveFileConflict = vi.fn(
+      async (): Promise<{ action: "overwrite" }> => ({ action: "overwrite" }),
+    );
+
+    // When
+    await run(
+      [
+        "add",
+        "repo-standards",
+        "--agent",
+        "codex",
+        "--root-instruction-mode",
+        "replace",
+      ],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({ resolveFileConflict }),
+      },
+    );
+
+    // Then
+    expect(resolveFileConflict).toHaveBeenCalledWith("AGENTS.md");
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# personal policy\n",
+    );
+  });
+
   it("suspends and refreshes a tracked AGENTS.md shadow around a HEAD change", async () => {
     // Given
     const homeDir = createHomeDir();

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   detectSourceProtocol,
@@ -14,6 +14,7 @@ import {
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -150,7 +151,7 @@ describe("listCachedBundles", () => {
     expect(bundles).toEqual([]);
   });
 
-  it("ignores a broken manifest at the repository root and still infers the bundle from the repo slug", () => {
+  it("rejects a broken manifest at the repository root", () => {
     // Given
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "broken-repo");
@@ -161,15 +162,10 @@ describe("listCachedBundles", () => {
     );
     fs.writeFileSync(path.join(repoDir, "manifest.json"), "{not json");
 
-    // When
-    const bundles = listCachedBundles({ libraryDir });
-
-    // Then
-    expect(bundles).toHaveLength(1);
-    expect(bundles[0]).toMatchObject({
-      source: "github.com/user/broken-repo",
-      bundle: "broken-repo",
-    });
+    // When / Then
+    expect(() => listCachedBundles({ libraryDir })).toThrowError(
+      /Invalid manifest\.json.*broken-repo/i,
+    );
   });
 
   it("ignores a broken subdirectory manifest and still infers the repo-root bundle", () => {
@@ -244,6 +240,92 @@ describe("listCachedBundles", () => {
       bundle: "react-bundle",
     });
     expect(Object.keys(bundles[0]!.manifest.tools).length).toBeGreaterThan(0);
+  });
+
+  it("merges repo-root manifest metadata into inferred tools", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/metadata-root";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    fs.mkdirSync(path.join(repoDir, "skills", "react"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeManifestAtRepoRoot(libraryDir, source, {
+      root_instruction_mode: "replace",
+    });
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      bundle: "metadata-root",
+      manifest: { root_instruction_mode: "replace" },
+    });
+    expect(Object.keys(bundles[0]!.manifest.tools)).toContain("codex");
+  });
+
+  it("uses bundle-root manifest targets over inferred filesystem targets", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/metadata-bundle";
+    const bundleDir = path.join(libraryDir, ...source.split("/"), "standards");
+    fs.mkdirSync(bundleDir, { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, "AGENTS.md"), "# standards\n");
+    fs.writeFileSync(
+      path.join(bundleDir, "manifest.json"),
+      JSON.stringify({
+        tools: { codex: { skills: { path: "skills" } } },
+        root_instruction_mode: "replace",
+      }),
+    );
+    fs.mkdirSync(path.join(bundleDir, "skills"), { recursive: true });
+
+    // When
+    const bundle = listCachedBundles({ libraryDir }).find(
+      (candidate) => candidate.bundle === "standards",
+    );
+
+    // Then
+    expect(bundle?.manifest).toMatchObject({
+      root_instruction_mode: "replace",
+      tools: {
+        codex: {
+          skills: { path: "skills" },
+        },
+      },
+    });
+    expect(bundle?.manifest.tools.codex?.root_instruction).toBeUndefined();
+  });
+
+  it("uses the bundle directory name instead of a manifest name for identity", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/named-bundles";
+    const bundleDir = path.join(libraryDir, ...source.split("/"), "standards");
+    fs.mkdirSync(path.join(bundleDir, "skills", "review"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(bundleDir, "skills", "review", "SKILL.md"),
+      "# review\n",
+    );
+    fs.writeFileSync(
+      path.join(bundleDir, "manifest.json"),
+      JSON.stringify({ name: "display name" }),
+    );
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles[0]).toMatchObject({
+      bundle: "standards",
+      manifest: { name: "display name" },
+    });
   });
 
   it("infers a manifest-free subdirectory bundle from canonical directories", () => {
@@ -387,7 +469,7 @@ describe("listCachedBundles", () => {
     expect(bundles).toEqual([]);
   });
 
-  it("ignores a repo-root manifest and still infers the bundle from the repo slug", () => {
+  it("applies repo-root tool metadata to the inferred bundle", () => {
     // Given
     const libraryDir = createLibraryDir();
     const repoDir = path.join(libraryDir, "github.com", "user", "react-bundle");
@@ -408,7 +490,62 @@ describe("listCachedBundles", () => {
     expect(bundles[0]).toMatchObject({
       source: "github.com/user/react-bundle",
       bundle: "react-bundle",
+      manifest: {
+        tools: { codex: { skills: { path: "ignored" } } },
+      },
     });
+  });
+
+  it("applies repo-root defaults before child manifest overrides", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/multi-bundle";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    writeManifestAtRepoRoot(libraryDir, source, {
+      root_instruction_mode: "replace",
+    });
+    fs.mkdirSync(path.join(repoDir, "standards", "skills"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoDir, "standards", "AGENTS.md"),
+      "# standards\n",
+    );
+    fs.mkdirSync(path.join(repoDir, "personal", "skills"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoDir, "personal", "manifest.json"),
+      JSON.stringify({
+        root_instruction_mode: "append",
+        tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(repoDir, "personal", "AGENTS.md"),
+      "# personal\n",
+    );
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bundle: "standards",
+          manifest: expect.objectContaining({
+            root_instruction_mode: "replace",
+          }),
+        }),
+        expect.objectContaining({
+          bundle: "personal",
+          manifest: expect.objectContaining({
+            root_instruction_mode: "append",
+          }),
+        }),
+      ]),
+    );
   });
 
   it("ignores a repo dir that has no recognisable bundle directories", () => {
@@ -447,6 +584,102 @@ describe("listCachedBundles", () => {
     expect(bundles).toHaveLength(1);
     expect(bundles[0]!.bundle).toBe("react-expert");
   });
+
+  it("ignores repository-root instructions in multi-bundle repos and warns once with the common-bundle guidance", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/shared-bundles";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    fs.mkdirSync(path.join(repoDir, "standards", "skills", "review"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoDir, "standards", "skills", "review", "SKILL.md"),
+      "# review\n",
+    );
+    fs.writeFileSync(path.join(repoDir, "AGENTS.md"), "# shared\n");
+    fs.writeFileSync(path.join(repoDir, "CLAUDE.md"), "# shared\n");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // When
+    const firstDiscovery = listCachedBundles({ libraryDir });
+    const secondDiscovery = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(firstDiscovery).toHaveLength(1);
+    expect(firstDiscovery[0]).toMatchObject({
+      source,
+      bundle: "standards",
+    });
+    expect(firstDiscovery[0]!.manifest.tools.codex?.root_instruction).toBe(
+      undefined,
+    );
+    expect(secondDiscovery).toEqual(firstDiscovery);
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Ignoring repository-root AGENTS.md and CLAUDE.md in multi-bundle source github.com/user/shared-bundles",
+      ),
+    );
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("bundles/common/"),
+    );
+  });
+
+  it("preserves root instruction detection for a repo-as-bundle", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/repo-bundle";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    fs.mkdirSync(path.join(repoDir, "skills", "review"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoDir, "skills", "review", "SKILL.md"),
+      "# review\n",
+    );
+    fs.writeFileSync(path.join(repoDir, "AGENTS.md"), "# repo rules\n");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]!.bundle).toBe("repo-bundle");
+    expect(bundles[0]!.manifest.tools.codex?.root_instruction).toEqual({
+      path: "AGENTS.md",
+    });
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("keeps child root instructions and inherited mode in a multi-bundle repo", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/child-instructions";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    writeManifestAtRepoRoot(libraryDir, source, {
+      root_instruction_mode: "replace",
+    });
+    const bundleDir = path.join(repoDir, "common");
+    fs.mkdirSync(bundleDir, { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, "AGENTS.md"), "# common\n");
+
+    // When
+    const bundles = listCachedBundles({ libraryDir });
+
+    // Then
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({
+      bundle: "common",
+      manifest: {
+        root_instruction_mode: "replace",
+        tools: {
+          codex: { root_instruction: { path: "AGENTS.md" } },
+        },
+      },
+    });
+  });
 });
 
 describe("findCachedBundle", () => {
@@ -470,6 +703,31 @@ describe("findCachedBundle", () => {
       source: "github.com/user/ai-vault",
       bundle: "react-expert",
     });
+  });
+
+  it("applies repository defaults when finding a child bundle by source", () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/multi-bundle";
+    const repoDir = path.join(libraryDir, ...source.split("/"));
+    writeManifestAtRepoRoot(libraryDir, source, {
+      root_instruction_mode: "replace",
+    });
+    fs.mkdirSync(path.join(repoDir, "standards"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoDir, "standards", "AGENTS.md"),
+      "# standards\n",
+    );
+
+    // When
+    const bundle = findCachedBundle({
+      libraryDir,
+      source,
+      bundle: "standards",
+    });
+
+    // Then
+    expect(bundle.manifest.root_instruction_mode).toBe("replace");
   });
 
   it("finds a uniquely named bundle without an explicit source", () => {
