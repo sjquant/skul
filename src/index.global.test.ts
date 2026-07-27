@@ -214,11 +214,13 @@ describe("run --global", () => {
 
     // Then
     expect(fs.readFileSync(claudePath, "utf8")).toBe(
-      `${formatRootInstructionBundleBlock(
-        "react-expert",
-        "# React guidance\n",
-        "github.com/user/ai-vault",
-      )}\n`,
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "react-expert",
+          "# React guidance\n",
+          "github.com/user/ai-vault",
+        ),
+      ),
     );
 
     // When: reset restores the base, then apply reuses manifest mode.

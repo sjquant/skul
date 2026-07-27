@@ -198,7 +198,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# personal policy\n",
+      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n# personal policy\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
     );
     const registry = readRegistryFile(
       path.join(homeDir, ".skul", "registry.json"),
@@ -255,7 +255,7 @@ describe("tracked root-instruction shadow safety", () => {
     // Then
     expect(resolveFileConflict).toHaveBeenCalledWith("AGENTS.md");
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "# personal policy\n",
+      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n# personal policy\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
     );
   });
 

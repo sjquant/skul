@@ -15,6 +15,7 @@ import {
   composeRootInstructionContent,
   isRootInstructionPath,
   wrapRootInstructionBundleContent,
+  wrapSkulManagedInstructionContent,
 } from "./root-instruction-render";
 import type { ToolName } from "./tool-mapping";
 import { globalCapableToolNames } from "./tool-mapping";
@@ -81,7 +82,12 @@ export function syncManagedRootInstructionFiles(options: {
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(
       targetPath,
-      `${composeRootInstructionContent([baseContent, ...composed.parts])}\n`,
+      `${composeRootInstructionContent([
+        baseContent,
+        wrapSkulManagedInstructionContent(
+          composeRootInstructionContent(composed.parts),
+        ),
+      ])}\n`,
     );
     writtenPaths.add(repoRelativePath);
   }
