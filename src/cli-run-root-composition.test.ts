@@ -515,11 +515,13 @@ describe("run", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      `${formatRootInstructionBundleBlock(
-        "repo-standards",
-        "# Repo standards\n",
-        "github.com/user/ai-vault",
-      )}\n`,
+      `${formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "repo-standards",
+          "# Repo standards\n",
+          "github.com/user/ai-vault",
+        ),
+      )}`,
     );
 
     // When: removing the bundle restores the discarded base content.
@@ -558,11 +560,13 @@ describe("run", () => {
 
     // Then: manifest replace mode is used when no CLI mode is provided.
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      `${formatRootInstructionBundleBlock(
-        "repo-standards",
-        "# Repo standards\n",
-        "github.com/user/ai-vault",
-      )}\n`,
+      `${formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "repo-standards",
+          "# Repo standards\n",
+          "github.com/user/ai-vault",
+        ),
+      )}`,
     );
 
     // When: reset removes materialization but preserves desired state, then apply.
@@ -579,11 +583,13 @@ describe("run", () => {
 
     // Then: apply keeps the manifest-derived mode.
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      `${formatRootInstructionBundleBlock(
-        "repo-standards",
-        "# Repo standards\n",
-        "github.com/user/ai-vault",
-      )}\n`,
+      `${formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "repo-standards",
+          "# Repo standards\n",
+          "github.com/user/ai-vault",
+        ),
+      )}`,
     );
 
     // When

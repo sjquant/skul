@@ -15,6 +15,11 @@ const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set([
     .filter((p): p is string => p !== undefined),
 ]);
 
+const SKUL_INSTRUCTIONS_START = "<!-- SKUL:INSTRUCTIONS START -->";
+const SKUL_INSTRUCTIONS_END = "<!-- SKUL:INSTRUCTIONS END -->";
+const SKUL_INSTRUCTIONS_PREAMBLE =
+  "Follow the instructions in this section; SKUL markers are metadata used to manage the content.";
+
 /** Joins root-instruction parts into one normalized document body. */
 export function composeRootInstructionContent(
   parts: Array<string | undefined>,
@@ -102,6 +107,22 @@ export function wrapRootInstructionBundleContent(options: {
   ].join("\n");
 }
 
+/** Wraps generated root instructions with one model-facing Skul explanation. */
+export function wrapSkulManagedInstructionContent(content: string): string {
+  const normalizedContent = normalizeRootInstructionPart(content);
+
+  if (normalizedContent.length === 0) {
+    return "";
+  }
+
+  return [
+    SKUL_INSTRUCTIONS_START,
+    SKUL_INSTRUCTIONS_PREAMBLE,
+    normalizedContent,
+    SKUL_INSTRUCTIONS_END,
+  ].join("\n\n");
+}
+
 /** Wraps tracked shadow overlay content with deterministic marker boundaries. */
 function formatTrackedRootInstructionShadowBlock(options: {
   bundleName: string;
@@ -142,22 +163,26 @@ function renderTrackedRootInstructionDocument(options: {
   strategy: "append" | "prepend" | "replace";
 }): string {
   if (options.strategy === "replace") {
-    return ensureTrailingNewline(options.overlay);
+    return ensureTrailingNewline(
+      wrapSkulManagedInstructionContent(options.overlay),
+    );
   }
 
   if (options.overlay.length === 0) {
     return options.baseContent ?? "";
   }
 
+  const managedContent = wrapSkulManagedInstructionContent(options.overlay);
+
   if (!options.baseContent || options.baseContent.length === 0) {
-    return ensureTrailingNewline(options.overlay);
+    return ensureTrailingNewline(managedContent);
   }
 
   if (options.strategy === "prepend") {
-    return `${options.overlay}\n\n${options.baseContent}`;
+    return `${managedContent}\n\n${options.baseContent}`;
   }
 
-  return `${options.baseContent}${selectAppendSeparator(options.baseContent)}${options.overlay}\n`;
+  return `${options.baseContent}${selectAppendSeparator(options.baseContent)}${managedContent}\n`;
 }
 
 function fingerprintRootInstructionContent(content: string): string {
