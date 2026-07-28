@@ -27,8 +27,27 @@ export function formatTrackedRootInstructionShadowBlock(
 export function formatExpectedRootInstructionDocument(
   ...parts: string[]
 ): string {
-  return `${parts
+  const normalizedParts = parts
     .map((part) => part.replace(/\s+$/, ""))
+    .filter((part) => part.length > 0);
+  const managedParts = normalizedParts.filter(
+    (part) =>
+      part.includes("SKUL:BUNDLE") || part.includes("SKUL SHADOW START"),
+  );
+  const baseParts = normalizedParts.filter(
+    (part) =>
+      !part.includes("SKUL:BUNDLE") && !part.includes("SKUL SHADOW START"),
+  );
+  const managedSection = managedParts.length
+    ? [
+        "<!-- SKUL:INSTRUCTIONS START -->",
+        "Follow the instructions in this section; SKUL markers are metadata used to manage the content.",
+        ...managedParts,
+        "<!-- SKUL:INSTRUCTIONS END -->",
+      ].join("\n\n")
+    : "";
+
+  return `${[...baseParts, managedSection]
     .filter((part) => part.length > 0)
     .join("\n\n")}\n`;
 }
