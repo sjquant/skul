@@ -27,7 +27,7 @@ describe("tracked root-instruction shadow rendering", () => {
     // Then
     expect(secondRender).toEqual(firstRender);
     expect(firstRender.rendered).toBe(
-      "# Team rules\n\n<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
+      "# Team rules\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n",
     );
   });
 
@@ -46,7 +46,7 @@ describe("tracked root-instruction shadow rendering", () => {
 
     // Then
     expect(render.rendered).toBe(
-      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n\n# Team rules\n",
+      "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n# Team rules\n",
     );
   });
 
@@ -99,7 +99,7 @@ describe("tracked root-instruction shadow rendering", () => {
 
     // Then
     expect(render.rendered).toBe(
-      `${baseContent}<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
+      `${baseContent}<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n`,
     );
   });
 
@@ -172,8 +172,6 @@ describe("tracked root-instruction shadow rendering", () => {
         ...options,
         allowReplace: true,
       }).rendered,
-    ).toBe(
-      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n# Personal rules\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
-    );
+    ).toBe("# Personal rules\n");
   });
 });

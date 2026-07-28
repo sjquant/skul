@@ -22,7 +22,6 @@ import { collectComposedRootInstructionContents } from "./root-instruction-conte
 import {
   composeRootInstructionContent,
   wrapRootInstructionBundleContent,
-  wrapSkulManagedInstructionContent,
 } from "./root-instruction-render";
 import {
   getToolDefinition,
@@ -710,13 +709,11 @@ function renderRootInstructionDocument(options: {
             options.repoRoot,
             options.repoRelPath,
           )),
-      wrapSkulManagedInstructionContent(
-        wrapRootInstructionBundleContent({
-          bundleName: options.bundleName,
-          source: options.bundleSource,
-          content: options.composedContent,
-        }),
-      ),
+      wrapRootInstructionBundleContent({
+        bundleName: options.bundleName,
+        source: options.bundleSource,
+        content: options.composedContent,
+      }),
     ]),
   );
 }
