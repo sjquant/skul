@@ -108,7 +108,11 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GH_TOKEN = "github-token-value";
 
     // When
-    const result = await fetchRemoteSource({ source, libraryDir });
+    const result = await fetchRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
 
     // Then
     const metadata = readArchiveMetadata(result.targetDir);
@@ -151,7 +155,11 @@ describe("updateCachedRemoteSource integration", () => {
     process.env.GH_TOKEN = "github-token-value";
 
     // When
-    await clearAndRefetchCachedRemoteSource({ source, libraryDir });
+    await clearAndRefetchCachedRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
 
     // Then
     expect(fs.existsSync(path.join(targetDir, ".git"))).toBe(false);
@@ -195,7 +203,11 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    await fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
     updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
     });
@@ -231,7 +243,11 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    await fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
     updateFakeGithubState(state, (state) => {
       state.defaultBranch = "trunk";
     });
@@ -267,13 +283,21 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    await fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
     updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
     });
 
     // When
-    const result = await updateCachedRemoteSource({ source, libraryDir });
+    const result = await updateCachedRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
 
     // Then
     const targetDir = path.join(libraryDir, ...source.split("/"));
@@ -367,6 +391,7 @@ describe("updateCachedRemoteSource integration", () => {
       source,
       libraryDir,
       ref: "v1.0.0",
+      includeRootInstructions: true,
     });
 
     // Then
@@ -401,7 +426,11 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    await fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
     updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
       state.failArchiveFor = remoteCommit;
@@ -409,7 +438,11 @@ describe("updateCachedRemoteSource integration", () => {
 
     // When
     await expect(
-      updateCachedRemoteSource({ source, libraryDir }),
+      updateCachedRemoteSource({
+        source,
+        libraryDir,
+        includeRootInstructions: true,
+      }),
     ).rejects.toThrowError(/Failed to fetch github\.com\/user\/react-bundle/);
 
     // Then
@@ -525,7 +558,11 @@ describe("updateCachedRemoteSource integration", () => {
     updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
     });
-    await updateCachedRemoteSource({ source, libraryDir });
+    await updateCachedRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
 
     // When
     await restoreCachedRemoteSourceRevision({
@@ -533,6 +570,7 @@ describe("updateCachedRemoteSource integration", () => {
       libraryDir,
       commit: initialCommit,
       refName: "main",
+      includeRootInstructions: true,
     });
 
     // Then
@@ -576,13 +614,21 @@ describe("updateCachedRemoteSource integration", () => {
     );
     process.env.GH_TOKEN = "github-token-value";
     process.env.SKUL_GITHUB_TRANSPORT = "archive";
-    await fetchRemoteSource({ source, libraryDir });
+    await fetchRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
     updateFakeGithubState(state, (state) => {
       state.branches.main = remoteCommit;
     });
 
     // When
-    await clearAndRefetchCachedRemoteSource({ source, libraryDir });
+    await clearAndRefetchCachedRemoteSource({
+      source,
+      libraryDir,
+      includeRootInstructions: true,
+    });
 
     // Then
     const targetDir = path.join(libraryDir, ...source.split("/"));
