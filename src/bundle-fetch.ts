@@ -14,6 +14,8 @@ export interface FetchRemoteSourceOptions {
   protocol?: "https" | "ssh";
   /** Optional branch, tag, or commit to fetch. */
   ref?: string;
+  /** Keep repository-root AGENTS.md and CLAUDE.md files in the fetched source. */
+  includeRootInstructions?: boolean;
 }
 
 export interface FetchRemoteSourceResult {
@@ -52,6 +54,7 @@ const GITHUB_TRANSPORT_ENV = "SKUL_GITHUB_TRANSPORT";
 const GITHUB_TRANSPORT_ARCHIVE = "archive";
 const GITHUB_API_BASE_URL_ENV = "SKUL_GITHUB_API_BASE_URL";
 const GITHUB_USER_AGENT = "skul";
+const ROOT_INSTRUCTION_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
 
 interface GithubArchiveMetadata {
   transport: "github-archive";
@@ -91,6 +94,7 @@ export async function fetchRemoteSource(
   const targetDir = getTargetDir(options);
 
   if (fs.existsSync(targetDir)) {
+    stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
     return { cloned: false, targetDir };
   }
 
@@ -108,6 +112,7 @@ export async function fetchRemoteSource(
     if (options.ref) {
       checkoutGitRemoteRef(targetDir, cloneUrl, options.ref);
     }
+    stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
   } catch (error) {
     fs.rmSync(targetDir, { recursive: true, force: true });
 
@@ -247,6 +252,8 @@ export async function updateCachedRemoteSource(
 
   const targetDir = getTargetDir(options);
 
+  stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
+
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
 
   if (archiveMetadata && isGithubArchiveEligible(options)) {
@@ -287,6 +294,7 @@ export async function updateCachedRemoteSource(
       resolvedRef: status.resolvedRef,
       commit: status.remoteCommit,
     });
+    stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
   } catch (error) {
     throw normalizeGitError(error, `Failed to update ${options.source}`, {
       source: options.source,
@@ -337,11 +345,16 @@ export async function restoreCachedRemoteSourceRevision(
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
 
   if (archiveMetadata) {
-    await replaceWithGithubArchiveSource(options.source, targetDir, {
-      commit: options.commit,
-      requestedRef: options.ref ?? archiveMetadata.requested_ref,
-      resolvedRef: options.refName ?? archiveMetadata.resolved_ref,
-    });
+    await replaceWithGithubArchiveSource(
+      options.source,
+      targetDir,
+      {
+        commit: options.commit,
+        requestedRef: options.ref ?? archiveMetadata.requested_ref,
+        resolvedRef: options.refName ?? archiveMetadata.resolved_ref,
+      },
+      options.includeRootInstructions,
+    );
     return;
   }
 
@@ -354,10 +367,12 @@ export async function restoreCachedRemoteSourceRevision(
       options.refName,
       options.commit,
     ]);
+    stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
     return;
   }
 
   runGit(["-C", targetDir, "checkout", "--detach", options.commit]);
+  stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
 }
 
 /** Deletes one cached source checkout without reporting whether it existed. */
@@ -408,6 +423,7 @@ export async function clearAndRefetchCachedRemoteSource(
 
   try {
     runGit(["clone", "--depth=1", cloneUrl, tempDir]);
+    stripRepositoryRootInstructions(tempDir, options.includeRootInstructions);
     fs.rmSync(targetDir, { recursive: true, force: true });
     fs.renameSync(tempDir, targetDir);
   } catch (error) {
@@ -709,6 +725,19 @@ function normalizeCurrentRef(value: string | undefined): string | undefined {
   return value.replace(/^heads\//, "");
 }
 
+function stripRepositoryRootInstructions(
+  sourceDir: string,
+  includeRootInstructions = false,
+): void {
+  if (includeRootInstructions) {
+    return;
+  }
+
+  for (const fileName of ROOT_INSTRUCTION_FILE_NAMES) {
+    fs.rmSync(path.join(sourceDir, fileName), { force: true });
+  }
+}
+
 function runGit(args: string[]): string {
   try {
     return String(
@@ -774,13 +803,19 @@ async function fetchGithubArchiveSource(
 ): Promise<GithubArchiveMetadata> {
   const resolved = await resolveGithubArchiveRef(options.source, options.ref);
 
-  return replaceWithGithubArchiveSource(options.source, targetDir, resolved);
+  return replaceWithGithubArchiveSource(
+    options.source,
+    targetDir,
+    resolved,
+    options.includeRootInstructions,
+  );
 }
 
 async function replaceWithGithubArchiveSource(
   source: string,
   targetDir: string,
   resolved: GithubArchiveReplacement,
+  includeRootInstructions = false,
 ): Promise<GithubArchiveMetadata> {
   const parentDir = path.dirname(targetDir);
   const tempDir = `${targetDir}.tmp-${process.pid}-${Date.now()}`;
@@ -795,6 +830,7 @@ async function replaceWithGithubArchiveSource(
   try {
     await downloadGithubArchive(source, resolved.commit, archiveFile);
     extractGithubArchive(archiveFile, tempDir);
+    stripRepositoryRootInstructions(tempDir, includeRootInstructions);
     writeGithubArchiveMetadata(tempDir, {
       transport: "github-archive",
       source,
@@ -848,6 +884,7 @@ async function updateGithubArchiveSource(
       requestedRef: options.ref ?? metadata.requested_ref,
       resolvedRef: status.resolvedRef ?? null,
     },
+    options.includeRootInstructions,
   );
 
   return {

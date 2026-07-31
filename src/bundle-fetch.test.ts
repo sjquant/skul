@@ -82,6 +82,61 @@ describe("fetchRemoteSource", () => {
     );
   });
 
+  it("does not retain repository-root instruction files unless explicitly requested", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "instruction-bundle",
+    );
+    vi.mocked(execFileSync).mockImplementation(() => {
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(path.join(targetDir, "AGENTS.md"), "# agents\n");
+      fs.writeFileSync(path.join(targetDir, "CLAUDE.md"), "# claude\n");
+      return Buffer.from("");
+    });
+
+    // When
+    await fetchRemoteSource({
+      source: "github.com/user/instruction-bundle",
+      libraryDir,
+    });
+
+    // Then
+    expect(fs.existsSync(path.join(targetDir, "AGENTS.md"))).toBe(false);
+    expect(fs.existsSync(path.join(targetDir, "CLAUDE.md"))).toBe(false);
+  });
+
+  it("retains repository-root instruction files when explicitly requested", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const targetDir = path.join(
+      libraryDir,
+      "github.com",
+      "user",
+      "instruction-bundle",
+    );
+    vi.mocked(execFileSync).mockImplementation(() => {
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(path.join(targetDir, "AGENTS.md"), "# agents\n");
+      return Buffer.from("");
+    });
+
+    // When
+    await fetchRemoteSource({
+      source: "github.com/user/instruction-bundle",
+      libraryDir,
+      includeRootInstructions: true,
+    });
+
+    // Then
+    expect(fs.readFileSync(path.join(targetDir, "AGENTS.md"), "utf8")).toBe(
+      "# agents\n",
+    );
+  });
+
   it("checks out the requested ref after cloning with the git transport", async () => {
     // Given
     const libraryDir = createLibraryDir();

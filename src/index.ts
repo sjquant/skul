@@ -2148,6 +2148,7 @@ async function updateBundles(options: {
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
         ref: entry.ref,
+        includeRootInstructions: entry.items?.includes("root-instruction"),
       });
       const cachedBundle = findCachedBundleWithGuidance({
         libraryDir: options.libraryDir,
@@ -2365,6 +2366,7 @@ async function updateBundles(options: {
           ref: entry.ref,
           commit: initialRevision.currentCommit,
           refName: initialRevision.currentRef,
+          includeRootInstructions: entry.items?.includes("root-instruction"),
         });
       }
 
@@ -2906,6 +2908,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
+      requestedItems: options.includeItems,
     },
     refreshedSources,
     refreshedSourceUpdates,
@@ -3442,6 +3445,7 @@ async function prepareApplyBundle(options: {
           libraryDir: options.libraryDir,
           protocol: options.protocol,
           ref: options.ref,
+          requestedItems: options.requestedItems,
         },
         refreshedSources,
         refreshedSourceUpdates,
@@ -3639,6 +3643,7 @@ async function refreshBundleSourceForApply(
     protocol: "https" | "ssh";
     libraryDir: string;
     ref?: string;
+    requestedItems?: BundleItemSelector[];
   },
   refreshedSources: Set<string>,
   refreshedSourceUpdates: Map<string, RefreshedSourceUpdate>,
@@ -3679,6 +3684,8 @@ async function refreshBundleSourceForApply(
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
+      includeRootInstructions:
+        options.requestedItems?.includes("root-instruction"),
     });
     const refreshedRevision = readCachedSourceRevision({
       source: options.source,
@@ -3695,6 +3702,8 @@ async function refreshBundleSourceForApply(
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
+      includeRootInstructions:
+        options.requestedItems?.includes("root-instruction"),
     });
     updated =
       initialRevision.cached &&
@@ -5142,6 +5151,7 @@ async function applyWorktree(options: {
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
         ref: entry.ref ?? entry.resolved_commit,
+        includeRootInstructions: entry.items?.includes("root-instruction"),
       });
       if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
     }

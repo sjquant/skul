@@ -78,6 +78,7 @@ export async function resolveBundleItemRefs(options: {
       libraryDir: options.libraryDir,
       protocol,
       ref,
+      includeRootInstructions: itemRef.item === "root-instruction",
     });
 
     const cachedBundle = resolveReferencedCachedBundle({
@@ -119,6 +120,7 @@ async function ensureReferencedSourceRevision(options: {
   libraryDir: string;
   protocol: "https" | "ssh";
   ref?: string;
+  includeRootInstructions?: boolean;
 }): Promise<void> {
   if (options.ref) {
     await updateCachedRemoteSource(options);
