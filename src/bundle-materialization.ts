@@ -429,6 +429,27 @@ async function materializeNativeTarget(options: {
         : options.resolveFileConflict;
 
     if (item.kind === "directory") {
+      if (item.resolvedRef?.description !== undefined) {
+        const translated = translateCanonicalTargetItem({
+          item,
+          toolName: options.toolName,
+          targetName: options.targetName,
+        });
+        await writeTranslatedItemFiles({
+          translated,
+          pathLayout: options.pathLayout,
+          toolName: options.toolName,
+          repoRoot: options.repoRoot,
+          writtenFiles: options.writtenFiles,
+          ownedDirectories: options.ownedDirectories,
+          reservedDestinations,
+          assertSafeWriteTarget: options.assertSafeWriteTarget,
+          resolveFileConflict,
+          targetRoot: destinationDir,
+        });
+        continue;
+      }
+
       await copyDirectory(
         sourcePath,
         destinationPath,
@@ -443,6 +464,27 @@ async function materializeNativeTarget(options: {
       continue;
     }
 
+    if (item.resolvedRef?.description !== undefined) {
+      const translated = translateCanonicalTargetItem({
+        item,
+        toolName: options.toolName,
+        targetName: options.targetName,
+      });
+      await writeTranslatedItemFiles({
+        translated,
+        pathLayout: options.pathLayout,
+        toolName: options.toolName,
+        repoRoot: options.repoRoot,
+        writtenFiles: options.writtenFiles,
+        ownedDirectories: options.ownedDirectories,
+        reservedDestinations,
+        assertSafeWriteTarget: options.assertSafeWriteTarget,
+        resolveFileConflict,
+        targetRoot: destinationDir,
+      });
+      continue;
+    }
+
     await copyFileToDestination({
       sourcePath,
       destinationPath,
@@ -453,6 +495,39 @@ async function materializeNativeTarget(options: {
       repoRoot: options.repoRoot,
       assertSafeWriteTarget: options.assertSafeWriteTarget,
       resolveFileConflict,
+    });
+  }
+}
+
+async function writeTranslatedItemFiles(options: {
+  translated: Record<string, string>;
+  pathLayout: ToolMaterializationLayout;
+  toolName: ToolName;
+  repoRoot: string;
+  writtenFiles: string[];
+  ownedDirectories: Set<string>;
+  reservedDestinations: Set<string>;
+  assertSafeWriteTarget?: (repoRelativePath: string) => void;
+  resolveFileConflict:
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
+    | undefined;
+  targetRoot: string;
+}): Promise<void> {
+  for (const [origRelPath, content] of Object.entries(options.translated)) {
+    const repoRelPath = options.pathLayout.remapRepoRelPath(
+      options.toolName,
+      origRelPath,
+    );
+    await writeTranslatedFile({
+      repoRelPath,
+      content,
+      repoRoot: options.repoRoot,
+      writtenFiles: options.writtenFiles,
+      ownedDirectories: options.ownedDirectories,
+      reservedDestinations: options.reservedDestinations,
+      assertSafeWriteTarget: options.assertSafeWriteTarget,
+      resolveFileConflict: options.resolveFileConflict,
+      targetRoot: options.targetRoot,
     });
   }
 }
@@ -506,6 +581,26 @@ function previewNativeTargetWriteTargets(options: {
   }
 
   return listNativeTargetItems(options).flatMap((item) => {
+    if (item.resolvedRef?.description !== undefined) {
+      return Object.keys(
+        translateCanonicalTargetItem({
+          item,
+          toolName: options.toolName,
+          targetName: options.targetName,
+        }),
+      ).map((origRelPath) =>
+        path.relative(
+          options.repoRoot,
+          pathLayoutPath(
+            options.pathLayout,
+            options.toolName,
+            origRelPath,
+            options.repoRoot,
+          ),
+        ),
+      );
+    }
+
     const sourcePath = item.resolvedRef?.path ?? item.localPath;
     const nativeRelativePath = item.nativeRelativePath;
 
@@ -529,6 +624,18 @@ function previewNativeTargetWriteTargets(options: {
       ),
     ];
   });
+}
+
+function pathLayoutPath(
+  pathLayout: ToolMaterializationLayout,
+  toolName: ToolName,
+  repoRelativePath: string,
+  repoRoot: string,
+): string {
+  return path.join(
+    repoRoot,
+    pathLayout.remapRepoRelPath(toolName, repoRelativePath),
+  );
 }
 
 function listNativeTargetItems(options: {
@@ -1168,12 +1275,17 @@ function translateCanonicalTargetItem(options: {
       options.disableModelInvocation ||
       options.item.resolvedRef?.disableModelInvocation;
     return translateSkill({
-      sourceTool: "claude",
+      sourceTool: files["agents/openai.yaml"] ? "codex" : "claude",
       targetTool: translTool,
       files,
       options:
-        disableModelInvocation || description !== undefined
+        options.item.resolvedRef ||
+        disableModelInvocation ||
+        description !== undefined
           ? {
+              ...(options.item.resolvedRef
+                ? { name: options.item.itemName }
+                : {}),
               ...(description !== undefined ? { description } : {}),
               ...(disableModelInvocation
                 ? { disableModelInvocation: true }
@@ -1190,21 +1302,30 @@ function translateCanonicalTargetItem(options: {
         typeof translateCommand
       >[0]["targetTool"],
       source: fs.readFileSync(sourcePath, "utf8"),
-      options: { name: options.item.itemName },
+      options: {
+        name: options.item.itemName,
+        ...(options.item.resolvedRef?.description !== undefined
+          ? { description: options.item.resolvedRef.description }
+          : {}),
+      },
     });
   }
 
   if (options.targetName === "agents") {
     return translateAgent({
-      sourceTool: "claude",
+      sourceTool: sourcePath.endsWith(".toml") ? "codex" : "claude",
       targetTool: translTool as Parameters<
         typeof translateAgent
       >[0]["targetTool"],
       source: fs.readFileSync(sourcePath, "utf8"),
-      options:
-        options.item.resolvedRef?.description !== undefined
-          ? { description: options.item.resolvedRef.description }
-          : undefined,
+      options: options.item.resolvedRef
+        ? {
+            name: options.item.itemName,
+            ...(options.item.resolvedRef.description !== undefined
+              ? { description: options.item.resolvedRef.description }
+              : {}),
+          }
+        : undefined,
     });
   }
 

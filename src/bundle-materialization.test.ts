@@ -1319,7 +1319,7 @@ describe("materializeBundle – canonical agent source", () => {
     // Then
     expect(
       fs.readFileSync(
-        path.join(repoRoot, ".claude", "agents", "code-reviewer.md"),
+        path.join(repoRoot, ".claude", "agents", "reviewer.md"),
         "utf8",
       ),
     ).toContain("description: Review only pull requests");

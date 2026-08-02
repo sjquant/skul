@@ -237,11 +237,7 @@ function parseBundleItemRefEntry(
       ? expectOptionalRootInstructionPath(record.path, location)
       : expectForbiddenPath(record.path, target, location);
   const source = expectNonEmptyString(record.source, "source", location);
-  const description = expectOptionalNonEmptyString(
-    record.description,
-    "description",
-    location,
-  );
+  const description = expectDescription(record.description, location);
   const bundle = expectOptionalNonEmptyString(
     record.bundle,
     "bundle",
@@ -267,12 +263,6 @@ function parseBundleItemRefEntry(
     );
   }
 
-  if (description !== undefined && target !== "skills" && target !== "agents") {
-    throw new Error(
-      `Bundle item ref "description" is only valid for skills and agents: ${location}`,
-    );
-  }
-
   const localSelector =
     target === ROOT_INSTRUCTION_SELECTOR ? target : `${target}/${name}`;
   const item = normalizeRefItem(
@@ -286,7 +276,7 @@ function parseBundleItemRefEntry(
     target,
     ...(name ? { name } : {}),
     ...(localPath ? { path: localPath } : {}),
-    ...(description ? { description } : {}),
+    ...(description !== undefined ? { description } : {}),
     source,
     ...(bundle ? { bundle } : {}),
     item,
@@ -914,6 +904,25 @@ function expectOptionalNonEmptyString(
   }
 
   return expectNonEmptyString(value, field, location);
+}
+
+function expectDescription(
+  value: unknown,
+  location: string,
+): string | undefined {
+  const description = expectOptionalNonEmptyString(
+    value,
+    "description",
+    location,
+  );
+
+  if (description?.includes("\n") || description?.includes("\r")) {
+    throw new Error(
+      `Bundle item ref "description" must be a single line: ${location}`,
+    );
+  }
+
+  return description;
 }
 
 function expectBoolean(

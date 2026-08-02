@@ -143,8 +143,9 @@ describe("run add — cross-repo bundle item references", () => {
       refs: [
         {
           target: "skills",
-          name: "insane-search",
+          name: "search",
           source: "fivetaku/insane-search",
+          item: "skills/insane-search",
         },
       ],
     });
@@ -161,13 +162,14 @@ describe("run add — cross-repo bundle item references", () => {
       repoRoot,
       ".claude",
       "skills",
-      "insane-search",
+      "search",
       "SKILL.md",
     );
     expect(fs.existsSync(materializedPath)).toBe(true);
     expect(fs.readFileSync(materializedPath, "utf8")).toContain(
       "Search aggressively.",
     );
+    expect(fs.readFileSync(materializedPath, "utf8")).toContain("name: search");
   });
 
   it("materializes bundle item refs from multiple sources into a cold cache", async () => {
@@ -416,7 +418,7 @@ describe("run add — cross-repo bundle item references", () => {
       homeDir,
       source: "github.com/fivetaku/reviewers",
       bundle: "reviewers",
-      agentName: "reviewer",
+      agentName: "source-reviewer",
     });
     writeManifest(homeDir, "github.com/user/ai-vault", "ghosts", {
       name: "ghosts",
@@ -431,6 +433,7 @@ describe("run add — cross-repo bundle item references", () => {
           target: "agents",
           name: "reviewer",
           source: "fivetaku/reviewers",
+          item: "agents/source-reviewer",
           description: "Review only pull requests",
         },
       ],
@@ -450,6 +453,12 @@ describe("run add — cross-repo bundle item references", () => {
         "utf8",
       ),
     ).toContain("Review externally sourced diffs.");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "agents", "reviewer.md"),
+        "utf8",
+      ),
+    ).toContain("name: reviewer");
     expect(
       fs.readFileSync(
         path.join(repoRoot, ".claude", "agents", "reviewer.md"),
@@ -482,6 +491,7 @@ describe("run add — cross-repo bundle item references", () => {
           target: "commands",
           name: "review",
           source: "fivetaku/commands",
+          description: "Review only pull requests",
         },
       ],
     });
@@ -500,6 +510,12 @@ describe("run add — cross-repo bundle item references", () => {
         "utf8",
       ),
     ).toContain("Run the review checklist.");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "commands", "review.md"),
+        "utf8",
+      ),
+    ).toContain("description: Review only pull requests");
   });
 
   it("materializes a referenced skill into a native-layout target", async () => {
@@ -526,6 +542,7 @@ describe("run add — cross-repo bundle item references", () => {
           target: "skills",
           name: "insane-search",
           source: "fivetaku/insane-search",
+          description: "Search only when explicitly requested",
         },
       ],
     });
@@ -544,6 +561,12 @@ describe("run add — cross-repo bundle item references", () => {
         "utf8",
       ),
     ).toContain("Search aggressively.");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "insane-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("description: Search only when explicitly requested");
   });
 
   it("materializes a manifest-free refs-only bundle", async () => {
@@ -609,6 +632,7 @@ describe("run add — cross-repo bundle item references", () => {
           target: "root-instruction",
           path: "AGENTS.md",
           source: "fivetaku/standards",
+          description: "Must not become frontmatter",
         },
       ],
     });
@@ -624,6 +648,9 @@ describe("run add — cross-repo bundle item references", () => {
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toContain(
       "Use externally sourced repo standards.",
     );
+    expect(
+      fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8"),
+    ).not.toContain("description:");
   });
 
   it("does not resolve an unselected broken bundle item reference", async () => {

@@ -194,7 +194,7 @@ Instead of copying an item from another repository into your bundle, you can ref
 | `source` | yes | The referenced repo, in any form `skul add` accepts. |
 | `bundle` | when ambiguous | The bundle name inside `source`. When omitted, Skul selects the only bundle containing the referenced item; set it when multiple bundles contain that item. |
 | `item` | no | The external item selector, e.g. `skills/other-name`, `agents/reviewer`, `commands/review`, or `root-instruction`. Defaults from local `target` / `name`, or to `root-instruction`. |
-| `description` | no | Override the materialized description for referenced skills and agents. |
+| `description` | no | Override the materialized description for referenced skills, commands, and agents. Ignored for root-instruction refs. Must be a single line. |
 | `ref` | no | Branch, tag, or commit to fetch. |
 | `disable-model-invocation` | no | Skill refs only. When `true`, forces the referenced skill to materialize with model invocation disabled. |
 

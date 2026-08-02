@@ -117,11 +117,14 @@ export function translateAgent(options: {
   sourceTool: AgentTool;
   targetTool: AgentTool;
   source: string;
-  options?: Pick<BundleTranslationOptions, "description">;
+  options?: Pick<BundleTranslationOptions, "name" | "description">;
 }): Record<string, string> {
   const model = parseAgent(options.sourceTool, options.source);
   return renderAgent(options.targetTool, {
     ...model,
+    ...(options.options?.name !== undefined
+      ? { name: options.options.name }
+      : {}),
     ...(options.options?.description !== undefined
       ? { description: options.options.description }
       : {}),
