@@ -1163,14 +1163,22 @@ function translateCanonicalTargetItem(options: {
   if (options.targetName === "skills") {
     const files: Record<string, string> = {};
     readFilesIntoRecord(sourcePath, "", files);
+    const description = options.item.resolvedRef?.description;
+    const disableModelInvocation =
+      options.disableModelInvocation ||
+      options.item.resolvedRef?.disableModelInvocation;
     return translateSkill({
       sourceTool: "claude",
       targetTool: translTool,
       files,
       options:
-        options.disableModelInvocation ||
-        options.item.resolvedRef?.disableModelInvocation
-          ? { disableModelInvocation: true }
+        disableModelInvocation || description !== undefined
+          ? {
+              ...(description !== undefined ? { description } : {}),
+              ...(disableModelInvocation
+                ? { disableModelInvocation: true }
+                : {}),
+            }
           : undefined,
     });
   }
@@ -1193,6 +1201,10 @@ function translateCanonicalTargetItem(options: {
         typeof translateAgent
       >[0]["targetTool"],
       source: fs.readFileSync(sourcePath, "utf8"),
+      options:
+        options.item.resolvedRef?.description !== undefined
+          ? { description: options.item.resolvedRef.description }
+          : undefined,
     });
   }
 

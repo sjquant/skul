@@ -408,6 +408,7 @@ describe("resolveBundleItemRefs", () => {
         target: "skills",
         name: "reviewer",
         source: "fivetaku/reviewer",
+        description: "Review changes only when requested",
         "disable-model-invocation": true,
       },
     ]);
@@ -426,6 +427,7 @@ describe("resolveBundleItemRefs", () => {
         "skills",
         "reviewer",
       ),
+      description: "Review changes only when requested",
       disableModelInvocation: true,
     });
   });
@@ -446,7 +448,12 @@ describe("resolveBundleItemRefs", () => {
       bundle: "standards",
     });
     writeRefsFile(bundleDir, [
-      { target: "agents", name: "reviewer", source: "fivetaku/agents" },
+      {
+        target: "agents",
+        name: "reviewer",
+        source: "fivetaku/agents",
+        description: "Review pull requests as a subagent",
+      },
       {
         target: "root-instruction",
         path: "AGENTS.md",
@@ -477,6 +484,7 @@ describe("resolveBundleItemRefs", () => {
         "agents",
         "reviewer.md",
       ),
+      description: "Review pull requests as a subagent",
     });
     expect(result.get("root-instruction")).toEqual({
       path: path.join(
@@ -511,6 +519,36 @@ describe("resolveBundleItemRefs", () => {
         manifest: { tools: { "claude-code": { agents: { path: "agents" } } } },
       }),
     ).rejects.toThrowError(/skill-only option "disable-model-invocation"/);
+  });
+
+  it("rejects descriptions on commands and root instruction refs", async () => {
+    // Given
+    const libraryDir = createTempDir("skul-library-");
+    const commandBundleDir = createTempDir("skul-command-bundle-");
+    const rootBundleDir = createTempDir("skul-root-bundle-");
+    writeRefsFile(commandBundleDir, [
+      {
+        target: "commands",
+        name: "review",
+        source: "fivetaku/reviewer",
+        description: "Review changes",
+      },
+    ]);
+    writeRefsFile(rootBundleDir, [
+      {
+        target: "root-instruction",
+        source: "fivetaku/standards",
+        description: "Repository standards",
+      },
+    ]);
+
+    // When / Then
+    await expect(
+      resolveBundleItemRefs({ bundleDir: commandBundleDir, libraryDir }),
+    ).rejects.toThrowError(/only valid for skills and agents/);
+    await expect(
+      resolveBundleItemRefs({ bundleDir: rootBundleDir, libraryDir }),
+    ).rejects.toThrowError(/only valid for skills and agents/);
   });
 
   it("ignores unselected refs without fetching them", async () => {

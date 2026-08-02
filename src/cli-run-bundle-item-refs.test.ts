@@ -379,6 +379,7 @@ describe("run add — cross-repo bundle item references", () => {
           target: "skills",
           name: "insane-search",
           source: "fivetaku/insane-search",
+          description: "Search only when explicitly requested",
           "disable-model-invocation": true,
         },
       ],
@@ -398,6 +399,12 @@ describe("run add — cross-repo bundle item references", () => {
         "utf8",
       ),
     ).toContain("disable-model-invocation: true");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "insane-search", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("description: Search only when explicitly requested");
   });
 
   it("materializes an agent referenced from another cached bundle", async () => {
@@ -424,6 +431,7 @@ describe("run add — cross-repo bundle item references", () => {
           target: "agents",
           name: "reviewer",
           source: "fivetaku/reviewers",
+          description: "Review only pull requests",
         },
       ],
     });
@@ -442,6 +450,12 @@ describe("run add — cross-repo bundle item references", () => {
         "utf8",
       ),
     ).toContain("Review externally sourced diffs.");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "agents", "reviewer.md"),
+        "utf8",
+      ),
+    ).toContain("description: Review only pull requests");
   });
 
   it("materializes a command referenced from another cached bundle", async () => {

@@ -1182,7 +1182,11 @@ describe("materializeBundle – cross-repo bundle item references", () => {
       resolvedBundleItemRefs: new Map([
         [
           "skills/reviewer",
-          { path: externalSkillDir, disableModelInvocation: true },
+          {
+            path: externalSkillDir,
+            description: "Review only when explicitly requested",
+            disableModelInvocation: true,
+          },
         ],
       ]),
     });
@@ -1194,6 +1198,12 @@ describe("materializeBundle – cross-repo bundle item references", () => {
         "utf8",
       ),
     ).toContain("disable-model-invocation: true");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "reviewer", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("description: Review only when explicitly requested");
   });
 });
 
@@ -1269,6 +1279,52 @@ describe("materializeBundle – canonical command source", () => {
 });
 
 describe("materializeBundle – canonical agent source", () => {
+  it("applies a description override to a referenced subagent", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalAgentPath = path.join(
+      createTempDir("skul-external-agent-"),
+      "reviewer.md",
+    );
+    writeFile(
+      externalAgentPath,
+      [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for correctness",
+        "---",
+        "",
+        "Review the diff.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { agents: { path: "agents" } } } },
+      resolvedBundleItemRefs: new Map([
+        [
+          "agents/reviewer",
+          {
+            path: externalAgentPath,
+            description: "Review only pull requests",
+          },
+        ],
+      ]),
+    });
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "agents", "code-reviewer.md"),
+        "utf8",
+      ),
+    ).toContain("description: Review only pull requests");
+  });
+
   it("translates a canonical agent to claude-code format", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
