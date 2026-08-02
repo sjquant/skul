@@ -117,9 +117,18 @@ export function translateAgent(options: {
   sourceTool: AgentTool;
   targetTool: AgentTool;
   source: string;
+  options?: Pick<BundleTranslationOptions, "name" | "description">;
 }): Record<string, string> {
   const model = parseAgent(options.sourceTool, options.source);
-  return renderAgent(options.targetTool, model);
+  return renderAgent(options.targetTool, {
+    ...model,
+    ...(options.options?.name !== undefined
+      ? { name: options.options.name }
+      : {}),
+    ...(options.options?.description !== undefined
+      ? { description: options.options.description }
+      : {}),
+  });
 }
 
 /** Translates one root-instruction source into target-tool root files such as `AGENTS.md`. */

@@ -35,6 +35,7 @@ export interface BundleItemRef {
   target: BundleItemRefTarget;
   name?: string;
   path?: string;
+  description?: string;
   source: string;
   bundle?: string;
   item: BundleItemSelector;
@@ -45,6 +46,7 @@ export interface BundleItemRef {
 
 export interface ResolvedBundleItemRef {
   path: string;
+  description?: string;
   disableModelInvocation?: boolean;
 }
 
@@ -98,6 +100,7 @@ export async function resolveBundleItemRefs(options: {
 
     resolved.set(itemRef.localSelector, {
       path: resolvedPath,
+      ...(itemRef.description ? { description: itemRef.description } : {}),
       ...(itemRef.disableModelInvocation
         ? { disableModelInvocation: true }
         : {}),
@@ -234,6 +237,7 @@ function parseBundleItemRefEntry(
       ? expectOptionalRootInstructionPath(record.path, location)
       : expectForbiddenPath(record.path, target, location);
   const source = expectNonEmptyString(record.source, "source", location);
+  const description = expectDescription(record.description, location);
   const bundle = expectOptionalNonEmptyString(
     record.bundle,
     "bundle",
@@ -272,6 +276,7 @@ function parseBundleItemRefEntry(
     target,
     ...(name ? { name } : {}),
     ...(localPath ? { path: localPath } : {}),
+    ...(description !== undefined ? { description } : {}),
     source,
     ...(bundle ? { bundle } : {}),
     item,
@@ -899,6 +904,25 @@ function expectOptionalNonEmptyString(
   }
 
   return expectNonEmptyString(value, field, location);
+}
+
+function expectDescription(
+  value: unknown,
+  location: string,
+): string | undefined {
+  const description = expectOptionalNonEmptyString(
+    value,
+    "description",
+    location,
+  );
+
+  if (description?.includes("\n") || description?.includes("\r")) {
+    throw new Error(
+      `Bundle item ref "description" must be a single line: ${location}`,
+    );
+  }
+
+  return description;
 }
 
 function expectBoolean(

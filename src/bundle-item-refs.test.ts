@@ -81,6 +81,23 @@ function writeCachedAgent(options: {
   );
 }
 
+function writeCachedCommand(options: {
+  libraryDir: string;
+  source: string;
+  bundle: string;
+  commandName: string;
+}): void {
+  const bundleDir = path.join(
+    options.libraryDir,
+    ...options.source.split("/"),
+    options.bundle,
+  );
+  writeFile(
+    path.join(bundleDir, "commands", `${options.commandName}.md`),
+    "Review the diff.\n",
+  );
+}
+
 function writeCachedRootInstruction(options: {
   libraryDir: string;
   source: string;
@@ -408,6 +425,7 @@ describe("resolveBundleItemRefs", () => {
         target: "skills",
         name: "reviewer",
         source: "fivetaku/reviewer",
+        description: "Review changes only when requested",
         "disable-model-invocation": true,
       },
     ]);
@@ -426,6 +444,7 @@ describe("resolveBundleItemRefs", () => {
         "skills",
         "reviewer",
       ),
+      description: "Review changes only when requested",
       disableModelInvocation: true,
     });
   });
@@ -446,7 +465,12 @@ describe("resolveBundleItemRefs", () => {
       bundle: "standards",
     });
     writeRefsFile(bundleDir, [
-      { target: "agents", name: "reviewer", source: "fivetaku/agents" },
+      {
+        target: "agents",
+        name: "reviewer",
+        source: "fivetaku/agents",
+        description: "Review pull requests as a subagent",
+      },
       {
         target: "root-instruction",
         path: "AGENTS.md",
@@ -477,6 +501,7 @@ describe("resolveBundleItemRefs", () => {
         "agents",
         "reviewer.md",
       ),
+      description: "Review pull requests as a subagent",
     });
     expect(result.get("root-instruction")).toEqual({
       path: path.join(
@@ -511,6 +536,76 @@ describe("resolveBundleItemRefs", () => {
         manifest: { tools: { "claude-code": { agents: { path: "agents" } } } },
       }),
     ).rejects.toThrowError(/skill-only option "disable-model-invocation"/);
+  });
+
+  it("allows descriptions on command refs and preserves root instruction refs", async () => {
+    // Given
+    const libraryDir = createTempDir("skul-library-");
+    const commandBundleDir = createTempDir("skul-command-bundle-");
+    const rootBundleDir = createTempDir("skul-root-bundle-");
+    writeCachedCommand({
+      libraryDir,
+      source: "github.com/fivetaku/commands",
+      bundle: "commands",
+      commandName: "review",
+    });
+    writeCachedRootInstruction({
+      libraryDir,
+      source: "github.com/fivetaku/standards",
+      bundle: "standards",
+    });
+    writeRefsFile(commandBundleDir, [
+      {
+        target: "commands",
+        name: "review",
+        source: "fivetaku/commands",
+        description: "Review changes",
+      },
+    ]);
+    writeRefsFile(rootBundleDir, [
+      {
+        target: "root-instruction",
+        source: "fivetaku/standards",
+        description: "Repository standards",
+      },
+    ]);
+
+    // When
+    const commandResult = await resolveBundleItemRefs({
+      bundleDir: commandBundleDir,
+      libraryDir,
+    });
+    const rootResult = await resolveBundleItemRefs({
+      bundleDir: rootBundleDir,
+      libraryDir,
+    });
+
+    // Then
+    expect(commandResult.get("commands/review")).toMatchObject({
+      description: "Review changes",
+    });
+    expect(rootResult.get("root-instruction")).toMatchObject({
+      description: "Repository standards",
+    });
+  });
+
+  it("rejects multiline descriptions before rendering frontmatter", async () => {
+    // Given
+    const libraryDir = createTempDir("skul-library-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeRefsFile(bundleDir, [
+      {
+        target: "skills",
+        name: "reviewer",
+        source: "fivetaku/reviewer",
+        description: "Review\nchanges",
+      },
+    ]);
+
+    // When / Then
+    await expect(
+      resolveBundleItemRefs({ bundleDir, libraryDir }),
+    ).rejects.toThrowError(/description.*single line/);
   });
 
   it("ignores unselected refs without fetching them", async () => {
