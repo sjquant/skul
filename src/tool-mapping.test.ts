@@ -65,6 +65,7 @@ describe("getToolDefinition", () => {
           commands: { path: ".opencode/commands", kind: "directory" },
           agents: { path: ".opencode/agents", kind: "directory" },
           root_instruction: { path: "AGENTS.md", kind: "file" },
+          mcp: { path: "opencode.json", kind: "file" },
         },
       },
     ],

@@ -8,6 +8,7 @@ import {
   createPromptClientStub,
   createRepository,
   pathExists,
+  runGit,
   writeBundleFile,
 } from "./cli.test-support";
 import { run } from "./index";
@@ -247,62 +248,57 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(false);
   });
 
-  it("asks before replacing an MCP configuration the project already has", async () => {
-    // Given a project that already hand-wrote an MCP configuration
+  it("keeps servers the project already had alongside the bundle's own", async () => {
+    // Given a project that hand-wrote its own MCP server
     const homeDir = createHomeDir();
     const cwd = createRepository();
     writeMcpBundle(homeDir);
     fs.writeFileSync(
       path.join(cwd, ".mcp.json"),
-      JSON.stringify({ mcpServers: { existing: { command: "mine" } } }),
+      JSON.stringify({ mcpServers: { mine: { command: "mine" } } }),
     );
-    const conflicts: string[] = [];
 
-    // When a bundle targeting the same file is added without auto-approval
-    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code"], {
+    // When a bundle targeting the same file is added
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
       homeDir,
       cwd,
-      prompts: createPromptClientStub({
-        resolveFileConflict: async (conflictPath) => {
-          conflicts.push(conflictPath);
-          return { action: "overwrite" };
-        },
-      }),
+      prompts: createPromptClientStub(),
     });
 
-    // Then the existing file is reported as a conflict before being replaced
-    expect(conflicts).toEqual([".mcp.json"]);
-    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toHaveProperty("docs");
+    // Then both the hand-written and the bundle's servers are present
+    const servers = readMcpServers(path.join(cwd, ".mcp.json"));
+    expect(Object.keys(servers).sort()).toEqual(["docs", "mine", "remote"]);
   });
 
-  it("leaves an existing MCP configuration untouched when the user declines", async () => {
-    // Given a project with a hand-written MCP configuration
+  it("restores the hand-written configuration when the bundle is removed", async () => {
+    // Given a project whose own server sits beside an added bundle's servers
     const homeDir = createHomeDir();
     const cwd = createRepository();
     writeMcpBundle(homeDir);
-    const existing = JSON.stringify({
-      mcpServers: { existing: { command: "mine" } },
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      JSON.stringify({ mcpServers: { mine: { command: "mine" } } }),
+    );
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
     });
-    fs.writeFileSync(path.join(cwd, ".mcp.json"), existing);
 
-    // When the user declines the overwrite prompt
-    await expect(
-      run(["add", SOURCE, BUNDLE, "--agent", "claude-code"], {
-        homeDir,
-        cwd,
-        prompts: createPromptClientStub({
-          resolveFileConflict: async () => {
-            throw new Error("Aborted by user");
-          },
-        }),
-      }),
-    ).rejects.toThrowError(/Aborted by user/);
+    // When the bundle is removed
+    await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
 
-    // Then the original configuration is still on disk
-    expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(existing);
+    // Then only the user's own server remains, and the file survives
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      mine: { command: "mine" },
+    });
   });
 
-  it("guards the shared configuration when a second bundle has replaced it", async () => {
+  it("keeps each bundle's servers independent in the shared file", async () => {
     // Given two bundles that both target Claude Code's single MCP file
     const homeDir = createHomeDir();
     const cwd = createRepository();
@@ -323,19 +319,187 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       });
     }
 
-    // When the first bundle is removed after the second replaced its file
-    const removal = run(["remove", "first"], {
+    // Then both bundles' servers coexist
+    expect(
+      Object.keys(readMcpServers(path.join(cwd, ".mcp.json"))).sort(),
+    ).toEqual(["first", "second"]);
+
+    // When the first bundle is removed
+    await run(["remove", "first", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then only its own server is subtracted
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      second: { type: "stdio", command: "second" },
+    });
+  });
+
+  it("preserves unrelated OpenCode settings sharing the config file", async () => {
+    // Given an opencode.json holding model and theme settings
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(cwd, "opencode.json"),
+      JSON.stringify({
+        $schema: "https://opencode.ai/config.json",
+        model: "anthropic/claude-opus-4",
+        theme: "tokyonight",
+      }),
+    );
+
+    // When a bundle's MCP servers are added for OpenCode
+    await run(["add", SOURCE, BUNDLE, "--agent", "opencode", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the unrelated settings survive beside the new mcp block
+    const document = readJson(path.join(cwd, "opencode.json")) as Record<
+      string,
+      unknown
+    >;
+    expect(document.model).toBe("anthropic/claude-opus-4");
+    expect(document.theme).toBe("tokyonight");
+    expect(document.mcp).toHaveProperty("docs");
+  });
+
+  it("leaves OpenCode's own settings behind after the bundle is removed", async () => {
+    // Given OpenCode settings that predate the bundle
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(cwd, "opencode.json"),
+      JSON.stringify({ model: "anthropic/claude-opus-4" }),
+    );
+    await run(["add", SOURCE, BUNDLE, "--agent", "opencode", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the bundle is removed
+    await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the file remains with the user's settings and no mcp block
+    expect(readJson(path.join(cwd, "opencode.json"))).toEqual({
+      model: "anthropic/claude-opus-4",
+    });
+  });
+
+  it("translates a stdio server into OpenCode's local command array", async () => {
+    // Given a bundle declaring a stdio server with arguments
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+
+    // When it is added for OpenCode
+    await run(["add", SOURCE, BUNDLE, "--agent", "opencode", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then command and args become one array under OpenCode's local type
+    const document = readJson(path.join(cwd, "opencode.json")) as {
+      mcp: Record<string, Record<string, unknown>>;
+    };
+    expect(document.mcp.docs).toMatchObject({
+      type: "local",
+      enabled: true,
+      command: [
+        "docs-server",
+        "--root",
+        path.join(
+          homeDir,
+          ".skul",
+          "library",
+          ...SOURCE.split("/"),
+          BUNDLE,
+          "reference",
+        ),
+      ],
+    });
+    expect(document.mcp.remote).toMatchObject({
+      type: "remote",
+      url: "https://example.com/mcp",
+    });
+  });
+
+  it("removes one bundle without prompting about another bundle's merge", async () => {
+    // Given two bundles sharing Claude Code's MCP file
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      });
+    }
+    const prompted: string[] = [];
+
+    // When the first is removed without auto-approval
+    await run(["remove", "first"], {
       homeDir,
       cwd,
       prompts: createPromptClientStub({
-        confirmManagedFileRemoval: async () => false,
+        confirmManagedFileRemoval: async (conflictPath) => {
+          prompted.push(conflictPath);
+          return true;
+        },
       }),
     });
 
-    // Then the removal stops rather than discarding the second bundle's servers
-    await expect(removal).rejects.toThrowError(/modified managed file/);
+    // Then the second bundle's merge is not mistaken for tampering
+    expect(prompted).toEqual([]);
     expect(readMcpServers(path.join(cwd, ".mcp.json"))).toHaveProperty(
       "second",
+    );
+  });
+
+  it("refuses to merge into a Git-tracked MCP configuration", async () => {
+    // Given an MCP configuration that the repository commits
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const committed = JSON.stringify({
+      mcpServers: { mine: { command: "m" } },
+    });
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), committed);
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "add mcp config"]);
+
+    // When a bundle targeting that file is added / Then Skul refuses
+    await expect(
+      run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(/\.mcp\.json is tracked by Git/);
+
+    // And the committed file is left exactly as it was
+    expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
+      committed,
     );
   });
 

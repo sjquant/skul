@@ -20,8 +20,8 @@ import type { FileConflictResolution } from "./cli";
 import { pathDepth } from "./fs-utils";
 import {
   type McpServer,
+  mergeMcpConfigDocument,
   parseMcpConfig,
-  renderMcpConfigDocument,
   supportsMcpConfig,
 } from "./mcp-config";
 import type { RootInstructionMode } from "./registry";
@@ -40,7 +40,17 @@ import {
 } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
-  byTool: Partial<Record<ToolName, { files: string[]; directories: string[] }>>;
+  byTool: Partial<
+    Record<
+      ToolName,
+      {
+        files: string[];
+        directories: string[];
+        /** MCP server names now owned in each shared configuration file. */
+        mcpServers: Record<string, string[]>;
+      }
+    >
+  >;
 }
 
 interface CanonicalTargetItem {
@@ -196,7 +206,7 @@ export async function materializeBundle(options: {
   /** Absolute path substituted for ${PLUGIN_DATA} in the bundle's MCP server config. */
   mcpPluginDataDir?: string;
 }): Promise<MaterializeBundleResult> {
-  const byTool: Record<string, { files: string[]; directories: string[] }> = {};
+  const byTool: MaterializeBundleResult["byTool"] = {};
   const writtenSharedFileTargets = new Set<string>();
   const pathLayout = options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT;
   const toolEntries =
@@ -223,6 +233,7 @@ export async function materializeBundle(options: {
   for (const [toolName, targets] of toolEntries) {
     const toolFiles: string[] = [];
     const toolDirectories = new Set<string>();
+    const toolMcpServers: Record<string, string[]> = {};
 
     for (const [targetName, target] of Object.entries(targets)) {
       const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[
@@ -243,9 +254,9 @@ export async function materializeBundle(options: {
           ownedDirectories: toolDirectories,
           writtenSharedFileTargets,
           assertSafeWriteTarget: options.assertSafeWriteTarget,
-          resolveFileConflict: options.resolveFileConflict,
           pathLayout,
           pluginDataDir: options.mcpPluginDataDir,
+          ownedMcpServers: toolMcpServers,
         });
         continue;
       }
@@ -335,6 +346,7 @@ export async function materializeBundle(options: {
     byTool[toolName as ToolName] = {
       files: toolFiles,
       directories: sortedToolDirs,
+      mcpServers: toolMcpServers,
     };
   }
 
@@ -468,12 +480,12 @@ function readMcpServers(
 }
 
 /**
- * Writes one tool's MCP configuration file from the bundle's `mcp.json`.
+ * Merges one bundle's MCP servers into the tool's configuration file.
  *
- * Skul owns the file it creates: an existing configuration goes through the
- * caller's conflict resolver rather than being merged, which keeps MCP
- * configuration under the same managed-file lifecycle as every other
- * materialized output.
+ * The file is shared rather than owned: unrelated servers and unrelated
+ * settings living in the same document are preserved, and the server names
+ * written here are recorded so removal can subtract exactly them. Because
+ * nothing is destroyed, this write needs no conflict prompt.
  */
 async function materializeMcpTarget(options: {
   bundleDir: string;
@@ -484,11 +496,9 @@ async function materializeMcpTarget(options: {
   ownedDirectories: Set<string>;
   writtenSharedFileTargets: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
-  resolveFileConflict:
-    | ((conflictPath: string) => Promise<FileConflictResolution>)
-    | undefined;
   pathLayout: ToolMaterializationLayout;
   pluginDataDir?: string;
+  ownedMcpServers: Record<string, string[]>;
 }): Promise<void> {
   const repoRelPath = resolveMcpRepoRelPath({
     toolName: options.toolName,
@@ -496,39 +506,41 @@ async function materializeMcpTarget(options: {
     pathLayout: options.pathLayout,
   });
 
-  if (!repoRelPath) {
-    return;
-  }
-
-  if (options.writtenSharedFileTargets.has(repoRelPath)) {
-    options.writtenFiles.push(repoRelPath);
+  if (!repoRelPath || options.writtenSharedFileTargets.has(repoRelPath)) {
     return;
   }
 
   const sourceFile = path.join(options.bundleDir, options.sourcePath);
   assertBundleTargetFile(sourceFile, options.sourcePath);
   const servers = readMcpServers(sourceFile, options.sourcePath);
+  const targetAbsPath = path.join(options.repoRoot, ...repoRelPath.split("/"));
+  const merged = mergeMcpConfigDocument({
+    toolName: options.toolName,
+    servers,
+    pluginPaths: {
+      pluginRoot: options.bundleDir,
+      ...(options.pluginDataDir ? { pluginData: options.pluginDataDir } : {}),
+    },
+    ...(fs.existsSync(targetAbsPath)
+      ? { existingContent: fs.readFileSync(targetAbsPath, "utf8") }
+      : {}),
+  });
 
   await writeTranslatedFile({
     repoRelPath,
-    content: renderMcpConfigDocument({
-      toolName: options.toolName,
-      servers,
-      pluginPaths: {
-        pluginRoot: options.bundleDir,
-        ...(options.pluginDataDir ? { pluginData: options.pluginDataDir } : {}),
-      },
-    }),
+    content: merged.content,
     repoRoot: options.repoRoot,
     writtenFiles: options.writtenFiles,
     ownedDirectories: options.ownedDirectories,
     reservedDestinations: new Set<string>(),
     assertSafeWriteTarget: options.assertSafeWriteTarget,
-    resolveFileConflict: options.resolveFileConflict,
+    allowExistingFileOverwrite: true,
+    resolveFileConflict: undefined,
     targetRoot: "",
   });
 
   options.writtenSharedFileTargets.add(repoRelPath);
+  options.ownedMcpServers[repoRelPath] = merged.serverNames;
 }
 
 async function materializeNativeTarget(options: {

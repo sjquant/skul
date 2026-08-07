@@ -47,6 +47,12 @@ export interface MaterializedToolState {
   file_fingerprints?: Record<string, string>;
   directories?: string[];
   items?: BundleItemSelector[];
+  /**
+   * MCP server names this bundle owns, keyed by the repo-relative configuration
+   * file holding them. Skul merges into these files rather than owning them
+   * outright, so removal subtracts these names instead of deleting the file.
+   */
+  mcp_servers?: Record<string, string[]>;
 }
 
 export interface MaterializedBundleState {
@@ -492,6 +498,11 @@ function parseMaterializedToolState(
           ),
         );
 
+  const mcpServers =
+    toolState.mcp_servers === undefined
+      ? undefined
+      : parseMcpServerOwnership(toolState.mcp_servers, `${label}.mcp_servers`);
+
   return {
     files,
     ...(fileFingerprints === undefined
@@ -499,7 +510,24 @@ function parseMaterializedToolState(
       : { file_fingerprints: fileFingerprints }),
     ...(directories === undefined ? {} : { directories }),
     ...(items === undefined ? {} : { items }),
+    ...(mcpServers === undefined ? {} : { mcp_servers: mcpServers }),
   };
+}
+
+function parseMcpServerOwnership(
+  input: unknown,
+  label: string,
+): Record<string, string[]> {
+  const record = expectRecord(input, label);
+
+  return Object.fromEntries(
+    Object.entries(record).map(([filePath, serverNames]) => [
+      expectRelativePath(filePath, `${label} key`),
+      expectArray(serverNames, `${label}.${filePath}`).map((value, index) =>
+        expectNonEmptyString(value, `${label}.${filePath}[${index}]`),
+      ),
+    ]),
+  );
 }
 
 function parseShadowedFiles(
@@ -796,6 +824,9 @@ function cloneMaterializedBundleState(
             : {}),
           ...(toolState.items !== undefined
             ? { items: [...toolState.items] }
+            : {}),
+          ...(toolState.mcp_servers !== undefined
+            ? { mcp_servers: { ...toolState.mcp_servers } }
             : {}),
         },
       ]),

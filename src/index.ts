@@ -66,8 +66,10 @@ import {
 import {
   clearGitSkipWorktree,
   inspectRootInstructionShadowTarget,
+  isTrackedGitPath,
   setGitSkipWorktree,
 } from "./git-index";
+import { subtractMcpConfigServers } from "./mcp-config";
 import {
   type DesiredBundleEntry,
   type GlobalState,
@@ -106,6 +108,7 @@ import {
   GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
   globalCapableToolNames,
+  listToolDefinitions,
   type ToolName,
   type ToolTargetName,
 } from "./tool-mapping";
@@ -2287,11 +2290,10 @@ async function updateBundles(options: {
           itemSelectors: entry.items,
           bundleName: entry.bundle,
           bundleSource: entry.source,
-          assertSafeWriteTarget:
-            createTrackedRootInstructionShadowSafetyAssertion({
-              repoRoot: gitContext.worktreeRoot,
-              operation: existingBundleState ? "refresh" : "create",
-            }),
+          assertSafeWriteTarget: createManagedWriteSafetyAssertion({
+            repoRoot: gitContext.worktreeRoot,
+            operation: existingBundleState ? "refresh" : "create",
+          }),
           allowFileOverwriteTargets:
             collectManagedRootInstructionTargets(currentBundles),
           deferredWriteTargets:
@@ -2721,7 +2723,7 @@ async function applyBundle(options: {
     itemSelectors: preparedBundle.selectedItems,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
-    assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
+    assertSafeWriteTarget: createManagedWriteSafetyAssertion({
       repoRoot: gitContext.worktreeRoot,
       operation: existingBundleState ? "refresh" : "create",
     }),
@@ -5401,7 +5403,7 @@ async function applyWorktree(options: {
       itemSelectors: entry.items,
       bundleName: entry.bundle,
       bundleSource: entry.source,
-      assertSafeWriteTarget: createTrackedRootInstructionShadowSafetyAssertion({
+      assertSafeWriteTarget: createManagedWriteSafetyAssertion({
         repoRoot: gitContext.worktreeRoot,
         operation: existingBundleState ? "refresh" : "create",
       }),
@@ -6095,10 +6097,12 @@ function flattenBundleState(bundleState: MaterializedBundleState): {
   files: string[];
   file_fingerprints: Record<string, string>;
   directories: string[];
+  mcp_servers: Record<string, string[]>;
 } {
   const files = new Set<string>();
   const file_fingerprints: Record<string, string> = {};
   const directories = new Set<string>();
+  const mcp_servers: Record<string, string[]> = {};
 
   for (const toolState of Object.values(bundleState.tools)) {
     for (const file of toolState.files) {
@@ -6111,12 +6115,20 @@ function flattenBundleState(bundleState: MaterializedBundleState): {
         directories.add(directory);
       }
     }
+    for (const [filePath, serverNames] of Object.entries(
+      toolState.mcp_servers ?? {},
+    )) {
+      mcp_servers[filePath] = [
+        ...new Set([...(mcp_servers[filePath] ?? []), ...serverNames]),
+      ];
+    }
   }
 
   return {
     files: Array.from(files),
     file_fingerprints,
     directories: Array.from(directories),
+    mcp_servers,
   };
 }
 
@@ -6149,14 +6161,23 @@ function buildMaterializedToolStates(
       toolName,
       {
         files: toolResult.files,
+        // MCP configuration files are shared, not owned: another bundle or the
+        // user may legitimately hold servers in the same document. Fingerprinting
+        // them would report that as tampering and block a removal that only
+        // subtracts this bundle's own server names.
         file_fingerprints: captureManagedFileFingerprints(
           repoRoot,
-          toolResult.files,
+          toolResult.files.filter(
+            (filePath) => !(filePath in toolResult.mcpServers),
+          ),
         ),
         ...(toolResult.directories.length > 0
           ? { directories: toolResult.directories }
           : {}),
         ...(selectedItems !== undefined ? { items: selectedItems } : {}),
+        ...(Object.keys(toolResult.mcpServers).length > 0
+          ? { mcp_servers: toolResult.mcpServers }
+          : {}),
       } satisfies MaterializedToolState,
     ]),
   );
@@ -6216,11 +6237,77 @@ function collectAllFiles(materializedState: MaterializedState): string[] {
   );
 }
 
+/**
+ * Subtracts a bundle's MCP servers from the shared configuration files holding
+ * them, returning the paths that became empty and may now be deleted outright.
+ *
+ * A file still holding another bundle's servers, or a user's own tool settings,
+ * is rewritten in place and withheld from deletion.
+ */
+function releaseManagedMcpServers(
+  repoRoot: string,
+  mcpServers: Record<string, string[]> | undefined,
+): Set<string> {
+  const releasablePaths = new Set<string>();
+
+  for (const [relativePath, serverNames] of Object.entries(mcpServers ?? {})) {
+    const targetPath = path.join(repoRoot, ...relativePath.split("/"));
+
+    if (!fs.existsSync(targetPath)) {
+      releasablePaths.add(relativePath);
+      continue;
+    }
+
+    const toolName = findToolNameForMcpPath(relativePath);
+
+    if (!toolName) {
+      continue;
+    }
+
+    const result = subtractMcpConfigServers({
+      toolName,
+      existingContent: fs.readFileSync(targetPath, "utf8"),
+      serverNames,
+    });
+
+    if (result.releasable) {
+      releasablePaths.add(relativePath);
+      continue;
+    }
+
+    fs.writeFileSync(targetPath, result.content!);
+  }
+
+  return releasablePaths;
+}
+
+function findToolNameForMcpPath(relativePath: string): ToolName | undefined {
+  return listToolDefinitions().find(
+    (definition) => definition.targets.mcp?.path === relativePath,
+  )?.name;
+}
+
 function removeManagedPaths(
   repoRoot: string,
-  state: Parameters<typeof listManagedPathsForRemoval>[0],
+  state: Parameters<typeof listManagedPathsForRemoval>[0] & {
+    mcp_servers?: Record<string, string[]>;
+  },
 ): void {
+  const releasableMcpPaths = releaseManagedMcpServers(
+    repoRoot,
+    state.mcp_servers,
+  );
+  const retainedMcpPaths = new Set(
+    Object.keys(state.mcp_servers ?? {}).filter(
+      (filePath) => !releasableMcpPaths.has(filePath),
+    ),
+  );
+
   for (const relativePath of listManagedPathsForRemoval(state)) {
+    if (retainedMcpPaths.has(relativePath)) {
+      continue;
+    }
+
     const targetPath = path.join(repoRoot, relativePath);
 
     if (!fs.existsSync(targetPath)) {
@@ -6358,21 +6445,44 @@ function assertTrackedRootInstructionShadowSafetyForPaths(options: {
   }
 }
 
-function createTrackedRootInstructionShadowSafetyAssertion(options: {
+/**
+ * Vetoes writes to shared files Skul cannot safely modify in place.
+ *
+ * Root instructions have a tracked-shadow lifecycle that keeps a committed file
+ * clean; MCP configuration does not yet, so a tracked target is refused rather
+ * than silently dirtying the working tree.
+ */
+function createManagedWriteSafetyAssertion(options: {
   repoRoot: string;
   operation: "create" | "refresh";
 }): (repoRelativePath: string) => void {
   return (repoRelativePath: string) => {
-    if (!isRootInstructionPath(repoRelativePath)) {
+    if (isRootInstructionPath(repoRelativePath)) {
+      assertTrackedRootInstructionShadowSafety({
+        repoRoot: options.repoRoot,
+        filePath: repoRelativePath,
+        operation: options.operation,
+      });
       return;
     }
 
-    assertTrackedRootInstructionShadowSafety({
-      repoRoot: options.repoRoot,
-      filePath: repoRelativePath,
-      operation: options.operation,
-    });
+    if (findToolNameForMcpPath(repoRelativePath)) {
+      assertUntrackedMcpConfigTarget(options.repoRoot, repoRelativePath);
+    }
   };
+}
+
+function assertUntrackedMcpConfigTarget(
+  repoRoot: string,
+  repoRelativePath: string,
+): void {
+  if (!isTrackedGitPath({ repoRoot, filePath: repoRelativePath })) {
+    return;
+  }
+
+  throw new Error(
+    `${repoRelativePath} is tracked by Git, so Skul will not merge MCP servers into it and dirty the working tree.\nAdd it to .gitignore, or install the bundle without its servers using --include to select other items.`,
+  );
 }
 
 function selectDesiredEntries(

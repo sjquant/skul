@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   MCP_CONFIG_FILE_NAME,
+  mergeMcpConfigDocument,
   parseMcpConfig,
-  renderMcpConfigDocument,
+  subtractMcpConfigServers,
   supportsMcpConfig,
 } from "./mcp-config";
 import { listToolDefinitions } from "./tool-mapping";
@@ -116,7 +117,7 @@ describe("parseMcpConfig", () => {
   });
 });
 
-describe("renderMcpConfigDocument", () => {
+describe("mergeMcpConfigDocument", () => {
   it("writes Claude Code servers under mcpServers with an explicit stdio type", () => {
     // Given one stdio server
     const servers = parseMcpConfig({
@@ -124,11 +125,11 @@ describe("renderMcpConfigDocument", () => {
     });
 
     // When it is rendered for Claude Code
-    const document = renderMcpConfigDocument({
+    const document = mergeMcpConfigDocument({
       toolName: "claude-code",
       servers,
       pluginPaths: PLUGIN_PATHS,
-    });
+    }).content;
 
     // Then the tool's own key and discriminator are used
     expect(JSON.parse(document)).toEqual({
@@ -143,11 +144,11 @@ describe("renderMcpConfigDocument", () => {
     });
 
     // When it is rendered for Claude Code
-    const document = renderMcpConfigDocument({
+    const document = mergeMcpConfigDocument({
       toolName: "claude-code",
       servers,
       pluginPaths: PLUGIN_PATHS,
-    });
+    }).content;
 
     // Then the specification's transport name is mapped to the tool's spelling
     expect(JSON.parse(document)).toEqual({
@@ -162,11 +163,11 @@ describe("renderMcpConfigDocument", () => {
     });
 
     // When it is rendered for Copilot
-    const document = renderMcpConfigDocument({
+    const document = mergeMcpConfigDocument({
       toolName: "copilot",
       servers,
       pluginPaths: PLUGIN_PATHS,
-    });
+    }).content;
 
     // Then VS Code's top-level key is used instead of mcpServers
     expect(JSON.parse(document)).toEqual({
@@ -181,11 +182,11 @@ describe("renderMcpConfigDocument", () => {
     });
 
     // When it is rendered
-    const document = renderMcpConfigDocument({
+    const document = mergeMcpConfigDocument({
       toolName: "cursor",
       servers,
       pluginPaths: PLUGIN_PATHS,
-    });
+    }).content;
 
     // Then no type field is emitted
     expect(JSON.parse(document)).toEqual({
@@ -200,11 +201,11 @@ describe("renderMcpConfigDocument", () => {
     });
 
     // When it is rendered
-    const document = renderMcpConfigDocument({
+    const document = mergeMcpConfigDocument({
       toolName: "kiro",
       servers,
       pluginPaths: PLUGIN_PATHS,
-    });
+    }).content;
 
     // Then only the fields Kiro documents are written
     expect(JSON.parse(document)).toEqual({
@@ -227,11 +228,11 @@ describe("renderMcpConfigDocument", () => {
     });
 
     // When it is rendered
-    const document = renderMcpConfigDocument({
+    const document = mergeMcpConfigDocument({
       toolName: "claude-code",
       servers,
       pluginPaths: PLUGIN_PATHS,
-    });
+    }).content;
 
     // Then each placeholder is replaced with the absolute path Skul assigns
     expect(JSON.parse(document).mcpServers.docs).toEqual({
@@ -252,11 +253,11 @@ describe("renderMcpConfigDocument", () => {
     });
 
     // When it is rendered
-    const document = renderMcpConfigDocument({
+    const document = mergeMcpConfigDocument({
       toolName: "claude-code",
       servers,
       pluginPaths: PLUGIN_PATHS,
-    });
+    }).content;
 
     // Then the command is emitted verbatim, as the specification requires
     expect(JSON.parse(document).mcpServers.docs.command).toBe(
@@ -274,7 +275,7 @@ describe("renderMcpConfigDocument", () => {
 
     // When it is rendered without a data directory / Then rendering is refused
     expect(() =>
-      renderMcpConfigDocument({
+      mergeMcpConfigDocument({
         toolName: "claude-code",
         servers,
         pluginPaths: { pluginRoot: PLUGIN_PATHS.pluginRoot },
@@ -290,7 +291,7 @@ describe("renderMcpConfigDocument", () => {
 
     // When it is rendered for that tool / Then the tool is named in the error
     expect(() =>
-      renderMcpConfigDocument({
+      mergeMcpConfigDocument({
         toolName: "codex",
         servers,
         pluginPaths: PLUGIN_PATHS,
@@ -334,7 +335,7 @@ describe("supportsMcpConfig", () => {
     ["copilot", true],
     ["kiro", true],
     ["codex", false],
-    ["opencode", false],
+    ["opencode", true],
     ["antigravity", false],
   ] as const)("reports %s as %s", (toolName, expected) => {
     // Given / When / Then

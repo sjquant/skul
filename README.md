@@ -112,7 +112,7 @@ If SSH authentication fails, Skul prints a hint with the HTTPS equivalent comman
 |---|---|---|---|---|---|
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | `.claude/skills` | `.claude/commands` | `.claude/agents` | `CLAUDE.md` | `.mcp.json` |
 | **[Cursor](https://cursor.sh)** | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `CLAUDE.md` | `.cursor/mcp.json` |
-| **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `CLAUDE.md` | — |
+| **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `CLAUDE.md` | `opencode.json` |
 | **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | — |
 | **[GitHub Copilot](https://github.com/features/copilot)** | `.github/skills` | — | `.github/agents` | `.github/copilot-instructions.md` | `.vscode/mcp.json` |
 | **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
@@ -190,13 +190,15 @@ A bundle can declare MCP servers in an `mcp.json` at the bundle root, using the 
 }
 ```
 
-Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers` vs `servers`) and the transport name (`streamable-http` becomes `http` where the tool expects that spelling). Select it as a bundle item with `--include mcp`.
+Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers`, `servers`, or `mcp`) and the transport spelling. `streamable-http` becomes `http` for Claude Code and Copilot; Cursor and Kiro infer the transport from `url` and get no `type`; OpenCode uses `local`/`remote` and folds `command` and `args` into one array. Select it as a bundle item with `--include mcp`.
 
 `${PLUGIN_ROOT}` expands to the bundle's directory in `~/.skul/library/`, and `${PLUGIN_DATA}` to a per-bundle directory under `~/.skul/data/`. Both are substituted in `args`, `env` values, and `cwd`; `command` is left verbatim so it stays a single executable token. Skul resolves the data directory but does not create it.
 
-Two limits apply. Skul owns the MCP configuration file it writes rather than merging into it, so one tool's MCP file has a single owner at a time: if the project already has one — whether hand-written or from another bundle — `skul add` prompts before replacing it, and the last bundle added wins. Removing a bundle whose MCP file has since been replaced prompts too, so the current servers are not discarded silently. And MCP servers are project-scoped only — `skul add --global` materializes every other target but skips MCP, because the global stores hold unrelated user state.
+Skul merges into these files rather than owning them. It tracks the server names it wrote, so anything else in the file survives — your own hand-written servers, another bundle's servers, and unrelated settings sharing the document such as OpenCode's `model` and `theme`. `skul remove` subtracts only the names that bundle added, deleting the file only when nothing else is left.
 
-As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`), which scopes those servers to that tool alone.
+Two limits apply. MCP servers are project-scoped: `skul add --global` materializes every other target but skips MCP, because the global stores hold unrelated user state. And if the target file is **tracked by Git**, Skul refuses rather than dirtying the working tree — merging into a committed file would show up in `git status`, which Skul otherwise avoids. Add the file to `.gitignore` to let Skul manage it.
+
+As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`, `opencode.json`), which scopes those servers to that tool alone.
 
 ### Cross-Repo Bundle Item References
 

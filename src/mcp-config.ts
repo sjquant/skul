@@ -40,37 +40,104 @@ export interface McpPluginPaths {
 /**
  * Per-tool differences in how MCP servers are spelled on disk.
  *
- * `serversKey` is the top-level object key, `stdioType` and `remoteType` are the
- * `type` discriminators to emit — `null` means the tool infers the transport
- * from the presence of `command` versus `url`, so emitting a `type` it does not
- * document would risk tripping strict config validation.
+ * `serversKey` is the top-level object key. The two render functions produce one
+ * server entry in the tool's own vocabulary, which diverges more than field
+ * naming: some tools infer the transport from `command` versus `url` and reject
+ * an unknown `type`, and OpenCode folds command and arguments into one array.
  */
 interface McpConfigDialect {
   serversKey: string;
-  stdioType: string | null;
-  remoteType: ((transport: McpRemoteServer["transport"]) => string) | null;
+  renderStdio(
+    server: McpStdioServer,
+    pluginPaths: McpPluginPaths,
+  ): Record<string, unknown>;
+  renderRemote(server: McpRemoteServer): Record<string, unknown>;
+}
+
+/** Renders the `mcpServers` shape shared by Claude Code, Cursor, Kiro, and Copilot. */
+function renderConventionalStdio(
+  server: McpStdioServer,
+  pluginPaths: McpPluginPaths,
+  type: string | null,
+): Record<string, unknown> {
+  return {
+    ...(type ? { type } : {}),
+    command: server.command,
+    ...(server.args
+      ? { args: server.args.map((arg) => expandPlaceholders(arg, pluginPaths)) }
+      : {}),
+    ...(server.env
+      ? { env: expandPlaceholderValues(server.env, pluginPaths) }
+      : {}),
+    ...(server.cwd ? { cwd: expandPlaceholders(server.cwd, pluginPaths) } : {}),
+  };
+}
+
+function renderConventionalRemote(
+  server: McpRemoteServer,
+  type: string | null,
+): Record<string, unknown> {
+  return {
+    ...(type ? { type } : {}),
+    url: server.url,
+    ...(server.headers ? { headers: server.headers } : {}),
+  };
 }
 
 const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
   "claude-code": {
     serversKey: "mcpServers",
-    stdioType: "stdio",
-    remoteType: (transport) => (transport === "sse" ? "sse" : "http"),
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, "stdio"),
+    renderRemote: (server) =>
+      renderConventionalRemote(
+        server,
+        server.transport === "sse" ? "sse" : "http",
+      ),
   },
   cursor: {
     serversKey: "mcpServers",
-    stdioType: "stdio",
-    remoteType: null,
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, "stdio"),
+    // Cursor infers a remote server from `url` and documents no type for it.
+    renderRemote: (server) => renderConventionalRemote(server, null),
   },
   copilot: {
     serversKey: "servers",
-    stdioType: "stdio",
-    remoteType: (transport) => (transport === "sse" ? "sse" : "http"),
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, "stdio"),
+    renderRemote: (server) =>
+      renderConventionalRemote(
+        server,
+        server.transport === "sse" ? "sse" : "http",
+      ),
   },
   kiro: {
     serversKey: "mcpServers",
-    stdioType: null,
-    remoteType: null,
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) => renderConventionalRemote(server, null),
+  },
+  opencode: {
+    serversKey: "mcp",
+    renderStdio: (server, paths) => ({
+      type: "local",
+      command: [
+        server.command,
+        ...(server.args ?? []).map((arg) => expandPlaceholders(arg, paths)),
+      ],
+      enabled: true,
+      ...(server.env
+        ? { environment: expandPlaceholderValues(server.env, paths) }
+        : {}),
+      ...(server.cwd ? { cwd: expandPlaceholders(server.cwd, paths) } : {}),
+    }),
+    renderRemote: (server) => ({
+      type: "remote",
+      url: server.url,
+      enabled: true,
+      ...(server.headers ? { headers: server.headers } : {}),
+    }),
   },
 };
 
@@ -98,60 +165,158 @@ export function parseMcpConfig(input: unknown): Record<string, McpServer> {
   );
 }
 
-/** Renders the MCP configuration document one tool expects, as JSON text. */
-export function renderMcpConfigDocument(options: {
+export interface McpMergeResult {
+  /** Full JSON text to write, including servers Skul does not own. */
+  content: string;
+  /** Server names Skul now owns in this file, recorded so removal can subtract them. */
+  serverNames: string[];
+}
+
+/**
+ * Merges a bundle's servers into a tool's MCP configuration document.
+ *
+ * Everything Skul does not own is carried through untouched — unrelated
+ * servers, and unrelated top-level keys such as OpenCode's model and theme
+ * settings, which share the file with the `mcp` block.
+ */
+export function mergeMcpConfigDocument(options: {
   toolName: ToolName;
   servers: Record<string, McpServer>;
   pluginPaths: McpPluginPaths;
-}): string {
-  const dialect = MCP_CONFIG_DIALECTS[options.toolName];
+  existingContent?: string;
+}): McpMergeResult {
+  const dialect = requireDialect(options.toolName);
+  const document = parseExistingDocument(
+    options.existingContent,
+    options.toolName,
+  );
+  const existingServers = readServersObject(document, dialect);
 
-  if (!dialect) {
-    throw new Error(`Tool does not support MCP servers: ${options.toolName}`);
-  }
-
-  const servers = Object.fromEntries(
+  const rendered = Object.fromEntries(
     Object.entries(options.servers).map(([serverName, server]) => [
       serverName,
-      renderMcpServer(server, dialect, options.pluginPaths),
+      server.transport === "stdio"
+        ? dialect.renderStdio(server, options.pluginPaths)
+        : dialect.renderRemote(server),
     ]),
   );
 
-  return `${JSON.stringify({ [dialect.serversKey]: servers }, null, 2)}\n`;
+  return {
+    content: formatDocument({
+      ...document,
+      [dialect.serversKey]: { ...existingServers, ...rendered },
+    }),
+    serverNames: Object.keys(rendered),
+  };
 }
 
-function renderMcpServer(
-  server: McpServer,
-  dialect: McpConfigDialect,
-  pluginPaths: McpPluginPaths,
-): Record<string, unknown> {
-  if (server.transport === "stdio") {
+export interface McpSubtractResult {
+  /** Remaining JSON text, or undefined when nothing Skul did not own is left. */
+  content?: string;
+  /** True when the file holds no other servers or settings and can be deleted. */
+  releasable: boolean;
+}
+
+/**
+ * Removes the servers one bundle owns from a tool's MCP configuration.
+ *
+ * A file that still holds other servers or unrelated settings is rewritten
+ * rather than deleted, so removing one bundle never discards another bundle's
+ * servers or a user's own tool configuration.
+ */
+export function subtractMcpConfigServers(options: {
+  toolName: ToolName;
+  existingContent: string;
+  serverNames: string[];
+}): McpSubtractResult {
+  const dialect = requireDialect(options.toolName);
+  const document = parseExistingDocument(
+    options.existingContent,
+    options.toolName,
+  );
+  const remainingServers = Object.fromEntries(
+    Object.entries(readServersObject(document, dialect)).filter(
+      ([serverName]) => !options.serverNames.includes(serverName),
+    ),
+  );
+
+  if (Object.keys(remainingServers).length > 0) {
     return {
-      ...(dialect.stdioType ? { type: dialect.stdioType } : {}),
-      command: server.command,
-      ...(server.args
-        ? {
-            args: server.args.map((arg) =>
-              expandPlaceholders(arg, pluginPaths),
-            ),
-          }
-        : {}),
-      ...(server.env
-        ? { env: expandPlaceholderValues(server.env, pluginPaths) }
-        : {}),
-      ...(server.cwd
-        ? { cwd: expandPlaceholders(server.cwd, pluginPaths) }
-        : {}),
+      content: formatDocument({
+        ...document,
+        [dialect.serversKey]: remainingServers,
+      }),
+      releasable: false,
     };
   }
 
-  return {
-    ...(dialect.remoteType
-      ? { type: dialect.remoteType(server.transport) }
-      : {}),
-    url: server.url,
-    ...(server.headers ? { headers: server.headers } : {}),
-  };
+  const { [dialect.serversKey]: _servers, ...otherSettings } = document;
+
+  if (holdsOnlySchema(otherSettings)) {
+    return { releasable: true };
+  }
+
+  return { content: formatDocument(otherSettings), releasable: false };
+}
+
+function requireDialect(toolName: ToolName): McpConfigDialect {
+  const dialect = MCP_CONFIG_DIALECTS[toolName];
+
+  if (!dialect) {
+    throw new Error(`Tool does not support MCP servers: ${toolName}`);
+  }
+
+  return dialect;
+}
+
+function parseExistingDocument(
+  content: string | undefined,
+  toolName: ToolName,
+): Record<string, unknown> {
+  if (content === undefined || content.trim() === "") {
+    return {};
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    throw new Error(
+      `Existing ${toolName} MCP configuration is not valid JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      `Existing ${toolName} MCP configuration must be a JSON object`,
+    );
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function readServersObject(
+  document: Record<string, unknown>,
+  dialect: McpConfigDialect,
+): Record<string, unknown> {
+  const servers = document[dialect.serversKey];
+
+  return servers && typeof servers === "object" && !Array.isArray(servers)
+    ? (servers as Record<string, unknown>)
+    : {};
+}
+
+/** True when only a `$schema` pointer remains, which is not worth keeping a file for. */
+function holdsOnlySchema(document: Record<string, unknown>): boolean {
+  return Object.keys(document).every((key) => key === "$schema");
+}
+
+function formatDocument(document: Record<string, unknown>): string {
+  return `${JSON.stringify(document, null, 2)}\n`;
 }
 
 /**
