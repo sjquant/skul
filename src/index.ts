@@ -6275,7 +6275,7 @@ function releaseManagedMcpServers(
       continue;
     }
 
-    fs.writeFileSync(targetPath, result.content!);
+    fs.writeFileSync(targetPath, result.content);
   }
 
   return releasablePaths;

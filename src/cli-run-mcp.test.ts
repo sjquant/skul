@@ -476,6 +476,28 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     );
   });
 
+  it("refuses to merge into an MCP configuration that is not valid JSON", async () => {
+    // Given a project whose existing MCP configuration is corrupt
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
+
+    // When a bundle is added / Then Skul refuses rather than discarding the file
+    await expect(
+      run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(
+      /Existing claude-code MCP configuration is not valid JSON/,
+    );
+    expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
+      "{ broken",
+    );
+  });
+
   it("refuses to merge into a Git-tracked MCP configuration", async () => {
     // Given an MCP configuration that the repository commits
     const homeDir = createHomeDir();

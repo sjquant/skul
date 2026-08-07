@@ -210,12 +210,11 @@ export function mergeMcpConfigDocument(options: {
   };
 }
 
-export interface McpSubtractResult {
-  /** Remaining JSON text, or undefined when nothing Skul did not own is left. */
-  content?: string;
-  /** True when the file holds no other servers or settings and can be deleted. */
-  releasable: boolean;
-}
+export type McpSubtractResult =
+  /** Nothing Skul did not own is left, so the file itself can be deleted. */
+  | { releasable: true }
+  /** Other servers or settings remain; write this content back instead. */
+  | { releasable: false; content: string };
 
 /**
  * Removes the servers one bundle owns from a tool's MCP configuration.
