@@ -89,7 +89,8 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "antigravity",
     targets: {
-      skills: { path: ".agent/skills", kind: "directory" },
+      skills: { path: ".agents/skills", kind: "directory" },
+      agents: { path: ".agents/agents", kind: "directory" },
       commands: { path: ".agent/workflows", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
     },
@@ -154,7 +155,8 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "antigravity",
     targets: {
-      skills: { path: ".agent/skills", kind: "directory" },
+      skills: { path: ".gemini/antigravity-cli/skills", kind: "directory" },
+      agents: { path: ".gemini/config/agents", kind: "directory" },
       commands: { path: ".agent/workflows", kind: "directory" },
       root_instruction: { path: ".gemini/GEMINI.md", kind: "file" },
     },

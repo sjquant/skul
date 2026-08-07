@@ -193,6 +193,10 @@ export function isSelectableBundleItemEntry(
     return entry.isDirectory();
   }
 
+  if (targetName === "agents") {
+    return entry.isFile() || entry.isDirectory();
+  }
+
   return entry.isFile();
 }
 

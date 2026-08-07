@@ -116,8 +116,11 @@ If SSH authentication fails, Skul prints a hint with the HTTPS equivalent comman
 | **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` |
 | **[GitHub Copilot](https://github.com/features/copilot)** | `.github/skills` | — | `.github/agents` | `.github/copilot-instructions.md` |
 | **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` |
+| **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` |
 
 Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
+
+For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`.
 
 ---
 
@@ -209,7 +212,7 @@ Skul supports three root instruction target files:
 | Target file | Native tools |
 |---|---|
 | `CLAUDE.md` | `claude-code`, `cursor`, `opencode` |
-| `AGENTS.md` | `codex`, `kiro` |
+| `AGENTS.md` | `codex`, `kiro`, `antigravity` |
 | `.github/copilot-instructions.md` | `copilot` |
 
 Root instruction bundles are compatible across those targets. If a bundle only ships `CLAUDE.md`, Skul can still materialize `AGENTS.md` for Codex or Kiro and `.github/copilot-instructions.md` for GitHub Copilot. If a bundle only ships `AGENTS.md` or `.github/copilot-instructions.md`, Skul can still materialize the equivalent target file for the other tools, as long as the instruction body can be reused as-is.

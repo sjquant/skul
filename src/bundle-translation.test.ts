@@ -443,7 +443,7 @@ describe("translateSkill", () => {
         sourceTool: "claude",
         targetTool: "antigravity",
         files: skill,
-      })[".agent/skills/reviewer/SKILL.md"],
+      })[".agents/skills/reviewer/SKILL.md"],
     ).toBe(
       [
         "---",
@@ -592,7 +592,7 @@ describe("translateSkill", () => {
         sourceTool: "claude",
         targetTool: "antigravity",
         files,
-      })[".agent/skills/react/assets/context.md"],
+      })[".agents/skills/react/assets/context.md"],
     ).toBe("Additional context\n");
     expect(
       translateSkill({ sourceTool: "claude", targetTool: "opencode", files })[
@@ -1365,6 +1365,72 @@ describe("copilot agent translation", () => {
     // When
     const translated = translateAgent({
       sourceTool: "copilot",
+      targetTool: "claude",
+      source,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".claude/agents/code-reviewer.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+  });
+});
+
+describe("antigravity agent translation", () => {
+  it("renders a Claude agent in the Antigravity CLI agent directory", () => {
+    // Given
+    const source = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "---",
+      "",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // When
+    const translated = translateAgent({
+      sourceTool: "claude",
+      targetTool: "antigravity",
+      source,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".agents/agents/code-reviewer/agent.md": [
+        "---",
+        "name: code-reviewer",
+        "description: Review code for bugs and risks",
+        "---",
+        "Review the diff for correctness and missing tests.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("converts an Antigravity agent back into Claude markdown", () => {
+    // Given
+    const source = [
+      "---",
+      "name: code-reviewer",
+      "description: Review code for bugs and risks",
+      "---",
+      "",
+      "Review the diff for correctness and missing tests.",
+      "",
+    ].join("\n");
+
+    // When
+    const translated = translateAgent({
+      sourceTool: "antigravity",
       targetTool: "claude",
       source,
     });

@@ -1867,6 +1867,65 @@ describe("run --global", () => {
     );
   });
 
+  it("installs Antigravity CLI skills and nested agents into their global paths", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: {
+        antigravity: {
+          skills: { path: ".agents/skills" },
+          agents: { path: ".agents/agents" },
+        },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      ".agents/skills/reviewer/SKILL.md",
+      "# native skill\n",
+    );
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      ".agents/agents/reviewer/agent.md",
+      "# native agent\n",
+    );
+
+    // When
+    await run(["add", "--global", "team-guide"], { homeDir });
+
+    // Then
+    expect(
+      fs.readFileSync(
+        path.join(
+          homeDir,
+          ".gemini",
+          "antigravity-cli",
+          "skills",
+          "reviewer",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    ).toBe("# native skill\n");
+    expect(
+      fs.readFileSync(
+        path.join(
+          homeDir,
+          ".gemini",
+          "config",
+          "agents",
+          "reviewer",
+          "agent.md",
+        ),
+        "utf8",
+      ),
+    ).toBe("# native agent\n");
+  });
+
   it("splits a bundle supporting both copilot and antigravity into their respective global paths", async () => {
     // Given
     const homeDir = createHomeDir();
