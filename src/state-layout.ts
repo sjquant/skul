@@ -3,6 +3,7 @@ import path from "node:path";
 const STATE_DIR_NAME = ".skul";
 const REGISTRY_FILE_NAME = "registry.json";
 const LIBRARY_DIR_NAME = "library";
+const DATA_DIR_NAME = "data";
 
 export interface GlobalStateLayout {
   rootDir: string;
@@ -37,4 +38,22 @@ export function resolveGlobalStateLayout(
     resolveLibraryPath: (...segments: string[]) =>
       path.join(libraryDir, ...segments),
   };
+}
+
+/**
+ * Maps a cached bundle directory to the persistent data directory Skul assigns
+ * it, mirroring the bundle's `host/owner/repo/bundle` path under the data root.
+ *
+ * Skul resolves the path but never creates it: the directory belongs to the MCP
+ * server process that the tool launches, not to materialization.
+ */
+export function resolveBundleDataDir(options: {
+  libraryDir: string;
+  bundleDir: string;
+}): string {
+  return path.join(
+    path.dirname(options.libraryDir),
+    DATA_DIR_NAME,
+    path.relative(options.libraryDir, options.bundleDir),
+  );
 }

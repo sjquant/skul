@@ -4,6 +4,7 @@ import type { ResolvedBundleItemRef } from "./bundle-item-refs";
 import {
   type BundleItemSelector,
   isDirectoryItemSelected,
+  isMcpItemSelected,
   isRootInstructionItemSelected,
   stripKnownBundleItemExtension,
 } from "./bundle-items";
@@ -17,6 +18,12 @@ import {
 } from "./bundle-translation";
 import type { FileConflictResolution } from "./cli";
 import { pathDepth } from "./fs-utils";
+import {
+  type McpServer,
+  parseMcpConfig,
+  renderMcpConfigDocument,
+  supportsMcpConfig,
+} from "./mcp-config";
 import type { RootInstructionMode } from "./registry";
 import { collectComposedRootInstructionContents } from "./root-instruction-content";
 import {
@@ -78,6 +85,24 @@ export function previewMaterializeBundleWriteTargets(options: {
       const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[
         targetName as ToolTargetName
       ];
+
+      if (targetName === "mcp") {
+        if (!isMcpItemSelected(options.itemSelectors)) {
+          continue;
+        }
+
+        const repoRelativePath = resolveMcpRepoRelPath({
+          toolName: toolName as ToolName,
+          repoRoot: options.repoRoot,
+          pathLayout,
+        });
+
+        if (repoRelativePath) {
+          writeTargets.add(repoRelativePath);
+        }
+
+        continue;
+      }
 
       if (targetDefinition?.kind === "file") {
         if (!isRootInstructionItemSelected(options.itemSelectors)) {
@@ -168,6 +193,8 @@ export async function materializeBundle(options: {
   pathLayout?: ToolMaterializationLayout;
   disableModelInvocation?: boolean;
   resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
+  /** Absolute path substituted for ${PLUGIN_DATA} in the bundle's MCP server config. */
+  mcpPluginDataDir?: string;
 }): Promise<MaterializeBundleResult> {
   const byTool: Record<string, { files: string[]; directories: string[] }> = {};
   const writtenSharedFileTargets = new Set<string>();
@@ -185,13 +212,8 @@ export async function materializeBundle(options: {
         bundleDir: options.bundleDir,
         manifest: options.manifest,
         toolNames: toolEntries
-          .filter(([toolName, targets]) =>
-            Object.keys(targets).some(
-              (targetName) =>
-                getToolDefinition(toolName as ToolName)?.targets[
-                  targetName as ToolTargetName
-                ]?.kind === "file",
-            ),
+          .filter(([, targets]) =>
+            Object.keys(targets).includes("root_instruction"),
           )
           .map(([toolName]) => toolName as ToolName),
         resolvedBundleItemRefs: options.resolvedBundleItemRefs,
@@ -206,6 +228,27 @@ export async function materializeBundle(options: {
       const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[
         targetName as ToolTargetName
       ];
+
+      if (targetName === "mcp") {
+        if (!isMcpItemSelected(options.itemSelectors)) {
+          continue;
+        }
+
+        await materializeMcpTarget({
+          bundleDir: options.bundleDir,
+          sourcePath: target.path,
+          toolName: toolName as ToolName,
+          repoRoot: options.repoRoot,
+          writtenFiles: toolFiles,
+          ownedDirectories: toolDirectories,
+          writtenSharedFileTargets,
+          assertSafeWriteTarget: options.assertSafeWriteTarget,
+          resolveFileConflict: options.resolveFileConflict,
+          pathLayout,
+          pluginDataDir: options.mcpPluginDataDir,
+        });
+        continue;
+      }
 
       if (targetDefinition?.kind === "file") {
         if (!isRootInstructionItemSelected(options.itemSelectors)) {
@@ -373,6 +416,119 @@ async function materializeRootInstructionTarget(options: {
 
     options.writtenSharedFileTargets.add(repoRelPath);
   }
+}
+
+/**
+ * Resolves the repo-relative MCP configuration path for one tool, or null when
+ * the active layout has no MCP location for it.
+ *
+ * Global (`--global`) materialization has no MCP targets: the per-tool global
+ * stores either live outside a stable path or hold unrelated user state, so
+ * Skul only writes MCP configuration inside a worktree.
+ */
+function resolveMcpRepoRelPath(options: {
+  toolName: ToolName;
+  repoRoot: string;
+  pathLayout: ToolMaterializationLayout;
+}): string | null {
+  if (!supportsMcpConfig(options.toolName)) {
+    return null;
+  }
+
+  const destinationPath = options.pathLayout.resolveToolTargetPath(
+    options.toolName,
+    "mcp",
+    options.repoRoot,
+  );
+
+  return destinationPath
+    ? path.relative(options.repoRoot, destinationPath).split(path.sep).join("/")
+    : null;
+}
+
+/** Reads a bundle's MCP declarations, naming the source file on malformed JSON. */
+function readMcpServers(
+  sourceFile: string,
+  sourcePath: string,
+): Record<string, McpServer> {
+  let document: unknown;
+
+  try {
+    document = JSON.parse(fs.readFileSync(sourceFile, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Invalid ${sourcePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
+  }
+
+  return parseMcpConfig(document);
+}
+
+/**
+ * Writes one tool's MCP configuration file from the bundle's `mcp.json`.
+ *
+ * Skul owns the file it creates: an existing configuration goes through the
+ * caller's conflict resolver rather than being merged, which keeps MCP
+ * configuration under the same managed-file lifecycle as every other
+ * materialized output.
+ */
+async function materializeMcpTarget(options: {
+  bundleDir: string;
+  sourcePath: string;
+  toolName: ToolName;
+  repoRoot: string;
+  writtenFiles: string[];
+  ownedDirectories: Set<string>;
+  writtenSharedFileTargets: Set<string>;
+  assertSafeWriteTarget?: (repoRelativePath: string) => void;
+  resolveFileConflict:
+    | ((conflictPath: string) => Promise<FileConflictResolution>)
+    | undefined;
+  pathLayout: ToolMaterializationLayout;
+  pluginDataDir?: string;
+}): Promise<void> {
+  const repoRelPath = resolveMcpRepoRelPath({
+    toolName: options.toolName,
+    repoRoot: options.repoRoot,
+    pathLayout: options.pathLayout,
+  });
+
+  if (!repoRelPath) {
+    return;
+  }
+
+  if (options.writtenSharedFileTargets.has(repoRelPath)) {
+    options.writtenFiles.push(repoRelPath);
+    return;
+  }
+
+  const sourceFile = path.join(options.bundleDir, options.sourcePath);
+  assertBundleTargetFile(sourceFile, options.sourcePath);
+  const servers = readMcpServers(sourceFile, options.sourcePath);
+
+  await writeTranslatedFile({
+    repoRelPath,
+    content: renderMcpConfigDocument({
+      toolName: options.toolName,
+      servers,
+      pluginPaths: {
+        pluginRoot: options.bundleDir,
+        ...(options.pluginDataDir ? { pluginData: options.pluginDataDir } : {}),
+      },
+    }),
+    repoRoot: options.repoRoot,
+    writtenFiles: options.writtenFiles,
+    ownedDirectories: options.ownedDirectories,
+    reservedDestinations: new Set<string>(),
+    assertSafeWriteTarget: options.assertSafeWriteTarget,
+    resolveFileConflict: options.resolveFileConflict,
+    targetRoot: "",
+  });
+
+  options.writtenSharedFileTargets.add(repoRelPath);
 }
 
 async function materializeNativeTarget(options: {

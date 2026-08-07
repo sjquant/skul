@@ -101,7 +101,7 @@ import {
   restoreRootInstructionBaseContents,
   syncManagedRootInstructionFiles,
 } from "./root-instruction-state";
-import { resolveGlobalStateLayout } from "./state-layout";
+import { resolveBundleDataDir, resolveGlobalStateLayout } from "./state-layout";
 import {
   GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
@@ -2301,6 +2301,10 @@ async function updateBundles(options: {
           resolveFileConflict: options.prompts.resolveFileConflict,
           disableModelInvocation: entry.disable_model_invocation,
           resolvedBundleItemRefs,
+          mcpPluginDataDir: resolveBundleDataDir({
+            libraryDir: options.libraryDir,
+            bundleDir: path.dirname(cachedBundle.manifestFile),
+          }),
         });
 
         currentBundles = {
@@ -2731,6 +2735,10 @@ async function applyBundle(options: {
     resolveFileConflict: options.prompts.resolveFileConflict,
     disableModelInvocation: options.disableModelInvocation,
     resolvedBundleItemRefs,
+    mcpPluginDataDir: resolveBundleDataDir({
+      libraryDir: options.libraryDir,
+      bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    }),
   });
   currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
     repoRoot: gitContext.worktreeRoot,
@@ -3828,6 +3836,14 @@ function listBundleItemSourcePaths(options: {
       const rootInstructionPath = targets.root_instruction?.path;
       if (rootInstructionPath) {
         sourcePaths.push(path.join(options.bundleDir, rootInstructionPath));
+      }
+      continue;
+    }
+
+    if (options.item === "mcp") {
+      const mcpPath = targets.mcp?.path;
+      if (mcpPath) {
+        sourcePaths.push(path.join(options.bundleDir, mcpPath));
       }
       continue;
     }
@@ -5397,6 +5413,10 @@ async function applyWorktree(options: {
       rootInstructionMode: entry.root_instruction_mode,
       resolveFileConflict: options.prompts.resolveFileConflict,
       resolvedBundleItemRefs,
+      mcpPluginDataDir: resolveBundleDataDir({
+        libraryDir: options.libraryDir,
+        bundleDir: path.dirname(cachedBundle.manifestFile),
+      }),
     });
 
     currentBundles = {

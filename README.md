@@ -70,7 +70,7 @@ skul add [options] [source] [bundle]
 |---|---|
 | `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
 | `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. Persisted in the registry and reused by `skul apply`. |
-| `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
+| `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted), `mcp`. |
 | `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
 | `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
 | `-s, --ssh` | Clone the source via SSH instead of HTTPS. `git@host:owner/repo` URLs are auto-detected as SSH. Protocol is persisted and reused by `skul apply`. |
@@ -108,15 +108,15 @@ If SSH authentication fails, Skul prints a hint with the HTTPS equivalent comman
 
 ## Supported Tools
 
-| Tool | Skills | Commands | Agents | Root Instructions |
-|---|---|---|---|---|
-| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | `.claude/skills` | `.claude/commands` | `.claude/agents` | `CLAUDE.md` |
-| **[Cursor](https://cursor.sh)** | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `CLAUDE.md` |
-| **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `CLAUDE.md` |
-| **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` |
-| **[GitHub Copilot](https://github.com/features/copilot)** | `.github/skills` | — | `.github/agents` | `.github/copilot-instructions.md` |
-| **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` |
-| **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` |
+| Tool | Skills | Commands | Agents | Root Instructions | MCP Servers |
+|---|---|---|---|---|---|
+| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | `.claude/skills` | `.claude/commands` | `.claude/agents` | `CLAUDE.md` | `.mcp.json` |
+| **[Cursor](https://cursor.sh)** | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `CLAUDE.md` | `.cursor/mcp.json` |
+| **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `CLAUDE.md` | — |
+| **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | — |
+| **[GitHub Copilot](https://github.com/features/copilot)** | `.github/skills` | — | `.github/agents` | `.github/copilot-instructions.md` | `.vscode/mcp.json` |
+| **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
+| **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | — |
 
 Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 
@@ -167,6 +167,36 @@ Inside a bundle, two content layouts are supported:
 **Canonical** — `skills/`, `commands/`, `agents/`, `AGENTS.md`, and `CLAUDE.md` at the top level. Skul copies each directory to every tool that supports it, and treats root instruction files as generic cross-tool sources.
 
 **Native** — tool-specific dotdirs (`.claude/skills/`, `.cursor/commands/`, `.github/agents/`, `.kiro/skills/`, etc.) for content targeting a single tool only.
+
+### MCP Servers
+
+A bundle can declare MCP servers in an `mcp.json` at the bundle root, using the [Agent Plugins](https://agent-plugins.org/specification) schema:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "docs": {
+      "type": "stdio",
+      "command": "docs-server",
+      "args": ["--root", "${PLUGIN_ROOT}/reference"],
+      "env": { "CACHE_DIR": "${PLUGIN_DATA}/cache" }
+    },
+    "remote": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp"
+    }
+  }
+}
+```
+
+Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers` vs `servers`) and the transport name (`streamable-http` becomes `http` where the tool expects that spelling). Select it as a bundle item with `--include mcp`.
+
+`${PLUGIN_ROOT}` expands to the bundle's directory in `~/.skul/library/`, and `${PLUGIN_DATA}` to a per-bundle directory under `~/.skul/data/`. Both are substituted in `args`, `env` values, and `cwd`; `command` is left verbatim so it stays a single executable token. Skul resolves the data directory but does not create it.
+
+Two limits apply. Skul owns the MCP configuration file it writes rather than merging into it, so one tool's MCP file has a single owner at a time: if the project already has one — whether hand-written or from another bundle — `skul add` prompts before replacing it, and the last bundle added wins. Removing a bundle whose MCP file has since been replaced prompts too, so the current servers are not discarded silently. And MCP servers are project-scoped only — `skul add --global` materializes every other target but skips MCP, because the global stores hold unrelated user state.
+
+As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`), which scopes those servers to that tool alone.
 
 ### Cross-Repo Bundle Item References
 

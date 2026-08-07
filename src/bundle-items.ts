@@ -11,6 +11,7 @@ import {
 export type BundleItemSelector = string;
 
 const ROOT_INSTRUCTION_SELECTOR = "root-instruction";
+const MCP_SELECTOR = "mcp";
 const DIRECTORY_TARGET_NAMES = new Set<ToolTargetName>([
   "skills",
   "commands",
@@ -33,6 +34,10 @@ export function normalizeBundleItemSelector(
     return ROOT_INSTRUCTION_SELECTOR;
   }
 
+  if (value === MCP_SELECTOR || value === "mcp.json") {
+    return MCP_SELECTOR;
+  }
+
   const [targetName, itemName, ...rest] = value.split("/");
 
   if (rest.length > 0) {
@@ -43,7 +48,7 @@ export function normalizeBundleItemSelector(
 
   if (!isDirectoryTargetName(targetName)) {
     throw new Error(
-      `Bundle item selector must start with skills/, commands/, agents/, or be root-instruction: ${selector}`,
+      `Bundle item selector must start with skills/, commands/, agents/, or be root-instruction or mcp: ${selector}`,
     );
   }
 
@@ -94,6 +99,13 @@ export function isRootInstructionItemSelected(
   return !selectors || selectors.includes(ROOT_INSTRUCTION_SELECTOR);
 }
 
+/** Returns true when a bundle's MCP servers should be materialized. */
+export function isMcpItemSelected(
+  selectors: BundleItemSelector[] | undefined,
+): boolean {
+  return !selectors || selectors.includes(MCP_SELECTOR);
+}
+
 /** Returns true when a directory target item should be materialized. */
 export function isDirectoryItemSelected(options: {
   selectors: BundleItemSelector[] | undefined;
@@ -125,6 +137,11 @@ export function listSelectableBundleItems(options: {
     for (const [targetName, target] of Object.entries(targets)) {
       if (targetName === "root_instruction") {
         selectors.add(ROOT_INSTRUCTION_SELECTOR);
+        continue;
+      }
+
+      if (targetName === "mcp") {
+        selectors.add(MCP_SELECTOR);
         continue;
       }
 

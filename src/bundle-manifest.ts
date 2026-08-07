@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { MCP_CONFIG_FILE_NAME } from "./mcp-config";
 import {
   listToolDefinitions,
   type ToolDefinition,
@@ -197,6 +198,19 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
           tools[toolDef.name]![targetName] = { path: targetName };
         }
       }
+    }
+  }
+
+  // Agent Plugins packages declare MCP servers in a single bundle-root mcp.json,
+  // which Skul translates into each tool's own MCP configuration file.
+  if (
+    isExistingToolTarget(path.join(bundleDir, MCP_CONFIG_FILE_NAME), "file")
+  ) {
+    for (const toolDef of allTools) {
+      if (!toolDef.targets.mcp) continue;
+
+      if (!tools[toolDef.name]) tools[toolDef.name] = {};
+      tools[toolDef.name]!.mcp = { path: MCP_CONFIG_FILE_NAME };
     }
   }
 
