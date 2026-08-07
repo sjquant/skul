@@ -730,6 +730,16 @@ function nativeTargetItemFromLocalEntry(options: {
     };
   }
 
+  if (options.targetName === "agents" && options.entry.isDirectory()) {
+    return {
+      selector: `agents/${options.entry.name}`,
+      itemName: options.entry.name,
+      kind: "directory",
+      localPath: path.join(options.sourceDir, options.entry.name),
+      nativeRelativePath: options.entry.name,
+    };
+  }
+
   if (options.targetName === "commands" || options.targetName === "agents") {
     if (!options.entry.isFile()) {
       return undefined;
@@ -1278,20 +1288,12 @@ function translateCanonicalTargetItem(options: {
       sourceTool: files["agents/openai.yaml"] ? "codex" : "claude",
       targetTool: translTool,
       files,
-      options:
-        options.item.resolvedRef ||
-        disableModelInvocation ||
-        description !== undefined
-          ? {
-              ...(options.item.resolvedRef
-                ? { name: options.item.itemName }
-                : {}),
-              ...(description !== undefined ? { description } : {}),
-              ...(disableModelInvocation
-                ? { disableModelInvocation: true }
-                : {}),
-            }
-          : undefined,
+      options: {
+        ...(options.item.resolvedRef ? { name: options.item.itemName } : {}),
+        fallbackName: options.item.itemName,
+        ...(description !== undefined ? { description } : {}),
+        ...(disableModelInvocation ? { disableModelInvocation: true } : {}),
+      },
     });
   }
 

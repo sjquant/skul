@@ -6,7 +6,7 @@ description: Tool targets and directory mappings supported by skul.
 
 # Supported Tools
 
-`skul` understands the directory layouts for six AI coding tools.
+`skul` understands the directory layouts for seven AI coding tools.
 
 | Tool | Skills | Commands | Agents | Root instructions |
 | --- | --- | --- | --- | --- |
@@ -16,8 +16,11 @@ description: Tool targets and directory mappings supported by skul.
 | [Codex](https://openai.com/index/openai-codex) | `.agents/skills` | - | `.codex/agents` | `AGENTS.md` |
 | [GitHub Copilot](https://github.com/features/copilot) | `.github/skills` | - | `.github/agents` | `.github/copilot-instructions.md` |
 | [Kiro](https://kiro.dev) | `.kiro/skills` | - | `.kiro/agents` | `AGENTS.md` |
+| [Antigravity CLI](https://antigravity.google/) | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` |
 
 Root instruction bundles are translated into the native root-instruction target for each selected tool.
+
+For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`.
 
 ## Target one tool or many
 

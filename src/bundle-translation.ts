@@ -27,7 +27,8 @@ type AgentTool =
   | "codex"
   | "opencode"
   | "copilot"
-  | "kiro";
+  | "kiro"
+  | "antigravity";
 type RootInstructionTool =
   | "claude"
   | "cursor"
@@ -79,6 +80,7 @@ export interface BundleTranslationOptions {
   name?: string;
   description?: string;
   disableModelInvocation?: boolean;
+  fallbackName?: string;
 }
 
 /** Translates a canonical skill bundle into one target tool's skill file layout. */
@@ -88,7 +90,11 @@ export function translateSkill(options: {
   files: Record<string, string>;
   options?: BundleTranslationOptions;
 }): Record<string, string> {
-  const model = parseSkill(options.sourceTool, options.files);
+  const model = parseSkill(
+    options.sourceTool,
+    options.files,
+    options.options?.fallbackName,
+  );
   const effectiveModel =
     options.options?.disableModelInvocation && !model.manualOnly
       ? { ...model, manualOnly: true }
@@ -144,6 +150,7 @@ export function translateRootInstruction(options: {
 function parseSkill(
   sourceTool: SkillTool,
   files: Record<string, string>,
+  fallbackName?: string,
 ): SkillModel {
   const skillSource = findFileBySuffix(files, "SKILL.md");
 
@@ -152,7 +159,9 @@ function parseSkill(
   }
 
   const document = parseMarkdownDocument(skillSource);
-  const name = coerceRequiredString(document.metadata.name, "name");
+  const name =
+    coerceOptionalString(document.metadata.name) ??
+    coerceRequiredString(fallbackName, "name");
   const description = coerceRequiredString(
     document.metadata.description,
     "description",
@@ -667,6 +676,8 @@ function agentFilePath(tool: AgentTool, name: string): string {
   if (tool === "codex") return `${targetBasePath(tool, "agents")}/${name}.toml`;
   if (tool === "copilot")
     return `${targetBasePath(tool, "agents")}/${name}.agent.md`;
+  if (tool === "antigravity")
+    return `${targetBasePath(tool, "agents")}/${name}/agent.md`;
   return `${targetBasePath(tool, "agents")}/${name}.md`;
 }
 

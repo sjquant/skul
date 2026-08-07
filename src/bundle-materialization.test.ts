@@ -24,6 +24,7 @@ const skillCases: Array<[ToolName, string]> = [
   ["cursor", ".cursor/skills"],
   ["opencode", ".opencode/skills"],
   ["codex", ".agents/skills"],
+  ["antigravity", ".agents/skills"],
 ];
 const commandCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/commands"],
@@ -35,6 +36,7 @@ const agentCases: Array<[ToolName, string]> = [
   ["cursor", ".cursor/agents"],
   ["opencode", ".opencode/agents"],
   ["codex", ".codex/agents"],
+  ["antigravity", ".agents/agents"],
 ];
 
 afterEach(() => {
@@ -182,6 +184,96 @@ describe("materializeBundle", () => {
     expect(
       fs.readFileSync(path.join(repoRoot, nativePath, "reviewer.md"), "utf8"),
     ).toBe("# reviewer\n");
+  });
+
+  it("copies a nested Antigravity custom agent directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const source =
+      "---\nname: reviewer\ndescription: Review code\n---\nReview.\n";
+    writeFile(
+      path.join(bundleDir, ".agents", "agents", "reviewer", "agent.md"),
+      source,
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: {
+          antigravity: { agents: { path: ".agents/agents" } },
+        },
+      },
+    });
+
+    // Then
+    expect(result.byTool.antigravity!.files).toEqual([
+      ".agents/agents/reviewer/agent.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "agents", "reviewer", "agent.md"),
+        "utf8",
+      ),
+    ).toBe(source);
+  });
+
+  it("translates a canonical agent into the Antigravity CLI agent directory", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "agents", "reviewer.md"),
+      "---\nname: reviewer\ndescription: Review code\n---\nReview.\n",
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { antigravity: { agents: { path: "agents" } } } },
+    });
+
+    // Then
+    expect(result.byTool.antigravity!.files).toEqual([
+      ".agents/agents/reviewer/agent.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "agents", "reviewer", "agent.md"),
+        "utf8",
+      ),
+    ).toContain("Review.");
+  });
+
+  it("uses the canonical skill directory name when Antigravity omits name metadata", async () => {
+    // Given
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills", "reviewer", "SKILL.md"),
+      "---\ndescription: Review code\n---\nReview.\n",
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { antigravity: { skills: { path: "skills" } } } },
+    });
+
+    // Then
+    expect(result.byTool.antigravity!.files).toEqual([
+      ".agents/skills/reviewer/SKILL.md",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "reviewer", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("name: reviewer");
   });
 
   it("overwrites the existing file when the user confirms", async () => {

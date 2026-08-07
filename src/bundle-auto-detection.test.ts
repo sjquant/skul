@@ -163,6 +163,28 @@ describe("inferBundleManifest", () => {
     expect(manifest.tools["claude-code"]).toBeUndefined();
   });
 
+  it("infers Antigravity CLI skills and nested agents from .agents", () => {
+    // Given
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".agents", "skills", "reviewer", "SKILL.md"),
+      "# native skill\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".agents", "agents", "reviewer", "agent.md"),
+      "# native agent\n",
+    );
+
+    // When
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then
+    expect(manifest.tools.antigravity).toEqual({
+      skills: { path: ".agents/skills" },
+      agents: { path: ".agents/agents" },
+    });
+  });
+
   it("native dotdir overrides canonical path for the same tool + target", () => {
     // Given: canonical skills/ AND .cursor/skills/ both present
     const bundleDir = createTempDir("skul-bundle-");

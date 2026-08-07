@@ -104,7 +104,8 @@ describe("getToolDefinition", () => {
       {
         name: "antigravity",
         targets: {
-          skills: { path: ".agent/skills", kind: "directory" },
+          skills: { path: ".agents/skills", kind: "directory" },
+          agents: { path: ".agents/agents", kind: "directory" },
           commands: { path: ".agent/workflows", kind: "directory" },
           root_instruction: { path: "AGENTS.md", kind: "file" },
         },
@@ -144,7 +145,8 @@ describe("resolveToolTargetPath", () => {
     ["kiro", "skills", path.join("/repo", ".kiro/skills")],
     ["kiro", "agents", path.join("/repo", ".kiro/agents")],
     ["kiro", "root_instruction", path.join("/repo", "AGENTS.md")],
-    ["antigravity", "skills", path.join("/repo", ".agent/skills")],
+    ["antigravity", "skills", path.join("/repo", ".agents/skills")],
+    ["antigravity", "agents", path.join("/repo", ".agents/agents")],
     ["antigravity", "commands", path.join("/repo", ".agent/workflows")],
     ["antigravity", "root_instruction", path.join("/repo", "AGENTS.md")],
   ];
@@ -162,7 +164,6 @@ describe("resolveToolTargetPath", () => {
     ["codex", "commands"],
     ["copilot", "commands"],
     ["kiro", "commands"],
-    ["antigravity", "agents"],
   ] satisfies Array<
     [string, ToolTargetName]
   >)("returns null when %s does not define %s", (toolName, targetName) => {
@@ -273,7 +274,11 @@ describe("getGlobalToolDefinition", () => {
       {
         name: "antigravity",
         targets: {
-          skills: { path: ".agent/skills", kind: "directory" },
+          skills: {
+            path: ".gemini/antigravity-cli/skills",
+            kind: "directory",
+          },
+          agents: { path: ".gemini/config/agents", kind: "directory" },
           commands: { path: ".agent/workflows", kind: "directory" },
           root_instruction: { path: ".gemini/GEMINI.md", kind: "file" },
         },
@@ -296,6 +301,12 @@ describe("resolveGlobalToolTargetPath", () => {
     ["opencode", "skills", path.join("/home", ".config/opencode/skills")],
     ["codex", "root_instruction", path.join("/home", ".codex/AGENTS.md")],
     ["kiro", "agents", path.join("/home", ".kiro/agents")],
+    [
+      "antigravity",
+      "skills",
+      path.join("/home", ".gemini/antigravity-cli/skills"),
+    ],
+    ["antigravity", "agents", path.join("/home", ".gemini/config/agents")],
   ] satisfies Array<
     [string, ToolTargetName, string]
   >)("resolves global %s %s beneath the home directory", (toolName, targetName, expectedPath) => {
@@ -329,6 +340,17 @@ describe("buildGlobalRepoRelPathRemapper", () => {
   it("remaps antigravity root instruction from AGENTS.md to .gemini/GEMINI.md", () => {
     const remap = buildGlobalRepoRelPathRemapper();
     expect(remap("antigravity", "AGENTS.md")).toBe(".gemini/GEMINI.md");
+  });
+
+  it("remaps antigravity project skill and agent paths to CLI global paths", () => {
+    const remap = buildGlobalRepoRelPathRemapper();
+
+    expect(remap("antigravity", ".agents/skills/reviewer/SKILL.md")).toBe(
+      ".gemini/antigravity-cli/skills/reviewer/SKILL.md",
+    );
+    expect(remap("antigravity", ".agents/agents/reviewer/agent.md")).toBe(
+      ".gemini/config/agents/reviewer/agent.md",
+    );
   });
 
   it("remaps opencode canonical paths to the global config directory", () => {
