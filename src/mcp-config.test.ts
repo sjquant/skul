@@ -292,11 +292,165 @@ describe("mergeMcpConfigDocument", () => {
     // When it is rendered for that tool / Then the tool is named in the error
     expect(() =>
       mergeMcpConfigDocument({
+        toolName: "antigravity",
+        servers,
+        pluginPaths: PLUGIN_PATHS,
+      }),
+    ).toThrow("Tool does not support MCP servers: antigravity");
+  });
+});
+
+describe("Codex TOML editing", () => {
+  const codexServers = (name: string) =>
+    parseMcpConfig({
+      mcpServers: { [name]: { type: "stdio", command: name } },
+    });
+
+  it("accumulates servers from several bundles in one managed block", () => {
+    // Given one bundle's servers already written
+    const first = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: codexServers("a"),
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // When a second bundle merges into the same file
+    const both = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: codexServers("b"),
+      pluginPaths: PLUGIN_PATHS,
+      existingContent: first,
+    }).content;
+
+    // Then both tables live inside a single marked block
+    expect(both).toContain("[mcp_servers.a]");
+    expect(both).toContain("[mcp_servers.b]");
+    expect(both.match(/SKUL:MCP BEGIN/g)).toHaveLength(1);
+  });
+
+  it("subtracts one bundle's table and keeps the other", () => {
+    // Given a block holding two bundles' servers
+    const first = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: codexServers("a"),
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+    const both = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: codexServers("b"),
+      pluginPaths: PLUGIN_PATHS,
+      existingContent: first,
+    }).content;
+
+    // When one is subtracted
+    const result = subtractMcpConfigServers({
+      toolName: "codex",
+      existingContent: both,
+      serverNames: ["a"],
+    });
+
+    // Then only the other remains
+    expect(result.releasable).toBe(false);
+    expect(result.releasable === false && result.content).toContain(
+      "[mcp_servers.b]",
+    );
+    expect(result.releasable === false && result.content).not.toContain(
+      "[mcp_servers.a]",
+    );
+  });
+
+  it("releases a file that held nothing but the managed block", () => {
+    // Given a file Skul created entirely
+    const content = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: codexServers("a"),
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // When its only server is subtracted / Then the file can be deleted
+    expect(
+      subtractMcpConfigServers({
+        toolName: "codex",
+        existingContent: content,
+        serverNames: ["a"],
+      }),
+    ).toEqual({ releasable: true });
+  });
+
+  it("leaves text outside the managed block byte-for-byte intact", () => {
+    // Given a hand-maintained config with comments
+    const existing = '# keep me\nmodel = "gpt-5"  # inline\n';
+
+    // When servers are merged and then subtracted again
+    const merged = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: codexServers("a"),
+      pluginPaths: PLUGIN_PATHS,
+      existingContent: existing,
+    }).content;
+    const restored = subtractMcpConfigServers({
+      toolName: "codex",
+      existingContent: merged,
+      serverNames: ["a"],
+    });
+
+    // Then the original text returns unchanged
+    expect(restored.releasable === false && restored.content).toBe(existing);
+  });
+
+  it("refuses to create a table the config already declares", () => {
+    // Given a config that already declares the same server name
+    const existing = '[mcp_servers.docs]\ncommand = "user-own"\n';
+
+    // When a bundle would add it again / Then the duplicate is refused
+    expect(() =>
+      mergeMcpConfigDocument({
+        toolName: "codex",
+        servers: codexServers("docs"),
+        pluginPaths: PLUGIN_PATHS,
+        existingContent: existing,
+      }),
+    ).toThrow('MCP server "docs" is already declared');
+  });
+
+  it("refuses a server name that cannot be written as a TOML key", () => {
+    // Given a server name containing a quote
+    const servers = parseMcpConfig({
+      mcpServers: { 'bad"name': { type: "stdio", command: "x" } },
+    });
+
+    // When it is merged / Then the unsafe name is refused
+    expect(() =>
+      mergeMcpConfigDocument({
         toolName: "codex",
         servers,
         pluginPaths: PLUGIN_PATHS,
       }),
-    ).toThrow("Tool does not support MCP servers: codex");
+    ).toThrow("cannot be written to a TOML configuration");
+  });
+
+  it("escapes string values so quotes and backslashes survive", () => {
+    // Given an environment value containing a quote and a backslash
+    const servers = parseMcpConfig({
+      mcpServers: {
+        srv: {
+          type: "stdio",
+          command: "x",
+          env: { TOKEN: 'a"b', WIN: "C:\\tmp" },
+        },
+      },
+    });
+
+    // When it is rendered for Codex
+    const content = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then both characters are escaped in the emitted TOML
+    expect(content).toContain('TOKEN = "a\\"b"');
+    expect(content).toContain('WIN = "C:\\\\tmp"');
   });
 });
 
@@ -334,7 +488,7 @@ describe("supportsMcpConfig", () => {
     ["cursor", true],
     ["copilot", true],
     ["kiro", true],
-    ["codex", false],
+    ["codex", true],
     ["opencode", true],
     ["antigravity", false],
   ] as const)("reports %s as %s", (toolName, expected) => {

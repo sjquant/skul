@@ -476,6 +476,90 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     );
   });
 
+  it("appends a marked block to Codex's TOML config, preserving what is there", async () => {
+    // Given a hand-maintained Codex config with comments and a user's own server
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const existing = [
+      "# hand-maintained settings",
+      'model = "gpt-5"   # inline comment',
+      "",
+      "[mcp_servers.mine]",
+      'command = "my-server"',
+      "",
+    ].join("\n");
+    fs.mkdirSync(path.join(cwd, ".codex"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, ".codex", "config.toml"), existing);
+
+    // When the bundle is added for Codex
+    await run(["add", SOURCE, BUNDLE, "--agent", "codex", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the original text survives byte-for-byte above a marked block
+    const merged = fs.readFileSync(
+      path.join(cwd, ".codex", "config.toml"),
+      "utf8",
+    );
+    expect(merged.startsWith(existing.trimEnd())).toBe(true);
+    expect(merged).toContain("# >>> SKUL:MCP BEGIN");
+    expect(merged).toContain("[mcp_servers.docs]");
+    expect(merged).toContain('url = "https://example.com/mcp"');
+  });
+
+  it("restores Codex's config exactly when the bundle is removed", async () => {
+    // Given a Codex config that predates the bundle
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const existing =
+      '# keep me\nmodel = "gpt-5"\n\n[mcp_servers.mine]\ncommand = "my-server"\n';
+    fs.mkdirSync(path.join(cwd, ".codex"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, ".codex", "config.toml"), existing);
+    await run(["add", SOURCE, BUNDLE, "--agent", "codex", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the bundle is removed
+    await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the file is back to its original content, comments included
+    expect(
+      fs.readFileSync(path.join(cwd, ".codex", "config.toml"), "utf8"),
+    ).toBe(existing);
+  });
+
+  it("refuses when Codex already declares a server of the same name", async () => {
+    // Given a Codex config that already declares a "docs" server
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.mkdirSync(path.join(cwd, ".codex"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".codex", "config.toml"),
+      '[mcp_servers.docs]\ncommand = "user-own"\n',
+    );
+
+    // When the bundle is added / Then Skul refuses rather than writing a
+    // duplicate table, which would make the whole config unparseable
+    await expect(
+      run(["add", SOURCE, BUNDLE, "--agent", "codex", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(/"docs" is already declared/);
+  });
+
   it("refuses to merge into an MCP configuration that is not valid JSON", async () => {
     // Given a project whose existing MCP configuration is corrupt
     const homeDir = createHomeDir();

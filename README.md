@@ -113,7 +113,7 @@ If SSH authentication fails, Skul prints a hint with the HTTPS equivalent comman
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | `.claude/skills` | `.claude/commands` | `.claude/agents` | `CLAUDE.md` | `.mcp.json` |
 | **[Cursor](https://cursor.sh)** | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `CLAUDE.md` | `.cursor/mcp.json` |
 | **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `CLAUDE.md` | `opencode.json` |
-| **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | — |
+| **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | `.codex/config.toml` |
 | **[GitHub Copilot](https://github.com/features/copilot)** | `.github/skills` | — | `.github/agents` | `.github/copilot-instructions.md` | `.vscode/mcp.json` |
 | **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
 | **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | — |
@@ -190,15 +190,29 @@ A bundle can declare MCP servers in an `mcp.json` at the bundle root, using the 
 }
 ```
 
-Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers`, `servers`, or `mcp`) and the transport spelling. `streamable-http` becomes `http` for Claude Code and Copilot; Cursor and Kiro infer the transport from `url` and get no `type`; OpenCode uses `local`/`remote` and folds `command` and `args` into one array. Select it as a bundle item with `--include mcp`.
+Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers`, `servers`, or `mcp`) and the transport spelling. `streamable-http` becomes `http` for Claude Code and Copilot; Cursor and Kiro infer the transport from `url` and get no `type`; OpenCode uses `local`/`remote` and folds `command` and `args` into one array; Codex uses TOML `[mcp_servers.<name>]` tables with `http_headers`. Select it as a bundle item with `--include mcp`.
 
 `${PLUGIN_ROOT}` expands to the bundle's directory in `~/.skul/library/`, and `${PLUGIN_DATA}` to a per-bundle directory under `~/.skul/data/`. Both are substituted in `args`, `env` values, and `cwd`; `command` is left verbatim so it stays a single executable token. Skul resolves the data directory but does not create it.
 
 Skul merges into these files rather than owning them. It tracks the server names it wrote, so anything else in the file survives — your own hand-written servers, another bundle's servers, and unrelated settings sharing the document such as OpenCode's `model` and `theme`. `skul remove` subtracts only the names that bundle added, deleting the file only when nothing else is left.
 
+Codex's `.codex/config.toml` is edited as a marker-delimited block appended at the end, because re-serializing TOML would discard the comments and formatting of a hand-maintained config. Everything outside the block stays byte-for-byte identical:
+
+```toml
+# your own settings, untouched
+model = "gpt-5"   # inline comment
+
+# >>> SKUL:MCP BEGIN — managed by skul, do not edit
+[mcp_servers.docs]
+command = "docs-server"
+# <<< SKUL:MCP END
+```
+
+Because two TOML tables of the same name make the whole config unparseable, Skul refuses rather than writing a `[mcp_servers.<name>]` that you already declare elsewhere in the file.
+
 Two limits apply. MCP servers are project-scoped: `skul add --global` materializes every other target but skips MCP, because the global stores hold unrelated user state. And if the target file is **tracked by Git**, Skul refuses rather than dirtying the working tree — merging into a committed file would show up in `git status`, which Skul otherwise avoids. Add the file to `.gitignore` to let Skul manage it.
 
-As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`, `opencode.json`), which scopes those servers to that tool alone.
+As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`, `opencode.json`, `.codex/config.toml`), which scopes those servers to that tool alone.
 
 ### Cross-Repo Bundle Item References
 

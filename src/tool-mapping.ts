@@ -72,6 +72,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".agents/skills", kind: "directory" },
       agents: { path: ".codex/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".codex/config.toml", kind: "file" },
     },
   },
   {

@@ -46,6 +46,14 @@ export interface McpPluginPaths {
  * an unknown `type`, and OpenCode folds command and arguments into one array.
  */
 interface McpConfigDialect {
+  /**
+   * How the file is edited. JSON documents are merged key-wise; TOML documents
+   * are edited as a marker-delimited block appended at the end, because
+   * re-serializing TOML would discard the comments and formatting of a
+   * hand-maintained config.
+   */
+  format: "json" | "toml";
+  /** Top-level JSON key, or the TOML table prefix such as `mcp_servers`. */
   serversKey: string;
   renderStdio(
     server: McpStdioServer,
@@ -86,6 +94,7 @@ function renderConventionalRemote(
 
 const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
   "claude-code": {
+    format: "json",
     serversKey: "mcpServers",
     renderStdio: (server, paths) =>
       renderConventionalStdio(server, paths, "stdio"),
@@ -96,6 +105,7 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       ),
   },
   cursor: {
+    format: "json",
     serversKey: "mcpServers",
     renderStdio: (server, paths) =>
       renderConventionalStdio(server, paths, "stdio"),
@@ -103,6 +113,7 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
     renderRemote: (server) => renderConventionalRemote(server, null),
   },
   copilot: {
+    format: "json",
     serversKey: "servers",
     renderStdio: (server, paths) =>
       renderConventionalStdio(server, paths, "stdio"),
@@ -113,12 +124,14 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       ),
   },
   kiro: {
+    format: "json",
     serversKey: "mcpServers",
     renderStdio: (server, paths) =>
       renderConventionalStdio(server, paths, null),
     renderRemote: (server) => renderConventionalRemote(server, null),
   },
   opencode: {
+    format: "json",
     serversKey: "mcp",
     renderStdio: (server, paths) => ({
       type: "local",
@@ -139,7 +152,28 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       ...(server.headers ? { headers: server.headers } : {}),
     }),
   },
+  codex: {
+    format: "toml",
+    serversKey: "mcp_servers",
+    renderStdio: (server, paths) => ({
+      command: server.command,
+      ...(server.args
+        ? { args: server.args.map((arg) => expandPlaceholders(arg, paths)) }
+        : {}),
+      ...(server.env
+        ? { env: expandPlaceholderValues(server.env, paths) }
+        : {}),
+      ...(server.cwd ? { cwd: expandPlaceholders(server.cwd, paths) } : {}),
+    }),
+    renderRemote: (server) => ({
+      url: server.url,
+      ...(server.headers ? { http_headers: server.headers } : {}),
+    }),
+  },
 };
+
+const TOML_BLOCK_BEGIN = "# >>> SKUL:MCP BEGIN — managed by skul, do not edit";
+const TOML_BLOCK_END = "# <<< SKUL:MCP END";
 
 /** Returns true when the tool has a known MCP configuration file and dialect. */
 export function supportsMcpConfig(toolName: ToolName): boolean {
@@ -186,12 +220,6 @@ export function mergeMcpConfigDocument(options: {
   existingContent?: string;
 }): McpMergeResult {
   const dialect = requireDialect(options.toolName);
-  const document = parseExistingDocument(
-    options.existingContent,
-    options.toolName,
-  );
-  const existingServers = readServersObject(document, dialect);
-
   const rendered = Object.fromEntries(
     Object.entries(options.servers).map(([serverName, server]) => [
       serverName,
@@ -200,14 +228,228 @@ export function mergeMcpConfigDocument(options: {
         : dialect.renderRemote(server),
     ]),
   );
+  const serverNames = Object.keys(rendered);
+
+  if (dialect.format === "toml") {
+    return {
+      content: mergeTomlBlock({
+        existingContent: options.existingContent ?? "",
+        tablePrefix: dialect.serversKey,
+        rendered,
+      }),
+      serverNames,
+    };
+  }
+
+  const document = parseExistingDocument(
+    options.existingContent,
+    options.toolName,
+  );
 
   return {
     content: formatDocument({
       ...document,
-      [dialect.serversKey]: { ...existingServers, ...rendered },
+      [dialect.serversKey]: {
+        ...readServersObject(document, dialect),
+        ...rendered,
+      },
     }),
-    serverNames: Object.keys(rendered),
+    serverNames,
   };
+}
+
+/**
+ * Rewrites the Skul-managed block of a TOML config, leaving everything outside
+ * it byte-for-byte identical.
+ *
+ * A server the user already declares outside the block would become a duplicate
+ * TOML table, which makes the whole config unparseable for the tool, so that
+ * collision is refused rather than written.
+ */
+function mergeTomlBlock(options: {
+  existingContent: string;
+  tablePrefix: string;
+  rendered: Record<string, Record<string, unknown>>;
+}): string {
+  const { before, blockBody, after } = splitTomlBlock(options.existingContent);
+  const outsideBlock = `${before}\n${after}`;
+
+  for (const serverName of Object.keys(options.rendered)) {
+    if (!/^[A-Za-z0-9_.-]+$/.test(serverName)) {
+      throw new Error(
+        `MCP server name "${serverName}" cannot be written to a TOML configuration.\nUse only letters, digits, hyphens, underscores, and periods.`,
+      );
+    }
+
+    if (declaresTomlTable(outsideBlock, options.tablePrefix, serverName)) {
+      throw new Error(
+        `MCP server "${serverName}" is already declared in this configuration outside Skul's managed block.\nRename it there, or remove it, so Skul does not create a duplicate [${options.tablePrefix}.${serverName}] table.`,
+      );
+    }
+  }
+
+  const tables = {
+    ...parseTomlBlockTables(blockBody, options.tablePrefix),
+    ...Object.fromEntries(
+      Object.entries(options.rendered).map(([serverName, fields]) => [
+        serverName,
+        renderTomlTable(options.tablePrefix, serverName, fields),
+      ]),
+    ),
+  };
+
+  return joinTomlDocument(before, renderTomlBlock(tables), after);
+}
+
+function subtractTomlBlock(options: {
+  existingContent: string;
+  tablePrefix: string;
+  serverNames: string[];
+}): McpSubtractResult {
+  const { before, blockBody, after } = splitTomlBlock(options.existingContent);
+  const tables = parseTomlBlockTables(blockBody, options.tablePrefix);
+
+  for (const serverName of options.serverNames) {
+    delete tables[serverName];
+  }
+
+  const remainingBlock =
+    Object.keys(tables).length > 0 ? renderTomlBlock(tables) : "";
+  const content = joinTomlDocument(before, remainingBlock, after);
+
+  return content.trim() === ""
+    ? { releasable: true }
+    : { releasable: false, content };
+}
+
+function splitTomlBlock(content: string): {
+  before: string;
+  blockBody: string;
+  after: string;
+} {
+  const beginIndex = content.indexOf(TOML_BLOCK_BEGIN);
+  const endIndex = content.indexOf(TOML_BLOCK_END);
+
+  if (beginIndex === -1 || endIndex === -1 || endIndex < beginIndex) {
+    return { before: content.replace(/\s+$/, ""), blockBody: "", after: "" };
+  }
+
+  return {
+    before: content.slice(0, beginIndex).replace(/\s+$/, ""),
+    blockBody: content.slice(beginIndex + TOML_BLOCK_BEGIN.length, endIndex),
+    after: content.slice(endIndex + TOML_BLOCK_END.length).replace(/^\s+/, ""),
+  };
+}
+
+/** Splits a managed block into one text chunk per `[prefix.name]` table. */
+function parseTomlBlockTables(
+  blockBody: string,
+  tablePrefix: string,
+): Record<string, string> {
+  const tables: Record<string, string> = {};
+  let currentName: string | undefined;
+  let currentLines: string[] = [];
+
+  const flush = () => {
+    if (currentName) {
+      tables[currentName] = currentLines.join("\n").replace(/\s+$/, "");
+    }
+  };
+
+  for (const line of blockBody.split("\n")) {
+    const header = line.trim().match(/^\[([A-Za-z0-9_-]+)\.("?)([^\]"]+)\2\]$/);
+
+    if (header && header[1] === tablePrefix) {
+      flush();
+      currentName = header[3];
+      currentLines = [line.trim()];
+      continue;
+    }
+
+    if (currentName) {
+      currentLines.push(line);
+    }
+  }
+
+  flush();
+  return tables;
+}
+
+/** Detects an existing `[prefix.name]` table, whether the name is bare or quoted. */
+function declaresTomlTable(
+  content: string,
+  tablePrefix: string,
+  serverName: string,
+): boolean {
+  const prefixes = [
+    `[${tablePrefix}.${serverName}`,
+    `[${tablePrefix}."${serverName}"`,
+  ];
+
+  return content
+    .split("\n")
+    .some((line) => prefixes.some((prefix) => line.trim().startsWith(prefix)));
+}
+
+function renderTomlTable(
+  tablePrefix: string,
+  serverName: string,
+  fields: Record<string, unknown>,
+): string {
+  return [
+    `[${tablePrefix}.${tomlKey(serverName)}]`,
+    ...Object.entries(fields).map(
+      ([key, value]) => `${tomlKey(key)} = ${tomlValue(value)}`,
+    ),
+  ].join("\n");
+}
+
+function renderTomlBlock(tables: Record<string, string>): string {
+  return [
+    TOML_BLOCK_BEGIN,
+    Object.keys(tables)
+      .sort()
+      .map((name) => tables[name])
+      .join("\n\n"),
+    TOML_BLOCK_END,
+  ].join("\n");
+}
+
+function joinTomlDocument(
+  before: string,
+  block: string,
+  after: string,
+): string {
+  const sections = [before, block, after].filter(
+    (section) => section.trim() !== "",
+  );
+
+  return sections.length === 0 ? "" : `${sections.join("\n\n")}\n`;
+}
+
+/** Quotes a TOML key unless it is already a safe bare key. */
+function tomlKey(key: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
+}
+
+/**
+ * Serializes the small value space MCP servers use: strings, string arrays, and
+ * string tables. TOML basic strings share JSON's escape syntax, so the standard
+ * serializer produces a valid literal.
+ */
+function tomlValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => tomlValue(item)).join(", ")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).map(
+      ([key, item]) => `${tomlKey(key)} = ${tomlValue(item)}`,
+    );
+    return `{ ${entries.join(", ")} }`;
+  }
+
+  return JSON.stringify(value);
 }
 
 export type McpSubtractResult =
@@ -229,6 +471,15 @@ export function subtractMcpConfigServers(options: {
   serverNames: string[];
 }): McpSubtractResult {
   const dialect = requireDialect(options.toolName);
+
+  if (dialect.format === "toml") {
+    return subtractTomlBlock({
+      existingContent: options.existingContent,
+      tablePrefix: dialect.serversKey,
+      serverNames: options.serverNames,
+    });
+  }
+
   const document = parseExistingDocument(
     options.existingContent,
     options.toolName,
