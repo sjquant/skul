@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import type { ToolName } from "./tool-mapping";
 
 /**
@@ -155,16 +158,8 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
   codex: {
     format: "toml",
     serversKey: "mcp_servers",
-    renderStdio: (server, paths) => ({
-      command: server.command,
-      ...(server.args
-        ? { args: server.args.map((arg) => expandPlaceholders(arg, paths)) }
-        : {}),
-      ...(server.env
-        ? { env: expandPlaceholderValues(server.env, paths) }
-        : {}),
-      ...(server.cwd ? { cwd: expandPlaceholders(server.cwd, paths) } : {}),
-    }),
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
     renderRemote: (server) => ({
       url: server.url,
       ...(server.headers ? { http_headers: server.headers } : {}),
@@ -199,6 +194,31 @@ export function parseMcpConfig(input: unknown): Record<string, McpServer> {
   );
 }
 
+/**
+ * Reads and parses a bundle's MCP declarations, naming the source file when the
+ * document is malformed so the failure points at the bundle, not at Skul.
+ */
+export function readBundleMcpServers(
+  bundleDir: string,
+  sourcePath: string,
+): Record<string, McpServer> {
+  const sourceFile = path.join(bundleDir, ...sourcePath.split("/"));
+  let document: unknown;
+
+  try {
+    document = JSON.parse(fs.readFileSync(sourceFile, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Invalid ${sourcePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
+  }
+
+  return parseMcpConfig(document);
+}
+
 export interface McpMergeResult {
   /** Full JSON text to write, including servers Skul does not own. */
   content: string;
@@ -218,12 +238,16 @@ export function mergeMcpConfigDocument(options: {
   servers: Record<string, McpServer>;
   pluginPaths: McpPluginPaths;
   existingContent?: string;
+  ownedServerNames?: string[];
 }): McpMergeResult {
   return mergeRenderedMcpServers({
     toolName: options.toolName,
     renderedServers: renderMcpServers(options),
     ...(options.existingContent !== undefined
       ? { existingContent: options.existingContent }
+      : {}),
+    ...(options.ownedServerNames !== undefined
+      ? { ownedServerNames: options.ownedServerNames }
       : {}),
   });
 }
@@ -260,6 +284,8 @@ export function mergeRenderedMcpServers(options: {
   toolName: ToolName;
   renderedServers: RenderedMcpServers;
   existingContent?: string;
+  /** Names this bundle already owns here, which it may overwrite on re-apply. */
+  ownedServerNames?: string[];
 }): McpMergeResult {
   const dialect = requireDialect(options.toolName);
   const serverNames = Object.keys(options.renderedServers);
@@ -279,14 +305,23 @@ export function mergeRenderedMcpServers(options: {
     options.existingContent,
     options.toolName,
   );
+  const existingServers = readServersObject(document, dialect);
+
+  for (const serverName of serverNames) {
+    if (
+      serverName in existingServers &&
+      !options.ownedServerNames?.includes(serverName)
+    ) {
+      throw new Error(
+        `MCP server "${serverName}" is already declared in this configuration.\nRename it there, or remove it, so Skul does not replace a server it does not own.`,
+      );
+    }
+  }
 
   return {
     content: formatDocument({
       ...document,
-      [dialect.serversKey]: {
-        ...readServersObject(document, dialect),
-        ...options.renderedServers,
-      },
+      [dialect.serversKey]: { ...existingServers, ...options.renderedServers },
     }),
     serverNames,
   };
@@ -409,20 +444,35 @@ function parseTomlBlockTables(
   return tables;
 }
 
-/** Detects an existing `[prefix.name]` table, whether the name is bare or quoted. */
+/**
+ * Detects an existing `[prefix.name]` table, whether the name is bare or quoted.
+ *
+ * The name must be complete: a longer table such as `[mcp_servers.docs-legacy]`
+ * is unrelated to a server called `docs` and must not read as a collision.
+ */
 function declaresTomlTable(
   content: string,
   tablePrefix: string,
   serverName: string,
 ): boolean {
-  const prefixes = [
+  const heads = [
     `[${tablePrefix}.${serverName}`,
     `[${tablePrefix}."${serverName}"`,
   ];
 
-  return content
-    .split("\n")
-    .some((line) => prefixes.some((prefix) => line.trim().startsWith(prefix)));
+  return content.split("\n").some((line) => {
+    const trimmed = line.trim();
+
+    return heads.some((head) => {
+      if (!trimmed.startsWith(head)) {
+        return false;
+      }
+
+      // Only a table terminator or a sub-table separator continues the name.
+      const rest = trimmed.slice(head.length);
+      return rest.startsWith("]") || rest.startsWith(".");
+    });
+  });
 }
 
 function renderTomlTable(

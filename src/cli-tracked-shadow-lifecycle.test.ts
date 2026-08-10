@@ -279,13 +279,13 @@ describe("tracked root-instruction shadow safety", () => {
     // When
     await expect(
       run(["shadow", "--suspend"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe("Suspended tracked root-instruction shadows for AGENTS.md");
+    ).resolves.toBe("Suspended tracked shadows for AGENTS.md");
     fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# tracked agents v2\n");
     runGit(repoRoot, ["add", "AGENTS.md"]);
     runGit(repoRoot, ["commit", "-m", "refresh agents base"]);
     await expect(
       run(["shadow", "--refresh"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe("Refreshed tracked root-instruction shadows for AGENTS.md");
+    ).resolves.toBe("Refreshed tracked shadows for AGENTS.md");
 
     // Then
     assertAgentsDocument(
@@ -334,14 +334,14 @@ describe("tracked root-instruction shadow safety", () => {
     // When
     await expect(
       run(["shadow", "--suspend"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe("Suspended tracked root-instruction shadows for CLAUDE.md");
+    ).resolves.toBe("Suspended tracked shadows for CLAUDE.md");
     expect(readGitIndexFlag(repoRoot, "CLAUDE.md")).toBe("H");
     fs.writeFileSync(path.join(repoRoot, "CLAUDE.md"), "# tracked claude v2\n");
     runGit(repoRoot, ["add", "CLAUDE.md"]);
     runGit(repoRoot, ["commit", "-m", "refresh claude base"]);
     await expect(
       run(["shadow", "--refresh"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe("Refreshed tracked root-instruction shadows for CLAUDE.md");
+    ).resolves.toBe("Refreshed tracked shadows for CLAUDE.md");
 
     // Then
     assertClaudeDocument(
@@ -389,7 +389,7 @@ describe("tracked root-instruction shadow safety", () => {
     // When
     await expect(
       run(["shadow", "--suspend"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe("Suspended tracked root-instruction shadows for AGENTS.md");
+    ).resolves.toBe("Suspended tracked shadows for AGENTS.md");
     fs.rmSync(path.join(homeDir, ".skul", "library"), {
       recursive: true,
       force: true,
@@ -399,7 +399,7 @@ describe("tracked root-instruction shadow safety", () => {
     runGit(repoRoot, ["commit", "-m", "refresh agents base without cache"]);
     await expect(
       run(["shadow", "--refresh"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe("Refreshed tracked root-instruction shadows for AGENTS.md");
+    ).resolves.toBe("Refreshed tracked shadows for AGENTS.md");
 
     // Then
     assertAgentsDocument(
@@ -450,7 +450,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // When
     await expect(run(["sync"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      `Synced git worktree ${initialHead.slice(0, 7)} -> ${updatedHead.slice(0, 7)}; refreshed tracked root-instruction shadows for AGENTS.md, CLAUDE.md`,
+      `Synced git worktree ${initialHead.slice(0, 7)} -> ${updatedHead.slice(0, 7)}; refreshed tracked shadows for AGENTS.md, CLAUDE.md`,
     );
 
     // Then
@@ -574,7 +574,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // When
     await expect(run(["sync"], { homeDir, cwd: repoRoot })).resolves.toBe(
-      `Synced git worktree ${initialHead.slice(0, 7)} -> ${updatedHead.slice(0, 7)}; retired tracked root-instruction shadows for AGENTS.md because upstream no longer tracks them`,
+      `Synced git worktree ${initialHead.slice(0, 7)} -> ${updatedHead.slice(0, 7)}; retired tracked shadows for AGENTS.md because upstream no longer tracks them`,
     );
 
     // Then

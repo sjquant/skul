@@ -71,11 +71,14 @@ import {
   setGitSkipWorktree,
 } from "./git-index";
 import {
+  type McpServer,
+  type McpSubtractResult,
   mergeRenderedMcpServers,
-  parseMcpConfig,
   type RenderedMcpServers,
+  readBundleMcpServers,
   renderMcpServers,
   subtractMcpConfigServers,
+  supportsMcpConfig,
 } from "./mcp-config";
 import {
   type DesiredBundleEntry,
@@ -858,7 +861,25 @@ type ManagedRemovalState = {
   files: string[];
   file_fingerprints?: Record<string, string>;
   directories?: string[];
+  mcp_servers: Record<string, string[]> | undefined;
 };
+
+/** Unions per-file MCP server ownership across several bundles' removal states. */
+function mergeMcpServerOwnership(
+  ownerships: Array<Record<string, string[]> | undefined>,
+): Record<string, string[]> {
+  const merged: Record<string, string[]> = {};
+
+  for (const ownership of ownerships) {
+    for (const [filePath, serverNames] of Object.entries(ownership ?? {})) {
+      merged[filePath] = [
+        ...new Set([...(merged[filePath] ?? []), ...serverNames]),
+      ];
+    }
+  }
+
+  return merged;
+}
 
 function mergeManagedRemovalPaths(
   states: ManagedRemovalState[],
@@ -871,6 +892,9 @@ function mergeManagedRemovalPaths(
     ),
     directories: Array.from(
       new Set(states.flatMap((state) => state.directories ?? [])),
+    ),
+    mcp_servers: mergeMcpServerOwnership(
+      states.map((state) => state.mcp_servers),
     ),
   };
 }
@@ -1114,7 +1138,7 @@ function shadowWorktree(options: {
   const shadowedFilePaths = Object.keys(shadowedFiles);
 
   if (shadowedFilePaths.length === 0) {
-    return "No tracked root-instruction shadows found in the current worktree";
+    return "No tracked shadows found in the current worktree";
   }
 
   const nextShadowedFiles =
@@ -1137,7 +1161,7 @@ function shadowWorktree(options: {
   writeRegistryFile(options.registryFile, registry);
 
   const actionLabel = options.action === "suspend" ? "Suspended" : "Refreshed";
-  return `${actionLabel} tracked root-instruction shadows for ${shadowedFilePaths.sort().join(", ")}`;
+  return `${actionLabel} tracked shadows for ${shadowedFilePaths.sort().join(", ")}`;
 }
 
 function syncWorktree(options: { cwd: string; registryFile: string }): string {
@@ -1191,7 +1215,7 @@ function syncWorktree(options: { cwd: string; registryFile: string }): string {
     } catch (error) {
       if (syncError) {
         throw new Error(
-          `${syncError.message}\nSkul also failed to restore tracked root-instruction shadows: ${describeError(error)}`,
+          `${syncError.message}\nSkul also failed to restore tracked shadows: ${describeError(error)}`,
         );
       }
 
@@ -1347,13 +1371,13 @@ function renderSyncWorktreeResult(options: {
 
   if (options.shadowRefreshResult.refreshedFilePaths.length > 0) {
     detailMessages.push(
-      `refreshed tracked root-instruction shadows for ${options.shadowRefreshResult.refreshedFilePaths.join(", ")}`,
+      `refreshed tracked shadows for ${options.shadowRefreshResult.refreshedFilePaths.join(", ")}`,
     );
   }
 
   if (options.shadowRefreshResult.retiredFilePaths.length > 0) {
     detailMessages.push(
-      `retired tracked root-instruction shadows for ${options.shadowRefreshResult.retiredFilePaths.join(", ")} because upstream no longer tracks them`,
+      `retired tracked shadows for ${options.shadowRefreshResult.retiredFilePaths.join(", ")} because upstream no longer tracks them`,
     );
   }
 
@@ -1534,7 +1558,7 @@ function requireTrackedRootInstructionHeadBlob(options: {
   }
 
   throw new Error(
-    `Cannot ${options.action} tracked root-instruction shadow for ${options.filePath} because the target does not have HEAD content`,
+    `Cannot ${options.action} tracked shadow for ${options.filePath} because the target does not have HEAD content`,
   );
 }
 
@@ -1557,7 +1581,7 @@ function assertTrackedRootInstructionShadowPristine(options: {
   }
 
   throw new Error(
-    `Cannot ${options.action} tracked root-instruction shadow for ${options.filePath} because the shadow file has local manual edits`,
+    `Cannot ${options.action} tracked shadow for ${options.filePath} because the shadow file has local manual edits`,
   );
 }
 
@@ -2260,10 +2284,7 @@ async function updateBundles(options: {
           resolvedBundleItemRefs,
           existingShadowedFiles: currentShadowedFiles,
           materializedBundles: currentBundles,
-          mcpPluginDataDir: resolveBundleDataDir({
-            libraryDir: options.libraryDir,
-            bundleDir: path.dirname(cachedBundle.manifestFile),
-          }),
+          libraryDir: options.libraryDir,
         });
       assertRootInstructionModeCompatibility({
         desiredState: nextDesiredState,
@@ -2367,10 +2388,13 @@ async function updateBundles(options: {
           resolveFileConflict: options.prompts.resolveFileConflict,
           disableModelInvocation: entry.disable_model_invocation,
           resolvedBundleItemRefs,
-          mcpPluginDataDir: resolveBundleDataDir({
-            libraryDir: options.libraryDir,
-            bundleDir: path.dirname(cachedBundle.manifestFile),
-          }),
+          libraryDir: options.libraryDir,
+          ...(existingBundleState
+            ? {
+                existingMcpServers:
+                  flattenBundleState(existingBundleState).mcp_servers,
+              }
+            : {}),
         });
 
         currentBundles = {
@@ -2673,10 +2697,7 @@ async function applyBundle(options: {
     resolvedBundleItemRefs,
     existingShadowedFiles: currentShadowedFiles,
     materializedBundles: existingWorktreeState?.bundles ?? {},
-    mcpPluginDataDir: resolveBundleDataDir({
-      libraryDir: options.libraryDir,
-      bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
-    }),
+    libraryDir: options.libraryDir,
   });
   assertRootInstructionModeCompatibility({
     desiredState: existingDesiredState,
@@ -2805,10 +2826,13 @@ async function applyBundle(options: {
     resolveFileConflict: options.prompts.resolveFileConflict,
     disableModelInvocation: options.disableModelInvocation,
     resolvedBundleItemRefs,
-    mcpPluginDataDir: resolveBundleDataDir({
-      libraryDir: options.libraryDir,
-      bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
-    }),
+    libraryDir: options.libraryDir,
+    ...(existingBundleState
+      ? {
+          existingMcpServers:
+            flattenBundleState(existingBundleState).mcp_servers,
+        }
+      : {}),
   });
   currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
     repoRoot: gitContext.worktreeRoot,
@@ -4393,7 +4417,12 @@ async function removeBundle(options: {
   if (bundleMaterializedState || shadowedFilesForBundle.length > 0) {
     const bundlePaths = bundleMaterializedState
       ? flattenBundleState(bundleMaterializedState)
-      : { files: [], file_fingerprints: {}, directories: [] };
+      : {
+          files: [],
+          file_fingerprints: {},
+          directories: [],
+          mcp_servers: undefined,
+        };
     const rootInstructionBaseContents =
       worktreeState?.materialized_state.root_instruction_base_contents;
     const removedRootInstructionPaths = new Set(
@@ -5354,10 +5383,7 @@ async function applyWorktree(options: {
       resolvedBundleItemRefs,
       existingShadowedFiles: currentShadowedFiles,
       materializedBundles: currentBundles,
-      mcpPluginDataDir: resolveBundleDataDir({
-        libraryDir: options.libraryDir,
-        bundleDir: path.dirname(cachedBundle.manifestFile),
-      }),
+      libraryDir: options.libraryDir,
     });
     assertRootInstructionModeCompatibility({
       desiredState: repoState.desired_state,
@@ -5487,10 +5513,13 @@ async function applyWorktree(options: {
       rootInstructionMode: entry.root_instruction_mode,
       resolveFileConflict: options.prompts.resolveFileConflict,
       resolvedBundleItemRefs,
-      mcpPluginDataDir: resolveBundleDataDir({
-        libraryDir: options.libraryDir,
-        bundleDir: path.dirname(cachedBundle.manifestFile),
-      }),
+      libraryDir: options.libraryDir,
+      ...(existingBundleState
+        ? {
+            existingMcpServers:
+              flattenBundleState(existingBundleState).mcp_servers,
+          }
+        : {}),
     });
 
     currentBundles = {
@@ -5670,7 +5699,7 @@ function planTrackedRootInstructionShadows(options: {
   resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
   existingShadowedFiles: Record<string, ShadowedFileState>;
   materializedBundles: MaterializedState["bundles"];
-  mcpPluginDataDir?: string;
+  libraryDir?: string;
 }): TrackedRootInstructionShadowPlan {
   const activeOverlayContents = collectComposedRootInstructionContents({
     bundleDir: options.bundleDir,
@@ -5761,43 +5790,55 @@ function planTrackedMcpShadows(options: {
   toolNames: ToolName[];
   itemSelectors?: BundleItemSelector[];
   bundleName: string;
-  mcpPluginDataDir?: string;
+  libraryDir?: string;
 }): PlannedTrackedRootInstructionShadow[] {
   if (!isMcpItemSelected(options.itemSelectors)) {
     return [];
   }
 
   const writes: PlannedTrackedRootInstructionShadow[] = [];
+  // The bundle's declarations are identical for every tool; only the rendering
+  // differs, so the file is read and parsed at most once.
+  let servers: Record<string, McpServer> | undefined;
 
   for (const toolName of options.toolNames) {
     const sourcePath = options.manifest.tools[toolName]?.mcp?.path;
     const filePath = getToolDefinition(toolName)?.targets.mcp?.path;
 
-    if (!sourcePath || !filePath) {
+    if (!sourcePath || !filePath || !supportsMcpConfig(toolName)) {
       continue;
     }
 
-    if (!isTrackedGitPath({ repoRoot: options.repoRoot, filePath })) {
+    // One inspection answers both "is it tracked" and "what is committed",
+    // instead of spawning the same git plumbing twice per tool.
+    const inspection = inspectRootInstructionShadowTarget({
+      repoRoot: options.repoRoot,
+      filePath,
+    });
+
+    if (!inspection.tracked || !inspection.headBlob) {
       continue;
     }
 
+    servers ??= readBundleMcpServers(options.bundleDir, sourcePath);
     const overlay = JSON.stringify(
       renderMcpServers({
         toolName,
-        servers: readBundleMcpServers(options.bundleDir, sourcePath),
+        servers,
         pluginPaths: {
           pluginRoot: options.bundleDir,
-          ...(options.mcpPluginDataDir
-            ? { pluginData: options.mcpPluginDataDir }
+          ...(options.libraryDir
+            ? {
+                pluginData: resolveBundleDataDir({
+                  libraryDir: options.libraryDir,
+                  bundleDir: options.bundleDir,
+                }),
+              }
             : {}),
         },
       }),
     );
-    const headBlob = requireTrackedRootInstructionHeadBlob({
-      repoRoot: options.repoRoot,
-      filePath,
-      action: "create",
-    });
+    const headBlob = inspection.headBlob;
     const render = renderTrackedShadow({
       baseContent: headBlob.content,
       overlay,
@@ -5823,14 +5864,6 @@ function planTrackedMcpShadows(options: {
   }
 
   return writes;
-}
-
-function readBundleMcpServers(bundleDir: string, sourcePath: string) {
-  return parseMcpConfig(
-    JSON.parse(
-      fs.readFileSync(path.join(bundleDir, ...sourcePath.split("/")), "utf8"),
-    ) as unknown,
-  );
 }
 
 /** Rejects append/replace mixtures before any bundle files are removed or written. */
@@ -5920,7 +5953,7 @@ function renderTrackedRootInstructionShadowWrite(options: {
 
   if (!inspection.headBlob) {
     throw new Error(
-      `Cannot create tracked root-instruction shadow for ${options.filePath} because the target does not have HEAD content`,
+      `Cannot create a tracked shadow for ${options.filePath} because the target does not have HEAD content`,
     );
   }
 
@@ -6068,7 +6101,7 @@ function assertTrackedRootInstructionShadowWriteSafety(options: {
 
   if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
     throw new Error(
-      `Cannot refresh tracked root-instruction shadow for ${options.filePath} because the current shadow file is missing`,
+      `Cannot refresh tracked shadow for ${options.filePath} because the current shadow file is missing`,
     );
   }
 
@@ -6077,7 +6110,7 @@ function assertTrackedRootInstructionShadowWriteSafety(options: {
     options.existingShadowedFile.rendered_fingerprint
   ) {
     throw new Error(
-      `Cannot refresh tracked root-instruction shadow for ${options.filePath} because the current worktree content no longer matches Skul's recorded render`,
+      `Cannot refresh tracked shadow for ${options.filePath} because the current worktree content no longer matches Skul's recorded render`,
     );
   }
 }
@@ -6159,7 +6192,7 @@ function restoreTrackedRootInstructionShadowTarget(options: {
 
   if (!inspection.headBlob) {
     throw new Error(
-      `Cannot restore tracked root-instruction shadow target for ${options.filePath} because the target does not have HEAD content`,
+      `Cannot restore the tracked shadow target for ${options.filePath} because the target does not have HEAD content`,
     );
   }
 
@@ -6177,12 +6210,14 @@ function excludeShadowedTrackedRootInstructionTargets(
     files: string[];
     file_fingerprints: Record<string, string>;
     directories?: string[];
+    mcp_servers: Record<string, string[]> | undefined;
   },
   deferredMaterializationTargets: Set<string>,
 ): {
   files: string[];
   file_fingerprints: Record<string, string>;
   directories?: string[];
+  mcp_servers: Record<string, string[]> | undefined;
 } {
   if (deferredMaterializationTargets.size === 0) {
     return state;
@@ -6203,6 +6238,7 @@ function excludeShadowedTrackedRootInstructionTargets(
     ...(state.directories !== undefined
       ? { directories: state.directories }
       : {}),
+    mcp_servers: state.mcp_servers,
   };
 }
 
@@ -6428,14 +6464,30 @@ function releaseManagedMcpServers(
     const toolName = findToolNameForMcpPath(relativePath);
 
     if (!toolName) {
+      console.warn(
+        `[skul] Leaving ${relativePath} untouched: no supported tool claims that MCP configuration path.`,
+      );
       continue;
     }
 
-    const result = subtractMcpConfigServers({
-      toolName,
-      existingContent: fs.readFileSync(targetPath, "utf8"),
-      serverNames,
-    });
+    // Removal must always be able to finish. A configuration Skul cannot parse
+    // — a JSONC comment in .vscode/mcp.json, say — is left for the user to fix
+    // rather than blocking `skul remove` and `skul reset` with no way out.
+    let result: McpSubtractResult;
+    try {
+      result = subtractMcpConfigServers({
+        toolName,
+        existingContent: fs.readFileSync(targetPath, "utf8"),
+        serverNames,
+      });
+    } catch (error) {
+      console.warn(
+        `[skul] Leaving ${relativePath} untouched: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      continue;
+    }
 
     if (result.releasable) {
       releasablePaths.add(relativePath);
@@ -6454,10 +6506,18 @@ function findToolNameForMcpPath(relativePath: string): ToolName | undefined {
   )?.name;
 }
 
+/**
+ * Deletes a bundle's managed paths.
+ *
+ * `mcp_servers` is required rather than optional: MCP configuration files are
+ * shared, and a caller that rebuilt the removal state without carrying the
+ * field would otherwise fall through to deleting the whole file, taking other
+ * bundles' and the user's own servers with it.
+ */
 function removeManagedPaths(
   repoRoot: string,
   state: Parameters<typeof listManagedPathsForRemoval>[0] & {
-    mcp_servers?: Record<string, string[]>;
+    mcp_servers: Record<string, string[]> | undefined;
   },
 ): void {
   const releasableMcpPaths = releaseManagedMcpServers(
@@ -6565,31 +6625,31 @@ function assertTrackedRootInstructionShadowSafetyForAction(options: {
 
   if (inspection.issues.includes("unmerged")) {
     throw new Error(
-      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target has unmerged index entries`,
+      `Cannot ${actionLabel} tracked shadow for ${options.filePath} because the target has unmerged index entries`,
     );
   }
 
   if (inspection.issues.includes("missing-head")) {
     throw new Error(
-      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target does not have HEAD content`,
+      `Cannot ${actionLabel} tracked shadow for ${options.filePath} because the target does not have HEAD content`,
     );
   }
 
   if (inspection.issues.includes("staged-changes")) {
     throw new Error(
-      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target has staged changes`,
+      `Cannot ${actionLabel} tracked shadow for ${options.filePath} because the target has staged changes`,
     );
   }
 
   if (inspection.issues.includes("unstaged-changes")) {
     throw new Error(
-      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target has unstaged changes`,
+      `Cannot ${actionLabel} tracked shadow for ${options.filePath} because the target has unstaged changes`,
     );
   }
 
   if (inspection.issues.includes("incompatible-index-flags")) {
     throw new Error(
-      `Cannot ${actionLabel} tracked root-instruction shadow for ${options.filePath} because the target has incompatible index flags: ${inspection.indexFlags.join(", ")}`,
+      `Cannot ${actionLabel} tracked shadow for ${options.filePath} because the target has incompatible index flags: ${inspection.indexFlags.join(", ")}`,
     );
   }
 }

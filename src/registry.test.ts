@@ -667,6 +667,68 @@ describe("parseRegistry", () => {
       /shadowed_files\..+ must be a relative path/i,
     ],
     [
+      "MCP server ownership keyed by an absolute path",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            materialized_state: {
+              bundles: {
+                demo: {
+                  tools: {
+                    "claude-code": {
+                      files: [".mcp.json"],
+                      mcp_servers: { "/etc/mcp.json": ["docs"] },
+                    },
+                  },
+                },
+              },
+              exclude_configured: false,
+            },
+          }),
+        },
+      }),
+      /mcp_servers key must be a relative path/i,
+    ],
+    [
+      "MCP server ownership holding a non-string server name",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            materialized_state: {
+              bundles: {
+                demo: {
+                  tools: {
+                    "claude-code": {
+                      files: [".mcp.json"],
+                      mcp_servers: { ".mcp.json": [7] },
+                    },
+                  },
+                },
+              },
+              exclude_configured: false,
+            },
+          }),
+        },
+      }),
+      /mcp_servers\..mcp\.json\[0\] must be a non-empty string/i,
+    ],
+    [
+      "a merge shadow whose overlay is not JSON",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              ".mcp.json": makeShadowedFileEntry({
+                strategy: "merge",
+                overlay: "not json",
+              }),
+            },
+          }),
+        },
+      }),
+      /overlay must be JSON when strategy is "merge"/i,
+    ],
+    [
       "shadowed file metadata with an unsupported strategy",
       makeRegistry({
         worktrees: {

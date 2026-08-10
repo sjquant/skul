@@ -79,8 +79,8 @@ export function renderTrackedRootInstructionShadow(
   return {
     overlay,
     rendered,
-    overlayFingerprint: fingerprintRootInstructionContent(overlay),
-    renderedFingerprint: fingerprintRootInstructionContent(rendered),
+    overlayFingerprint: fingerprintShadowContent(overlay),
+    renderedFingerprint: fingerprintShadowContent(rendered),
   };
 }
 
@@ -147,8 +147,7 @@ function hasTrackedRootInstructionManualEdit(options: {
   renderedFingerprint: string;
 }): boolean {
   return (
-    fingerprintRootInstructionContent(options.content) !==
-    options.renderedFingerprint
+    fingerprintShadowContent(options.content) !== options.renderedFingerprint
   );
 }
 
@@ -188,10 +187,6 @@ function renderTrackedRootInstructionDocument(options: {
 /** Fingerprints shadow content so later commands can detect local edits. */
 export function fingerprintShadowContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
-}
-
-function fingerprintRootInstructionContent(content: string): string {
-  return fingerprintShadowContent(content);
 }
 
 function ensureTrailingNewline(content: string): string {

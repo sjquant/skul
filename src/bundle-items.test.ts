@@ -8,6 +8,7 @@ import {
   assertBundleSupportsRequestedItems,
   bundleItemSelectionsEqual,
   isDirectoryItemSelected,
+  isMcpItemSelected,
   isRootInstructionItemSelected,
   listSelectableBundleItems,
   mergeDesiredBundleItems,
@@ -232,7 +233,7 @@ describe("normalizeBundleItemSelector", () => {
 
     // When / Then
     expect(() => normalizeBundleItemSelector(selector)).toThrow(
-      "must start with skills/, commands/, agents/",
+      "must start with skills/, commands/, agents/, or be root-instruction or mcp",
     );
   });
 
@@ -816,5 +817,39 @@ describe("bundleItemSelectionsEqual", () => {
 
     // Then
     expect(result).toBe(true);
+  });
+});
+
+describe("mcp bundle item selector", () => {
+  it.each(["mcp", "mcp.json"])("normalizes %s to the mcp selector", (input) => {
+    // Given / When / Then
+    expect(normalizeBundleItemSelector(input)).toBe("mcp");
+  });
+
+  it("treats an omitted selection as including MCP servers", () => {
+    // Given no explicit item selection / When / Then
+    expect(isMcpItemSelected(undefined)).toBe(true);
+  });
+
+  it("includes MCP servers only when the selector is present", () => {
+    // Given explicit selections / When / Then
+    expect(isMcpItemSelected(["mcp"])).toBe(true);
+    expect(isMcpItemSelected(["skills/review"])).toBe(false);
+  });
+
+  it("offers mcp as an installable item when the bundle declares one", () => {
+    // Given a manifest with an MCP target
+    const manifest: BundleManifest = {
+      tools: { "claude-code": { mcp: { path: "mcp.json" } } },
+    };
+
+    // When the bundle's items are listed
+    const items = listSelectableBundleItems({
+      bundleDir: "/nonexistent",
+      manifest,
+    });
+
+    // Then the MCP selector is offered
+    expect(items).toContain("mcp");
   });
 });

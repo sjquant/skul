@@ -566,12 +566,21 @@ function parseShadowedFileState(
     );
   }
 
+  const strategy = expectShadowStrategy(
+    shadowedFile.strategy,
+    `${label}.strategy`,
+  );
+
   return {
     tool,
     bundle: expectNonEmptyString(shadowedFile.bundle, `${label}.bundle`),
-    strategy: expectShadowStrategy(shadowedFile.strategy, `${label}.strategy`),
+    strategy,
     base_blob: expectGitObjectId(shadowedFile.base_blob, `${label}.base_blob`),
-    overlay: expectNonEmptyString(shadowedFile.overlay, `${label}.overlay`),
+    overlay: expectShadowOverlay(
+      shadowedFile.overlay,
+      strategy,
+      `${label}.overlay`,
+    ),
     overlay_fingerprint: expectNonEmptyString(
       shadowedFile.overlay_fingerprint,
       `${label}.overlay_fingerprint`,
@@ -906,6 +915,40 @@ function expectProtocol(input: unknown, label: string): "https" | "ssh" {
     throw new Error(`${label} must be "https" or "ssh"`);
   }
   return input;
+}
+
+/**
+ * Validates a shadow overlay against its strategy.
+ *
+ * Text strategies carry the overlay verbatim; `merge` carries JSON-encoded
+ * server entries, so a hand-edited or truncated registry is reported here
+ * rather than surfacing as a bare SyntaxError during `skul shadow --refresh`.
+ */
+function expectShadowOverlay(
+  input: unknown,
+  strategy: ShadowStrategy,
+  label: string,
+): string {
+  const overlay = expectNonEmptyString(input, label);
+
+  if (strategy !== "merge") {
+    return overlay;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(overlay);
+  } catch {
+    throw new Error(`${label} must be JSON when strategy is "merge"`);
+  }
+
+  const servers = expectRecord(parsed, label);
+
+  for (const [serverName, server] of Object.entries(servers)) {
+    expectRecord(server, `${label}.${serverName}`);
+  }
+
+  return overlay;
 }
 
 function expectShadowStrategy(input: unknown, label: string): ShadowStrategy {

@@ -300,6 +300,179 @@ describe("mergeMcpConfigDocument", () => {
   });
 });
 
+describe("dialect matrix", () => {
+  const stdio = parseMcpConfig({
+    mcpServers: {
+      srv: {
+        type: "stdio",
+        command: "run",
+        args: ["--root", "${PLUGIN_ROOT}/ref"],
+        env: { TOKEN: "t" },
+        cwd: "${PLUGIN_ROOT}",
+      },
+    },
+  });
+  const sse = parseMcpConfig({
+    mcpServers: {
+      srv: { type: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
+    },
+  });
+
+  it.each([
+    [
+      "claude-code",
+      {
+        type: "stdio",
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { type: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
+    ],
+    [
+      "cursor",
+      {
+        type: "stdio",
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { url: "https://x/sse", headers: { "X-Key": "v" } },
+    ],
+    [
+      "copilot",
+      {
+        type: "stdio",
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { type: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
+    ],
+    [
+      "kiro",
+      {
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { url: "https://x/sse", headers: { "X-Key": "v" } },
+    ],
+    [
+      "opencode",
+      {
+        type: "local",
+        enabled: true,
+        command: ["run", "--root", "/lib/ref"],
+        environment: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      {
+        type: "remote",
+        url: "https://x/sse",
+        enabled: true,
+        headers: { "X-Key": "v" },
+      },
+    ],
+  ] as const)("renders stdio and sse servers in %s's vocabulary", (toolName, expectedStdio, expectedRemote) => {
+    // Given a stdio server and an sse server
+    const paths = { pluginRoot: "/lib", pluginData: "/data" };
+
+    // When each is rendered for the tool
+    const stdioDocument = JSON.parse(
+      mergeMcpConfigDocument({ toolName, servers: stdio, pluginPaths: paths })
+        .content,
+    );
+    const sseDocument = JSON.parse(
+      mergeMcpConfigDocument({ toolName, servers: sse, pluginPaths: paths })
+        .content,
+    );
+
+    // Then every field is spelled the way that tool documents
+    const key =
+      toolName === "copilot"
+        ? "servers"
+        : toolName === "opencode"
+          ? "mcp"
+          : "mcpServers";
+    expect(stdioDocument[key].srv).toEqual(expectedStdio);
+    expect(sseDocument[key].srv).toEqual(expectedRemote);
+  });
+
+  it("renders an sse server for Codex as a url table with http_headers", () => {
+    // Given an sse server rendered for Codex
+    const content = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: sse,
+      pluginPaths: { pluginRoot: "/lib", pluginData: "/data" },
+    }).content;
+
+    // Then Codex's own header key is used
+    expect(content).toContain('url = "https://x/sse"');
+    expect(content).toContain('http_headers = { X-Key = "v" }');
+  });
+});
+
+describe("server name collisions", () => {
+  const docs = parseMcpConfig({
+    mcpServers: { docs: { type: "stdio", command: "docs" } },
+  });
+
+  it.each([
+    "claude-code",
+    "cursor",
+    "copilot",
+    "kiro",
+    "opencode",
+  ] as const)("refuses to replace a server %s's configuration already declares", (toolName) => {
+    // Given a configuration that already declares the same server name
+    const key =
+      toolName === "copilot"
+        ? "servers"
+        : toolName === "opencode"
+          ? "mcp"
+          : "mcpServers";
+    const existingContent = JSON.stringify({
+      [key]: { docs: { command: "user-own" } },
+    });
+
+    // When a bundle would add it again / Then the collision is refused
+    expect(() =>
+      mergeMcpConfigDocument({
+        toolName,
+        servers: docs,
+        pluginPaths: PLUGIN_PATHS,
+        existingContent,
+      }),
+    ).toThrow('MCP server "docs" is already declared');
+  });
+
+  it("still overwrites a server this bundle already owns", () => {
+    // Given a server the bundle previously wrote
+    const existingContent = JSON.stringify({
+      mcpServers: { docs: { type: "stdio", command: "stale" } },
+    });
+
+    // When the same bundle re-applies with itself named as owner
+    const document = JSON.parse(
+      mergeMcpConfigDocument({
+        toolName: "claude-code",
+        servers: docs,
+        pluginPaths: PLUGIN_PATHS,
+        existingContent,
+        ownedServerNames: ["docs"],
+      }).content,
+    );
+
+    // Then its own entry is refreshed rather than refused
+    expect(document.mcpServers.docs.command).toBe("docs");
+  });
+});
+
 describe("Codex TOML editing", () => {
   const codexServers = (name: string) =>
     parseMcpConfig({
@@ -396,6 +569,23 @@ describe("Codex TOML editing", () => {
 
     // Then the original text returns unchanged
     expect(restored.releasable === false && restored.content).toBe(existing);
+  });
+
+  it("ignores an unrelated table whose name merely shares a prefix", () => {
+    // Given a config declaring a longer, unrelated server name
+    const existing = '[mcp_servers.docs-legacy]\ncommand = "other"\n';
+
+    // When a bundle adds a server called "docs"
+    const content = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: codexServers("docs"),
+      pluginPaths: PLUGIN_PATHS,
+      existingContent: existing,
+    }).content;
+
+    // Then it is not mistaken for a duplicate
+    expect(content).toContain("[mcp_servers.docs]");
+    expect(content).toContain("[mcp_servers.docs-legacy]");
   });
 
   it("refuses to create a table the config already declares", () => {

@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
-
 import {
   createHomeDir,
   createPromptClientStub,
@@ -12,6 +11,7 @@ import {
   writeBundleFile,
 } from "./cli.test-support";
 import { run } from "./index";
+import { listToolDefinitions } from "./tool-mapping";
 
 const SOURCE = "github.com/acme/bundles";
 const BUNDLE = "mcp-bundle";
@@ -71,12 +71,11 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     });
 
     // Then every tool with a known MCP location receives a configuration file
-    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(true);
-    expect(pathExists(path.join(cwd, ".cursor", "mcp.json"))).toBe(true);
-    expect(pathExists(path.join(cwd, ".vscode", "mcp.json"))).toBe(true);
-    expect(pathExists(path.join(cwd, ".kiro", "settings", "mcp.json"))).toBe(
-      true,
-    );
+    const missing = listToolDefinitions()
+      .map((definition) => definition.targets.mcp?.path)
+      .filter((mcpPath): mcpPath is string => mcpPath !== undefined)
+      .filter((mcpPath) => !pathExists(path.join(cwd, ...mcpPath.split("/"))));
+    expect(missing).toEqual([]);
   });
 
   it("writes each tool's own server key and transport spelling", async () => {
@@ -697,6 +696,45 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
   });
 
+  it("shadows and restores a Git-tracked Codex TOML configuration", async () => {
+    // Given a committed Codex config with a hand-maintained comment
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const committed = '# keep me\nmodel = "gpt-5"\n';
+    fs.mkdirSync(path.join(cwd, ".codex"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, ".codex", "config.toml"), committed);
+    runGit(cwd, ["add", ".codex/config.toml"]);
+    runGit(cwd, ["commit", "-m", "add codex config"]);
+
+    // When a bundle is added for Codex
+    await run(["add", SOURCE, BUNDLE, "--agent", "codex", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the servers are on disk and Git still sees a clean worktree
+    const merged = fs.readFileSync(
+      path.join(cwd, ".codex", "config.toml"),
+      "utf8",
+    );
+    expect(merged).toContain("[mcp_servers.docs]");
+    expect(merged.startsWith(committed.trimEnd())).toBe(true);
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+
+    // And removing the bundle restores the committed file byte-for-byte
+    await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    expect(
+      fs.readFileSync(path.join(cwd, ".codex", "config.toml"), "utf8"),
+    ).toBe(committed);
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
   it("restores the committed MCP configuration when the bundle is removed", async () => {
     // Given a committed MCP configuration shadowed by a bundle
     const homeDir = createHomeDir();
@@ -833,7 +871,33 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       "utf8",
     );
 
-    // Then the managed configuration path is excluded
-    expect(excludeFile).toContain(".mcp.json");
+    // Then the exact path is excluded and Git reports nothing to commit
+    expect(excludeFile.split("\n")).toContain(".mcp.json");
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("leaves a pre-existing configuration out of the exclude block", async () => {
+    // Given a project that already owns its MCP configuration file
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
+    );
+
+    // When a bundle merges into it
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then Skul does not hide a file it did not create
+    expect(
+      fs
+        .readFileSync(path.join(cwd, ".git", "info", "exclude"), "utf8")
+        .split("\n"),
+    ).not.toContain(".mcp.json");
   });
 });
