@@ -210,7 +210,9 @@ command = "docs-server"
 
 Because two TOML tables of the same name make the whole config unparseable, Skul refuses rather than writing a `[mcp_servers.<name>]` that you already declare elsewhere in the file.
 
-Two limits apply. MCP servers are project-scoped: `skul add --global` materializes every other target but skips MCP, because the global stores hold unrelated user state. And if the target file is **tracked by Git**, Skul refuses rather than dirtying the working tree — merging into a committed file would show up in `git status`, which Skul otherwise avoids. Add the file to `.gitignore` to let Skul manage it.
+If the target file is **tracked by Git** — as `opencode.json` or `.codex/config.toml` often are — Skul creates a tracked shadow instead of a visible diff, the same mechanism root instructions use. The servers are on disk for the tool to read, `git status` stays clean, and `skul shadow --suspend` / `--refresh` bracket Git operations that move `HEAD`. A refresh replays the bundle's servers onto the new committed content, so an upstream change to the file is picked up rather than overwritten.
+
+Two limits apply to shadowed files. Only one bundle may shadow a given tracked file — a shadow renders that bundle's servers onto the committed content, so a second bundle would silently replace the first's, and Skul refuses instead. (Untracked files have no such limit; any number of bundles merge into them.) And MCP servers are project-scoped: `skul add --global` materializes every other target but skips MCP, because the per-tool global stores hold unrelated user state.
 
 As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`, `opencode.json`, `.codex/config.toml`), which scopes those servers to that tool alone.
 

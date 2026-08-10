@@ -219,8 +219,33 @@ export function mergeMcpConfigDocument(options: {
   pluginPaths: McpPluginPaths;
   existingContent?: string;
 }): McpMergeResult {
+  return mergeRenderedMcpServers({
+    toolName: options.toolName,
+    renderedServers: renderMcpServers(options),
+    ...(options.existingContent !== undefined
+      ? { existingContent: options.existingContent }
+      : {}),
+  });
+}
+
+/** Server entries in one tool's vocabulary, with plugin placeholders already expanded. */
+export type RenderedMcpServers = Record<string, Record<string, unknown>>;
+
+/**
+ * Translates servers into one tool's vocabulary without writing them.
+ *
+ * Tracked-file shadows keep the result in the registry so a later refresh can
+ * replay it onto a new committed base, at which point the bundle's cache
+ * directory — and so the plugin placeholders — is no longer in hand.
+ */
+export function renderMcpServers(options: {
+  toolName: ToolName;
+  servers: Record<string, McpServer>;
+  pluginPaths: McpPluginPaths;
+}): RenderedMcpServers {
   const dialect = requireDialect(options.toolName);
-  const rendered = Object.fromEntries(
+
+  return Object.fromEntries(
     Object.entries(options.servers).map(([serverName, server]) => [
       serverName,
       server.transport === "stdio"
@@ -228,14 +253,23 @@ export function mergeMcpConfigDocument(options: {
         : dialect.renderRemote(server),
     ]),
   );
-  const serverNames = Object.keys(rendered);
+}
+
+/** Merges already-translated server entries into a tool's configuration document. */
+export function mergeRenderedMcpServers(options: {
+  toolName: ToolName;
+  renderedServers: RenderedMcpServers;
+  existingContent?: string;
+}): McpMergeResult {
+  const dialect = requireDialect(options.toolName);
+  const serverNames = Object.keys(options.renderedServers);
 
   if (dialect.format === "toml") {
     return {
       content: mergeTomlBlock({
         existingContent: options.existingContent ?? "",
         tablePrefix: dialect.serversKey,
-        rendered,
+        rendered: options.renderedServers,
       }),
       serverNames,
     };
@@ -251,7 +285,7 @@ export function mergeMcpConfigDocument(options: {
       ...document,
       [dialect.serversKey]: {
         ...readServersObject(document, dialect),
-        ...rendered,
+        ...options.renderedServers,
       },
     }),
     serverNames,

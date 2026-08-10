@@ -177,9 +177,9 @@ const ADD_HELP_DETAILS = [
 const SHADOW_HELP_DETAILS = [
   "",
   "Lifecycle:",
-  "  --suspend restores tracked root instruction files from HEAD and clears skip-worktree.",
+  "  --suspend restores tracked files from HEAD and clears skip-worktree.",
   "  --refresh rebuilds the effective shadow from the latest HEAD plus Skul overlay content and re-enables skip-worktree.",
-  "  The manual suspend/refresh flow only works when the root instruction file is still tracked after the Git update.",
+  "  The manual suspend/refresh flow only works when the shadowed file is still tracked after the Git update.",
   "  Refresh refuses staged changes, unstaged edits, unmerged files, incompatible index flags, and manual edits to the current shadow render.",
   "",
   "Examples:",
@@ -894,14 +894,14 @@ function createProgram(
 
   const shadowCommand = program
     .command("shadow")
-    .description("Suspend or refresh tracked root instruction shadows")
+    .description("Suspend or refresh shadows of tracked managed files")
     .option(
       "--suspend",
-      "Restore tracked root instructions from HEAD and clear skip-worktree",
+      "Restore tracked managed files from HEAD and clear skip-worktree",
     )
     .option(
       "--refresh",
-      "Rebuild tracked root-instruction shadows from HEAD and re-enable skip-worktree",
+      "Rebuild tracked shadows from HEAD and re-enable skip-worktree",
     )
     .addHelpText("after", SHADOW_HELP_DETAILS)
     .action((opts: { suspend?: boolean; refresh?: boolean }) => {

@@ -673,13 +673,13 @@ describe("parseRegistry", () => {
           [WORKTREE_ID]: makeWorktreeEntry({
             shadowed_files: {
               "AGENTS.md": makeShadowedFileEntry({
-                strategy: "merge" as never,
+                strategy: "sideways" as never,
               }),
             },
           }),
         },
       }),
-      /\.strategy must be "append", "prepend", or "replace"/i,
+      /\.strategy must be "append", "prepend", "replace", or "merge"/i,
     ],
     [
       "shadowed file metadata with an invalid base blob id",

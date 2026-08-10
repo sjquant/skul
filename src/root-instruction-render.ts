@@ -185,8 +185,13 @@ function renderTrackedRootInstructionDocument(options: {
   return `${options.baseContent}${selectAppendSeparator(options.baseContent)}${managedContent}\n`;
 }
 
-function fingerprintRootInstructionContent(content: string): string {
+/** Fingerprints shadow content so later commands can detect local edits. */
+export function fingerprintShadowContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function fingerprintRootInstructionContent(content: string): string {
+  return fingerprintShadowContent(content);
 }
 
 function ensureTrailingNewline(content: string): string {

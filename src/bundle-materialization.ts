@@ -257,6 +257,9 @@ export async function materializeBundle(options: {
           pathLayout,
           pluginDataDir: options.mcpPluginDataDir,
           ownedMcpServers: toolMcpServers,
+          ...(options.deferredWriteTargets
+            ? { deferredWriteTargets: options.deferredWriteTargets }
+            : {}),
         });
         continue;
       }
@@ -499,6 +502,7 @@ async function materializeMcpTarget(options: {
   pathLayout: ToolMaterializationLayout;
   pluginDataDir?: string;
   ownedMcpServers: Record<string, string[]>;
+  deferredWriteTargets?: Set<string>;
 }): Promise<void> {
   const repoRelPath = resolveMcpRepoRelPath({
     toolName: options.toolName,
@@ -506,7 +510,13 @@ async function materializeMcpTarget(options: {
     pathLayout: options.pathLayout,
   });
 
-  if (!repoRelPath || options.writtenSharedFileTargets.has(repoRelPath)) {
+  if (
+    !repoRelPath ||
+    options.writtenSharedFileTargets.has(repoRelPath) ||
+    // A tracked target is written by the shadow lifecycle instead, which keeps
+    // the committed file clean in `git status`.
+    options.deferredWriteTargets?.has(repoRelPath)
+  ) {
     return;
   }
 

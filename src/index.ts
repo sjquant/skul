@@ -36,6 +36,7 @@ import {
   assertBundleSupportsRequestedItems,
   type BundleItemSelector,
   bundleItemSelectionsEqual,
+  isMcpItemSelected,
   isSelectableBundleItemEntry,
   listSelectableBundleItems,
   mergeDesiredBundleItems,
@@ -69,7 +70,13 @@ import {
   isTrackedGitPath,
   setGitSkipWorktree,
 } from "./git-index";
-import { subtractMcpConfigServers } from "./mcp-config";
+import {
+  mergeRenderedMcpServers,
+  parseMcpConfig,
+  type RenderedMcpServers,
+  renderMcpServers,
+  subtractMcpConfigServers,
+} from "./mcp-config";
 import {
   type DesiredBundleEntry,
   type GlobalState,
@@ -83,6 +90,7 @@ import {
   readRegistryFile,
   removeWorktreeState,
   type ShadowedFileState,
+  type ShadowStrategy,
   upsertGlobalState,
   upsertRepoState,
   upsertWorktreeState,
@@ -91,6 +99,7 @@ import {
 } from "./registry";
 import { collectComposedRootInstructionContents } from "./root-instruction-content";
 import {
+  fingerprintShadowContent,
   isRootInstructionPath,
   renderTrackedRootInstructionShadow,
 } from "./root-instruction-render";
@@ -1355,6 +1364,57 @@ function renderSyncWorktreeResult(options: {
   return `${syncMessage}; ${detailMessages.join("; ")}`;
 }
 
+/**
+ * Renders one tracked shadow, whichever kind it is.
+ *
+ * Root instructions compose text; MCP configuration folds stored server entries
+ * into the committed document. Both produce the same rendered/fingerprint shape
+ * so the shadow lifecycle — suspend, refresh, retire — stays common to them.
+ */
+function renderTrackedShadow(options: {
+  baseContent: string;
+  overlay: string;
+  bundleName: string;
+  toolName: ToolName;
+  strategy: ShadowStrategy;
+  allowReplace?: boolean;
+}): {
+  rendered: string;
+  overlayFingerprint: string;
+  renderedFingerprint: string;
+} {
+  if (options.strategy !== "merge") {
+    const render = renderTrackedRootInstructionShadow({
+      baseContent: options.baseContent,
+      overlayContent: options.overlay,
+      bundleName: options.bundleName,
+      toolName: options.toolName,
+      strategy: options.strategy,
+      ...(options.allowReplace !== undefined
+        ? { allowReplace: options.allowReplace }
+        : {}),
+    });
+
+    return {
+      rendered: render.rendered,
+      overlayFingerprint: render.overlayFingerprint,
+      renderedFingerprint: render.renderedFingerprint,
+    };
+  }
+
+  const merged = mergeRenderedMcpServers({
+    toolName: options.toolName,
+    renderedServers: JSON.parse(options.overlay) as RenderedMcpServers,
+    existingContent: options.baseContent,
+  });
+
+  return {
+    rendered: merged.content,
+    overlayFingerprint: fingerprintShadowContent(options.overlay),
+    renderedFingerprint: fingerprintShadowContent(merged.content),
+  };
+}
+
 function suspendTrackedRootInstructionShadows(options: {
   repoRoot: string;
   shadowedFiles: Record<string, ShadowedFileState>;
@@ -1425,9 +1485,9 @@ function refreshTrackedRootInstructionShadows(options: {
         filePath,
         action: "refresh",
       });
-      const render = renderTrackedRootInstructionShadow({
+      const render = renderTrackedShadow({
         baseContent: headBlob.content,
-        overlayContent: shadowedFile.overlay,
+        overlay: shadowedFile.overlay,
         bundleName: shadowedFile.bundle,
         toolName: shadowedFile.tool,
         strategy: shadowedFile.strategy,
@@ -2200,6 +2260,10 @@ async function updateBundles(options: {
           resolvedBundleItemRefs,
           existingShadowedFiles: currentShadowedFiles,
           materializedBundles: currentBundles,
+          mcpPluginDataDir: resolveBundleDataDir({
+            libraryDir: options.libraryDir,
+            bundleDir: path.dirname(cachedBundle.manifestFile),
+          }),
         });
       assertRootInstructionModeCompatibility({
         desiredState: nextDesiredState,
@@ -2609,6 +2673,10 @@ async function applyBundle(options: {
     resolvedBundleItemRefs,
     existingShadowedFiles: currentShadowedFiles,
     materializedBundles: existingWorktreeState?.bundles ?? {},
+    mcpPluginDataDir: resolveBundleDataDir({
+      libraryDir: options.libraryDir,
+      bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+    }),
   });
   assertRootInstructionModeCompatibility({
     desiredState: existingDesiredState,
@@ -5286,6 +5354,10 @@ async function applyWorktree(options: {
       resolvedBundleItemRefs,
       existingShadowedFiles: currentShadowedFiles,
       materializedBundles: currentBundles,
+      mcpPluginDataDir: resolveBundleDataDir({
+        libraryDir: options.libraryDir,
+        bundleDir: path.dirname(cachedBundle.manifestFile),
+      }),
     });
     assertRootInstructionModeCompatibility({
       desiredState: repoState.desired_state,
@@ -5598,6 +5670,7 @@ function planTrackedRootInstructionShadows(options: {
   resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
   existingShadowedFiles: Record<string, ShadowedFileState>;
   materializedBundles: MaterializedState["bundles"];
+  mcpPluginDataDir?: string;
 }): TrackedRootInstructionShadowPlan {
   const activeOverlayContents = collectComposedRootInstructionContents({
     bundleDir: options.bundleDir,
@@ -5624,7 +5697,16 @@ function planTrackedRootInstructionShadows(options: {
     }
   }
 
-  assertTrackedRootInstructionShadowConflicts({
+  const mcpWrites = planTrackedMcpShadows(options);
+
+  for (const write of mcpWrites) {
+    trackedTargetPaths.add(write.filePath);
+  }
+
+  // Runs once both kinds of target are known: a shadow renders one bundle's
+  // overlay onto committed content, so a second bundle claiming the same file
+  // would silently replace the first bundle's contribution.
+  assertTrackedShadowConflicts({
     targetPaths: trackedTargetPaths,
     bundleName: options.bundleName,
     existingShadowedFiles: options.existingShadowedFiles,
@@ -5657,13 +5739,98 @@ function planTrackedRootInstructionShadows(options: {
       (targetPath) => !trackedTargetPaths.has(targetPath),
     ),
   );
-
   return {
-    writes,
+    writes: [...writes, ...mcpWrites],
     deferredMaterializationTargets: trackedTargetPaths,
     untrackedTargetPaths,
     activeShadowPaths: trackedTargetPaths,
   };
+}
+
+/**
+ * Plans shadows for MCP configuration files the repository commits.
+ *
+ * The overlay stored for each is the bundle's servers already translated into
+ * the tool's vocabulary, so a later refresh can fold them into a new committed
+ * base without needing the bundle cache again.
+ */
+function planTrackedMcpShadows(options: {
+  repoRoot: string;
+  bundleDir: string;
+  manifest: CachedBundle["manifest"];
+  toolNames: ToolName[];
+  itemSelectors?: BundleItemSelector[];
+  bundleName: string;
+  mcpPluginDataDir?: string;
+}): PlannedTrackedRootInstructionShadow[] {
+  if (!isMcpItemSelected(options.itemSelectors)) {
+    return [];
+  }
+
+  const writes: PlannedTrackedRootInstructionShadow[] = [];
+
+  for (const toolName of options.toolNames) {
+    const sourcePath = options.manifest.tools[toolName]?.mcp?.path;
+    const filePath = getToolDefinition(toolName)?.targets.mcp?.path;
+
+    if (!sourcePath || !filePath) {
+      continue;
+    }
+
+    if (!isTrackedGitPath({ repoRoot: options.repoRoot, filePath })) {
+      continue;
+    }
+
+    const overlay = JSON.stringify(
+      renderMcpServers({
+        toolName,
+        servers: readBundleMcpServers(options.bundleDir, sourcePath),
+        pluginPaths: {
+          pluginRoot: options.bundleDir,
+          ...(options.mcpPluginDataDir
+            ? { pluginData: options.mcpPluginDataDir }
+            : {}),
+        },
+      }),
+    );
+    const headBlob = requireTrackedRootInstructionHeadBlob({
+      repoRoot: options.repoRoot,
+      filePath,
+      action: "create",
+    });
+    const render = renderTrackedShadow({
+      baseContent: headBlob.content,
+      overlay,
+      bundleName: options.bundleName,
+      toolName,
+      strategy: "merge",
+    });
+
+    writes.push({
+      filePath,
+      rendered: render.rendered,
+      state: {
+        tool: toolName,
+        bundle: options.bundleName,
+        strategy: "merge",
+        base_blob: headBlob.objectId,
+        overlay,
+        overlay_fingerprint: render.overlayFingerprint,
+        rendered_fingerprint: render.renderedFingerprint,
+        skip_worktree: true,
+      },
+    });
+  }
+
+  return writes;
+}
+
+function readBundleMcpServers(bundleDir: string, sourcePath: string) {
+  return parseMcpConfig(
+    JSON.parse(
+      fs.readFileSync(path.join(bundleDir, ...sourcePath.split("/")), "utf8"),
+    ) as unknown,
+  );
 }
 
 /** Rejects append/replace mixtures before any bundle files are removed or written. */
@@ -5703,7 +5870,7 @@ function assertRootInstructionModeCompatibility(options: {
   }
 }
 
-function assertTrackedRootInstructionShadowConflicts(options: {
+function assertTrackedShadowConflicts(options: {
   targetPaths: Set<string>;
   bundleName: string;
   existingShadowedFiles: Record<string, ShadowedFileState>;
@@ -5714,7 +5881,7 @@ function assertTrackedRootInstructionShadowConflicts(options: {
 
     if (existingShadow && existingShadow.bundle !== options.bundleName) {
       throw new Error(
-        `Cannot create tracked root-instruction shadow for ${targetPath} because it is already shadowed by ${existingShadow.bundle}`,
+        `Cannot shadow the tracked file ${targetPath} for ${options.bundleName} because it is already shadowed by ${existingShadow.bundle}`,
       );
     }
 
@@ -5731,7 +5898,7 @@ function assertTrackedRootInstructionShadowConflicts(options: {
 
       if (ownsPath) {
         throw new Error(
-          `Cannot create tracked root-instruction shadow for ${targetPath} because it is already managed by ${bundleName}`,
+          `Cannot shadow the tracked file ${targetPath} for ${options.bundleName} because it is already managed by ${bundleName}`,
         );
       }
     }
@@ -5924,7 +6091,7 @@ function assertTrackedRootInstructionShadowRetirementSafety(options: {
 
   if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
     throw new Error(
-      `Cannot retire tracked root-instruction shadow for ${options.filePath} because the current shadow file is missing`,
+      `Cannot retire the shadow of ${options.filePath} because the current shadow file is missing`,
     );
   }
 
@@ -5933,7 +6100,7 @@ function assertTrackedRootInstructionShadowRetirementSafety(options: {
     options.existingShadowedFile.rendered_fingerprint
   ) {
     throw new Error(
-      `Cannot retire tracked root-instruction shadow for ${options.filePath} because the current worktree content no longer matches Skul's recorded render`,
+      `Cannot retire the shadow of ${options.filePath} because the current worktree content no longer matches what Skul wrote`,
     );
   }
 }
@@ -6448,9 +6615,9 @@ function assertTrackedRootInstructionShadowSafetyForPaths(options: {
 /**
  * Vetoes writes to shared files Skul cannot safely modify in place.
  *
- * Root instructions have a tracked-shadow lifecycle that keeps a committed file
- * clean; MCP configuration does not yet, so a tracked target is refused rather
- * than silently dirtying the working tree.
+ * Both root instructions and MCP configuration reach committed files through the
+ * tracked-shadow lifecycle, so only the root-instruction safety rules need
+ * asserting here before a direct write.
  */
 function createManagedWriteSafetyAssertion(options: {
   repoRoot: string;
@@ -6465,24 +6632,7 @@ function createManagedWriteSafetyAssertion(options: {
       });
       return;
     }
-
-    if (findToolNameForMcpPath(repoRelativePath)) {
-      assertUntrackedMcpConfigTarget(options.repoRoot, repoRelativePath);
-    }
   };
-}
-
-function assertUntrackedMcpConfigTarget(
-  repoRoot: string,
-  repoRelativePath: string,
-): void {
-  if (!isTrackedGitPath({ repoRoot, filePath: repoRelativePath })) {
-    return;
-  }
-
-  throw new Error(
-    `${repoRelativePath} is tracked by Git, so Skul will not merge MCP servers into it and dirty the working tree.\nAdd it to .gitignore, or install the bundle without its servers using --include to select other items.`,
-  );
 }
 
 function selectDesiredEntries(

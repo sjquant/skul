@@ -68,7 +68,12 @@ export interface MaterializedState {
   root_instruction_base_contents?: Record<string, string>;
 }
 
-export type ShadowStrategy = "append" | "prepend" | "replace";
+/**
+ * How a shadow combines committed base content with Skul's overlay. Text
+ * strategies compose root instructions; `merge` folds MCP servers into a
+ * structured configuration document.
+ */
+export type ShadowStrategy = "append" | "prepend" | "replace" | "merge";
 
 export interface ShadowedFileState {
   tool: ToolName;
@@ -904,8 +909,15 @@ function expectProtocol(input: unknown, label: string): "https" | "ssh" {
 }
 
 function expectShadowStrategy(input: unknown, label: string): ShadowStrategy {
-  if (input !== "append" && input !== "prepend" && input !== "replace") {
-    throw new Error(`${label} must be "append", "prepend", or "replace"`);
+  if (
+    input !== "append" &&
+    input !== "prepend" &&
+    input !== "replace" &&
+    input !== "merge"
+  ) {
+    throw new Error(
+      `${label} must be "append", "prepend", "replace", or "merge"`,
+    );
   }
 
   return input;

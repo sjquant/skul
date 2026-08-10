@@ -375,7 +375,7 @@ describe("tracked root-instruction shadow safety", () => {
     await expect(
       run(["update"], { homeDir, cwd: repoRoot }),
     ).rejects.toThrowError(
-      /Cannot retire tracked root-instruction shadow for AGENTS\.md because the current worktree content no longer matches Skul's recorded render/,
+      /Cannot retire the shadow of AGENTS\.md because the current worktree content no longer matches what Skul wrote/,
     );
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
       "# local edit\n",

@@ -582,31 +582,148 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     );
   });
 
-  it("refuses to merge into a Git-tracked MCP configuration", async () => {
-    // Given an MCP configuration that the repository commits
+  it("shadows a Git-tracked MCP configuration instead of dirtying the worktree", async () => {
+    // Given an MCP configuration the repository commits
     const homeDir = createHomeDir();
     const cwd = createRepository();
     writeMcpBundle(homeDir);
-    const committed = JSON.stringify({
-      mcpServers: { mine: { command: "m" } },
-    });
-    fs.writeFileSync(path.join(cwd, ".mcp.json"), committed);
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
+    );
     runGit(cwd, ["add", ".mcp.json"]);
     runGit(cwd, ["commit", "-m", "add mcp config"]);
 
-    // When a bundle targeting that file is added / Then Skul refuses
+    // When a bundle targeting that file is added
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the servers are present on disk beside the committed one
+    const servers = readMcpServers(path.join(cwd, ".mcp.json"));
+    expect(Object.keys(servers).sort()).toEqual(["docs", "mine", "remote"]);
+
+    // And Git still reports a clean worktree
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("refuses a second bundle shadowing the same tracked MCP configuration", async () => {
+    // Given a committed MCP config already shadowed by one bundle
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
+    );
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "add mcp config"]);
+    for (const bundle of ["one", "two"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+    }
+    await run(["add", SOURCE, "one", "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When a second bundle would shadow the same file / Then it is refused,
+    // because a shadow renders one bundle's overlay onto committed content
     await expect(
-      run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      run(["add", SOURCE, "two", "--agent", "claude-code", "-y"], {
         homeDir,
         cwd,
         prompts: createPromptClientStub(),
       }),
-    ).rejects.toThrowError(/\.mcp\.json is tracked by Git/);
+    ).rejects.toThrowError(/already shadowed by one/);
 
-    // And the committed file is left exactly as it was
+    // And the first bundle's servers are still in place
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toHaveProperty("one");
+  });
+
+  it("suspends and refreshes a shadowed MCP configuration around a HEAD change", async () => {
+    // Given a shadowed MCP configuration
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const committed = `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`;
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), committed);
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "add mcp config"]);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the shadow is suspended for a Git operation
+    await run(["shadow", "--suspend"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the committed content is back so Git can move HEAD safely
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      mine: { command: "m" },
+    });
+
+    // When the committed base then changes upstream and the shadow refreshes
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "upstream" } } }, null, 2)}\n`,
+    );
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "upstream change"]);
+    await run(["shadow", "--refresh"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the bundle's servers are replayed onto the new base, still clean
+    const servers = readMcpServers(path.join(cwd, ".mcp.json"));
+    expect(servers.mine).toEqual({ command: "upstream" });
+    expect(servers).toHaveProperty("docs");
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("restores the committed MCP configuration when the bundle is removed", async () => {
+    // Given a committed MCP configuration shadowed by a bundle
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const committed = `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`;
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), committed);
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "add mcp config"]);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the bundle is removed
+    await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the committed content is back and the worktree is clean
     expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
       committed,
     );
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
   });
 
   it("skips MCP configuration entirely for a global install", async () => {
