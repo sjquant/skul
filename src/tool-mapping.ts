@@ -12,7 +12,8 @@ export type ToolTargetName =
   | "skills"
   | "commands"
   | "agents"
-  | "root_instruction";
+  | "root_instruction"
+  | "mcp";
 export type ToolTargetEntryKind = "directory" | "file";
 
 export interface ToolTargetDefinition {
@@ -42,6 +43,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".claude/commands", kind: "directory" },
       agents: { path: ".claude/agents", kind: "directory" },
       root_instruction: { path: "CLAUDE.md", kind: "file" },
+      mcp: { path: ".mcp.json", kind: "file" },
     },
   },
   {
@@ -51,6 +53,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".cursor/commands", kind: "directory" },
       agents: { path: ".cursor/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".cursor/mcp.json", kind: "file" },
     },
   },
   {
@@ -60,6 +63,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".opencode/commands", kind: "directory" },
       agents: { path: ".opencode/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: "opencode.json", kind: "file" },
     },
   },
   {
@@ -68,6 +72,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".agents/skills", kind: "directory" },
       agents: { path: ".codex/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".codex/config.toml", kind: "file" },
     },
   },
   {
@@ -76,6 +81,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".github/skills", kind: "directory" },
       agents: { path: ".github/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".vscode/mcp.json", kind: "file" },
     },
   },
   {
@@ -84,6 +90,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".kiro/skills", kind: "directory" },
       agents: { path: ".kiro/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".kiro/settings/mcp.json", kind: "file" },
     },
   },
   {

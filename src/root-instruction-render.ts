@@ -79,8 +79,8 @@ export function renderTrackedRootInstructionShadow(
   return {
     overlay,
     rendered,
-    overlayFingerprint: fingerprintRootInstructionContent(overlay),
-    renderedFingerprint: fingerprintRootInstructionContent(rendered),
+    overlayFingerprint: fingerprintShadowContent(overlay),
+    renderedFingerprint: fingerprintShadowContent(rendered),
   };
 }
 
@@ -141,17 +141,6 @@ function formatTrackedRootInstructionShadowBlock(options: {
   ].join("\n");
 }
 
-/** Returns whether content still matches the recorded shadow render fingerprint. */
-function hasTrackedRootInstructionManualEdit(options: {
-  content: string;
-  renderedFingerprint: string;
-}): boolean {
-  return (
-    fingerprintRootInstructionContent(options.content) !==
-    options.renderedFingerprint
-  );
-}
-
 /** Returns whether a repo-relative path is a managed root-instruction file. */
 export function isRootInstructionPath(repoRelativePath: string): boolean {
   return ROOT_INSTRUCTION_PATHS.has(repoRelativePath);
@@ -185,7 +174,8 @@ function renderTrackedRootInstructionDocument(options: {
   return `${options.baseContent}${selectAppendSeparator(options.baseContent)}${managedContent}\n`;
 }
 
-function fingerprintRootInstructionContent(content: string): string {
+/** Fingerprints shadow content so later commands can detect local edits. */
+export function fingerprintShadowContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 

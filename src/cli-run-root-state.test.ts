@@ -37,7 +37,7 @@ import {
   writeRootInstructionBundleFixture,
 } from "./cli.test-support";
 import { detectGitContext } from "./git-context";
-import { assertTrackedRootInstructionShadowSafety, run } from "./index";
+import { assertTrackedShadowSafety, run } from "./index";
 import {
   createEmptyRegistry,
   readRegistryFile,

@@ -37,7 +37,7 @@ import {
   writeRootInstructionBundleFixture,
 } from "./cli.test-support";
 import { detectGitContext } from "./git-context";
-import { assertTrackedRootInstructionShadowSafety, run } from "./index";
+import { assertTrackedShadowSafety, run } from "./index";
 import {
   createEmptyRegistry,
   readRegistryFile,
@@ -1023,16 +1023,16 @@ describe("createHelpText", () => {
       "If the target root instruction file is already tracked, Skul creates a tracked shadow instead of leaving a visible git diff.",
     );
     expect(shadowHelpText).toContain(
-      "Suspend or refresh tracked root instruction shadows",
+      "Suspend or refresh shadows of tracked managed files",
     );
     expect(shadowHelpText).toContain(
-      "--suspend restores tracked root instruction files from HEAD and clears skip-worktree.",
+      "--suspend restores tracked files from HEAD and clears skip-worktree.",
     );
     expect(shadowHelpText).toContain(
       "--refresh rebuilds the effective shadow from the latest HEAD plus Skul overlay content and re-enables skip-worktree.",
     );
     expect(shadowHelpText).toContain(
-      "The manual suspend/refresh flow only works when the root instruction file is still tracked after the Git update.",
+      "The manual suspend/refresh flow only works when the shadowed file is still tracked after the Git update.",
     );
     expect(shadowHelpText).toContain("skul shadow --suspend");
     expect(syncHelpText).toContain(

@@ -667,19 +667,81 @@ describe("parseRegistry", () => {
       /shadowed_files\..+ must be a relative path/i,
     ],
     [
+      "MCP server ownership keyed by an absolute path",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            materialized_state: {
+              bundles: {
+                demo: {
+                  tools: {
+                    "claude-code": {
+                      files: [".mcp.json"],
+                      mcp_servers: { "/etc/mcp.json": ["docs"] },
+                    },
+                  },
+                },
+              },
+              exclude_configured: false,
+            },
+          }),
+        },
+      }),
+      /mcp_servers key must be a relative path/i,
+    ],
+    [
+      "MCP server ownership holding a non-string server name",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            materialized_state: {
+              bundles: {
+                demo: {
+                  tools: {
+                    "claude-code": {
+                      files: [".mcp.json"],
+                      mcp_servers: { ".mcp.json": [7] },
+                    },
+                  },
+                },
+              },
+              exclude_configured: false,
+            },
+          }),
+        },
+      }),
+      /mcp_servers\..mcp\.json\[0\] must be a non-empty string/i,
+    ],
+    [
+      "a merge shadow whose overlay is not JSON",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              ".mcp.json": makeShadowedFileEntry({
+                strategy: "merge",
+                overlay: "not json",
+              }),
+            },
+          }),
+        },
+      }),
+      /shadowed_files\..+\.overlay must be JSON/i,
+    ],
+    [
       "shadowed file metadata with an unsupported strategy",
       makeRegistry({
         worktrees: {
           [WORKTREE_ID]: makeWorktreeEntry({
             shadowed_files: {
               "AGENTS.md": makeShadowedFileEntry({
-                strategy: "merge" as never,
+                strategy: "sideways" as never,
               }),
             },
           }),
         },
       }),
-      /\.strategy must be "append", "prepend", or "replace"/i,
+      /\.strategy must be "append", "prepend", "replace", or "merge"/i,
     ],
     [
       "shadowed file metadata with an invalid base blob id",

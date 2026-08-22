@@ -6,6 +6,7 @@ import {
   normalizeBundleItemSelector,
 } from "./bundle-items";
 import { pathDepth } from "./fs-utils";
+import { parseRenderedMcpServers } from "./mcp-config";
 import {
   listGlobalToolDefinitions,
   listToolDefinitions,
@@ -47,6 +48,12 @@ export interface MaterializedToolState {
   file_fingerprints?: Record<string, string>;
   directories?: string[];
   items?: BundleItemSelector[];
+  /**
+   * MCP server names this bundle owns, keyed by the repo-relative configuration
+   * file holding them. Skul merges into these files rather than owning them
+   * outright, so removal subtracts these names instead of deleting the file.
+   */
+  mcp_servers?: Record<string, string[]>;
 }
 
 export interface MaterializedBundleState {
@@ -62,7 +69,12 @@ export interface MaterializedState {
   root_instruction_base_contents?: Record<string, string>;
 }
 
-export type ShadowStrategy = "append" | "prepend" | "replace";
+/**
+ * How a shadow combines committed base content with Skul's overlay. Text
+ * strategies compose root instructions; `merge` folds MCP servers into a
+ * structured configuration document.
+ */
+export type ShadowStrategy = "append" | "prepend" | "replace" | "merge";
 
 export interface ShadowedFileState {
   tool: ToolName;
@@ -492,6 +504,11 @@ function parseMaterializedToolState(
           ),
         );
 
+  const mcpServers =
+    toolState.mcp_servers === undefined
+      ? undefined
+      : parseMcpServerOwnership(toolState.mcp_servers, `${label}.mcp_servers`);
+
   return {
     files,
     ...(fileFingerprints === undefined
@@ -499,7 +516,24 @@ function parseMaterializedToolState(
       : { file_fingerprints: fileFingerprints }),
     ...(directories === undefined ? {} : { directories }),
     ...(items === undefined ? {} : { items }),
+    ...(mcpServers === undefined ? {} : { mcp_servers: mcpServers }),
   };
+}
+
+function parseMcpServerOwnership(
+  input: unknown,
+  label: string,
+): Record<string, string[]> {
+  const record = expectRecord(input, label);
+
+  return Object.fromEntries(
+    Object.entries(record).map(([filePath, serverNames]) => [
+      expectRelativePath(filePath, `${label} key`),
+      expectArray(serverNames, `${label}.${filePath}`).map((value, index) =>
+        expectNonEmptyString(value, `${label}.${filePath}[${index}]`),
+      ),
+    ]),
+  );
 }
 
 function parseShadowedFiles(
@@ -533,12 +567,21 @@ function parseShadowedFileState(
     );
   }
 
+  const strategy = expectShadowStrategy(
+    shadowedFile.strategy,
+    `${label}.strategy`,
+  );
+
   return {
     tool,
     bundle: expectNonEmptyString(shadowedFile.bundle, `${label}.bundle`),
-    strategy: expectShadowStrategy(shadowedFile.strategy, `${label}.strategy`),
+    strategy,
     base_blob: expectGitObjectId(shadowedFile.base_blob, `${label}.base_blob`),
-    overlay: expectNonEmptyString(shadowedFile.overlay, `${label}.overlay`),
+    overlay: expectShadowOverlay(
+      shadowedFile.overlay,
+      strategy,
+      `${label}.overlay`,
+    ),
     overlay_fingerprint: expectNonEmptyString(
       shadowedFile.overlay_fingerprint,
       `${label}.overlay_fingerprint`,
@@ -797,6 +840,9 @@ function cloneMaterializedBundleState(
           ...(toolState.items !== undefined
             ? { items: [...toolState.items] }
             : {}),
+          ...(toolState.mcp_servers !== undefined
+            ? { mcp_servers: { ...toolState.mcp_servers } }
+            : {}),
         },
       ]),
     ),
@@ -872,9 +918,38 @@ function expectProtocol(input: unknown, label: string): "https" | "ssh" {
   return input;
 }
 
+/**
+ * Validates a shadow overlay against its strategy.
+ *
+ * Text strategies carry the overlay verbatim; `merge` carries JSON-encoded
+ * server entries, whose shape mcp-config owns, so a hand-edited or truncated
+ * registry is reported here rather than surfacing as a bare SyntaxError during
+ * `skul shadow --refresh`.
+ */
+function expectShadowOverlay(
+  input: unknown,
+  strategy: ShadowStrategy,
+  label: string,
+): string {
+  const overlay = expectNonEmptyString(input, label);
+
+  if (strategy === "merge") {
+    parseRenderedMcpServers(overlay, label);
+  }
+
+  return overlay;
+}
+
 function expectShadowStrategy(input: unknown, label: string): ShadowStrategy {
-  if (input !== "append" && input !== "prepend" && input !== "replace") {
-    throw new Error(`${label} must be "append", "prepend", or "replace"`);
+  if (
+    input !== "append" &&
+    input !== "prepend" &&
+    input !== "replace" &&
+    input !== "merge"
+  ) {
+    throw new Error(
+      `${label} must be "append", "prepend", "replace", or "merge"`,
+    );
   }
 
   return input;
