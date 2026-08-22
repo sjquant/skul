@@ -46,6 +46,26 @@ function readJson(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+/** Runs an action with `console.warn` captured, returning everything it wrote. */
+async function captureWarnings(
+  action: () => Promise<unknown>,
+): Promise<string> {
+  const warnings: string[] = [];
+  const spy = vi
+    .spyOn(console, "warn")
+    .mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+
+  try {
+    await action();
+  } finally {
+    spy.mockRestore();
+  }
+
+  return warnings.join("\n");
+}
+
 function readMcpServers(
   filePath: string,
 ): Record<string, Record<string, unknown>> {
@@ -898,6 +918,57 @@ describe("skul add with an Agent Plugins mcp.json", () => {
 
     // Then the exact path is excluded and Git reports nothing to commit
     expect(excludeFile.split("\n")).toContain(".mcp.json");
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("restores a materialized MCP configuration the repository has committed", async () => {
+    // Given a materialized configuration force-added past the exclude entry
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    runGit(cwd, ["add", "-f", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "commit the materialized config"]);
+    const committedContent = fs.readFileSync(
+      path.join(cwd, ".mcp.json"),
+      "utf8",
+    );
+
+    // When the bundle is applied and then removed
+    const applyWarnings = await captureWarnings(() =>
+      run(["apply", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+    const removeWarnings = await captureWarnings(() =>
+      run(["remove", BUNDLE, "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then apply named the committed path and how to stop tracking it
+    expect(applyWarnings).toContain(".mcp.json");
+    expect(applyWarnings).toContain("git rm --cached");
+
+    // And remove reported the path it kept, with the committed content intact
+    expect(removeWarnings).toContain(".mcp.json");
+    expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
+      committedContent,
+    );
+    expect(Object.keys(readMcpServers(path.join(cwd, ".mcp.json")))).toContain(
+      "docs",
+    );
+
+    // And no other tool's configuration survived, leaving the worktree clean
+    expect(pathExists(path.join(cwd, ".cursor", "mcp.json"))).toBe(false);
     expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
   });
 

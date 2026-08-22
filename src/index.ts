@@ -71,6 +71,8 @@ import {
   clearGitSkipWorktree,
   inspectTrackedShadowTarget,
   isTrackedGitPath,
+  listCommittedPaths,
+  readGitHeadBlob,
   setGitSkipWorktree,
 } from "./git-index";
 import {
@@ -2673,6 +2675,12 @@ async function applyBundle(options: {
   let registry = registryBeforePrepare;
   const existingWorktreeState =
     registry.worktrees[gitContext.worktreeId]?.materialized_state;
+  // Only an earlier command can have recorded a path the repository went on to
+  // commit, so the state as found on entry already holds every such path.
+  warnAboutCommittedManagedFiles({
+    repoRoot: gitContext.worktreeRoot,
+    bundles: existingWorktreeState?.bundles ?? {},
+  });
   let currentShadowedFiles = {
     ...(registry.worktrees[gitContext.worktreeId]?.shadowed_files ?? {}),
   };
@@ -5264,6 +5272,16 @@ async function applyWorktree(options: {
 
   const worktreeState = registry.worktrees[gitContext.worktreeId];
   const materializedBundles = worktreeState?.materialized_state.bundles ?? {};
+
+  // Ahead of the plan loop, which returns early once every bundle is already
+  // materialized — the state a committed managed file is most likely found in.
+  if (!options.dryRun) {
+    warnAboutCommittedManagedFiles({
+      repoRoot: gitContext.worktreeRoot,
+      bundles: materializedBundles,
+    });
+  }
+
   const cloneLines: string[] = [];
   const applyPlans: ApplyPlan[] = [];
   for (const entry of repoState.desired_state) {
@@ -6478,6 +6496,51 @@ function collectExcludedPaths(materializedState: MaterializedState): string[] {
 }
 
 /**
+ * Warns once about files Skul materialized that the repository has committed.
+ *
+ * `.git/info/exclude` keeps them out of `git status`, but `git add -f`, another
+ * worktree, or a global `add -A` alias all get past that. What lands in history
+ * is machine-specific: `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` expand to absolute
+ * paths under the home directory of whoever materialized the bundle, so every
+ * other clone pulls a configuration that resolves nowhere.
+ *
+ * Only paths recorded in `files` qualify. A configuration that was already
+ * tracked when Skul first saw it is carried by the shadow lifecycle and never
+ * recorded there, which leaves this scan to the one case it is about: a file
+ * Skul created that the repository has since committed.
+ */
+function warnAboutCommittedManagedFiles(options: {
+  repoRoot: string;
+  bundles: MaterializedState["bundles"];
+}): void {
+  const managedFiles = new Set(
+    Object.values(options.bundles).flatMap((bundleState) =>
+      Object.values(bundleState.tools).flatMap((toolState) => toolState.files),
+    ),
+  );
+  const committedPaths = Array.from(
+    listCommittedPaths({
+      repoRoot: options.repoRoot,
+      filePaths: Array.from(managedFiles),
+    }),
+  ).sort();
+
+  if (committedPaths.length === 0) {
+    return;
+  }
+
+  console.warn(
+    `[skul] Committed by the repository, but written by Skul: ${committedPaths.join(", ")}`,
+  );
+  console.warn(
+    "[skul] These hold absolute paths from this machine, so another clone cannot resolve them.",
+  );
+  console.warn(
+    `[skul] Untrack with: git rm --cached ${committedPaths.join(" ")}`,
+  );
+}
+
+/**
  * Subtracts a bundle's MCP servers from the shared configuration files holding
  * them, returning the paths whose files may now be deleted outright.
  *
@@ -6555,7 +6618,14 @@ function findToolNameForMcpPath(
   )?.name;
 }
 
-/** Deletes a bundle's managed paths and subtracts its servers from shared ones. */
+/**
+ * Deletes a bundle's managed paths and subtracts its servers from shared ones.
+ *
+ * A managed file the repository has since committed is restored to its `HEAD`
+ * content instead of being deleted. Skul wrote the file, but committing it made
+ * it the repository's; deleting it would only leave a pending deletion for the
+ * user to resolve by hand.
+ */
 function removeManagedPaths(
   repoRoot: string,
   state: Parameters<typeof listManagedPathsForRemoval>[0] &
@@ -6571,9 +6641,23 @@ function removeManagedPaths(
       (filePath) => !releasableMcpPaths.has(filePath),
     ),
   );
+  const committedPaths = listCommittedPaths({
+    repoRoot,
+    filePaths: state.files,
+  });
+  const restoredPaths: string[] = [];
 
   for (const relativePath of listManagedPathsForRemoval(state)) {
     if (retainedMcpPaths.has(relativePath)) {
+      continue;
+    }
+
+    // Ahead of the existence check: a committed file already deleted from the
+    // worktree is the very state this restores.
+    if (committedPaths.has(relativePath)) {
+      if (restoreCommittedFile(repoRoot, relativePath)) {
+        restoredPaths.push(relativePath);
+      }
       continue;
     }
 
@@ -6598,6 +6682,51 @@ function removeManagedPaths(
 
     fs.rmSync(targetPath, { force: true });
   }
+
+  warnAboutRestoredCommittedFiles(restoredPaths);
+}
+
+/**
+ * Writes a path's committed content back to the worktree.
+ *
+ * Reports whether the path now matches `HEAD`: a blob that has gone missing
+ * since the paths were listed leaves the file untouched rather than deleted,
+ * because a stale file is the lesser of the two surprises.
+ */
+function restoreCommittedFile(repoRoot: string, relativePath: string): boolean {
+  const headBlob = readGitHeadBlob({ repoRoot, filePath: relativePath });
+
+  if (!headBlob) {
+    return false;
+  }
+
+  const targetPath = path.join(repoRoot, relativePath);
+
+  if (
+    fs.existsSync(targetPath) &&
+    fs.readFileSync(targetPath, "utf8") === headBlob.content
+  ) {
+    return true;
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  writeFileAtomic(targetPath, headBlob.content);
+
+  return true;
+}
+
+/** Reports the managed files kept because the repository has committed them. */
+function warnAboutRestoredCommittedFiles(relativePaths: string[]): void {
+  if (relativePaths.length === 0) {
+    return;
+  }
+
+  console.warn(
+    `[skul] Committed by the repository, so restored from HEAD instead of deleted: ${relativePaths.join(", ")}`,
+  );
+  console.warn(
+    `[skul] Untrack with: git rm --cached ${relativePaths.join(" ")}`,
+  );
 }
 
 function isDirectoryNotEmptyError(error: unknown): boolean {

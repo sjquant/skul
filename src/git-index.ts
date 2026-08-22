@@ -137,6 +137,45 @@ export function inspectTrackedShadowTarget(options: {
 }
 
 /**
+ * Returns the subset of `filePaths` that `HEAD` records.
+ *
+ * A single `git ls-tree` answers for every path at once, which keeps the scan
+ * over a bundle's managed files to one Git invocation however many files it
+ * materialized. Paths are reported relative to the repository root, matching
+ * what `readGitHeadBlob` resolves, so `repoRoot` must be that root.
+ *
+ * Returns an empty set when there is no `HEAD` to read — an unborn branch, or
+ * a directory outside any repository.
+ */
+export function listCommittedPaths(options: {
+  repoRoot: string;
+  filePaths: readonly string[];
+}): Set<string> {
+  if (options.filePaths.length === 0) {
+    return new Set();
+  }
+
+  const output = tryRunGit(options.repoRoot, [
+    // Managed paths are names, not patterns: a bundle shipping `docs/[id].md`
+    // would otherwise be read as a character class and never match itself.
+    "--literal-pathspecs",
+    "ls-tree",
+    "-z",
+    "--full-name",
+    "--name-only",
+    "HEAD",
+    "--",
+    ...options.filePaths.map(normalizeRepoRelativePath),
+  ]);
+
+  if (output === null) {
+    return new Set();
+  }
+
+  return new Set(output.split("\0").filter((entry) => entry !== ""));
+}
+
+/**
  * Reads the blob stored for a path in `HEAD`.
  *
  * Returns `null` when the path has no `HEAD` entry, such as an index-only path
