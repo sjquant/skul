@@ -47,6 +47,8 @@ import {
   type MaterializeBundleResult,
   materializeBundle,
   previewMaterializeBundleWriteTargets,
+  readBundleMcpDeclarations,
+  resolveMcpRepoRelPath,
 } from "./bundle-materialization";
 import {
   type BundleItemChoice,
@@ -58,6 +60,7 @@ import {
   type PromptClient,
   parseCliArgs,
 } from "./cli";
+import { writeFileAtomic } from "./fs-utils";
 import { detectGitContext } from "./git-context";
 import {
   configureSkulExcludeBlock,
@@ -66,19 +69,19 @@ import {
 } from "./git-exclude";
 import {
   clearGitSkipWorktree,
-  inspectRootInstructionShadowTarget,
+  inspectTrackedShadowTarget,
   isTrackedGitPath,
   setGitSkipWorktree,
 } from "./git-index";
 import {
+  extractMcpOverlay,
   type McpServer,
   type McpSubtractResult,
   mergeRenderedMcpServers,
   type RenderedMcpServers,
-  readBundleMcpServers,
   renderMcpServers,
+  resolveMcpPluginPaths,
   subtractMcpConfigServers,
-  supportsMcpConfig,
 } from "./mcp-config";
 import {
   type DesiredBundleEntry,
@@ -712,7 +715,7 @@ async function removeAllWorktreeBundles(options: {
   }
 
   let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
-  currentShadowedFiles = retireTrackedRootInstructionShadows({
+  currentShadowedFiles = retireTrackedShadows({
     repoRoot: gitContext.worktreeRoot,
     shadowedFiles: currentShadowedFiles,
     filePaths: shadowedFilePaths,
@@ -783,7 +786,7 @@ async function removeAllWorktreeBundles(options: {
         ? { root_instruction_base_contents: nextRootInstructionBaseContents }
         : {}),
     };
-    const managedFiles = collectAllFiles(newMatState);
+    const managedFiles = collectExcludedPaths(newMatState);
     newMatState.exclude_configured = managedFiles.length > 0;
 
     if (managedFiles.length > 0) {
@@ -857,14 +860,21 @@ function renderWorktreeRemoveDryRun(options: {
   });
 }
 
+/**
+ * Everything one removal needs to undo.
+ *
+ * `mcp_servers` is not optional: MCP configuration files are shared with the
+ * user and with other bundles, and a caller that rebuilt this state without the
+ * field would fall through to deleting a whole file it does not own.
+ */
 type ManagedRemovalState = {
   files: string[];
   file_fingerprints?: Record<string, string>;
   directories?: string[];
-  mcp_servers: Record<string, string[]> | undefined;
+  mcp_servers: Record<string, string[]>;
 };
 
-/** Unions per-file MCP server ownership across several bundles' removal states. */
+/** Unions per-file MCP server ownership across several bundles or tools. */
 function mergeMcpServerOwnership(
   ownerships: Array<Record<string, string[]> | undefined>,
 ): Record<string, string[]> {
@@ -1143,11 +1153,11 @@ function shadowWorktree(options: {
 
   const nextShadowedFiles =
     options.action === "suspend"
-      ? suspendTrackedRootInstructionShadows({
+      ? suspendTrackedShadows({
           repoRoot: gitContext.worktreeRoot,
           shadowedFiles,
         })
-      : refreshTrackedRootInstructionShadows({
+      : refreshTrackedShadows({
           repoRoot: gitContext.worktreeRoot,
           shadowedFiles,
         });
@@ -1174,7 +1184,7 @@ function syncWorktree(options: { cwd: string; registryFile: string }): string {
   let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
 
   if (worktreeState && shadowedFilePaths.length > 0) {
-    currentShadowedFiles = suspendTrackedRootInstructionShadows({
+    currentShadowedFiles = suspendTrackedShadows({
       repoRoot: gitContext.worktreeRoot,
       shadowedFiles: currentShadowedFiles,
     });
@@ -1201,7 +1211,7 @@ function syncWorktree(options: { cwd: string; registryFile: string }): string {
 
   if (worktreeState && shadowedFilePaths.length > 0) {
     try {
-      currentShadowedFiles = refreshTrackedRootInstructionShadowsAfterSync({
+      currentShadowedFiles = refreshTrackedShadowsAfterSync({
         repoRoot: gitContext.worktreeRoot,
         shadowedFiles: currentShadowedFiles,
       });
@@ -1236,7 +1246,7 @@ function syncWorktree(options: { cwd: string; registryFile: string }): string {
   });
 }
 
-function refreshTrackedRootInstructionShadowsAfterSync(options: {
+function refreshTrackedShadowsAfterSync(options: {
   repoRoot: string;
   shadowedFiles: Record<string, ShadowedFileState>;
 }): Record<string, ShadowedFileState> {
@@ -1245,7 +1255,7 @@ function refreshTrackedRootInstructionShadowsAfterSync(options: {
   for (const [filePath, shadowedFile] of Object.entries(
     options.shadowedFiles,
   )) {
-    const inspection = inspectRootInstructionShadowTarget({
+    const inspection = inspectTrackedShadowTarget({
       repoRoot: options.repoRoot,
       filePath,
     });
@@ -1262,7 +1272,7 @@ function refreshTrackedRootInstructionShadowsAfterSync(options: {
     return {};
   }
 
-  return refreshTrackedRootInstructionShadows({
+  return refreshTrackedShadows({
     repoRoot: options.repoRoot,
     shadowedFiles: refreshableShadowedFiles,
   });
@@ -1402,6 +1412,7 @@ function renderTrackedShadow(options: {
   toolName: ToolName;
   strategy: ShadowStrategy;
   allowReplace?: boolean;
+  filePath?: string;
 }): {
   rendered: string;
   overlayFingerprint: string;
@@ -1426,10 +1437,16 @@ function renderTrackedShadow(options: {
     };
   }
 
+  const renderedServers = JSON.parse(options.overlay) as RenderedMcpServers;
   const merged = mergeRenderedMcpServers({
     toolName: options.toolName,
-    renderedServers: JSON.parse(options.overlay) as RenderedMcpServers,
+    renderedServers,
     existingContent: options.baseContent,
+    // The base here is committed content, which may already declare the very
+    // servers this shadow replays — that is this bundle's own earlier work
+    // being folded onto a new base, not a collision with someone else's.
+    ownedServerNames: Object.keys(renderedServers),
+    ...(options.filePath !== undefined ? { configPath: options.filePath } : {}),
   });
 
   return {
@@ -1439,21 +1456,21 @@ function renderTrackedShadow(options: {
   };
 }
 
-function suspendTrackedRootInstructionShadows(options: {
+function suspendTrackedShadows(options: {
   repoRoot: string;
   shadowedFiles: Record<string, ShadowedFileState>;
 }): Record<string, ShadowedFileState> {
   const plans = Object.entries(options.shadowedFiles)
     .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
     .map(([filePath, shadowedFile]) => {
-      assertTrackedRootInstructionShadowSafetyForAction({
+      assertTrackedShadowSafetyForAction({
         repoRoot: options.repoRoot,
         filePath,
         action: "suspend",
       });
 
       if (shadowedFile.skip_worktree) {
-        assertTrackedRootInstructionShadowPristine({
+        assertTrackedShadowPristine({
           repoRoot: options.repoRoot,
           filePath,
           shadowedFile,
@@ -1465,7 +1482,7 @@ function suspendTrackedRootInstructionShadows(options: {
     });
 
   for (const plan of plans) {
-    restoreTrackedRootInstructionShadowTarget({
+    restoreTrackedShadowTarget({
       repoRoot: options.repoRoot,
       filePath: plan.filePath,
     });
@@ -1482,21 +1499,21 @@ function suspendTrackedRootInstructionShadows(options: {
   );
 }
 
-function refreshTrackedRootInstructionShadows(options: {
+function refreshTrackedShadows(options: {
   repoRoot: string;
   shadowedFiles: Record<string, ShadowedFileState>;
 }): Record<string, ShadowedFileState> {
   const plans = Object.entries(options.shadowedFiles)
     .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
     .map(([filePath, shadowedFile]) => {
-      assertTrackedRootInstructionShadowSafetyForAction({
+      assertTrackedShadowSafetyForAction({
         repoRoot: options.repoRoot,
         filePath,
         action: "refresh",
       });
 
       if (shadowedFile.skip_worktree) {
-        assertTrackedRootInstructionShadowPristine({
+        assertTrackedShadowPristine({
           repoRoot: options.repoRoot,
           filePath,
           shadowedFile,
@@ -1504,7 +1521,7 @@ function refreshTrackedRootInstructionShadows(options: {
         });
       }
 
-      const headBlob = requireTrackedRootInstructionHeadBlob({
+      const headBlob = requireTrackedShadowHeadBlob({
         repoRoot: options.repoRoot,
         filePath,
         action: "refresh",
@@ -1543,12 +1560,12 @@ function refreshTrackedRootInstructionShadows(options: {
   );
 }
 
-function requireTrackedRootInstructionHeadBlob(options: {
+function requireTrackedShadowHeadBlob(options: {
   repoRoot: string;
   filePath: string;
   action: "create" | "refresh" | "suspend";
 }) {
-  const inspection = inspectRootInstructionShadowTarget({
+  const inspection = inspectTrackedShadowTarget({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
   });
@@ -1562,7 +1579,7 @@ function requireTrackedRootInstructionHeadBlob(options: {
   );
 }
 
-function assertTrackedRootInstructionShadowPristine(options: {
+function assertTrackedShadowPristine(options: {
   repoRoot: string;
   filePath: string;
   shadowedFile: ShadowedFileState;
@@ -1883,16 +1900,18 @@ function collectShadowedInstructionStatus(options: {
   filePath: string;
   shadowedFile: ShadowedFileState;
 }): ShadowedInstructionStatus {
-  const inspection = inspectRootInstructionShadowTarget({
+  const inspection = inspectTrackedShadowTarget({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
   });
   const targetPath = path.join(options.repoRoot, options.filePath);
   const currentContent = readStatusTargetFile(targetPath);
-  const overlay = extractTrackedRootInstructionOverlay({
+  const overlay = extractTrackedShadowOverlay({
     content: currentContent,
     bundleName: options.shadowedFile.bundle,
+    toolName: options.shadowedFile.tool,
     strategy: options.shadowedFile.strategy,
+    overlay: options.shadowedFile.overlay,
   });
 
   return {
@@ -1903,12 +1922,12 @@ function collectShadowedInstructionStatus(options: {
       inspection.headBlob?.objectId === options.shadowedFile.base_blob,
     overlay_fresh:
       overlay !== null &&
-      fingerprintTextContent(overlay) ===
+      fingerprintShadowContent(overlay) ===
         options.shadowedFile.overlay_fingerprint,
     skip_worktree_active: inspection.indexFlags.includes("S"),
     manual_edit_suspected:
       currentContent === null ||
-      fingerprintTextContent(currentContent) !==
+      fingerprintShadowContent(currentContent) !==
         options.shadowedFile.rendered_fingerprint,
   };
 }
@@ -1978,13 +1997,23 @@ function readStatusTargetFile(filePath: string): string | null {
   return fs.readFileSync(filePath, "utf8");
 }
 
-function extractTrackedRootInstructionOverlay(options: {
+function extractTrackedShadowOverlay(options: {
   content: string | null;
   bundleName: string;
+  toolName: ToolName;
   strategy: ShadowedFileState["strategy"];
+  overlay: string;
 }): string | null {
   if (options.content === null) {
     return null;
+  }
+
+  if (options.strategy === "merge") {
+    return extractMcpOverlay({
+      toolName: options.toolName,
+      content: options.content,
+      overlay: JSON.parse(options.overlay) as RenderedMcpServers,
+    });
   }
 
   if (options.strategy === "replace") {
@@ -2012,10 +2041,6 @@ function extractTrackedRootInstructionOverlay(options: {
 
 function normalizeTrackedRootInstructionStatusContent(content: string): string {
   return content.replace(/\s+$/, "");
-}
-
-function fingerprintTextContent(content: string): string {
-  return createHash("sha256").update(content).digest("hex");
 }
 
 function worktreeHasMaterializedBundles(
@@ -2265,27 +2290,26 @@ async function updateBundles(options: {
           isRootInstructionPath(filePath),
         ),
       );
-      const trackedRootInstructionShadowPlan =
-        planTrackedRootInstructionShadows({
-          repoRoot: gitContext.worktreeRoot,
-          bundleDir: path.dirname(cachedBundle.manifestFile),
-          manifest: cachedBundle.manifest,
-          toolNames: selectTrackedRootInstructionShadowToolNames({
-            existingBundleState,
-            nextToolNames:
-              toolsToRefresh ??
-              (Object.keys(cachedBundle.manifest.tools) as ToolName[]),
-          }),
-          itemSelectors: entry.items,
-          targetPaths: plannedRootInstructionTargets,
-          bundleName: entry.bundle,
-          bundleSource: entry.source,
-          rootInstructionMode: entry.root_instruction_mode,
-          resolvedBundleItemRefs,
-          existingShadowedFiles: currentShadowedFiles,
-          materializedBundles: currentBundles,
-          libraryDir: options.libraryDir,
-        });
+      const trackedShadowPlan = planTrackedShadows({
+        repoRoot: gitContext.worktreeRoot,
+        bundleDir: path.dirname(cachedBundle.manifestFile),
+        manifest: cachedBundle.manifest,
+        toolNames: selectTrackedShadowToolNames({
+          existingBundleState,
+          nextToolNames:
+            toolsToRefresh ??
+            (Object.keys(cachedBundle.manifest.tools) as ToolName[]),
+        }),
+        itemSelectors: entry.items,
+        targetPaths: plannedRootInstructionTargets,
+        bundleName: entry.bundle,
+        bundleSource: entry.source,
+        rootInstructionMode: entry.root_instruction_mode,
+        resolvedBundleItemRefs,
+        existingShadowedFiles: currentShadowedFiles,
+        materializedBundles: currentBundles,
+        libraryDir: options.libraryDir,
+      });
       assertRootInstructionModeCompatibility({
         desiredState: nextDesiredState,
         materializedBundles: currentBundles,
@@ -2297,9 +2321,9 @@ async function updateBundles(options: {
       if (existingBundleState) {
         const replacementAllowed = await confirmManagedFileRemovals(
           gitContext.worktreeRoot,
-          excludeShadowedTrackedRootInstructionTargets(
+          excludeShadowedTrackedTargets(
             flattenBundleState(bundleStateToReplace),
-            trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+            trackedShadowPlan.deferredMaterializationTargets,
           ),
           options.prompts,
           "replace",
@@ -2311,16 +2335,16 @@ async function updateBundles(options: {
           );
         }
       }
-      assertTrackedRootInstructionShadowPlanCanApply({
+      assertTrackedShadowPlanCanApply({
         repoRoot: gitContext.worktreeRoot,
         bundleName: entry.bundle,
         existingShadowedFiles: currentShadowedFiles,
-        plan: trackedRootInstructionShadowPlan,
+        plan: trackedShadowPlan,
       });
 
       rootInstructionBaseContents = captureRootInstructionBaseContents({
         repoRoot: gitContext.worktreeRoot,
-        targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+        targetPaths: trackedShadowPlan.untrackedTargetPaths,
         existingBaseContents: rootInstructionBaseContents,
         managedTargetPaths:
           collectManagedRootInstructionTargets(currentBundles),
@@ -2335,7 +2359,7 @@ async function updateBundles(options: {
       assertManagedRootInstructionSyncSourcesCached({
         desiredState: nextDesiredState,
         materializedBundles: currentBundles,
-        targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+        targetPaths: trackedShadowPlan.untrackedTargetPaths,
         resolveCachedBundle: (entry) =>
           resolveDesiredCachedBundle(options.libraryDir, entry),
       });
@@ -2362,9 +2386,9 @@ async function updateBundles(options: {
       if (bundleStateToReplace) {
         removeManagedPaths(
           gitContext.worktreeRoot,
-          excludeShadowedTrackedRootInstructionTargets(
+          excludeShadowedTrackedTargets(
             flattenBundleState(bundleStateToReplace),
-            trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+            trackedShadowPlan.deferredMaterializationTargets,
           ),
         );
         const materializedResult = await materializeBundle({
@@ -2382,7 +2406,7 @@ async function updateBundles(options: {
           allowFileOverwriteTargets:
             collectManagedRootInstructionTargets(currentBundles),
           deferredWriteTargets:
-            trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+            trackedShadowPlan.deferredMaterializationTargets,
           rootInstructionBaseContents,
           rootInstructionMode: entry.root_instruction_mode,
           resolveFileConflict: options.prompts.resolveFileConflict,
@@ -2409,11 +2433,11 @@ async function updateBundles(options: {
             selectedItems: entry.items,
           }),
         };
-        currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
+        currentShadowedFiles = applyTrackedShadowPlan({
           repoRoot: gitContext.worktreeRoot,
           bundleName: entry.bundle,
           existingShadowedFiles: currentShadowedFiles,
-          plan: trackedRootInstructionShadowPlan,
+          plan: trackedShadowPlan,
         });
 
         const syncedRootInstructionPaths = syncManagedRootInstructionFiles({
@@ -2421,7 +2445,7 @@ async function updateBundles(options: {
           desiredState: nextDesiredState,
           materializedBundles: currentBundles,
           rootInstructionBaseContents,
-          targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+          targetPaths: trackedShadowPlan.untrackedTargetPaths,
           resolveCachedBundle: (entry) =>
             resolveDesiredCachedBundle(options.libraryDir, entry),
           resolvedBundleItemRefsByBundle:
@@ -2477,7 +2501,7 @@ async function updateBundles(options: {
     registry.worktrees[gitContext.worktreeId] ||
     Object.keys(currentBundles).length > 0
   ) {
-    const managedFiles = collectAllFiles({
+    const managedFiles = collectExcludedPaths({
       bundles: currentBundles,
       exclude_configured: false,
       ...(rootInstructionBaseContents !== undefined
@@ -2681,11 +2705,11 @@ async function applyBundle(options: {
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
   );
-  const trackedRootInstructionShadowPlan = planTrackedRootInstructionShadows({
+  const trackedShadowPlan = planTrackedShadows({
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
-    toolNames: selectTrackedRootInstructionShadowToolNames({
+    toolNames: selectTrackedShadowToolNames({
       existingBundleState,
       nextToolNames: preparedBundle.nextToolNames,
     }),
@@ -2708,7 +2732,7 @@ async function applyBundle(options: {
   });
   rootInstructionBaseContents = captureRootInstructionBaseContents({
     repoRoot: gitContext.worktreeRoot,
-    targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+    targetPaths: trackedShadowPlan.untrackedTargetPaths,
     existingBaseContents: rootInstructionBaseContents,
     managedTargetPaths: collectManagedRootInstructionTargets(
       existingWorktreeState?.bundles ?? {},
@@ -2723,14 +2747,13 @@ async function applyBundle(options: {
   assertManagedRootInstructionSyncSourcesCached({
     desiredState: existingDesiredState,
     materializedBundles: existingWorktreeState?.bundles ?? {},
-    targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+    targetPaths: trackedShadowPlan.untrackedTargetPaths,
     resolveCachedBundle: (entry) =>
       resolveDesiredCachedBundle(options.libraryDir, entry),
   });
 
-  let pathsToReplace: ReturnType<
-    typeof excludeShadowedTrackedRootInstructionTargets
-  > | null = null;
+  let pathsToReplace: ReturnType<typeof excludeShadowedTrackedTargets> | null =
+    null;
 
   if (existingBundleState) {
     assertTrackedRootInstructionShadowSafetyForPaths({
@@ -2744,13 +2767,13 @@ async function applyBundle(options: {
       ? options.agents.filter((t) => t in existingBundleState.tools)
       : (Object.keys(existingBundleState.tools) as ToolName[]);
 
-    pathsToReplace = excludeShadowedTrackedRootInstructionTargets(
+    pathsToReplace = excludeShadowedTrackedTargets(
       flattenBundleState({
         tools: Object.fromEntries(
           toolsToReplace.map((t) => [t, existingBundleState.tools[t]!]),
         ),
       }),
-      trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+      trackedShadowPlan.deferredMaterializationTargets,
     );
 
     const replacementAllowed = await confirmManagedFileRemovals(
@@ -2787,11 +2810,11 @@ async function applyBundle(options: {
       );
     }
   }
-  assertTrackedRootInstructionShadowPlanCanApply({
+  assertTrackedShadowPlanCanApply({
     repoRoot: gitContext.worktreeRoot,
     bundleName: preparedBundle.cachedBundle.bundle,
     existingShadowedFiles: currentShadowedFiles,
-    plan: trackedRootInstructionShadowPlan,
+    plan: trackedShadowPlan,
   });
 
   assertTrackedRootInstructionShadowSafetyForPaths({
@@ -2819,8 +2842,7 @@ async function applyBundle(options: {
     allowFileOverwriteTargets: collectManagedRootInstructionTargets(
       existingWorktreeState?.bundles ?? {},
     ),
-    deferredWriteTargets:
-      trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+    deferredWriteTargets: trackedShadowPlan.deferredMaterializationTargets,
     rootInstructionBaseContents,
     rootInstructionMode: effectiveRootInstructionMode,
     resolveFileConflict: options.prompts.resolveFileConflict,
@@ -2834,11 +2856,11 @@ async function applyBundle(options: {
         }
       : {}),
   });
-  currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
+  currentShadowedFiles = applyTrackedShadowPlan({
     repoRoot: gitContext.worktreeRoot,
     bundleName: preparedBundle.cachedBundle.bundle,
     existingShadowedFiles: currentShadowedFiles,
-    plan: trackedRootInstructionShadowPlan,
+    plan: trackedShadowPlan,
   });
 
   const newBundleState = buildMaterializedBundleState({
@@ -2890,7 +2912,7 @@ async function applyBundle(options: {
     desiredState: newDesiredState,
     materializedBundles: newMatState.bundles,
     rootInstructionBaseContents,
-    targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+    targetPaths: trackedShadowPlan.untrackedTargetPaths,
     resolveCachedBundle: (entry) =>
       resolveDesiredCachedBundle(options.libraryDir, entry),
     resolvedBundleItemRefsByBundle:
@@ -2910,7 +2932,7 @@ async function applyBundle(options: {
     syncedRootInstructionPaths,
   );
 
-  const managedFiles = collectAllFiles(newMatState);
+  const managedFiles = collectExcludedPaths(newMatState);
   newMatState.exclude_configured = managedFiles.length > 0;
 
   if (managedFiles.length > 0) {
@@ -4243,7 +4265,7 @@ async function resetWorktree(options: {
       }
     }
 
-    const remainingShadowedFiles = retireTrackedRootInstructionShadows({
+    const remainingShadowedFiles = retireTrackedShadows({
       repoRoot: gitContext.worktreeRoot,
       shadowedFiles: worktreeState.shadowed_files,
       filePaths: Object.keys(worktreeState.shadowed_files),
@@ -4421,7 +4443,7 @@ async function removeBundle(options: {
           files: [],
           file_fingerprints: {},
           directories: [],
-          mcp_servers: undefined,
+          mcp_servers: {},
         };
     const rootInstructionBaseContents =
       worktreeState?.materialized_state.root_instruction_base_contents;
@@ -4461,7 +4483,7 @@ async function removeBundle(options: {
       );
     }
 
-    currentShadowedFiles = retireTrackedRootInstructionShadows({
+    currentShadowedFiles = retireTrackedShadows({
       repoRoot: gitContext.worktreeRoot,
       shadowedFiles: currentShadowedFiles,
       filePaths: shadowedFilesForBundle.map(([filePath]) => filePath),
@@ -4531,7 +4553,7 @@ async function removeBundle(options: {
           : {}),
       };
 
-      const managedFiles = collectAllFiles(newMatState);
+      const managedFiles = collectExcludedPaths(newMatState);
       newMatState.exclude_configured = managedFiles.length > 0;
 
       if (managedFiles.length > 0) {
@@ -5367,11 +5389,11 @@ async function applyWorktree(options: {
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
     );
-    const trackedRootInstructionShadowPlan = planTrackedRootInstructionShadows({
+    const trackedShadowPlan = planTrackedShadows({
       repoRoot: gitContext.worktreeRoot,
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
-      toolNames: selectTrackedRootInstructionShadowToolNames({
+      toolNames: selectTrackedShadowToolNames({
         existingBundleState,
         nextToolNames: toolsToApply ?? availableTools,
       }),
@@ -5394,7 +5416,7 @@ async function applyWorktree(options: {
     });
     rootInstructionBaseContents = captureRootInstructionBaseContents({
       repoRoot: gitContext.worktreeRoot,
-      targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+      targetPaths: trackedShadowPlan.untrackedTargetPaths,
       existingBaseContents: rootInstructionBaseContents,
       managedTargetPaths: collectManagedRootInstructionTargets(currentBundles),
     });
@@ -5408,7 +5430,7 @@ async function applyWorktree(options: {
     assertManagedRootInstructionSyncSourcesCached({
       desiredState: repoState.desired_state,
       materializedBundles: currentBundles,
-      targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+      targetPaths: trackedShadowPlan.untrackedTargetPaths,
       resolveCachedBundle: (entry) =>
         resolveDesiredCachedBundle(options.libraryDir, entry),
     });
@@ -5422,9 +5444,9 @@ async function applyWorktree(options: {
 
       const replacementAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
-        excludeShadowedTrackedRootInstructionTargets(
+        excludeShadowedTrackedTargets(
           flattenBundleState(replacementState),
-          trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+          trackedShadowPlan.deferredMaterializationTargets,
         ),
         options.prompts,
         "replace",
@@ -5457,11 +5479,11 @@ async function applyWorktree(options: {
         );
       }
     }
-    assertTrackedRootInstructionShadowPlanCanApply({
+    assertTrackedShadowPlanCanApply({
       repoRoot: gitContext.worktreeRoot,
       bundleName: entry.bundle,
       existingShadowedFiles: currentShadowedFiles,
-      plan: trackedRootInstructionShadowPlan,
+      plan: trackedShadowPlan,
     });
 
     assertTrackedRootInstructionShadowSafetyForPaths({
@@ -5471,9 +5493,9 @@ async function applyWorktree(options: {
     });
 
     if (replacesExistingToolState && replacementState) {
-      const pathsToReplace = excludeShadowedTrackedRootInstructionTargets(
+      const pathsToReplace = excludeShadowedTrackedTargets(
         flattenBundleState(replacementState),
-        trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+        trackedShadowPlan.deferredMaterializationTargets,
       );
       const replacedRootInstructionPaths = new Set(
         pathsToReplace.files.filter((filePath) =>
@@ -5507,8 +5529,7 @@ async function applyWorktree(options: {
       }),
       allowFileOverwriteTargets:
         collectManagedRootInstructionTargets(currentBundles),
-      deferredWriteTargets:
-        trackedRootInstructionShadowPlan.deferredMaterializationTargets,
+      deferredWriteTargets: trackedShadowPlan.deferredMaterializationTargets,
       rootInstructionBaseContents,
       rootInstructionMode: entry.root_instruction_mode,
       resolveFileConflict: options.prompts.resolveFileConflict,
@@ -5534,11 +5555,11 @@ async function applyWorktree(options: {
         selectedItems: entry.items,
       }),
     };
-    currentShadowedFiles = applyTrackedRootInstructionShadowPlan({
+    currentShadowedFiles = applyTrackedShadowPlan({
       repoRoot: gitContext.worktreeRoot,
       bundleName: entry.bundle,
       existingShadowedFiles: currentShadowedFiles,
-      plan: trackedRootInstructionShadowPlan,
+      plan: trackedShadowPlan,
     });
 
     const syncedRootInstructionPaths = syncManagedRootInstructionFiles({
@@ -5546,7 +5567,7 @@ async function applyWorktree(options: {
       desiredState: repoState.desired_state,
       materializedBundles: currentBundles,
       rootInstructionBaseContents,
-      targetPaths: trackedRootInstructionShadowPlan.untrackedTargetPaths,
+      targetPaths: trackedShadowPlan.untrackedTargetPaths,
       resolveCachedBundle: (entry) =>
         resolveDesiredCachedBundle(options.libraryDir, entry),
       resolvedBundleItemRefsByBundle:
@@ -5572,7 +5593,7 @@ async function applyWorktree(options: {
         : {}),
     };
 
-    const managedFiles = collectAllFiles(newMatState);
+    const managedFiles = collectExcludedPaths(newMatState);
     newMatState.exclude_configured = managedFiles.length > 0;
 
     if (managedFiles.length > 0) {
@@ -5597,20 +5618,20 @@ async function applyWorktree(options: {
   return [...cloneLines, pc.green(`Applied ${appliedNames}`)].join("\n");
 }
 
-interface PlannedTrackedRootInstructionShadow {
+interface PlannedTrackedShadow {
   filePath: string;
   rendered: string;
   state: ShadowedFileState;
 }
 
-interface TrackedRootInstructionShadowPlan {
-  writes: PlannedTrackedRootInstructionShadow[];
+interface TrackedShadowPlan {
+  writes: PlannedTrackedShadow[];
   deferredMaterializationTargets: Set<string>;
   untrackedTargetPaths: Set<string>;
   activeShadowPaths: Set<string>;
 }
 
-function selectTrackedRootInstructionShadowToolNames(options: {
+function selectTrackedShadowToolNames(options: {
   existingBundleState?: MaterializedBundleState;
   nextToolNames: ToolName[];
 }): ToolName[] {
@@ -5686,7 +5707,7 @@ function intersectDesiredItemSelectors(options: {
   );
 }
 
-function planTrackedRootInstructionShadows(options: {
+function planTrackedShadows(options: {
   repoRoot: string;
   bundleDir: string;
   manifest: CachedBundle["manifest"];
@@ -5700,7 +5721,7 @@ function planTrackedRootInstructionShadows(options: {
   existingShadowedFiles: Record<string, ShadowedFileState>;
   materializedBundles: MaterializedState["bundles"];
   libraryDir?: string;
-}): TrackedRootInstructionShadowPlan {
+}): TrackedShadowPlan {
   const activeOverlayContents = collectComposedRootInstructionContents({
     bundleDir: options.bundleDir,
     manifest: options.manifest,
@@ -5716,7 +5737,7 @@ function planTrackedRootInstructionShadows(options: {
   const trackedTargetPaths = new Set<string>();
 
   for (const targetPath of activeRootInstructionPaths) {
-    const inspection = inspectRootInstructionShadowTarget({
+    const inspection = inspectTrackedShadowTarget({
       repoRoot: options.repoRoot,
       filePath: targetPath,
     });
@@ -5791,60 +5812,80 @@ function planTrackedMcpShadows(options: {
   itemSelectors?: BundleItemSelector[];
   bundleName: string;
   libraryDir?: string;
-}): PlannedTrackedRootInstructionShadow[] {
+}): PlannedTrackedShadow[] {
   if (!isMcpItemSelected(options.itemSelectors)) {
     return [];
   }
 
-  const writes: PlannedTrackedRootInstructionShadow[] = [];
-  // The bundle's declarations are identical for every tool; only the rendering
-  // differs, so the file is read and parsed at most once.
-  let servers: Record<string, McpServer> | undefined;
+  const writes: PlannedTrackedShadow[] = [];
+  // Tools may point at different declaration files, but most point at the same
+  // one, so each is read and parsed at most once.
+  const declarationsBySource = new Map<string, Record<string, McpServer>>();
 
   for (const toolName of options.toolNames) {
     const sourcePath = options.manifest.tools[toolName]?.mcp?.path;
-    const filePath = getToolDefinition(toolName)?.targets.mcp?.path;
+    const filePath = resolveMcpRepoRelPath({
+      toolName,
+      repoRoot: options.repoRoot,
+    });
 
-    if (!sourcePath || !filePath || !supportsMcpConfig(toolName)) {
+    if (!sourcePath || !filePath) {
       continue;
     }
 
-    // One inspection answers both "is it tracked" and "what is committed",
-    // instead of spawning the same git plumbing twice per tool.
-    const inspection = inspectRootInstructionShadowTarget({
+    // One inspection answers "is it tracked", "what is committed", and "is it
+    // safe to shadow" together, which is what the tracked path needs anyway.
+    const inspection = inspectTrackedShadowTarget({
       repoRoot: options.repoRoot,
       filePath,
     });
 
-    if (!inspection.tracked || !inspection.headBlob) {
+    if (!inspection.tracked) {
       continue;
     }
 
-    servers ??= readBundleMcpServers(options.bundleDir, sourcePath);
+    // A tracked target Skul cannot shadow safely — no HEAD content, staged
+    // changes, an unmerged entry — must stop the bundle rather than fall
+    // through to a direct write that would dirty the committed file.
+    assertTrackedShadowSafety({
+      repoRoot: options.repoRoot,
+      filePath,
+      operation: "create",
+    });
+
+    const headBlob = inspection.headBlob;
+
+    if (!headBlob) {
+      continue;
+    }
+
+    let servers = declarationsBySource.get(sourcePath);
+
+    if (!servers) {
+      servers = readBundleMcpDeclarations({
+        bundleDir: options.bundleDir,
+        sourcePath,
+      });
+      declarationsBySource.set(sourcePath, servers);
+    }
+
     const overlay = JSON.stringify(
       renderMcpServers({
         toolName,
         servers,
-        pluginPaths: {
-          pluginRoot: options.bundleDir,
-          ...(options.libraryDir
-            ? {
-                pluginData: resolveBundleDataDir({
-                  libraryDir: options.libraryDir,
-                  bundleDir: options.bundleDir,
-                }),
-              }
-            : {}),
-        },
+        pluginPaths: resolveMcpPluginPaths({
+          bundleDir: options.bundleDir,
+          ...(options.libraryDir ? { libraryDir: options.libraryDir } : {}),
+        }),
       }),
     );
-    const headBlob = inspection.headBlob;
     const render = renderTrackedShadow({
       baseContent: headBlob.content,
       overlay,
       bundleName: options.bundleName,
       toolName,
       strategy: "merge",
+      filePath,
     });
 
     writes.push({
@@ -5945,8 +5986,8 @@ function renderTrackedRootInstructionShadowWrite(options: {
   bundleName: string;
   toolName: ToolName;
   strategy: RootInstructionMode;
-}): PlannedTrackedRootInstructionShadow {
-  const inspection = inspectRootInstructionShadowTarget({
+}): PlannedTrackedShadow {
+  const inspection = inspectTrackedShadowTarget({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
   });
@@ -6002,11 +6043,11 @@ function selectShadowToolForPath(
   return toolNames.find((toolName) => toolName !== "codex") ?? "claude-code";
 }
 
-function applyTrackedRootInstructionShadowPlan(options: {
+function applyTrackedShadowPlan(options: {
   repoRoot: string;
   bundleName: string;
   existingShadowedFiles: Record<string, ShadowedFileState>;
-  plan: TrackedRootInstructionShadowPlan;
+  plan: TrackedShadowPlan;
 }): Record<string, ShadowedFileState> {
   const nextShadowedFiles = { ...options.existingShadowedFiles };
 
@@ -6020,12 +6061,12 @@ function applyTrackedRootInstructionShadowPlan(options: {
       continue;
     }
 
-    assertTrackedRootInstructionShadowRetirementSafety({
+    assertTrackedShadowRetirementSafety({
       repoRoot: options.repoRoot,
       filePath,
       existingShadowedFile: shadowedFile,
     });
-    restoreTrackedRootInstructionShadowTarget({
+    restoreTrackedShadowTarget({
       repoRoot: options.repoRoot,
       filePath,
     });
@@ -6046,11 +6087,11 @@ function applyTrackedRootInstructionShadowPlan(options: {
   return nextShadowedFiles;
 }
 
-function assertTrackedRootInstructionShadowPlanCanApply(options: {
+function assertTrackedShadowPlanCanApply(options: {
   repoRoot: string;
   bundleName: string;
   existingShadowedFiles: Record<string, ShadowedFileState>;
-  plan: TrackedRootInstructionShadowPlan;
+  plan: TrackedShadowPlan;
 }): void {
   for (const [filePath, shadowedFile] of Object.entries(
     options.existingShadowedFiles,
@@ -6062,7 +6103,7 @@ function assertTrackedRootInstructionShadowPlanCanApply(options: {
       continue;
     }
 
-    assertTrackedRootInstructionShadowRetirementSafety({
+    assertTrackedShadowRetirementSafety({
       repoRoot: options.repoRoot,
       filePath,
       existingShadowedFile: shadowedFile,
@@ -6070,7 +6111,7 @@ function assertTrackedRootInstructionShadowPlanCanApply(options: {
   }
 
   for (const write of options.plan.writes) {
-    assertTrackedRootInstructionShadowWriteSafety({
+    assertTrackedShadowWriteSafety({
       repoRoot: options.repoRoot,
       filePath: write.filePath,
       existingShadowedFile: options.existingShadowedFiles[write.filePath],
@@ -6081,13 +6122,13 @@ function assertTrackedRootInstructionShadowPlanCanApply(options: {
   }
 }
 
-function assertTrackedRootInstructionShadowWriteSafety(options: {
+function assertTrackedShadowWriteSafety(options: {
   repoRoot: string;
   filePath: string;
   existingShadowedFile: ShadowedFileState | undefined;
   operation: "create" | "refresh";
 }): void {
-  assertTrackedRootInstructionShadowSafety({
+  assertTrackedShadowSafety({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
     operation: options.operation,
@@ -6115,7 +6156,7 @@ function assertTrackedRootInstructionShadowWriteSafety(options: {
   }
 }
 
-function assertTrackedRootInstructionShadowRetirementSafety(options: {
+function assertTrackedShadowRetirementSafety(options: {
   repoRoot: string;
   filePath: string;
   existingShadowedFile: ShadowedFileState;
@@ -6138,7 +6179,7 @@ function assertTrackedRootInstructionShadowRetirementSafety(options: {
   }
 }
 
-function retireTrackedRootInstructionShadows(options: {
+function retireTrackedShadows(options: {
   repoRoot: string;
   shadowedFiles: Record<string, ShadowedFileState>;
   filePaths: string[];
@@ -6152,7 +6193,7 @@ function retireTrackedRootInstructionShadows(options: {
       continue;
     }
 
-    assertTrackedRootInstructionShadowRetirementSafety({
+    assertTrackedShadowRetirementSafety({
       repoRoot: options.repoRoot,
       filePath,
       existingShadowedFile: shadowedFile,
@@ -6166,12 +6207,12 @@ function retireTrackedRootInstructionShadows(options: {
       continue;
     }
 
-    assertTrackedRootInstructionShadowRetirementSafety({
+    assertTrackedShadowRetirementSafety({
       repoRoot: options.repoRoot,
       filePath,
       existingShadowedFile: shadowedFile,
     });
-    restoreTrackedRootInstructionShadowTarget({
+    restoreTrackedShadowTarget({
       repoRoot: options.repoRoot,
       filePath,
     });
@@ -6181,11 +6222,11 @@ function retireTrackedRootInstructionShadows(options: {
   return nextShadowedFiles;
 }
 
-function restoreTrackedRootInstructionShadowTarget(options: {
+function restoreTrackedShadowTarget(options: {
   repoRoot: string;
   filePath: string;
 }): void {
-  const inspection = inspectRootInstructionShadowTarget({
+  const inspection = inspectTrackedShadowTarget({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
   });
@@ -6205,20 +6246,14 @@ function restoreTrackedRootInstructionShadowTarget(options: {
   });
 }
 
-function excludeShadowedTrackedRootInstructionTargets(
-  state: {
-    files: string[];
-    file_fingerprints: Record<string, string>;
-    directories?: string[];
-    mcp_servers: Record<string, string[]> | undefined;
-  },
-  deferredMaterializationTargets: Set<string>,
-): {
-  files: string[];
+type FingerprintedRemovalState = ManagedRemovalState & {
   file_fingerprints: Record<string, string>;
-  directories?: string[];
-  mcp_servers: Record<string, string[]> | undefined;
-} {
+};
+
+function excludeShadowedTrackedTargets(
+  state: FingerprintedRemovalState,
+  deferredMaterializationTargets: Set<string>,
+): FingerprintedRemovalState {
   if (deferredMaterializationTargets.size === 0) {
     return state;
   }
@@ -6296,18 +6331,15 @@ function getToolsToApply(options: {
 }
 
 // Flatten all files and directories from every tool within a single bundle
-function flattenBundleState(bundleState: MaterializedBundleState): {
-  files: string[];
-  file_fingerprints: Record<string, string>;
-  directories: string[];
-  mcp_servers: Record<string, string[]>;
-} {
+function flattenBundleState(
+  bundleState: MaterializedBundleState,
+): FingerprintedRemovalState & { directories: string[] } {
   const files = new Set<string>();
   const file_fingerprints: Record<string, string> = {};
   const directories = new Set<string>();
-  const mcp_servers: Record<string, string[]> = {};
+  const toolStates = Object.values(bundleState.tools);
 
-  for (const toolState of Object.values(bundleState.tools)) {
+  for (const toolState of toolStates) {
     for (const file of toolState.files) {
       files.add(file);
     }
@@ -6318,20 +6350,15 @@ function flattenBundleState(bundleState: MaterializedBundleState): {
         directories.add(directory);
       }
     }
-    for (const [filePath, serverNames] of Object.entries(
-      toolState.mcp_servers ?? {},
-    )) {
-      mcp_servers[filePath] = [
-        ...new Set([...(mcp_servers[filePath] ?? []), ...serverNames]),
-      ];
-    }
   }
 
   return {
     files: Array.from(files),
     file_fingerprints,
     directories: Array.from(directories),
-    mcp_servers,
+    mcp_servers: mergeMcpServerOwnership(
+      toolStates.map((toolState) => toolState.mcp_servers),
+    ),
   };
 }
 
@@ -6428,13 +6455,23 @@ function buildMaterializedBundleState(options: {
 }
 
 // Collect all files across every bundle and tool for git-exclude configuration
-function collectAllFiles(materializedState: MaterializedState): string[] {
+/**
+ * Collects every path Skul writes to, for the `.git/info/exclude` block.
+ *
+ * Shared MCP configuration counts even though Skul does not own those files:
+ * while Skul's servers are merged in, the file carries expanded absolute paths
+ * from the machine it was materialized on, which should not turn up in
+ * `git status` waiting to be committed. Removal takes the servers back out and
+ * the path leaves the block with them.
+ */
+function collectExcludedPaths(materializedState: MaterializedState): string[] {
   return Array.from(
     new Set(
       Object.values(materializedState.bundles).flatMap((bundleState) =>
-        Object.values(bundleState.tools).flatMap(
-          (toolState) => toolState.files,
-        ),
+        Object.values(bundleState.tools).flatMap((toolState) => [
+          ...toolState.files,
+          ...Object.keys(toolState.mcp_servers ?? {}),
+        ]),
       ),
     ),
   );
@@ -6442,26 +6479,31 @@ function collectAllFiles(materializedState: MaterializedState): string[] {
 
 /**
  * Subtracts a bundle's MCP servers from the shared configuration files holding
- * them, returning the paths that became empty and may now be deleted outright.
+ * them, returning the paths whose files may now be deleted outright.
  *
- * A file still holding another bundle's servers, or a user's own tool settings,
- * is rewritten in place and withheld from deletion.
+ * The subtracted document is always written back. Deletion is reserved for a
+ * file Skul itself created that now holds nothing else: a configuration that
+ * was already on disk belongs to the user even once Skul's servers leave it,
+ * and deleting it would discard their own settings along with ours.
  */
-function releaseManagedMcpServers(
-  repoRoot: string,
-  mcpServers: Record<string, string[]> | undefined,
-): Set<string> {
+function releaseManagedMcpServers(options: {
+  repoRoot: string;
+  mcpServers: Record<string, string[]>;
+  managedFiles: Set<string>;
+}): Set<string> {
   const releasablePaths = new Set<string>();
 
-  for (const [relativePath, serverNames] of Object.entries(mcpServers ?? {})) {
-    const targetPath = path.join(repoRoot, ...relativePath.split("/"));
+  for (const [relativePath, serverNames] of Object.entries(
+    options.mcpServers,
+  )) {
+    const targetPath = path.join(options.repoRoot, ...relativePath.split("/"));
 
     if (!fs.existsSync(targetPath)) {
       releasablePaths.add(relativePath);
       continue;
     }
 
-    const toolName = findToolNameForMcpPath(relativePath);
+    const toolName = findToolNameForMcpPath(options.repoRoot, relativePath);
 
     if (!toolName) {
       console.warn(
@@ -6472,60 +6514,60 @@ function releaseManagedMcpServers(
 
     // Removal must always be able to finish. A configuration Skul cannot parse
     // — a JSONC comment in .vscode/mcp.json, say — is left for the user to fix
-    // rather than blocking `skul remove` and `skul reset` with no way out.
+    // rather than blocking `skul remove` and `skul reset` with no way out. The
+    // servers are named because this is the last moment Skul knows them.
     let result: McpSubtractResult;
     try {
       result = subtractMcpConfigServers({
         toolName,
         existingContent: fs.readFileSync(targetPath, "utf8"),
         serverNames,
+        configPath: relativePath,
       });
     } catch (error) {
       console.warn(
         `[skul] Leaving ${relativePath} untouched: ${
           error instanceof Error ? error.message : String(error)
-        }`,
+        }\n[skul] Remove these MCP servers by hand once it parses: ${serverNames.join(", ")}`,
       );
       continue;
     }
 
-    if (result.releasable) {
+    if (result.emptied && options.managedFiles.has(relativePath)) {
       releasablePaths.add(relativePath);
       continue;
     }
 
-    fs.writeFileSync(targetPath, result.content);
+    writeFileAtomic(targetPath, result.content);
   }
 
   return releasablePaths;
 }
 
-function findToolNameForMcpPath(relativePath: string): ToolName | undefined {
+function findToolNameForMcpPath(
+  repoRoot: string,
+  relativePath: string,
+): ToolName | undefined {
   return listToolDefinitions().find(
-    (definition) => definition.targets.mcp?.path === relativePath,
+    (definition) =>
+      resolveMcpRepoRelPath({ toolName: definition.name, repoRoot }) ===
+      relativePath,
   )?.name;
 }
 
-/**
- * Deletes a bundle's managed paths.
- *
- * `mcp_servers` is required rather than optional: MCP configuration files are
- * shared, and a caller that rebuilt the removal state without carrying the
- * field would otherwise fall through to deleting the whole file, taking other
- * bundles' and the user's own servers with it.
- */
+/** Deletes a bundle's managed paths and subtracts its servers from shared ones. */
 function removeManagedPaths(
   repoRoot: string,
-  state: Parameters<typeof listManagedPathsForRemoval>[0] & {
-    mcp_servers: Record<string, string[]> | undefined;
-  },
+  state: Parameters<typeof listManagedPathsForRemoval>[0] &
+    Pick<ManagedRemovalState, "mcp_servers">,
 ): void {
-  const releasableMcpPaths = releaseManagedMcpServers(
+  const releasableMcpPaths = releaseManagedMcpServers({
     repoRoot,
-    state.mcp_servers,
-  );
+    mcpServers: state.mcp_servers,
+    managedFiles: new Set(state.files),
+  });
   const retainedMcpPaths = new Set(
-    Object.keys(state.mcp_servers ?? {}).filter(
+    Object.keys(state.mcp_servers).filter(
       (filePath) => !releasableMcpPaths.has(filePath),
     ),
   );
@@ -6595,24 +6637,24 @@ function requireGitContext(
  * Callers typically run it before removing existing managed files and again as
  * a write-time backstop during materialization.
  */
-export function assertTrackedRootInstructionShadowSafety(options: {
+export function assertTrackedShadowSafety(options: {
   repoRoot: string;
   filePath: string;
   operation: "create" | "refresh";
 }): void {
-  assertTrackedRootInstructionShadowSafetyForAction({
+  assertTrackedShadowSafetyForAction({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
     action: options.operation,
   });
 }
 
-function assertTrackedRootInstructionShadowSafetyForAction(options: {
+function assertTrackedShadowSafetyForAction(options: {
   repoRoot: string;
   filePath: string;
   action: "create" | "refresh" | "suspend";
 }): void {
-  const inspection = inspectRootInstructionShadowTarget({
+  const inspection = inspectTrackedShadowTarget({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
   });
@@ -6664,7 +6706,7 @@ function assertTrackedRootInstructionShadowSafetyForPaths(options: {
       continue;
     }
 
-    assertTrackedRootInstructionShadowSafety({
+    assertTrackedShadowSafety({
       repoRoot: options.repoRoot,
       filePath,
       operation: options.operation,
@@ -6685,7 +6727,7 @@ function createManagedWriteSafetyAssertion(options: {
 }): (repoRelativePath: string) => void {
   return (repoRelativePath: string) => {
     if (isRootInstructionPath(repoRelativePath)) {
-      assertTrackedRootInstructionShadowSafety({
+      assertTrackedShadowSafety({
         repoRoot: options.repoRoot,
         filePath: repoRelativePath,
         operation: options.operation,
@@ -7127,9 +7169,8 @@ async function applyBundleGlobal(options: {
       resolveDesiredCachedBundle(options.libraryDir, entry),
   });
 
-  let pathsToReplace: ReturnType<
-    typeof excludeShadowedTrackedRootInstructionTargets
-  > | null = null;
+  let pathsToReplace: ReturnType<typeof excludeShadowedTrackedTargets> | null =
+    null;
 
   if (existingBundleState) {
     const toolsToReplace =

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createHomeDir,
   createPromptClientStub,
@@ -71,11 +71,15 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     });
 
     // Then every tool with a known MCP location receives a configuration file
-    const missing = listToolDefinitions()
+    const mcpPaths = listToolDefinitions()
       .map((definition) => definition.targets.mcp?.path)
-      .filter((mcpPath): mcpPath is string => mcpPath !== undefined)
-      .filter((mcpPath) => !pathExists(path.join(cwd, ...mcpPath.split("/"))));
-    expect(missing).toEqual([]);
+      .filter((mcpPath): mcpPath is string => mcpPath !== undefined);
+    expect(mcpPaths.length).toBeGreaterThan(0);
+    expect(
+      mcpPaths.filter(
+        (mcpPath) => !pathExists(path.join(cwd, ...mcpPath.split("/"))),
+      ),
+    ).toEqual([]);
   });
 
   it("writes each tool's own server key and transport spelling", async () => {
@@ -574,7 +578,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
         prompts: createPromptClientStub(),
       }),
     ).rejects.toThrowError(
-      /Existing claude-code MCP configuration is not valid JSON/,
+      /Existing MCP configuration \.mcp\.json is not valid JSON/,
     );
     expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
       "{ broken",
@@ -720,15 +724,36 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       "utf8",
     );
     expect(merged).toContain("[mcp_servers.docs]");
-    expect(merged.startsWith(committed.trimEnd())).toBe(true);
+    expect(merged.slice(0, committed.trimEnd().length)).toBe(
+      committed.trimEnd(),
+    );
     expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
 
-    // And removing the bundle restores the committed file byte-for-byte
+  it("restores a Git-tracked Codex TOML configuration byte-for-byte on remove", async () => {
+    // Given a committed Codex config a bundle has been shadowed onto
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const committed = '# keep me\nmodel = "gpt-5"\n';
+    fs.mkdirSync(path.join(cwd, ".codex"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, ".codex", "config.toml"), committed);
+    runGit(cwd, ["add", ".codex/config.toml"]);
+    runGit(cwd, ["commit", "-m", "add codex config"]);
+    await run(["add", SOURCE, BUNDLE, "--agent", "codex", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the bundle is removed
     await run(["remove", BUNDLE, "-y"], {
       homeDir,
       cwd,
       prompts: createPromptClientStub(),
     });
+
+    // Then the committed text is back exactly as it was
     expect(
       fs.readFileSync(path.join(cwd, ".codex", "config.toml"), "utf8"),
     ).toBe(committed);
@@ -876,7 +901,317 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
   });
 
-  it("leaves a pre-existing configuration out of the exclude block", async () => {
+  it("keeps a configuration Skul did not create when its last server leaves", async () => {
+    // Given an empty configuration file the project already had
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), '{"mcpServers": {}}\n');
+
+    // When a bundle is added and removed again
+    for (const argv of [
+      ["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"],
+      ["remove", BUNDLE, "-y"],
+    ]) {
+      await run(argv, { homeDir, cwd, prompts: createPromptClientStub() });
+    }
+
+    // Then the user's file is still there, holding none of Skul's servers
+    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(true);
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({});
+  });
+
+  it("keeps a second bundle's servers when the bundle that created the file goes", async () => {
+    // Given two bundles sharing a file the first one created
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When the bundle that created the file is removed
+    await run(["remove", "first", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the other bundle's server survives, still hidden from Git
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      second: { type: "stdio", command: "second" },
+    });
+    expect(
+      fs
+        .readFileSync(path.join(cwd, ".git", "info", "exclude"), "utf8")
+        .split("\n"),
+    ).toContain(".mcp.json");
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("subtracts servers merged into a user-owned file on remove --all", async () => {
+    // Given a bundle merged into a configuration the project already had
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
+    );
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When every bundle is removed at once
+    await run(["remove", "--all", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then only the user's own server is left
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      mine: { command: "m" },
+    });
+  });
+
+  it("writes nothing at all when one tool's configuration cannot be merged", async () => {
+    // Given a project whose Copilot configuration carries a JSONC comment
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.mkdirSync(path.join(cwd, ".vscode"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".vscode", "mcp.json"),
+      '{\n  // a comment\n  "servers": {}\n}\n',
+    );
+
+    // When the bundle is added for every tool / Then it fails
+    await expect(
+      run(["add", SOURCE, BUNDLE, "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(/\.vscode\/mcp\.json is not valid JSON/);
+
+    // And no other tool's configuration was left behind unrecorded
+    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(false);
+    expect(pathExists(path.join(cwd, ".cursor"))).toBe(false);
+    expect(pathExists(path.join(cwd, ".codex"))).toBe(false);
+    expect(pathExists(path.join(cwd, "opencode.json"))).toBe(false);
+  });
+
+  it("finishes removing a bundle whose shared configuration no longer parses", async () => {
+    // Given a bundle whose configuration file the user has since broken
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
+    const warnings: string[] = [];
+    const restoreWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation((message: unknown) => {
+        warnings.push(String(message));
+      });
+
+    // When the bundle is removed
+    try {
+      await run(["remove", BUNDLE, "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      });
+    } finally {
+      restoreWarn.mockRestore();
+    }
+
+    // Then removal finishes, the file is left alone, and the servers are named
+    expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
+      "{ broken",
+    );
+    expect(warnings.join("\n")).toContain(".mcp.json");
+    expect(warnings.join("\n")).toContain("docs");
+  });
+
+  it("refuses a configuration whose server key is not an object", async () => {
+    // Given a configuration whose servers key holds a string
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), '{"mcpServers": "oops"}\n');
+
+    // When a bundle is added / Then Skul refuses rather than overwriting it
+    await expect(
+      run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(/"mcpServers" in \.mcp\.json must be an object/);
+    expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
+      '{"mcpServers": "oops"}\n',
+    );
+  });
+
+  it("refuses to write through a symlinked configuration path", async () => {
+    // Given an MCP configuration path that is a symlink out of the worktree
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const outside = path.join(homeDir, "outside-mcp.json");
+    fs.writeFileSync(outside, "{}\n");
+    fs.symlinkSync(outside, path.join(cwd, ".mcp.json"));
+
+    // When a bundle is added / Then the write is refused
+    await expect(
+      run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(/must not be a symlink: \.mcp\.json/);
+    expect(fs.readFileSync(outside, "utf8")).toBe("{}\n");
+  });
+
+  it("installs a server whose name is also an Object prototype member", async () => {
+    // Given a bundle declaring a server called "constructor"
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir, {
+      mcpServers: { constructor: { type: "stdio", command: "ctor" } },
+    });
+
+    // When the bundle is added
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the inherited property is not mistaken for the user's own server
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      constructor: { type: "stdio", command: "ctor" },
+    });
+  });
+
+  it("refuses a tracked configuration that has no committed content", async () => {
+    // Given an MCP configuration staged but never committed
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      '{"mcpServers":{"mine":{"command":"m"}}}\n',
+    );
+    runGit(cwd, ["add", ".mcp.json"]);
+
+    // When a bundle is added / Then Skul stops instead of dirtying the index
+    await expect(
+      run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(
+      /Cannot create tracked shadow for \.mcp\.json because the target does not have HEAD content/,
+    );
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("A  .mcp.json");
+  });
+
+  it("replays its own servers onto a base that already commits them", async () => {
+    // Given a repository that commits the very servers the bundle declares
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir, {
+      mcpServers: { docs: { type: "stdio", command: "docs-server" } },
+    });
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { docs: { type: "stdio", command: "committed" } } }, null, 2)}\n`,
+    );
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "commit mcp config"]);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the shadow is refreshed against that same committed base
+    await run(["shadow", "--refresh"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the bundle's own server wins, without reading as someone else's
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      docs: { type: "stdio", command: "docs-server" },
+    });
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("reports a shadowed MCP configuration as active in status", async () => {
+    // Given a committed MCP configuration shadowed by a bundle
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
+    );
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "add mcp config"]);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When status is read as JSON
+    const status = JSON.parse(
+      await run(["status", "--json"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ) as {
+      worktree: {
+        shadowed_files: Record<
+          string,
+          { active: boolean; overlay_fresh: boolean }
+        >;
+      };
+    };
+
+    // Then the merge shadow reads as live, not as a missing text overlay
+    expect(status.worktree.shadowed_files[".mcp.json"]).toMatchObject({
+      active: true,
+      overlay_fresh: true,
+    });
+  });
+
+  it("excludes a pre-existing configuration only while its servers are merged in", async () => {
     // Given a project that already owns its MCP configuration file
     const homeDir = createHomeDir();
     const cwd = createRepository();
@@ -885,6 +1220,10 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       path.join(cwd, ".mcp.json"),
       `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
     );
+    const readExcludeLines = () =>
+      fs
+        .readFileSync(path.join(cwd, ".git", "info", "exclude"), "utf8")
+        .split("\n");
 
     // When a bundle merges into it
     await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
@@ -893,11 +1232,20 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       prompts: createPromptClientStub(),
     });
 
-    // Then Skul does not hide a file it did not create
+    // Then the file is hidden, because it now carries machine-specific paths
+    expect(readExcludeLines()).toContain(".mcp.json");
+
+    // When the bundle is removed
+    await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the user's own file is visible again, with their server intact
+    expect(readExcludeLines()).not.toContain(".mcp.json");
     expect(
-      fs
-        .readFileSync(path.join(cwd, ".git", "info", "exclude"), "utf8")
-        .split("\n"),
-    ).not.toContain(".mcp.json");
+      JSON.parse(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")),
+    ).toEqual({ mcpServers: { mine: { command: "m" } } });
   });
 });

@@ -844,6 +844,8 @@ describe("mcp bundle item selector", () => {
     };
 
     // When the bundle's items are listed
+    // (the directory need not exist: a manifest-declared MCP target is read
+    // from the manifest, never discovered on disk)
     const items = listSelectableBundleItems({
       bundleDir: "/nonexistent",
       manifest,

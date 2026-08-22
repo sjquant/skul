@@ -17,10 +17,12 @@ import {
   translateSkill,
 } from "./bundle-translation";
 import type { FileConflictResolution } from "./cli";
-import { pathDepth } from "./fs-utils";
+import { pathDepth, writeFileAtomic } from "./fs-utils";
 import {
+  type McpServer,
   mergeMcpConfigDocument,
   readBundleMcpServers,
+  resolveMcpPluginPaths,
   supportsMcpConfig,
 } from "./mcp-config";
 import type { RootInstructionMode } from "./registry";
@@ -30,7 +32,6 @@ import {
   wrapRootInstructionBundleContent,
   wrapSkulManagedInstructionContent,
 } from "./root-instruction-render";
-import { resolveBundleDataDir } from "./state-layout";
 import {
   getToolDefinition,
   PROJECT_TOOL_MATERIALIZATION_LAYOUT,
@@ -235,6 +236,28 @@ export async function materializeBundle(options: {
         resolvedBundleItemRefs: options.resolvedBundleItemRefs,
       })
     : {};
+  const plannedMcpWrites = isMcpItemSelected(options.itemSelectors)
+    ? planMcpTargetWrites({
+        bundleDir: options.bundleDir,
+        repoRoot: options.repoRoot,
+        mcpSources: toolEntries.flatMap(([toolName, targets]) =>
+          targets.mcp
+            ? [[toolName as ToolName, targets.mcp.path] as const]
+            : [],
+        ),
+        pathLayout,
+        ...(options.libraryDir ? { libraryDir: options.libraryDir } : {}),
+        ...(options.existingMcpServers
+          ? { existingMcpServers: options.existingMcpServers }
+          : {}),
+        ...(options.deferredWriteTargets
+          ? { deferredWriteTargets: options.deferredWriteTargets }
+          : {}),
+        ...(options.assertSafeWriteTarget
+          ? { assertSafeWriteTarget: options.assertSafeWriteTarget }
+          : {}),
+      })
+    : new Map<ToolName, PlannedMcpWrite>();
 
   for (const [toolName, targets] of toolEntries) {
     const toolFiles: string[] = [];
@@ -247,41 +270,20 @@ export async function materializeBundle(options: {
       ];
 
       if (targetName === "mcp") {
-        if (!isMcpItemSelected(options.itemSelectors)) {
-          continue;
+        const plannedWrite = plannedMcpWrites.get(toolName as ToolName);
+
+        if (plannedWrite) {
+          await writeMcpTarget({
+            plannedWrite,
+            repoRoot: options.repoRoot,
+            writtenFiles: toolFiles,
+            ownedDirectories: toolDirectories,
+            writtenSharedFileTargets,
+            assertSafeWriteTarget: options.assertSafeWriteTarget,
+            ownedMcpServers: toolMcpServers,
+          });
         }
 
-        await materializeMcpTarget({
-          bundleDir: options.bundleDir,
-          sourcePath: target.path,
-          toolName: toolName as ToolName,
-          repoRoot: options.repoRoot,
-          writtenFiles: toolFiles,
-          ownedDirectories: toolDirectories,
-          writtenSharedFileTargets,
-          assertSafeWriteTarget: options.assertSafeWriteTarget,
-          pathLayout,
-          ...(options.libraryDir
-            ? {
-                pluginDataDir: resolveBundleDataDir({
-                  libraryDir: options.libraryDir,
-                  bundleDir: options.bundleDir,
-                }),
-              }
-            : {}),
-          ownedMcpServers: toolMcpServers,
-          ownedServerNames:
-            options.existingMcpServers?.[
-              resolveMcpRepoRelPath({
-                toolName: toolName as ToolName,
-                repoRoot: options.repoRoot,
-                pathLayout,
-              }) ?? ""
-            ],
-          ...(options.deferredWriteTargets
-            ? { deferredWriteTargets: options.deferredWriteTargets }
-            : {}),
-        });
         continue;
       }
 
@@ -458,97 +460,191 @@ async function materializeRootInstructionTarget(options: {
  * Resolves the repo-relative MCP configuration path for one tool, or null when
  * the active layout has no MCP location for it.
  *
+ * Every part of Skul that needs this path — the write, the tracked shadow, and
+ * the reverse lookup on removal — resolves it here, because a divergence would
+ * silently write a committed file directly instead of shadowing it.
+ *
  * Global (`--global`) materialization has no MCP targets: the per-tool global
  * stores either live outside a stable path or hold unrelated user state, so
  * Skul only writes MCP configuration inside a worktree.
  */
-function resolveMcpRepoRelPath(options: {
+export function resolveMcpRepoRelPath(options: {
   toolName: ToolName;
   repoRoot: string;
-  pathLayout: ToolMaterializationLayout;
+  pathLayout?: ToolMaterializationLayout;
 }): string | null {
   if (!supportsMcpConfig(options.toolName)) {
     return null;
   }
 
-  const destinationPath = options.pathLayout.resolveToolTargetPath(
-    options.toolName,
-    "mcp",
-    options.repoRoot,
-  );
+  const destinationPath = (
+    options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT
+  ).resolveToolTargetPath(options.toolName, "mcp", options.repoRoot);
 
   return destinationPath
     ? path.relative(options.repoRoot, destinationPath).split(path.sep).join("/")
     : null;
 }
 
-/**
- * Merges one bundle's MCP servers into the tool's configuration file.
- *
- * The file is shared rather than owned: unrelated servers and unrelated
- * settings living in the same document are preserved, and the server names
- * written here are recorded so removal can subtract exactly them. Because
- * nothing is destroyed, this write needs no conflict prompt.
- */
-async function materializeMcpTarget(options: {
+/** Reads and parses a bundle's MCP declarations, refusing an unsafe source file. */
+export function readBundleMcpDeclarations(options: {
   bundleDir: string;
   sourcePath: string;
-  toolName: ToolName;
+}): Record<string, McpServer> {
+  const sourceFile = path.join(
+    options.bundleDir,
+    ...options.sourcePath.split("/"),
+  );
+  assertBundleTargetFile(sourceFile, options.sourcePath);
+
+  return readBundleMcpServers({ sourceFile, sourcePath: options.sourcePath });
+}
+
+/** One tool's MCP configuration write, fully resolved and ready to land on disk. */
+interface PlannedMcpWrite {
+  repoRelPath: string;
+  content: string;
+  serverNames: string[];
+  /** True when Skul is bringing the file into existence, and so owns it. */
+  created: boolean;
+}
+
+/**
+ * Resolves every MCP configuration write before the first one happens.
+ *
+ * Merging can fail — a bundle declaring a server the user already has, a config
+ * Skul cannot parse — and failing partway through the tool loop would leave
+ * files on disk that no registry entry records, so no later command could
+ * remove them. Planning all of them up front makes the MCP step either succeed
+ * or touch nothing.
+ */
+function planMcpTargetWrites(options: {
+  bundleDir: string;
+  repoRoot: string;
+  mcpSources: ReadonlyArray<readonly [ToolName, string]>;
+  pathLayout: ToolMaterializationLayout;
+  libraryDir?: string;
+  existingMcpServers?: Record<string, string[]>;
+  deferredWriteTargets?: Set<string>;
+  assertSafeWriteTarget?: (repoRelativePath: string) => void;
+}): Map<ToolName, PlannedMcpWrite> {
+  const plans = new Map<ToolName, PlannedMcpWrite>();
+  const claimedPaths = new Set<string>();
+  const declarationsBySource = new Map<string, Record<string, McpServer>>();
+
+  for (const [toolName, sourcePath] of options.mcpSources) {
+    const repoRelPath = resolveMcpRepoRelPath({
+      toolName,
+      repoRoot: options.repoRoot,
+      pathLayout: options.pathLayout,
+    });
+
+    if (
+      !repoRelPath ||
+      claimedPaths.has(repoRelPath) ||
+      // A tracked target is written by the shadow lifecycle instead, which
+      // keeps the committed file clean in `git status`.
+      options.deferredWriteTargets?.has(repoRelPath)
+    ) {
+      continue;
+    }
+
+    options.assertSafeWriteTarget?.(repoRelPath);
+
+    let servers = declarationsBySource.get(sourcePath);
+
+    if (!servers) {
+      servers = readBundleMcpDeclarations({
+        bundleDir: options.bundleDir,
+        sourcePath,
+      });
+      declarationsBySource.set(sourcePath, servers);
+    }
+
+    const existingContent = readExistingMcpConfig(
+      path.join(options.repoRoot, ...repoRelPath.split("/")),
+      repoRelPath,
+    );
+    const merged = mergeMcpConfigDocument({
+      toolName,
+      servers,
+      pluginPaths: resolveMcpPluginPaths({
+        bundleDir: options.bundleDir,
+        ...(options.libraryDir ? { libraryDir: options.libraryDir } : {}),
+      }),
+      ...(existingContent !== null ? { existingContent } : {}),
+      ownedServerNames: options.existingMcpServers?.[repoRelPath] ?? [],
+      configPath: repoRelPath,
+    });
+
+    claimedPaths.add(repoRelPath);
+    plans.set(toolName, {
+      repoRelPath,
+      content: merged.content,
+      serverNames: merged.serverNames,
+      created: existingContent === null,
+    });
+  }
+
+  return plans;
+}
+
+/**
+ * Reads a tool's current MCP configuration, refusing a target that is not a
+ * regular file.
+ *
+ * Merging writes through whatever is at the path, and unlike an owned file this
+ * write has no conflict prompt, so a symlink would silently carry Skul's
+ * servers to a file outside the worktree.
+ */
+function readExistingMcpConfig(
+  targetAbsPath: string,
+  repoRelPath: string,
+): string | null {
+  let stats: fs.Stats;
+
+  try {
+    stats = fs.lstatSync(targetAbsPath);
+  } catch {
+    return null;
+  }
+
+  if (stats.isSymbolicLink()) {
+    throw new Error(
+      `MCP configuration path must not be a symlink: ${repoRelPath}`,
+    );
+  }
+
+  if (!stats.isFile()) {
+    throw new Error(`MCP configuration path must be a file: ${repoRelPath}`);
+  }
+
+  return fs.readFileSync(targetAbsPath, "utf8");
+}
+
+/**
+ * Writes one planned MCP configuration and records what Skul now owns in it.
+ *
+ * Only a file Skul brought into existence is recorded as a managed file. A file
+ * that was already there is merged into but never owned, so removal subtracts
+ * Skul's servers from it rather than deleting the user's file.
+ */
+async function writeMcpTarget(options: {
+  plannedWrite: PlannedMcpWrite;
   repoRoot: string;
   writtenFiles: string[];
   ownedDirectories: Set<string>;
   writtenSharedFileTargets: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
-  pathLayout: ToolMaterializationLayout;
-  pluginDataDir?: string;
   ownedMcpServers: Record<string, string[]>;
-  ownedServerNames?: string[];
-  deferredWriteTargets?: Set<string>;
 }): Promise<void> {
-  const repoRelPath = resolveMcpRepoRelPath({
-    toolName: options.toolName,
-    repoRoot: options.repoRoot,
-    pathLayout: options.pathLayout,
-  });
-
-  if (
-    !repoRelPath ||
-    options.writtenSharedFileTargets.has(repoRelPath) ||
-    // A tracked target is written by the shadow lifecycle instead, which keeps
-    // the committed file clean in `git status`.
-    options.deferredWriteTargets?.has(repoRelPath)
-  ) {
-    return;
-  }
-
-  const sourceFile = path.join(options.bundleDir, options.sourcePath);
-  assertBundleTargetFile(sourceFile, options.sourcePath);
-  const servers = readBundleMcpServers(options.bundleDir, options.sourcePath);
-  const targetAbsPath = path.join(options.repoRoot, ...repoRelPath.split("/"));
-  const targetExisted = fs.existsSync(targetAbsPath);
-  const merged = mergeMcpConfigDocument({
-    toolName: options.toolName,
-    servers,
-    pluginPaths: {
-      pluginRoot: options.bundleDir,
-      ...(options.pluginDataDir ? { pluginData: options.pluginDataDir } : {}),
-    },
-    ...(targetExisted
-      ? { existingContent: fs.readFileSync(targetAbsPath, "utf8") }
-      : {}),
-    ownedServerNames: options.ownedServerNames ?? [],
-  });
-
-  // Only a file Skul brought into existence counts as a managed file. A file
-  // that was already there is merged into but never owned, so it is neither
-  // deleted on removal nor hidden from `git status` via the exclude block.
-  const createdFiles: string[] = [];
+  const { repoRelPath, content, serverNames, created } = options.plannedWrite;
 
   await writeTranslatedFile({
     repoRelPath,
-    content: merged.content,
+    content,
     repoRoot: options.repoRoot,
-    writtenFiles: createdFiles,
+    writtenFiles: created ? options.writtenFiles : [],
     ownedDirectories: options.ownedDirectories,
     reservedDestinations: new Set<string>(),
     assertSafeWriteTarget: options.assertSafeWriteTarget,
@@ -557,12 +653,8 @@ async function materializeMcpTarget(options: {
     targetRoot: "",
   });
 
-  if (!targetExisted) {
-    options.writtenFiles.push(...createdFiles);
-  }
-
   options.writtenSharedFileTargets.add(repoRelPath);
-  options.ownedMcpServers[repoRelPath] = merged.serverNames;
+  options.ownedMcpServers[repoRelPath] = serverNames;
 }
 
 async function materializeNativeTarget(options: {
@@ -1671,7 +1763,7 @@ async function writeTranslatedFile(options: {
   }
 
   options.assertSafeWriteTarget?.(currentRepoRelPath);
-  fs.writeFileSync(currentAbsPath, options.content);
+  writeFileAtomic(currentAbsPath, options.content);
   options.reservedDestinations.add(currentRepoRelPath);
   options.writtenFiles.push(currentRepoRelPath);
 }

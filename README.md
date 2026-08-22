@@ -194,7 +194,11 @@ Skul translates this into each tool's own MCP configuration file and dialect —
 
 `${PLUGIN_ROOT}` expands to the bundle's directory in `~/.skul/library/`, and `${PLUGIN_DATA}` to a per-bundle directory under `~/.skul/data/`. Both are substituted in `args`, `env` values, and `cwd`; `command` is left verbatim so it stays a single executable token. Skul resolves the data directory but does not create it.
 
-Skul merges into these files rather than owning them. It tracks the server names it wrote, so anything else in the file survives — your own hand-written servers, another bundle's servers, and unrelated settings sharing the document such as OpenCode's `model` and `theme`. `skul remove` subtracts only the names that bundle added, deleting the file only when nothing else is left.
+Skul merges into these files rather than owning them. It tracks the server names it wrote, so anything else in the file survives — your own hand-written servers, another bundle's servers, and unrelated settings sharing the document such as OpenCode's `model` and `theme`. `skul remove` subtracts only the names that bundle added, and deletes the file only if Skul created it and nothing else is left in it; a file that was already there is kept.
+
+A server name Skul does not own is never replaced: if the file already declares one the bundle also declares, `skul add` refuses and names the file. All of a bundle's MCP files are resolved before the first one is written, so a refusal for one tool leaves none of the others behind.
+
+While a bundle's servers are merged into a file, that path is added to the Git exclude block even when Skul did not create the file, because it now carries absolute paths from the machine it was materialized on. Removing the bundle takes the servers back out and the path leaves the block with them.
 
 Codex's `.codex/config.toml` is edited as a marker-delimited block appended at the end, because re-serializing TOML would discard the comments and formatting of a hand-maintained config. Everything outside the block stays byte-for-byte identical:
 
@@ -208,7 +212,7 @@ command = "docs-server"
 # <<< SKUL:MCP END
 ```
 
-Because two TOML tables of the same name make the whole config unparseable, Skul refuses rather than writing a `[mcp_servers.<name>]` that you already declare elsewhere in the file.
+Because two TOML tables of the same name make the whole config unparseable, Skul refuses rather than writing a `[mcp_servers.<name>]` that you already declare elsewhere in the file, however it is spelled — `[mcp_servers.docs]`, `[mcp_servers."docs"]`, or a sub-table such as `[mcp_servers.docs.env]`.
 
 If the target file is **tracked by Git** — as `opencode.json` or `.codex/config.toml` often are — Skul creates a tracked shadow instead of a visible diff, the same mechanism root instructions use. The servers are on disk for the tool to read, `git status` stays clean, and `skul shadow --suspend` / `--refresh` bracket Git operations that move `HEAD`. A refresh replays the bundle's servers onto the new committed content, so an upstream change to the file is picked up rather than overwritten.
 

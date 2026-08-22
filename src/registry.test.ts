@@ -726,7 +726,7 @@ describe("parseRegistry", () => {
           }),
         },
       }),
-      /overlay must be JSON when strategy is "merge"/i,
+      /shadowed_files\..+\.overlay must be JSON/i,
     ],
     [
       "shadowed file metadata with an unsupported strategy",

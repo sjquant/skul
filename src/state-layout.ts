@@ -51,9 +51,19 @@ export function resolveBundleDataDir(options: {
   libraryDir: string;
   bundleDir: string;
 }): string {
+  const bundleRelPath = path.relative(options.libraryDir, options.bundleDir);
+
+  // A bundle outside the library would mirror to a path outside the data root,
+  // which is worth failing on rather than silently pointing a server there.
+  if (bundleRelPath === "" || bundleRelPath.split(path.sep)[0] === "..") {
+    throw new Error(
+      `Cannot resolve a data directory for a bundle outside the library: ${options.bundleDir}`,
+    );
+  }
+
   return path.join(
     path.dirname(options.libraryDir),
     DATA_DIR_NAME,
-    path.relative(options.libraryDir, options.bundleDir),
+    bundleRelPath,
   );
 }

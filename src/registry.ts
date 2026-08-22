@@ -6,6 +6,7 @@ import {
   normalizeBundleItemSelector,
 } from "./bundle-items";
 import { pathDepth } from "./fs-utils";
+import { parseRenderedMcpServers } from "./mcp-config";
 import {
   listGlobalToolDefinitions,
   listToolDefinitions,
@@ -921,8 +922,9 @@ function expectProtocol(input: unknown, label: string): "https" | "ssh" {
  * Validates a shadow overlay against its strategy.
  *
  * Text strategies carry the overlay verbatim; `merge` carries JSON-encoded
- * server entries, so a hand-edited or truncated registry is reported here
- * rather than surfacing as a bare SyntaxError during `skul shadow --refresh`.
+ * server entries, whose shape mcp-config owns, so a hand-edited or truncated
+ * registry is reported here rather than surfacing as a bare SyntaxError during
+ * `skul shadow --refresh`.
  */
 function expectShadowOverlay(
   input: unknown,
@@ -931,21 +933,8 @@ function expectShadowOverlay(
 ): string {
   const overlay = expectNonEmptyString(input, label);
 
-  if (strategy !== "merge") {
-    return overlay;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(overlay);
-  } catch {
-    throw new Error(`${label} must be JSON when strategy is "merge"`);
-  }
-
-  const servers = expectRecord(parsed, label);
-
-  for (const [serverName, server] of Object.entries(servers)) {
-    expectRecord(server, `${label}.${serverName}`);
+  if (strategy === "merge") {
+    parseRenderedMcpServers(overlay, label);
   }
 
   return overlay;

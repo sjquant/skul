@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { resolveBundleDataDir } from "./state-layout";
 import type { ToolName } from "./tool-mapping";
 
 /**
@@ -38,6 +39,30 @@ export interface McpPluginPaths {
    * pointing a server at the wrong location.
    */
   pluginData?: string;
+}
+
+/**
+ * Builds the placeholder paths one bundle's MCP declarations expand against.
+ *
+ * `${PLUGIN_DATA}` is offered only where Skul has a library to derive it from,
+ * so a bundle materialized without one fails loudly on the placeholder instead
+ * of silently pointing a server at the wrong directory.
+ */
+export function resolveMcpPluginPaths(options: {
+  bundleDir: string;
+  libraryDir?: string;
+}): McpPluginPaths {
+  return {
+    pluginRoot: options.bundleDir,
+    ...(options.libraryDir
+      ? {
+          pluginData: resolveBundleDataDir({
+            libraryDir: options.libraryDir,
+            bundleDir: options.bundleDir,
+          }),
+        }
+      : {}),
+  };
 }
 
 /**
@@ -198,11 +223,13 @@ export function parseMcpConfig(input: unknown): Record<string, McpServer> {
  * Reads and parses a bundle's MCP declarations, naming the source file when the
  * document is malformed so the failure points at the bundle, not at Skul.
  */
-export function readBundleMcpServers(
-  bundleDir: string,
-  sourcePath: string,
-): Record<string, McpServer> {
-  const sourceFile = path.join(bundleDir, ...sourcePath.split("/"));
+export function readBundleMcpServers(options: {
+  /** Absolute path to the declaration file, already checked by the caller. */
+  sourceFile: string;
+  /** Bundle-relative path, used to name the file in failures. */
+  sourcePath: string;
+}): Record<string, McpServer> {
+  const { sourceFile, sourcePath } = options;
   let document: unknown;
 
   try {
@@ -220,7 +247,7 @@ export function readBundleMcpServers(
 }
 
 export interface McpMergeResult {
-  /** Full JSON text to write, including servers Skul does not own. */
+  /** Full document text to write — JSON or TOML — including servers Skul does not own. */
   content: string;
   /** Server names Skul now owns in this file, recorded so removal can subtract them. */
   serverNames: string[];
@@ -239,6 +266,7 @@ export function mergeMcpConfigDocument(options: {
   pluginPaths: McpPluginPaths;
   existingContent?: string;
   ownedServerNames?: string[];
+  configPath?: string;
 }): McpMergeResult {
   return mergeRenderedMcpServers({
     toolName: options.toolName,
@@ -249,11 +277,42 @@ export function mergeMcpConfigDocument(options: {
     ...(options.ownedServerNames !== undefined
       ? { ownedServerNames: options.ownedServerNames }
       : {}),
+    ...(options.configPath !== undefined
+      ? { configPath: options.configPath }
+      : {}),
   });
 }
 
 /** Server entries in one tool's vocabulary, with plugin placeholders already expanded. */
 export type RenderedMcpServers = Record<string, Record<string, unknown>>;
+
+/**
+ * Parses stored rendered servers back out of registry JSON.
+ *
+ * The registry is a trust boundary — the file is on disk and hand-editable — so
+ * the shape is checked here, in the module that defines it, rather than being
+ * re-described wherever it is read.
+ */
+export function parseRenderedMcpServers(
+  input: string,
+  label: string,
+): RenderedMcpServers {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    throw new Error(`${label} must be JSON`);
+  }
+
+  const servers = expectRecord(parsed, label);
+
+  for (const [serverName, server] of Object.entries(servers)) {
+    expectRecord(server, `${label}.${serverName}`);
+  }
+
+  return servers as RenderedMcpServers;
+}
 
 /**
  * Translates servers into one tool's vocabulary without writing them.
@@ -286,9 +345,13 @@ export function mergeRenderedMcpServers(options: {
   existingContent?: string;
   /** Names this bundle already owns here, which it may overwrite on re-apply. */
   ownedServerNames?: string[];
+  /** Repo-relative path of the document, used to name it in failures. */
+  configPath?: string;
 }): McpMergeResult {
   const dialect = requireDialect(options.toolName);
   const serverNames = Object.keys(options.renderedServers);
+  const label = describeConfig(options.toolName, options.configPath);
+  const owned = new Set(options.ownedServerNames ?? []);
 
   if (dialect.format === "toml") {
     return {
@@ -296,24 +359,20 @@ export function mergeRenderedMcpServers(options: {
         existingContent: options.existingContent ?? "",
         tablePrefix: dialect.serversKey,
         rendered: options.renderedServers,
+        owned,
+        label,
       }),
       serverNames,
     };
   }
 
-  const document = parseExistingDocument(
-    options.existingContent,
-    options.toolName,
-  );
-  const existingServers = readServersObject(document, dialect);
+  const document = parseExistingDocument(options.existingContent, label);
+  const existingServers = readServersObject(document, dialect, label);
 
   for (const serverName of serverNames) {
-    if (
-      serverName in existingServers &&
-      !options.ownedServerNames?.includes(serverName)
-    ) {
+    if (Object.hasOwn(existingServers, serverName) && !owned.has(serverName)) {
       throw new Error(
-        `MCP server "${serverName}" is already declared in this configuration.\nRename it there, or remove it, so Skul does not replace a server it does not own.`,
+        `MCP server "${serverName}" is already declared in ${label}.\nSkul will not replace a server it does not own: rename or remove that entry, or the one in the bundle.`,
       );
     }
   }
@@ -328,6 +387,16 @@ export function mergeRenderedMcpServers(options: {
 }
 
 /**
+ * Names an MCP configuration document in an error message.
+ *
+ * The repo-relative path is the useful name — one bundle writes up to six of
+ * these files — and the tool name is the fallback where no path is in hand.
+ */
+function describeConfig(toolName: ToolName, configPath?: string): string {
+  return configPath ?? `the ${toolName} MCP configuration`;
+}
+
+/**
  * Rewrites the Skul-managed block of a TOML config, leaving everything outside
  * it byte-for-byte identical.
  *
@@ -339,6 +408,8 @@ function mergeTomlBlock(options: {
   existingContent: string;
   tablePrefix: string;
   rendered: Record<string, Record<string, unknown>>;
+  owned: Set<string>;
+  label: string;
 }): string {
   const { before, blockBody, after } = splitTomlBlock(options.existingContent);
   const outsideBlock = `${before}\n${after}`;
@@ -350,9 +421,12 @@ function mergeTomlBlock(options: {
       );
     }
 
-    if (declaresTomlTable(outsideBlock, options.tablePrefix, serverName)) {
+    if (
+      !options.owned.has(serverName) &&
+      declaresTomlTable(outsideBlock, options.tablePrefix, serverName)
+    ) {
       throw new Error(
-        `MCP server "${serverName}" is already declared in this configuration outside Skul's managed block.\nRename it there, or remove it, so Skul does not create a duplicate [${options.tablePrefix}.${serverName}] table.`,
+        `MCP server "${serverName}" is already declared in ${options.label} outside Skul's managed block.\nSkul will not create a duplicate [${options.tablePrefix}.${serverName}] table: rename or remove that entry, or the one in the bundle.`,
       );
     }
   }
@@ -386,9 +460,7 @@ function subtractTomlBlock(options: {
     Object.keys(tables).length > 0 ? renderTomlBlock(tables) : "";
   const content = joinTomlDocument(before, remainingBlock, after);
 
-  return content.trim() === ""
-    ? { releasable: true }
-    : { releasable: false, content };
+  return { content, emptied: content.trim() === "" };
 }
 
 function splitTomlBlock(content: string): {
@@ -426,11 +498,13 @@ function parseTomlBlockTables(
   };
 
   for (const line of blockBody.split("\n")) {
-    const header = line.trim().match(/^\[([A-Za-z0-9_-]+)\.("?)([^\]"]+)\2\]$/);
+    const header = matchTomlTableHeader(line);
 
-    if (header && header[1] === tablePrefix) {
+    // A deeper header such as [prefix.name.env] belongs to the table above it,
+    // so only a two-segment header opens a new one.
+    if (header?.length === 2 && header[0] === tablePrefix) {
       flush();
-      currentName = header[3];
+      currentName = header[1];
       currentLines = [line.trim()];
       continue;
     }
@@ -445,33 +519,79 @@ function parseTomlBlockTables(
 }
 
 /**
- * Detects an existing `[prefix.name]` table, whether the name is bare or quoted.
+ * Parses a TOML table header into its dotted key segments, or null when the
+ * line is not one.
  *
- * The name must be complete: a longer table such as `[mcp_servers.docs-legacy]`
- * is unrelated to a server called `docs` and must not read as a collision.
+ * TOML allows whitespace inside the brackets and around the dots, and lets each
+ * segment be bare or quoted. Both the managed-block parser and the collision
+ * check read headers through here so they cannot disagree about what
+ * `[mcp_servers.docs]` means.
+ */
+function matchTomlTableHeader(line: string): string[] | null {
+  const trimmed = line.trim();
+
+  // `[[x]]` declares an array of tables, which is not a shape MCP servers use.
+  if (!trimmed.startsWith("[") || trimmed.startsWith("[[")) {
+    return null;
+  }
+
+  if (!trimmed.endsWith("]")) {
+    return null;
+  }
+
+  const segments: string[] = [];
+  let rest = trimmed.slice(1, -1);
+
+  for (;;) {
+    rest = rest.trimStart();
+    const quoted = rest.match(/^"((?:[^"\\]|\\.)*)"/);
+    const bare = rest.match(/^[A-Za-z0-9_-]+/);
+
+    if (quoted) {
+      segments.push(JSON.parse(quoted[0]) as string);
+      rest = rest.slice(quoted[0].length);
+    } else if (bare) {
+      segments.push(bare[0]);
+      rest = rest.slice(bare[0].length);
+    } else {
+      return null;
+    }
+
+    rest = rest.trimStart();
+
+    if (rest === "") {
+      return segments;
+    }
+
+    if (!rest.startsWith(".")) {
+      return null;
+    }
+
+    rest = rest.slice(1);
+  }
+}
+
+/**
+ * Detects an existing `[prefix.name]` table, however it is spelled.
+ *
+ * The name must be a whole segment: `[mcp_servers.docs-legacy]` is a different
+ * server from `docs` and must not read as a collision, while
+ * `[mcp_servers.docs.env]` is part of `docs` and must.
  */
 function declaresTomlTable(
   content: string,
   tablePrefix: string,
   serverName: string,
 ): boolean {
-  const heads = [
-    `[${tablePrefix}.${serverName}`,
-    `[${tablePrefix}."${serverName}"`,
-  ];
-
   return content.split("\n").some((line) => {
-    const trimmed = line.trim();
+    const header = matchTomlTableHeader(line);
 
-    return heads.some((head) => {
-      if (!trimmed.startsWith(head)) {
-        return false;
-      }
-
-      // Only a table terminator or a sub-table separator continues the name.
-      const rest = trimmed.slice(head.length);
-      return rest.startsWith("]") || rest.startsWith(".");
-    });
+    return (
+      header !== null &&
+      header.length >= 2 &&
+      header[0] === tablePrefix &&
+      header[1] === serverName
+    );
   });
 }
 
@@ -536,25 +656,39 @@ function tomlValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export type McpSubtractResult =
-  /** Nothing Skul did not own is left, so the file itself can be deleted. */
-  | { releasable: true }
-  /** Other servers or settings remain; write this content back instead. */
-  | { releasable: false; content: string };
+export interface McpSubtractResult {
+  /**
+   * The document with this bundle's servers removed, ready to be written back.
+   * Empty text when the document held nothing else at all.
+   */
+  content: string;
+  /**
+   * True when nothing outside this bundle's servers remained.
+   *
+   * Only a file Skul created may then be deleted. A file that was already there
+   * is written back as `content` instead, because deleting a document Skul does
+   * not own would discard the user's file along with Skul's servers.
+   */
+  emptied: boolean;
+}
 
 /**
  * Removes the servers one bundle owns from a tool's MCP configuration.
  *
- * A file that still holds other servers or unrelated settings is rewritten
- * rather than deleted, so removing one bundle never discards another bundle's
- * servers or a user's own tool configuration.
+ * The result is always content to write back: other servers and unrelated
+ * settings living in the same document survive, so removing one bundle never
+ * discards another bundle's servers or a user's own tool configuration. Whether
+ * the emptied document is deleted instead is the caller's decision, because
+ * only the caller knows whether Skul created the file.
  */
 export function subtractMcpConfigServers(options: {
   toolName: ToolName;
   existingContent: string;
   serverNames: string[];
+  configPath?: string;
 }): McpSubtractResult {
   const dialect = requireDialect(options.toolName);
+  const label = describeConfig(options.toolName, options.configPath);
 
   if (dialect.format === "toml") {
     return subtractTomlBlock({
@@ -564,12 +698,9 @@ export function subtractMcpConfigServers(options: {
     });
   }
 
-  const document = parseExistingDocument(
-    options.existingContent,
-    options.toolName,
-  );
+  const document = parseExistingDocument(options.existingContent, label);
   const remainingServers = Object.fromEntries(
-    Object.entries(readServersObject(document, dialect)).filter(
+    Object.entries(readServersObject(document, dialect, label)).filter(
       ([serverName]) => !options.serverNames.includes(serverName),
     ),
   );
@@ -580,17 +711,80 @@ export function subtractMcpConfigServers(options: {
         ...document,
         [dialect.serversKey]: remainingServers,
       }),
-      releasable: false,
+      emptied: false,
     };
   }
 
   const { [dialect.serversKey]: _servers, ...otherSettings } = document;
 
-  if (holdsOnlySchema(otherSettings)) {
-    return { releasable: true };
+  return {
+    content: formatDocument(otherSettings),
+    emptied: holdsOnlySchema(otherSettings),
+  };
+}
+
+/**
+ * Reads back the servers Skul owns in a document as they stand on disk.
+ *
+ * Returns null when any of them is no longer declared, which is how the shadow
+ * status tells "Skul's servers are in place" from "something removed them". The
+ * returned text is the stored overlay verbatim when the declarations still
+ * match it, so an unchanged file fingerprints identically.
+ */
+export function extractMcpOverlay(options: {
+  toolName: ToolName;
+  content: string;
+  overlay: RenderedMcpServers;
+}): string | null {
+  const dialect = requireDialect(options.toolName);
+  const serverNames = Object.keys(options.overlay);
+
+  if (dialect.format === "toml") {
+    const tables = parseTomlBlockTables(
+      splitTomlBlock(options.content).blockBody,
+      dialect.serversKey,
+    );
+    const declared = serverNames.map((serverName) => tables[serverName]);
+
+    if (declared.some((table) => table === undefined)) {
+      return null;
+    }
+
+    const expected = serverNames.map((serverName) =>
+      renderTomlTable(
+        dialect.serversKey,
+        serverName,
+        options.overlay[serverName] as Record<string, unknown>,
+      ),
+    );
+
+    return declared.join("\n\n") === expected.join("\n\n")
+      ? JSON.stringify(options.overlay)
+      : declared.join("\n\n");
   }
 
-  return { content: formatDocument(otherSettings), releasable: false };
+  let servers: Record<string, unknown>;
+
+  try {
+    const label = describeConfig(options.toolName);
+    servers = readServersObject(
+      parseExistingDocument(options.content, label),
+      dialect,
+      label,
+    );
+  } catch {
+    return null;
+  }
+
+  if (!serverNames.every((serverName) => Object.hasOwn(servers, serverName))) {
+    return null;
+  }
+
+  return JSON.stringify(
+    Object.fromEntries(
+      serverNames.map((serverName) => [serverName, servers[serverName]]),
+    ),
+  );
 }
 
 function requireDialect(toolName: ToolName): McpConfigDialect {
@@ -605,7 +799,7 @@ function requireDialect(toolName: ToolName): McpConfigDialect {
 
 function parseExistingDocument(
   content: string | undefined,
-  toolName: ToolName,
+  label: string,
 ): Record<string, unknown> {
   if (content === undefined || content.trim() === "") {
     return {};
@@ -617,7 +811,7 @@ function parseExistingDocument(
     parsed = JSON.parse(content);
   } catch (error) {
     throw new Error(
-      `Existing ${toolName} MCP configuration is not valid JSON: ${
+      `Existing MCP configuration ${label} is not valid JSON: ${
         error instanceof Error ? error.message : String(error)
       }`,
       { cause: error },
@@ -626,22 +820,38 @@ function parseExistingDocument(
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(
-      `Existing ${toolName} MCP configuration must be a JSON object`,
+      `Existing MCP configuration ${label} must be a JSON object`,
     );
   }
 
   return parsed as Record<string, unknown>;
 }
 
+/**
+ * Reads the document's server table.
+ *
+ * A key of the wrong shape is refused rather than treated as absent: writing
+ * over it would destroy configuration Skul does not own, which is the one thing
+ * this module exists to avoid.
+ */
 function readServersObject(
   document: Record<string, unknown>,
   dialect: McpConfigDialect,
+  label: string,
 ): Record<string, unknown> {
   const servers = document[dialect.serversKey];
 
-  return servers && typeof servers === "object" && !Array.isArray(servers)
-    ? (servers as Record<string, unknown>)
-    : {};
+  if (servers === undefined || servers === null) {
+    return {};
+  }
+
+  if (typeof servers !== "object" || Array.isArray(servers)) {
+    throw new Error(
+      `"${dialect.serversKey}" in ${label} must be an object.\nSkul will not overwrite it, because that would discard configuration it does not own.`,
+    );
+  }
+
+  return servers as Record<string, unknown>;
 }
 
 /** True when only a `$schema` pointer remains, which is not worth keeping a file for. */

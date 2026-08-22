@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  MCP_CONFIG_FILE_NAME,
+  extractMcpOverlay,
   mergeMcpConfigDocument,
+  mergeRenderedMcpServers,
   parseMcpConfig,
   subtractMcpConfigServers,
   supportsMcpConfig,
@@ -321,6 +322,7 @@ describe("dialect matrix", () => {
   it.each([
     [
       "claude-code",
+      "mcpServers",
       {
         type: "stdio",
         command: "run",
@@ -332,6 +334,7 @@ describe("dialect matrix", () => {
     ],
     [
       "cursor",
+      "mcpServers",
       {
         type: "stdio",
         command: "run",
@@ -343,6 +346,7 @@ describe("dialect matrix", () => {
     ],
     [
       "copilot",
+      "servers",
       {
         type: "stdio",
         command: "run",
@@ -354,6 +358,7 @@ describe("dialect matrix", () => {
     ],
     [
       "kiro",
+      "mcpServers",
       {
         command: "run",
         args: ["--root", "/lib/ref"],
@@ -364,6 +369,7 @@ describe("dialect matrix", () => {
     ],
     [
       "opencode",
+      "mcp",
       {
         type: "local",
         enabled: true,
@@ -378,7 +384,7 @@ describe("dialect matrix", () => {
         headers: { "X-Key": "v" },
       },
     ],
-  ] as const)("renders stdio and sse servers in %s's vocabulary", (toolName, expectedStdio, expectedRemote) => {
+  ] as const)("renders stdio and sse servers in %s's vocabulary", (toolName, serversKey, expectedStdio, expectedRemote) => {
     // Given a stdio server and an sse server
     const paths = { pluginRoot: "/lib", pluginData: "/data" };
 
@@ -393,14 +399,25 @@ describe("dialect matrix", () => {
     );
 
     // Then every field is spelled the way that tool documents
-    const key =
-      toolName === "copilot"
-        ? "servers"
-        : toolName === "opencode"
-          ? "mcp"
-          : "mcpServers";
-    expect(stdioDocument[key].srv).toEqual(expectedStdio);
-    expect(sseDocument[key].srv).toEqual(expectedRemote);
+    expect(stdioDocument[serversKey].srv).toEqual(expectedStdio);
+    expect(sseDocument[serversKey].srv).toEqual(expectedRemote);
+  });
+
+  it("renders a stdio server for Codex as a bare table with no type field", () => {
+    // Given a stdio server rendered for Codex
+    const content = mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: stdio,
+      pluginPaths: { pluginRoot: "/lib", pluginData: "/data" },
+    }).content;
+
+    // Then every field lands in Codex's own spelling, and none is invented
+    expect(content).toContain("[mcp_servers.srv]");
+    expect(content).toContain('command = "run"');
+    expect(content).toContain('args = ["--root", "/lib/ref"]');
+    expect(content).toContain('env = { TOKEN = "t" }');
+    expect(content).toContain('cwd = "/lib"');
+    expect(content).not.toContain("type =");
   });
 
   it("renders an sse server for Codex as a url table with http_headers", () => {
@@ -423,21 +440,15 @@ describe("server name collisions", () => {
   });
 
   it.each([
-    "claude-code",
-    "cursor",
-    "copilot",
-    "kiro",
-    "opencode",
-  ] as const)("refuses to replace a server %s's configuration already declares", (toolName) => {
+    ["claude-code", "mcpServers"],
+    ["cursor", "mcpServers"],
+    ["copilot", "servers"],
+    ["kiro", "mcpServers"],
+    ["opencode", "mcp"],
+  ] as const)("refuses to replace a server %s's configuration already declares", (toolName, serversKey) => {
     // Given a configuration that already declares the same server name
-    const key =
-      toolName === "copilot"
-        ? "servers"
-        : toolName === "opencode"
-          ? "mcp"
-          : "mcpServers";
     const existingContent = JSON.stringify({
-      [key]: { docs: { command: "user-own" } },
+      [serversKey]: { docs: { command: "user-own" } },
     });
 
     // When a bundle would add it again / Then the collision is refused
@@ -523,16 +534,12 @@ describe("Codex TOML editing", () => {
     });
 
     // Then only the other remains
-    expect(result.releasable).toBe(false);
-    expect(result.releasable === false && result.content).toContain(
-      "[mcp_servers.b]",
-    );
-    expect(result.releasable === false && result.content).not.toContain(
-      "[mcp_servers.a]",
-    );
+    expect(result.emptied).toBe(false);
+    expect(result.content).toContain("[mcp_servers.b]");
+    expect(result.content).not.toContain("[mcp_servers.a]");
   });
 
-  it("releases a file that held nothing but the managed block", () => {
+  it("reports a file that held nothing but the managed block as emptied", () => {
     // Given a file Skul created entirely
     const content = mergeMcpConfigDocument({
       toolName: "codex",
@@ -540,14 +547,14 @@ describe("Codex TOML editing", () => {
       pluginPaths: PLUGIN_PATHS,
     }).content;
 
-    // When its only server is subtracted / Then the file can be deleted
+    // When its only server is subtracted / Then nothing is left to keep
     expect(
       subtractMcpConfigServers({
         toolName: "codex",
         existingContent: content,
         serverNames: ["a"],
       }),
-    ).toEqual({ releasable: true });
+    ).toEqual({ content: "", emptied: true });
   });
 
   it("leaves text outside the managed block byte-for-byte intact", () => {
@@ -568,7 +575,8 @@ describe("Codex TOML editing", () => {
     });
 
     // Then the original text returns unchanged
-    expect(restored.releasable === false && restored.content).toBe(existing);
+    expect(restored.emptied).toBe(false);
+    expect(restored.content).toBe(existing);
   });
 
   it("ignores an unrelated table whose name merely shares a prefix", () => {
@@ -644,6 +652,126 @@ describe("Codex TOML editing", () => {
   });
 });
 
+describe("TOML table headers", () => {
+  const docs = parseMcpConfig({
+    mcpServers: { docs: { type: "stdio", command: "docs" } },
+  });
+
+  const mergeDocs = (existingContent: string) =>
+    mergeMcpConfigDocument({
+      toolName: "codex",
+      servers: docs,
+      pluginPaths: PLUGIN_PATHS,
+      existingContent,
+    });
+
+  it.each([
+    ["a bare header", "[mcp_servers.docs]"],
+    ["a quoted name", '[mcp_servers."docs"]'],
+    ["whitespace inside the brackets", "[ mcp_servers . docs ]"],
+    ["a sub-table of the same server", "[mcp_servers.docs.env]"],
+  ])("refuses a duplicate declared with %s", (_label, header) => {
+    // Given a config declaring the same server in one of TOML's spellings
+    const existing = `${header}\ncommand = "user-own"\n`;
+
+    // When a bundle would add it again / Then the duplicate is refused
+    expect(() => mergeDocs(existing)).toThrow(/"docs" is already declared/);
+  });
+
+  it.each([
+    ["a longer name", "[mcp_servers.docs-legacy]"],
+    ["a different prefix", "[other_servers.docs]"],
+    ["an array of tables", "[[mcp_servers.docs]]"],
+  ])("does not mistake %s for the same server", (_label, header) => {
+    // Given a config declaring something that is not this server
+    const existing = `${header}\ncommand = "other"\n`;
+
+    // When a bundle adds "docs" / Then it is written alongside
+    const content = mergeDocs(existing).content;
+    expect(content).toContain("[mcp_servers.docs]");
+    expect(content).toContain(header);
+  });
+});
+
+describe("extractMcpOverlay", () => {
+  const overlay = { docs: { command: "docs-server" } };
+
+  it("returns the stored overlay unchanged when a JSON document still declares it", () => {
+    // Given a document holding the overlay's server plus the user's own
+    const content = JSON.stringify({
+      mcpServers: { mine: { command: "m" }, ...overlay },
+    });
+
+    // When the overlay is read back
+    const extracted = extractMcpOverlay({
+      toolName: "claude-code",
+      content,
+      overlay,
+    });
+
+    // Then it matches the stored text, so a fingerprint comparison holds
+    expect(extracted).toBe(JSON.stringify(overlay));
+  });
+
+  it("returns null when a JSON document no longer declares the server", () => {
+    // Given a document the user removed Skul's server from
+    const content = JSON.stringify({ mcpServers: { mine: { command: "m" } } });
+
+    // When the overlay is read back / Then it reports the shadow inactive
+    expect(
+      extractMcpOverlay({ toolName: "claude-code", content, overlay }),
+    ).toBeNull();
+  });
+
+  it("reports a changed JSON declaration as different from the stored overlay", () => {
+    // Given a document whose copy of the server was edited
+    const content = JSON.stringify({ mcpServers: { docs: { command: "x" } } });
+
+    // When the overlay is read back / Then it no longer matches
+    expect(
+      extractMcpOverlay({ toolName: "claude-code", content, overlay }),
+    ).not.toBe(JSON.stringify(overlay));
+  });
+
+  it("returns null for a JSON document that no longer parses", () => {
+    // Given a document the user broke
+    // When the overlay is read back / Then no overlay is claimed
+    expect(
+      extractMcpOverlay({
+        toolName: "claude-code",
+        content: "{ broken",
+        overlay,
+      }),
+    ).toBeNull();
+  });
+
+  it("round-trips a Codex managed block back to the stored overlay", () => {
+    // Given a Codex config Skul merged the overlay into
+    const content = mergeRenderedMcpServers({
+      toolName: "codex",
+      renderedServers: overlay,
+      existingContent: '# user comment\nmodel = "gpt-5"\n',
+    }).content;
+
+    // When the overlay is read back / Then it matches the stored text
+    expect(extractMcpOverlay({ toolName: "codex", content, overlay })).toBe(
+      JSON.stringify(overlay),
+    );
+  });
+
+  it("returns null when a Codex managed block no longer holds the server", () => {
+    // Given a Codex config with nothing of Skul's in it
+    // When the overlay is read back / Then it reports the shadow inactive
+    expect(
+      extractMcpOverlay({
+        toolName: "codex",
+        content: 'model = "gpt-5"\n',
+        overlay,
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("MCP dialect coverage", () => {
   it("knows a dialect for exactly the tools that declare an MCP target", () => {
     // Given the tools whose layout declares where MCP configuration lives
@@ -669,27 +797,5 @@ describe("MCP dialect coverage", () => {
     expect(
       toolsWithoutDialect.filter((definition) => definition.targets.mcp),
     ).toEqual([]);
-  });
-});
-
-describe("supportsMcpConfig", () => {
-  it.each([
-    ["claude-code", true],
-    ["cursor", true],
-    ["copilot", true],
-    ["kiro", true],
-    ["codex", true],
-    ["opencode", true],
-    ["antigravity", false],
-  ] as const)("reports %s as %s", (toolName, expected) => {
-    // Given / When / Then
-    expect(supportsMcpConfig(toolName)).toBe(expected);
-  });
-});
-
-describe("MCP_CONFIG_FILE_NAME", () => {
-  it("matches the bundle-root file name the specification defines", () => {
-    // Given / When / Then
-    expect(MCP_CONFIG_FILE_NAME).toBe("mcp.json");
   });
 });

@@ -37,7 +37,7 @@ import {
   writeRootInstructionBundleFixture,
 } from "./cli.test-support";
 import { detectGitContext } from "./git-context";
-import { assertTrackedRootInstructionShadowSafety, run } from "./index";
+import { assertTrackedShadowSafety, run } from "./index";
 import {
   createEmptyRegistry,
   readRegistryFile,
@@ -441,7 +441,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // When / Then
     expect(() =>
-      assertTrackedRootInstructionShadowSafety({
+      assertTrackedShadowSafety({
         repoRoot,
         filePath: "AGENTS.md",
         operation: "create",
@@ -459,7 +459,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // When / Then
     expect(() =>
-      assertTrackedRootInstructionShadowSafety({
+      assertTrackedShadowSafety({
         repoRoot,
         filePath: "AGENTS.md",
         operation: "refresh",
@@ -485,7 +485,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // When / Then
     expect(() =>
-      assertTrackedRootInstructionShadowSafety({
+      assertTrackedShadowSafety({
         repoRoot,
         filePath: "AGENTS.md",
         operation: "create",
@@ -501,7 +501,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // When / Then
     expect(() =>
-      assertTrackedRootInstructionShadowSafety({
+      assertTrackedShadowSafety({
         repoRoot,
         filePath: "AGENTS.md",
         operation: "create",
@@ -519,7 +519,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // When / Then
     expect(() =>
-      assertTrackedRootInstructionShadowSafety({
+      assertTrackedShadowSafety({
         repoRoot,
         filePath: "AGENTS.md",
         operation: "refresh",

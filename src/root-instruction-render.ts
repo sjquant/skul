@@ -141,16 +141,6 @@ function formatTrackedRootInstructionShadowBlock(options: {
   ].join("\n");
 }
 
-/** Returns whether content still matches the recorded shadow render fingerprint. */
-function hasTrackedRootInstructionManualEdit(options: {
-  content: string;
-  renderedFingerprint: string;
-}): boolean {
-  return (
-    fingerprintShadowContent(options.content) !== options.renderedFingerprint
-  );
-}
-
 /** Returns whether a repo-relative path is a managed root-instruction file. */
 export function isRootInstructionPath(repoRelativePath: string): boolean {
   return ROOT_INSTRUCTION_PATHS.has(repoRelativePath);

@@ -25,7 +25,7 @@ export interface GitHeadBlob {
 /**
  * Reasons that make a tracked root-instruction target unsafe to shadow.
  */
-export type RootInstructionShadowSafetyIssue =
+export type TrackedShadowSafetyIssue =
   | "unmerged"
   | "missing-head"
   | "staged-changes"
@@ -36,7 +36,7 @@ export type RootInstructionShadowSafetyIssue =
  * Aggregated Git state used to decide whether Skul may create or refresh a
  * tracked root-instruction shadow such as `AGENTS.md` or `CLAUDE.md`.
  */
-export interface RootInstructionShadowSafetyInspection {
+export interface TrackedShadowSafetyInspection {
   /**
    * Whether the target is tracked by Git through either the index or `HEAD`.
    */
@@ -56,7 +56,7 @@ export interface RootInstructionShadowSafetyInspection {
   /**
    * Normalized refusal reasons derived from the current Git state.
    */
-  issues: RootInstructionShadowSafetyIssue[];
+  issues: TrackedShadowSafetyIssue[];
 }
 
 /**
@@ -80,10 +80,10 @@ export function isTrackedGitPath(options: {
  * Inspects the Git state of a root-instruction target and summarizes whether
  * Skul may safely create or refresh a tracked shadow for it.
  */
-export function inspectRootInstructionShadowTarget(options: {
+export function inspectTrackedShadowTarget(options: {
   repoRoot: string;
   filePath: string;
-}): RootInstructionShadowSafetyInspection {
+}): TrackedShadowSafetyInspection {
   const stageEntries = inspectGitIndexStages(options);
   const headBlob = readGitHeadBlob(options);
   const indexFlags = readGitIndexFlags(options);
@@ -99,7 +99,7 @@ export function inspectRootInstructionShadowTarget(options: {
     };
   }
 
-  const issues: RootInstructionShadowSafetyIssue[] = [];
+  const issues: TrackedShadowSafetyIssue[] = [];
 
   if (hasUnmergedEntries(stageEntries)) {
     issues.push("unmerged");

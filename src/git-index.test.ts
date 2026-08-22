@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   clearGitSkipWorktree,
   inspectGitIndexStages,
-  inspectRootInstructionShadowTarget,
+  inspectTrackedShadowTarget,
   isTrackedGitPath,
   readGitHeadBlob,
   readGitIndexFlags,
@@ -170,7 +170,7 @@ describe("git index primitives", () => {
     writeFile(repoRoot, "AGENTS.md", "# second local change\n");
 
     // When
-    const inspection = inspectRootInstructionShadowTarget({
+    const inspection = inspectTrackedShadowTarget({
       repoRoot,
       filePath: "AGENTS.md",
     });
@@ -187,7 +187,7 @@ describe("git index primitives", () => {
     runGit(repoRoot, ["add", "--", "AGENTS.md"]);
 
     // When
-    const inspection = inspectRootInstructionShadowTarget({
+    const inspection = inspectTrackedShadowTarget({
       repoRoot,
       filePath: "AGENTS.md",
     });
@@ -205,7 +205,7 @@ describe("git index primitives", () => {
     runGit(repoRoot, ["update-index", "--assume-unchanged", "--", "AGENTS.md"]);
 
     // When
-    const inspection = inspectRootInstructionShadowTarget({
+    const inspection = inspectTrackedShadowTarget({
       repoRoot,
       filePath: "AGENTS.md",
     });
