@@ -10,8 +10,10 @@ import {
   inspectGitIndexStages,
   inspectTrackedShadowTarget,
   isTrackedGitPath,
+  listCommittedPaths,
   readGitHeadBlob,
   readGitIndexFlags,
+  restoreCommittedPaths,
   setGitSkipWorktree,
 } from "./git-index";
 
@@ -246,6 +248,128 @@ describe("git index primitives", () => {
       "H",
     ]);
   });
+
+  it("reports only the given paths that HEAD records", () => {
+    // Given a repository committing two of three candidate paths
+    const repoRoot = createRepository();
+    writeFile(repoRoot, ".mcp.json", "{}\n");
+    commitTrackedFile(repoRoot, ".mcp.json");
+    writeFile(repoRoot, ".cursor/mcp.json", "{}\n");
+    commitTrackedFile(repoRoot, ".cursor/mcp.json");
+    writeFile(repoRoot, "opencode.json", "{}\n");
+
+    // When the three are looked up together
+    const committed = listCommittedPaths({
+      repoRoot,
+      filePaths: [".mcp.json", ".cursor/mcp.json", "opencode.json"],
+    });
+
+    // Then the uncommitted one is absent and the nested one is found
+    expect(Array.from(committed).sort()).toEqual([
+      ".cursor/mcp.json",
+      ".mcp.json",
+    ]);
+  });
+
+  it("restores only the named path when its name contains glob characters", () => {
+    // Given a committed file whose name reads as a pattern, and a second file
+    // that pattern would match, both edited since
+    const repoRoot = createRepository();
+    writeFile(repoRoot, "a*.json", "committed star\n");
+    writeFile(repoRoot, "abc.json", "committed abc\n");
+    runGit(repoRoot, ["add", "--", "a*.json", "abc.json"]);
+    runGit(repoRoot, ["commit", "-m", "track both"]);
+    writeFile(repoRoot, "a*.json", "edited star\n");
+    writeFile(repoRoot, "abc.json", "edited abc\n");
+
+    // When only the pattern-named path is restored
+    restoreCommittedPaths({ repoRoot, filePaths: ["a*.json"] });
+
+    // Then the other file keeps the edit the user has not committed
+    expect(fs.readFileSync(path.join(repoRoot, "a*.json"), "utf8")).toBe(
+      "committed star\n",
+    );
+    expect(fs.readFileSync(path.join(repoRoot, "abc.json"), "utf8")).toBe(
+      "edited abc\n",
+    );
+  });
+
+  it("reports nothing for a directory outside any repository", () => {
+    // Given a plain directory
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-plain-"));
+    tempDirs.push(outsideDir);
+    writeFile(outsideDir, ".mcp.json", "{}\n");
+
+    // When committed paths are requested
+    const committed = listCommittedPaths({
+      repoRoot: outsideDir,
+      filePaths: [".mcp.json"],
+    });
+
+    // Then the absence of a HEAD is reported as nothing committed
+    expect(Array.from(committed)).toEqual([]);
+  });
+
+  it("checks committed paths back out, preserving mode and leaving the index alone", () => {
+    // Given a committed executable file, edited and staged for removal
+    const repoRoot = createRepository();
+    writeFile(repoRoot, "run.sh", "echo original\n");
+    fs.chmodSync(path.join(repoRoot, "run.sh"), 0o755);
+    commitTrackedFile(repoRoot, "run.sh");
+    writeFile(repoRoot, "run.sh", "echo edited\n");
+    fs.chmodSync(path.join(repoRoot, "run.sh"), 0o644);
+    runGit(repoRoot, ["rm", "--cached", "--", "run.sh"]);
+
+    // When the path is restored
+    const restored = restoreCommittedPaths({
+      repoRoot,
+      filePaths: ["run.sh"],
+    });
+
+    // Then the committed content and mode are back
+    expect(restored).toBe(true);
+    expect(fs.readFileSync(path.join(repoRoot, "run.sh"), "utf8")).toBe(
+      "echo original\n",
+    );
+    expect(fs.statSync(path.join(repoRoot, "run.sh")).mode & 0o111).not.toBe(0);
+
+    // And the staged removal the user asked for still stands
+    expect(runGit(repoRoot, ["diff", "--cached", "--name-only"]).trim()).toBe(
+      "run.sh",
+    );
+  });
+
+  it("recreates a committed path that has been deleted from the worktree", () => {
+    // Given a committed file deleted from the worktree
+    const repoRoot = createRepository();
+    writeFile(repoRoot, ".mcp.json", '{ "mcpServers": {} }\n');
+    commitTrackedFile(repoRoot, ".mcp.json");
+    fs.rmSync(path.join(repoRoot, ".mcp.json"));
+
+    // When the path is restored
+    const restored = restoreCommittedPaths({
+      repoRoot,
+      filePaths: [".mcp.json"],
+    });
+
+    // Then the file is back and nothing is pending
+    expect(restored).toBe(true);
+    expect(runGit(repoRoot, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("reports failure when a path cannot be restored", () => {
+    // Given a repository that has never committed the path
+    const repoRoot = createRepository();
+
+    // When restoring it is attempted
+    const restored = restoreCommittedPaths({
+      repoRoot,
+      filePaths: ["never-committed.json"],
+    });
+
+    // Then the caller is told rather than left assuming success
+    expect(restored).toBe(false);
+  });
 });
 
 function createRepository(): string {
@@ -270,7 +394,9 @@ function commitTrackedFile(repoRoot: string, filePath: string): void {
 }
 
 function writeFile(repoRoot: string, filePath: string, content: string): void {
-  fs.writeFileSync(path.join(repoRoot, filePath), content);
+  const targetPath = path.join(repoRoot, filePath);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, content);
 }
 
 function runGit(

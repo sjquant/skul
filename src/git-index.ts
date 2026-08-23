@@ -137,6 +137,78 @@ export function inspectTrackedShadowTarget(options: {
 }
 
 /**
+ * Returns the subset of `filePaths` that `HEAD` records.
+ *
+ * A single `git ls-tree` answers for every path at once, which keeps the scan
+ * over a bundle's managed files to one Git invocation however many files it
+ * materialized. Paths are reported relative to the repository root, matching
+ * what `readGitHeadBlob` resolves, so `repoRoot` must be that root.
+ *
+ * Returns an empty set when there is no `HEAD` to read — an unborn branch, or
+ * a directory outside any repository.
+ */
+export function listCommittedPaths(options: {
+  repoRoot: string;
+  filePaths: readonly string[];
+}): Set<string> {
+  if (options.filePaths.length === 0) {
+    return new Set();
+  }
+
+  const output = tryRunGit(options.repoRoot, [
+    // Managed paths are names, not patterns. `ls-tree` ignores wildcards in a
+    // pathspec anyway, but the flag also turns off the leading-`:` magic and
+    // keeps this call reading the same as the restore below.
+    "--literal-pathspecs",
+    "ls-tree",
+    "-z",
+    "--full-name",
+    "--name-only",
+    "HEAD",
+    "--",
+    ...options.filePaths.map(normalizeRepoRelativePath),
+  ]);
+
+  if (output === null) {
+    return new Set();
+  }
+
+  return new Set(output.split("\0").filter((entry) => entry !== ""));
+}
+
+/**
+ * Checks paths back out of `HEAD` into the worktree, reporting success.
+ *
+ * Git does the checkout itself rather than Skul writing blob bytes, so eol and
+ * smudge filters, the file mode, and symlink entries all survive — writing the
+ * raw blob would leave the very modification a restore is meant to avoid on a
+ * repository that normalizes line endings. Only the worktree is touched: a
+ * path the user has already staged for removal keeps its staged state.
+ */
+export function restoreCommittedPaths(options: {
+  repoRoot: string;
+  filePaths: readonly string[];
+}): boolean {
+  if (options.filePaths.length === 0) {
+    return true;
+  }
+
+  return (
+    tryRunGit(options.repoRoot, [
+      // Load-bearing here, unlike the lookup above: `restore` does honour
+      // wildcards, so a managed path named `a*.json` would otherwise overwrite
+      // every `a…json` in the worktree, uncommitted edits included.
+      "--literal-pathspecs",
+      "restore",
+      "--source=HEAD",
+      "--worktree",
+      "--",
+      ...options.filePaths.map(normalizeRepoRelativePath),
+    ]) !== null
+  );
+}
+
+/**
  * Reads the blob stored for a path in `HEAD`.
  *
  * Returns `null` when the path has no `HEAD` entry, such as an index-only path

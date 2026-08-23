@@ -46,6 +46,26 @@ function readJson(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+/** Runs an action with `console.warn` captured, returning everything it wrote. */
+async function captureWarnings(
+  action: () => Promise<unknown>,
+): Promise<string> {
+  const warnings: string[] = [];
+  const spy = vi
+    .spyOn(console, "warn")
+    .mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+
+  try {
+    await action();
+  } finally {
+    spy.mockRestore();
+  }
+
+  return warnings.join("\n");
+}
+
 function readMcpServers(
   filePath: string,
 ): Record<string, Record<string, unknown>> {
@@ -901,6 +921,215 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
   });
 
+  it("checks a committed configuration back out of HEAD when the bundle is removed", async () => {
+    // Given a materialized configuration force-added past the exclude entry,
+    // since edited by hand so a restore has something to undo
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    runGit(cwd, ["add", "-f", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "commit the materialized config"]);
+    const committedContent = fs.readFileSync(
+      path.join(cwd, ".mcp.json"),
+      "utf8",
+    );
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), '{ "mcpServers": {} }\n');
+
+    // When the bundle is removed
+    const removeWarnings = await captureWarnings(() =>
+      run(["remove", BUNDLE, "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then the committed content is back, byte for byte
+    expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
+      committedContent,
+    );
+
+    // And the path is reported, alongside the edit that was replaced
+    expect(removeWarnings).toContain(
+      "checked out from HEAD instead of deleted: .mcp.json",
+    );
+    expect(removeWarnings).toContain("git rm --cached .mcp.json");
+
+    // And no other tool's configuration survived, leaving the worktree clean
+    expect(pathExists(path.join(cwd, ".cursor", "mcp.json"))).toBe(false);
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("restores a committed configuration the user has already deleted", async () => {
+    // Given a committed configuration deleted from the worktree
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    runGit(cwd, ["add", "-f", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "commit the materialized config"]);
+    fs.rmSync(path.join(cwd, ".mcp.json"));
+
+    // When the bundle is removed
+    await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the pending deletion is resolved rather than carried forward
+    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(true);
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("leaves a committed configuration modified while another bundle owns servers in it", async () => {
+    // Given two bundles sharing a committed configuration
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      "other-bundle",
+      "mcp.json",
+      JSON.stringify(
+        { mcpServers: { other: { type: "stdio", command: "other" } } },
+        null,
+        2,
+      ),
+    );
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", SOURCE, "other-bundle", "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    runGit(cwd, ["add", "-f", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "commit the shared config"]);
+
+    // When only one of them is removed
+    const removeWarnings = await captureWarnings(() =>
+      run(["remove", BUNDLE, "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then the surviving bundle keeps its server and the change is explained
+    expect(Object.keys(readMcpServers(path.join(cwd, ".mcp.json")))).toEqual([
+      "other",
+    ]);
+    expect(removeWarnings).toContain("left modified");
+    expect(removeWarnings).toContain(".mcp.json");
+  });
+
+  it("names every committed configuration on apply, and nothing else", async () => {
+    // Given two of the materialized configurations committed, and an
+    // unrelated committed file that Skul never wrote
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    runGit(cwd, ["add", "-f", ".mcp.json", ".cursor/mcp.json"]);
+    runGit(cwd, ["commit", "-m", "commit two materialized configs"]);
+
+    // When the bundles are applied
+    const applyWarnings = await captureWarnings(() =>
+      run(["apply", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then both committed paths are named, in order, and README.md is not
+    expect(applyWarnings).toContain(
+      "but written by Skul: .cursor/mcp.json, .mcp.json",
+    );
+    expect(applyWarnings).toContain(
+      "git rm --cached .cursor/mcp.json .mcp.json",
+    );
+    expect(applyWarnings).not.toContain("README.md");
+  });
+
+  it("stays silent about a committed configuration during a dry run", async () => {
+    // Given a committed materialized configuration
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    runGit(cwd, ["add", "-f", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "commit the materialized config"]);
+
+    // When apply runs as a dry run
+    const applyWarnings = await captureWarnings(() =>
+      run(["apply", "--dry-run"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then a preview reports nothing about the committed file
+    expect(applyWarnings).toBe("");
+  });
+
+  it("warns on add that a previously materialized configuration is committed", async () => {
+    // Given a committed MCP configuration from an earlier add
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    runGit(cwd, ["add", "-f", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "commit the materialized config"]);
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      "skills-bundle",
+      "skills/review/SKILL.md",
+      "---\nname: review\ndescription: Review code\n---\n\nReview.\n",
+    );
+
+    // When an unrelated bundle is added
+    const addWarnings = await captureWarnings(() =>
+      run(["add", SOURCE, "skills-bundle", "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then the committed configuration is still called out
+    expect(addWarnings).toContain("but written by Skul: .mcp.json");
+    expect(addWarnings).toContain("git rm --cached .mcp.json");
+  });
+
   it("keeps a configuration Skul did not create when its last server leaves", async () => {
     // Given an empty configuration file the project already had
     const homeDir = createHomeDir();
@@ -1027,30 +1256,22 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       prompts: createPromptClientStub(),
     });
     fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
-    const warnings: string[] = [];
-    const restoreWarn = vi
-      .spyOn(console, "warn")
-      .mockImplementation((message: unknown) => {
-        warnings.push(String(message));
-      });
 
     // When the bundle is removed
-    try {
-      await run(["remove", BUNDLE, "-y"], {
+    const warnings = await captureWarnings(() =>
+      run(["remove", BUNDLE, "-y"], {
         homeDir,
         cwd,
         prompts: createPromptClientStub(),
-      });
-    } finally {
-      restoreWarn.mockRestore();
-    }
+      }),
+    );
 
     // Then removal finishes, the file is left alone, and the servers are named
     expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
       "{ broken",
     );
-    expect(warnings.join("\n")).toContain(".mcp.json");
-    expect(warnings.join("\n")).toContain("docs");
+    expect(warnings).toContain(".mcp.json");
+    expect(warnings).toContain("docs");
   });
 
   it("refuses a configuration whose server key is not an object", async () => {
