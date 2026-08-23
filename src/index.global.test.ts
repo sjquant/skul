@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -63,6 +64,44 @@ describe("run --global", () => {
         "claude-code"
       ]!.files,
     ).toContain(".claude/skills/react/SKILL.md");
+  });
+
+  it("deletes a globally installed file even when the home directory commits it", async () => {
+    // Given a home directory that is itself a Git repository — a dotfiles repo —
+    // holding a committed globally installed skill
+    const homeDir = createHomeDir();
+    execFileSync("git", ["init", "--initial-branch=main"], { cwd: homeDir });
+    execFileSync("git", ["config", "user.email", "skul@example.com"], {
+      cwd: homeDir,
+    });
+    execFileSync("git", ["config", "user.name", "Skul Test"], { cwd: homeDir });
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+    execFileSync("git", ["add", "-f", ".claude/skills/react/SKILL.md"], {
+      cwd: homeDir,
+    });
+    execFileSync("git", ["commit", "-m", "commit the skill"], { cwd: homeDir });
+
+    // When the bundle is removed globally
+    await run(["remove", "--global", "react-expert", "-y"], { homeDir });
+
+    // Then it is gone: a home directory is not a repository root Skul reasons
+    // about, so the committed-file restore deliberately stays out of this path
+    expect(
+      fs.existsSync(
+        path.join(homeDir, ".claude", "skills", "react", "SKILL.md"),
+      ),
+    ).toBe(false);
   });
 
   it("installs agents to homeDir under .claude/agents", async () => {

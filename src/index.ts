@@ -72,7 +72,7 @@ import {
   inspectTrackedShadowTarget,
   isTrackedGitPath,
   listCommittedPaths,
-  readGitHeadBlob,
+  restoreCommittedPaths,
   setGitSkipWorktree,
 } from "./git-index";
 import {
@@ -157,11 +157,23 @@ export interface RunOptions {
   prompts?: PromptClient;
 }
 
+/**
+ * Managed paths already reported as committed during the current `run`.
+ *
+ * Cleared at the top of `run`, so the notice is once per command rather than
+ * once per bundle a command happens to materialize.
+ */
+const reportedCommittedPaths = new Set<string>();
+
 /** Parses CLI arguments and executes the selected Skul command. */
 export async function run(
   argv: string[],
   options: RunOptions = {},
 ): Promise<string> {
+  // One command can materialize many bundles — a whole source, or a selection
+  // spread across several — and each pass sees the same worktree. Clearing here
+  // scopes "report a committed managed file once" to the invocation.
+  reportedCommittedPaths.clear();
   const stateLayout = resolveGlobalStateLayout({
     homeDir: options.homeDir ?? os.homedir(),
   });
@@ -741,7 +753,9 @@ async function removeAllWorktreeBundles(options: {
         })
       : undefined;
 
-  removeManagedPaths(gitContext.worktreeRoot, removedBundlePaths);
+  removeManagedPaths(gitContext.worktreeRoot, removedBundlePaths, {
+    restoreCommitted: true,
+  });
   const rootInstructionBaseContents =
     worktreeState?.materialized_state.root_instruction_base_contents;
   const remainingRootInstructionTargets =
@@ -1018,7 +1032,9 @@ async function removeAllGlobalBundles(options: {
         })
       : undefined;
 
-  removeManagedPaths(options.homeDir, removedBundlePaths);
+  removeManagedPaths(options.homeDir, removedBundlePaths, {
+    restoreCommitted: false,
+  });
 
   const rootInstructionBaseContents =
     globalState?.materialized_state.root_instruction_base_contents;
@@ -2392,6 +2408,7 @@ async function updateBundles(options: {
             flattenBundleState(bundleStateToReplace),
             trackedShadowPlan.deferredMaterializationTargets,
           ),
+          { restoreCommitted: true },
         );
         const materializedResult = await materializeBundle({
           repoRoot: gitContext.worktreeRoot,
@@ -2832,7 +2849,9 @@ async function applyBundle(options: {
   });
 
   if (pathsToReplace) {
-    removeManagedPaths(gitContext.worktreeRoot, pathsToReplace);
+    removeManagedPaths(gitContext.worktreeRoot, pathsToReplace, {
+      restoreCommitted: true,
+    });
   }
 
   const materializedResult = await materializeBundle({
@@ -4280,7 +4299,9 @@ async function resetWorktree(options: {
     });
 
     for (const bundlePaths of allBundlePaths) {
-      removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
+      removeManagedPaths(gitContext.worktreeRoot, bundlePaths, {
+        restoreCommitted: true,
+      });
     }
 
     restoreRootInstructionBaseContents({
@@ -4515,7 +4536,9 @@ async function removeBundle(options: {
           })
         : undefined;
 
-    removeManagedPaths(gitContext.worktreeRoot, bundlePaths);
+    removeManagedPaths(gitContext.worktreeRoot, bundlePaths, {
+      restoreCommitted: true,
+    });
     const remainingRootInstructionTargets =
       collectManagedRootInstructionTargets(remainingBundles);
     const restoredRootInstructionPaths = new Set(
@@ -5521,7 +5544,9 @@ async function applyWorktree(options: {
         ),
       );
 
-      removeManagedPaths(gitContext.worktreeRoot, pathsToReplace);
+      removeManagedPaths(gitContext.worktreeRoot, pathsToReplace, {
+        restoreCommitted: true,
+      });
       restoreRootInstructionBaseContents({
         repoRoot: gitContext.worktreeRoot,
         baseContents: rootInstructionBaseContents,
@@ -6484,14 +6509,14 @@ function buildMaterializedBundleState(options: {
  */
 function collectExcludedPaths(materializedState: MaterializedState): string[] {
   return Array.from(
-    new Set(
-      Object.values(materializedState.bundles).flatMap((bundleState) =>
-        Object.values(bundleState.tools).flatMap((toolState) => [
-          ...toolState.files,
-          ...Object.keys(toolState.mcp_servers ?? {}),
-        ]),
+    new Set([
+      ...listManagedFiles(materializedState.bundles),
+      ...Object.values(materializedState.bundles).flatMap((bundleState) =>
+        Object.values(bundleState.tools).flatMap((toolState) =>
+          Object.keys(toolState.mcp_servers ?? {}),
+        ),
       ),
-    ),
+    ]),
   );
 }
 
@@ -6513,20 +6538,21 @@ function warnAboutCommittedManagedFiles(options: {
   repoRoot: string;
   bundles: MaterializedState["bundles"];
 }): void {
-  const managedFiles = new Set(
-    Object.values(options.bundles).flatMap((bundleState) =>
-      Object.values(bundleState.tools).flatMap((toolState) => toolState.files),
-    ),
-  );
   const committedPaths = Array.from(
     listCommittedPaths({
       repoRoot: options.repoRoot,
-      filePaths: Array.from(managedFiles),
+      filePaths: listManagedFiles(options.bundles),
     }),
-  ).sort();
+  )
+    .filter((filePath) => !reportedCommittedPaths.has(filePath))
+    .sort();
 
   if (committedPaths.length === 0) {
     return;
+  }
+
+  for (const filePath of committedPaths) {
+    reportedCommittedPaths.add(filePath);
   }
 
   console.warn(
@@ -6535,8 +6561,19 @@ function warnAboutCommittedManagedFiles(options: {
   console.warn(
     "[skul] These hold absolute paths from this machine, so another clone cannot resolve them.",
   );
-  console.warn(
-    `[skul] Untrack with: git rm --cached ${committedPaths.join(" ")}`,
+  console.warn(formatUntrackHint(committedPaths));
+}
+
+/** Every repo-relative file path the given bundles have materialized. */
+function listManagedFiles(bundles: MaterializedState["bundles"]): string[] {
+  return Array.from(
+    new Set(
+      Object.values(bundles).flatMap((bundleState) =>
+        Object.values(bundleState.tools).flatMap(
+          (toolState) => toolState.files,
+        ),
+      ),
+    ),
   );
 }
 
@@ -6621,15 +6658,18 @@ function findToolNameForMcpPath(
 /**
  * Deletes a bundle's managed paths and subtracts its servers from shared ones.
  *
- * A managed file the repository has since committed is restored to its `HEAD`
- * content instead of being deleted. Skul wrote the file, but committing it made
- * it the repository's; deleting it would only leave a pending deletion for the
- * user to resolve by hand.
+ * With `restoreCommitted`, a managed file the repository has since committed is
+ * checked back out of `HEAD` instead of being deleted. Skul wrote the file, but
+ * committing it made it the repository's; deleting it would only leave a
+ * pending deletion for the user to resolve by hand. Callers working in a Git
+ * worktree ask for it; the global flows write under a home directory that is
+ * not a repository root, which is the only root `HEAD` can be read against.
  */
 function removeManagedPaths(
   repoRoot: string,
   state: Parameters<typeof listManagedPathsForRemoval>[0] &
     Pick<ManagedRemovalState, "mcp_servers">,
+  options: { restoreCommitted: boolean },
 ): void {
   const releasableMcpPaths = releaseManagedMcpServers({
     repoRoot,
@@ -6641,10 +6681,9 @@ function removeManagedPaths(
       (filePath) => !releasableMcpPaths.has(filePath),
     ),
   );
-  const committedPaths = listCommittedPaths({
-    repoRoot,
-    filePaths: state.files,
-  });
+  const committedPaths = options.restoreCommitted
+    ? listCommittedPaths({ repoRoot, filePaths: state.files })
+    : new Set<string>();
   const restoredPaths: string[] = [];
 
   for (const relativePath of listManagedPathsForRemoval(state)) {
@@ -6653,11 +6692,9 @@ function removeManagedPaths(
     }
 
     // Ahead of the existence check: a committed file already deleted from the
-    // worktree is the very state this restores.
+    // worktree is restored too, since that deletion is itself pending in Git.
     if (committedPaths.has(relativePath)) {
-      if (restoreCommittedFile(repoRoot, relativePath)) {
-        restoredPaths.push(relativePath);
-      }
+      restoredPaths.push(relativePath);
       continue;
     }
 
@@ -6683,50 +6720,65 @@ function removeManagedPaths(
     fs.rmSync(targetPath, { force: true });
   }
 
-  warnAboutRestoredCommittedFiles(restoredPaths);
+  reportCommittedRemovalOutcome({
+    repoRoot,
+    restoredPaths,
+    modifiedPaths: Array.from(retainedMcpPaths).filter((filePath) =>
+      committedPaths.has(filePath),
+    ),
+  });
 }
 
 /**
- * Writes a path's committed content back to the worktree.
+ * Restores the committed paths a removal declined to delete, and says so.
  *
- * Reports whether the path now matches `HEAD`: a blob that has gone missing
- * since the paths were listed leaves the file untouched rather than deleted,
- * because a stale file is the lesser of the two surprises.
+ * A path whose file still holds another owner's servers cannot be restored —
+ * subtraction has already rewritten it and that content is now correct — so it
+ * is only reported, keeping the modification from going by unexplained.
  */
-function restoreCommittedFile(repoRoot: string, relativePath: string): boolean {
-  const headBlob = readGitHeadBlob({ repoRoot, filePath: relativePath });
+function reportCommittedRemovalOutcome(options: {
+  repoRoot: string;
+  restoredPaths: string[];
+  modifiedPaths: string[];
+}): void {
+  const restoredPaths = [...options.restoredPaths].sort();
+  const modifiedPaths = [...options.modifiedPaths].sort();
+  const restored =
+    restoredPaths.length > 0 &&
+    restoreCommittedPaths({
+      repoRoot: options.repoRoot,
+      filePaths: restoredPaths,
+    });
 
-  if (!headBlob) {
-    return false;
+  if (restored) {
+    console.warn(
+      `[skul] Committed by the repository, so checked out from HEAD instead of deleted: ${restoredPaths.join(", ")}`,
+    );
+    console.warn(
+      "[skul] They now hold exactly what HEAD has; any local edits to them are gone.",
+    );
+  } else if (restoredPaths.length > 0) {
+    console.warn(
+      `[skul] Left in place but could not be checked out from HEAD: ${restoredPaths.join(", ")}`,
+    );
   }
 
-  const targetPath = path.join(repoRoot, relativePath);
-
-  if (
-    fs.existsSync(targetPath) &&
-    fs.readFileSync(targetPath, "utf8") === headBlob.content
-  ) {
-    return true;
+  if (modifiedPaths.length > 0) {
+    console.warn(
+      `[skul] Committed by the repository and left modified, because other servers remain in ${modifiedPaths.length === 1 ? "it" : "them"}: ${modifiedPaths.join(", ")}`,
+    );
   }
 
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  writeFileAtomic(targetPath, headBlob.content);
+  const untrackPaths = [...restoredPaths, ...modifiedPaths];
 
-  return true;
+  if (untrackPaths.length > 0) {
+    console.warn(formatUntrackHint(untrackPaths));
+  }
 }
 
-/** Reports the managed files kept because the repository has committed them. */
-function warnAboutRestoredCommittedFiles(relativePaths: string[]): void {
-  if (relativePaths.length === 0) {
-    return;
-  }
-
-  console.warn(
-    `[skul] Committed by the repository, so restored from HEAD instead of deleted: ${relativePaths.join(", ")}`,
-  );
-  console.warn(
-    `[skul] Untrack with: git rm --cached ${relativePaths.join(" ")}`,
-  );
+/** The line every committed-managed-file warning ends on. */
+function formatUntrackHint(relativePaths: string[]): string {
+  return `[skul] Untrack with: git rm --cached ${relativePaths.join(" ")}`;
 }
 
 function isDirectoryNotEmptyError(error: unknown): boolean {
@@ -7348,7 +7400,9 @@ async function applyBundleGlobal(options: {
   }
 
   if (pathsToReplace) {
-    removeManagedPaths(options.homeDir, pathsToReplace);
+    removeManagedPaths(options.homeDir, pathsToReplace, {
+      restoreCommitted: false,
+    });
   }
 
   const materializedResult = await materializeBundle({
@@ -7805,7 +7859,9 @@ async function removeGlobalBundle(options: {
           })
         : undefined;
 
-    removeManagedPaths(options.homeDir, bundlePaths);
+    removeManagedPaths(options.homeDir, bundlePaths, {
+      restoreCommitted: false,
+    });
 
     const remainingRootInstructionTargets =
       collectManagedRootInstructionTargets(remainingBundles);
@@ -8342,7 +8398,9 @@ async function resetGlobal(options: {
   }
 
   for (const bundlePaths of allBundlePaths) {
-    removeManagedPaths(options.homeDir, bundlePaths);
+    removeManagedPaths(options.homeDir, bundlePaths, {
+      restoreCommitted: false,
+    });
   }
 
   // reset --global removes all bundle materialization entirely; shared root-instruction files
