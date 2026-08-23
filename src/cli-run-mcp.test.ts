@@ -809,8 +809,59 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
   });
 
-  it("skips MCP configuration entirely for a global install", async () => {
+  it("writes Claude Code's user-scope MCP configuration for a global install", async () => {
     // Given a cached MCP bundle and a home directory used as the global root
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+
+    // When the bundle is installed globally
+    const output = await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
+      {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // Then the servers land in ~/.claude.json, not in the project-scoped location
+    expect(
+      Object.keys(readMcpServers(path.join(homeDir, ".claude.json"))).sort(),
+    ).toEqual(["docs", "remote"]);
+    expect(pathExists(path.join(homeDir, ".mcp.json"))).toBe(false);
+    expect(output).not.toContain("MCP servers were skipped");
+  });
+
+  it("appends a marked block to the user-scope Codex config for a global install", async () => {
+    // Given a hand-maintained ~/.codex/config.toml carrying the user's own server
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const existing =
+      '# keep me\nmodel = "gpt-5"\n\n[mcp_servers.mine]\ncommand = "my-server"\n';
+    fs.mkdirSync(path.join(homeDir, ".codex"), { recursive: true });
+    fs.writeFileSync(path.join(homeDir, ".codex", "config.toml"), existing);
+
+    // When the bundle is installed globally for Codex
+    await run(["add", SOURCE, BUNDLE, "--global", "--agent", "codex", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the bundle's block is appended below what was already there
+    const merged = fs.readFileSync(
+      path.join(homeDir, ".codex", "config.toml"),
+      "utf8",
+    );
+    expect(merged.startsWith(existing.trimEnd())).toBe(true);
+    expect(merged).toContain("# >>> SKUL:MCP BEGIN");
+    expect(merged).toContain("[mcp_servers.docs]");
+  });
+
+  it("reports the tools whose MCP servers a global install cannot place", async () => {
+    // Given a bundle carrying both a skill and MCP servers
     const homeDir = createHomeDir();
     const cwd = createRepository();
     writeMcpBundle(homeDir);
@@ -822,7 +873,36 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       "---\nname: review\ndescription: Review code\n---\n\nReview.\n",
     );
 
-    // When the bundle is installed globally
+    // When it is installed globally for a tool with no global MCP location
+    const output = await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "cursor", "-y"],
+      {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // Then the skill is installed and the dropped MCP servers are called out
+    expect(pathExists(path.join(homeDir, ".cursor", "skills", "review"))).toBe(
+      true,
+    );
+    expect(output).toContain("MCP servers were skipped for cursor");
+    expect(pathExists(path.join(homeDir, ".cursor", "mcp.json"))).toBe(false);
+  });
+
+  it("subtracts exactly what a global install merged into the user's own configuration", async () => {
+    // Given a ~/.claude.json holding the user's own server and unrelated settings
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(homeDir, ".claude.json"),
+      JSON.stringify({
+        numStartups: 7,
+        mcpServers: { mine: { command: "mine" } },
+      }),
+    );
     await run(
       ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
       {
@@ -831,12 +911,51 @@ describe("skul add with an Agent Plugins mcp.json", () => {
         prompts: createPromptClientStub(),
       },
     );
+    // And the bundle's servers now sit alongside the user's own
+    expect(
+      Object.keys(readMcpServers(path.join(homeDir, ".claude.json"))).sort(),
+    ).toEqual(["docs", "mine", "remote"]);
 
-    // Then the skill is materialized but no MCP configuration is written under home
-    expect(pathExists(path.join(homeDir, ".claude", "skills", "review"))).toBe(
-      true,
-    );
-    expect(pathExists(path.join(homeDir, ".mcp.json"))).toBe(false);
+    // When the bundle is removed globally
+    await run(["remove", "--global", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then only the bundle's servers are gone and the rest of the file survives
+    expect(readJson(path.join(homeDir, ".claude.json"))).toEqual({
+      numStartups: 7,
+      mcpServers: { mine: { command: "mine" } },
+    });
+  });
+
+  it("restores the user-scope Codex config exactly when the global install is removed", async () => {
+    // Given a Codex config that predates a global install
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const existing =
+      '# keep me\nmodel = "gpt-5"\n\n[mcp_servers.mine]\ncommand = "my-server"\n';
+    fs.mkdirSync(path.join(homeDir, ".codex"), { recursive: true });
+    fs.writeFileSync(path.join(homeDir, ".codex", "config.toml"), existing);
+    await run(["add", SOURCE, BUNDLE, "--global", "--agent", "codex", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the bundle is removed globally
+    await run(["remove", "--global", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the file is back to its original content, comments included
+    expect(
+      fs.readFileSync(path.join(homeDir, ".codex", "config.toml"), "utf8"),
+    ).toBe(existing);
   });
 
   it("reports the offending server when the bundle's mcp.json is invalid", async () => {

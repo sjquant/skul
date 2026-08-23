@@ -120,7 +120,7 @@ If SSH authentication fails, Skul prints a hint with the HTTPS equivalent comman
 
 Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 
-For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`.
+For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`. Globally, MCP servers go to `~/.claude.json` (Claude Code) and `~/.codex/config.toml` (Codex); the other tools have no global MCP location and are skipped with a note.
 
 ---
 
@@ -216,7 +216,9 @@ Because two TOML tables of the same name make the whole config unparseable, Skul
 
 If the target file is **tracked by Git** — as `opencode.json` or `.codex/config.toml` often are — Skul creates a tracked shadow instead of a visible diff, the same mechanism root instructions use. The servers are on disk for the tool to read, `git status` stays clean, and `skul shadow --suspend` / `--refresh` bracket Git operations that move `HEAD`. A refresh replays the bundle's servers onto the new committed content, so an upstream change to the file is picked up rather than overwritten.
 
-Two limits apply to shadowed files. Only one bundle may shadow a given tracked file — a shadow renders that bundle's servers onto the committed content, so a second bundle would silently replace the first's, and Skul refuses instead. (Untracked files have no such limit; any number of bundles merge into them.) And MCP servers are project-scoped: `skul add --global` materializes every other target but skips MCP, because the per-tool global stores hold unrelated user state.
+Only one bundle may shadow a given tracked file — a shadow renders that bundle's servers onto the committed content, so a second bundle would silently replace the first's, and Skul refuses instead. (Untracked files have no such limit; any number of bundles merge into them.)
+
+`skul add --global` merges MCP servers into `~/.claude.json` for Claude Code and `~/.codex/config.toml` for Codex. The other tools keep no MCP configuration at a stable global path, so a global install drops their servers and says which tools it skipped.
 
 As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`, `opencode.json`, `.codex/config.toml`), which scopes those servers to that tool alone.
 

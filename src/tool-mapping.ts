@@ -104,6 +104,14 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
+/**
+ * Where each tool keeps its user-scope configuration, relative to the home directory.
+ *
+ * `mcp` is present only for the tools whose global configuration file sits at a
+ * documented, stable path in a format Skul already merges into without
+ * disturbing what it does not own. The rest keep no global MCP location, and a
+ * bundle's servers for them are reported as skipped rather than guessed at.
+ */
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "claude-code",
@@ -112,6 +120,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".claude/commands", kind: "directory" },
       agents: { path: ".claude/agents", kind: "directory" },
       root_instruction: { path: ".claude/CLAUDE.md", kind: "file" },
+      mcp: { path: ".claude.json", kind: "file" },
     },
   },
   {
@@ -138,6 +147,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".agents/skills", kind: "directory" },
       agents: { path: ".codex/agents", kind: "directory" },
       root_instruction: { path: ".codex/AGENTS.md", kind: "file" },
+      mcp: { path: ".codex/config.toml", kind: "file" },
     },
   },
   {

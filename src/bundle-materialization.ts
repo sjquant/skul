@@ -464,9 +464,9 @@ async function materializeRootInstructionTarget(options: {
  * the reverse lookup on removal — resolves it here, because a divergence would
  * silently write a committed file directly instead of shadowing it.
  *
- * Global (`--global`) materialization has no MCP targets: the per-tool global
- * stores either live outside a stable path or hold unrelated user state, so
- * Skul only writes MCP configuration inside a worktree.
+ * Global (`--global`) materialization resolves an MCP path only for the tools
+ * whose global layout declares one; the rest have no stable global location and
+ * return null here, which drops their servers from the write.
  */
 export function resolveMcpRepoRelPath(options: {
   toolName: ToolName;

@@ -43,6 +43,7 @@ import {
   normalizeBundleItemSelectors,
   stripKnownBundleItemExtension,
 } from "./bundle-items";
+import type { BundleManifest } from "./bundle-manifest";
 import {
   type MaterializeBundleResult,
   materializeBundle,
@@ -125,7 +126,10 @@ import {
   GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
   globalCapableToolNames,
+  listGlobalToolDefinitions,
   listToolDefinitions,
+  PROJECT_TOOL_MATERIALIZATION_LAYOUT,
+  type ToolMaterializationLayout,
   type ToolName,
   type ToolTargetName,
 } from "./tool-mapping";
@@ -1034,6 +1038,7 @@ async function removeAllGlobalBundles(options: {
 
   removeManagedPaths(options.homeDir, removedBundlePaths, {
     restoreCommitted: false,
+    pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   });
 
   const rootInstructionBaseContents =
@@ -6590,6 +6595,7 @@ function releaseManagedMcpServers(options: {
   repoRoot: string;
   mcpServers: Record<string, string[]>;
   managedFiles: Set<string>;
+  pathLayout: ToolMaterializationLayout;
 }): Set<string> {
   const releasablePaths = new Set<string>();
 
@@ -6603,7 +6609,11 @@ function releaseManagedMcpServers(options: {
       continue;
     }
 
-    const toolName = findToolNameForMcpPath(options.repoRoot, relativePath);
+    const toolName = findToolNameForMcpPath({
+      repoRoot: options.repoRoot,
+      relativePath,
+      pathLayout: options.pathLayout,
+    });
 
     if (!toolName) {
       console.warn(
@@ -6644,15 +6654,30 @@ function releaseManagedMcpServers(options: {
   return releasablePaths;
 }
 
-function findToolNameForMcpPath(
-  repoRoot: string,
-  relativePath: string,
-): ToolName | undefined {
-  return listToolDefinitions().find(
-    (definition) =>
-      resolveMcpRepoRelPath({ toolName: definition.name, repoRoot }) ===
-      relativePath,
-  )?.name;
+/**
+ * Reverses an MCP configuration path back to the tool that owns it, under the
+ * layout the servers were merged with.
+ *
+ * The path a bundle recorded is the one its own installation wrote, so a global
+ * removal has to look it up in the global layout: the project layout keeps a
+ * tool's MCP configuration somewhere else entirely and would find no owner for
+ * it, leaving the servers behind.
+ */
+function findToolNameForMcpPath(options: {
+  repoRoot: string;
+  relativePath: string;
+  pathLayout: ToolMaterializationLayout;
+}): ToolName | undefined {
+  return listToolDefinitions()
+    .map((definition) => definition.name)
+    .find(
+      (toolName) =>
+        resolveMcpRepoRelPath({
+          toolName,
+          repoRoot: options.repoRoot,
+          pathLayout: options.pathLayout,
+        }) === options.relativePath,
+    );
 }
 
 /**
@@ -6669,12 +6694,17 @@ function removeManagedPaths(
   repoRoot: string,
   state: Parameters<typeof listManagedPathsForRemoval>[0] &
     Pick<ManagedRemovalState, "mcp_servers">,
-  options: { restoreCommitted: boolean },
+  options: {
+    restoreCommitted: boolean;
+    /** The layout the paths being removed were materialized with. */
+    pathLayout?: ToolMaterializationLayout;
+  },
 ): void {
   const releasableMcpPaths = releaseManagedMcpServers({
     repoRoot,
     mcpServers: state.mcp_servers,
     managedFiles: new Set(state.files),
+    pathLayout: options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT,
   });
   const retainedMcpPaths = new Set(
     Object.keys(state.mcp_servers).filter(
@@ -7272,6 +7302,12 @@ async function applyBundleGlobal(options: {
           (t) => !(supportedTools as string[]).includes(t),
         )
       : [];
+  const mcpSkippedTools = listGloballyUnplaceableMcpTools({
+    homeDir: options.homeDir,
+    manifest: preparedBundle.cachedBundle.manifest,
+    tools: availableGlobalTools,
+    itemSelectors: preparedBundle.selectedItems,
+  });
 
   if (options.dryRun) {
     return [
@@ -7283,6 +7319,7 @@ async function applyBundleGlobal(options: {
           ? preparedBundle.selectedItems
           : undefined,
       })}`,
+      ...formatGlobalMcpSkipNotes(mcpSkippedTools),
     ].join("\n");
   }
 
@@ -7402,6 +7439,7 @@ async function applyBundleGlobal(options: {
   if (pathsToReplace) {
     removeManagedPaths(options.homeDir, pathsToReplace, {
       restoreCommitted: false,
+      pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     });
   }
 
@@ -7421,6 +7459,13 @@ async function applyBundleGlobal(options: {
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
     resolvedBundleItemRefs,
+    libraryDir: options.libraryDir,
+    ...(existingBundleState
+      ? {
+          existingMcpServers:
+            flattenBundleState(existingBundleState).mcp_servers,
+        }
+      : {}),
   });
 
   const newBundleState = buildMaterializedBundleState({
@@ -7519,7 +7564,54 @@ async function applyBundleGlobal(options: {
     );
   }
 
+  lines.push(...formatGlobalMcpSkipNotes(mcpSkippedTools));
+
   return lines.join("\n");
+}
+
+/**
+ * Names the tools whose MCP servers a global install cannot place.
+ *
+ * A bundle declares its servers once and Skul writes them per tool, so a tool
+ * with no global MCP location drops them. That is a deliberate omission, not a
+ * failure — the remaining tools are still installed — but it leaves the bundle
+ * partly unconfigured, so the caller says so rather than letting it pass.
+ */
+function listGloballyUnplaceableMcpTools(options: {
+  homeDir: string;
+  manifest: BundleManifest;
+  tools: ToolName[];
+  itemSelectors?: BundleItemSelector[];
+}): ToolName[] {
+  if (!isMcpItemSelected(options.itemSelectors)) {
+    return [];
+  }
+
+  return options.tools.filter(
+    (toolName) =>
+      options.manifest.tools[toolName]?.mcp !== undefined &&
+      resolveMcpRepoRelPath({
+        toolName,
+        repoRoot: options.homeDir,
+        pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
+      }) === null,
+  );
+}
+
+function formatGlobalMcpSkipNotes(skippedTools: ToolName[]): string[] {
+  if (skippedTools.length === 0) {
+    return [];
+  }
+
+  const placeable = listGlobalToolDefinitions()
+    .filter((definition) => definition.targets.mcp !== undefined)
+    .map((definition) => definition.name);
+
+  return [
+    pc.yellow(
+      `Note: MCP servers were skipped for ${skippedTools.join(", ")}: global mode writes MCP configuration only for ${placeable.join(", ")}`,
+    ),
+  ];
 }
 
 function formatAppliedGlobalBundleMessage(options: {
@@ -7861,6 +7953,7 @@ async function removeGlobalBundle(options: {
 
     removeManagedPaths(options.homeDir, bundlePaths, {
       restoreCommitted: false,
+      pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     });
 
     const remainingRootInstructionTargets =
@@ -8400,6 +8493,7 @@ async function resetGlobal(options: {
   for (const bundlePaths of allBundlePaths) {
     removeManagedPaths(options.homeDir, bundlePaths, {
       restoreCommitted: false,
+      pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
     });
   }
 
