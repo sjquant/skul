@@ -16,6 +16,9 @@ import { listToolDefinitions } from "./tool-mapping";
 const SOURCE = "github.com/acme/bundles";
 const BUNDLE = "mcp-bundle";
 
+/** Prefix of the note naming the tools a global install cannot place MCP servers for. */
+const MCP_SKIP_NOTE = "MCP servers were skipped";
+
 const MCP_CONFIG = {
   $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   mcpServers: {
@@ -291,6 +294,29 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     // Then both the hand-written and the bundle's servers are present
     const servers = readMcpServers(path.join(cwd, ".mcp.json"));
     expect(Object.keys(servers).sort()).toEqual(["docs", "mine", "remote"]);
+  });
+
+  it("leaves a restricted configuration's permissions alone when merging into it", async () => {
+    // Given an MCP configuration the user restricted to their own account
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const configFile = path.join(cwd, ".mcp.json");
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ mcpServers: { mine: { command: "mine" } } }),
+    );
+    fs.chmodSync(configFile, 0o600);
+
+    // When a bundle merges its servers into it
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the replaced file still carries the mode the user set
+    expect(fs.statSync(configFile).mode & 0o777).toBe(0o600);
   });
 
   it("restores the hand-written configuration when the bundle is removed", async () => {
@@ -830,7 +856,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       Object.keys(readMcpServers(path.join(homeDir, ".claude.json"))).sort(),
     ).toEqual(["docs", "remote"]);
     expect(pathExists(path.join(homeDir, ".mcp.json"))).toBe(false);
-    expect(output).not.toContain("MCP servers were skipped");
+    expect(output).not.toContain(MCP_SKIP_NOTE);
   });
 
   it("appends a marked block to the user-scope Codex config for a global install", async () => {
@@ -855,9 +881,11 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       path.join(homeDir, ".codex", "config.toml"),
       "utf8",
     );
-    expect(merged.startsWith(existing.trimEnd())).toBe(true);
-    expect(merged).toContain("# >>> SKUL:MCP BEGIN");
+    expect(merged).toContain("# keep me");
     expect(merged).toContain("[mcp_servers.docs]");
+    expect(merged.indexOf("# >>> SKUL:MCP BEGIN")).toBeGreaterThan(
+      merged.indexOf("[mcp_servers.mine]"),
+    );
   });
 
   it("reports the tools whose MCP servers a global install cannot place", async () => {
@@ -887,7 +915,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(pathExists(path.join(homeDir, ".cursor", "skills", "review"))).toBe(
       true,
     );
-    expect(output).toContain("MCP servers were skipped for cursor");
+    expect(output).toContain(`${MCP_SKIP_NOTE} for cursor`);
     expect(pathExists(path.join(homeDir, ".cursor", "mcp.json"))).toBe(false);
   });
 
@@ -956,6 +984,91 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(
       fs.readFileSync(path.join(homeDir, ".codex", "config.toml"), "utf8"),
     ).toBe(existing);
+  });
+
+  it("drops a server the bundle no longer declares when a global install is repeated", async () => {
+    // Given a bundle installed globally beside a server the user added themselves
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(homeDir, ".claude.json"),
+      JSON.stringify({ mcpServers: { mine: { command: "mine" } } }),
+    );
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+
+    // When the bundle withdraws one server and is installed globally again
+    writeMcpBundle(homeDir, {
+      mcpServers: {
+        remote: { type: "streamable-http", url: "https://example.com/mcp" },
+      },
+    });
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+
+    // Then the withdrawn server is gone and the user's own is left alone
+    expect(
+      Object.keys(readMcpServers(path.join(homeDir, ".claude.json"))).sort(),
+    ).toEqual(["mine", "remote"]);
+  });
+
+  it("subtracts a global bundle's servers from the user's own file on remove --all", async () => {
+    // Given a globally installed bundle sharing ~/.claude.json with the user
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(homeDir, ".claude.json"),
+      JSON.stringify({ mcpServers: { mine: { command: "mine" } } }),
+    );
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+
+    // When every global bundle is removed at once
+    await run(["remove", "--global", "--all", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then only the user's own server is left behind
+    expect(readJson(path.join(homeDir, ".claude.json"))).toEqual({
+      mcpServers: { mine: { command: "mine" } },
+    });
+  });
+
+  it("subtracts a global bundle's servers from the user's own file on reset --global", async () => {
+    // Given a globally installed bundle sharing ~/.claude.json with the user
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(
+      path.join(homeDir, ".claude.json"),
+      JSON.stringify({ mcpServers: { mine: { command: "mine" } } }),
+    );
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+
+    // When the global installation is reset
+    await run(["reset", "--global", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then only the user's own server is left behind
+    expect(readJson(path.join(homeDir, ".claude.json"))).toEqual({
+      mcpServers: { mine: { command: "mine" } },
+    });
   });
 
   it("reports the offending server when the bundle's mcp.json is invalid", async () => {

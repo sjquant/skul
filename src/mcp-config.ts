@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveBundleDataDir } from "./state-layout";
-import type { ToolName } from "./tool-mapping";
+import { listGlobalToolDefinitions, type ToolName } from "./tool-mapping";
 
 /**
  * Bundle-root file holding MCP server declarations, as defined by the Agent
@@ -194,6 +194,24 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
 
 const TOML_BLOCK_BEGIN = "# >>> SKUL:MCP BEGIN — managed by skul, do not edit";
 const TOML_BLOCK_END = "# <<< SKUL:MCP END";
+
+/**
+ * Names the tools whose MCP configuration a global install can write.
+ *
+ * A tool qualifies only when the global layout gives it a location and Skul
+ * knows the dialect of that file — the same pair of conditions
+ * `resolveMcpRepoRelPath` resolves against. Both halves of the skip note read
+ * this one predicate so they cannot disagree about a tool.
+ */
+export function globalMcpCapableToolNames(): ToolName[] {
+  return listGlobalToolDefinitions()
+    .filter(
+      (definition) =>
+        definition.targets.mcp !== undefined &&
+        supportsMcpConfig(definition.name),
+    )
+    .map((definition) => definition.name);
+}
 
 /** Returns true when the tool has a known MCP configuration file and dialect. */
 export function supportsMcpConfig(toolName: ToolName): boolean {

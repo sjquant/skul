@@ -220,6 +220,8 @@ Only one bundle may shadow a given tracked file — a shadow renders that bundle
 
 `skul add --global` merges MCP servers into `~/.claude.json` for Claude Code and `~/.codex/config.toml` for Codex. The other tools keep no MCP configuration at a stable global path, so a global install drops their servers and says which tools it skipped.
 
+`~/.claude.json` is one Claude Code rewrites while it runs. Skul reads it, merges, and replaces it in one atomic rename, so it never leaves a half-written file — but a running session that writes between the read and the rename loses that write. Run `skul add --global`, `skul remove --global`, and `skul reset --global` with Claude Code closed.
+
 As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`, `opencode.json`, `.codex/config.toml`), which scopes those servers to that tool alone.
 
 ### Cross-Repo Bundle Item References

@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   extractMcpOverlay,
+  globalMcpCapableToolNames,
   mergeMcpConfigDocument,
   mergeRenderedMcpServers,
   parseMcpConfig,
   subtractMcpConfigServers,
   supportsMcpConfig,
 } from "./mcp-config";
-import { listToolDefinitions } from "./tool-mapping";
+import { listGlobalToolDefinitions, listToolDefinitions } from "./tool-mapping";
 
 const PLUGIN_PATHS = {
   pluginRoot: "/library/github.com/acme/bundles/react",
@@ -785,6 +786,19 @@ describe("MCP dialect coverage", () => {
     // Then the two sets agree, so no tool can be given a path without a dialect
     expect(toolsWithDialect).toEqual(toolsWithMcpTarget);
     expect(toolsWithMcpTarget.length).toBeGreaterThan(0);
+  });
+
+  it("can write globally for exactly the tools the global layout gives a location", () => {
+    // Given the tools whose global layout declares where MCP configuration lives
+    const globalToolsWithMcpTarget = listGlobalToolDefinitions()
+      .filter((definition) => definition.targets.mcp)
+      .map((definition) => definition.name);
+
+    // When those are compared with the tools a global install writes for
+    // Then no tool can be given a global path Skul has no dialect for, which
+    // would otherwise be reported as both skipped and supported at once
+    expect(globalMcpCapableToolNames()).toEqual(globalToolsWithMcpTarget);
+    expect(globalToolsWithMcpTarget.length).toBeGreaterThan(0);
   });
 
   it("declares no MCP target for tools it cannot render configuration for", () => {

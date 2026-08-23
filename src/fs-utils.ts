@@ -26,22 +26,29 @@ export function escapeRegExp(value: string): string {
  *
  * Skul merges into configuration files it shares with the user, where a partial
  * write would destroy settings it does not own. The temporary file is created
- * beside the target so the rename stays within one filesystem, and an existing
- * file's mode is carried over.
+ * beside the target so the rename stays within one filesystem, and at the
+ * target's own mode rather than the ambient umask default, so a configuration
+ * the user restricted — a home-directory file holding account details, say — is
+ * never briefly world-readable while the copy sits beside the original.
  */
 export function writeFileAtomic(filePath: string, content: string): void {
   const tempPath = path.join(
     path.dirname(filePath),
     `.${path.basename(filePath)}.skul-${process.pid}-${Date.now()}`,
   );
+  const existingMode = readFilePermissions(filePath);
 
   try {
-    fs.writeFileSync(tempPath, content);
+    fs.writeFileSync(
+      tempPath,
+      content,
+      existingMode === undefined ? {} : { mode: existingMode },
+    );
 
-    try {
-      fs.chmodSync(tempPath, fs.statSync(filePath).mode);
-    } catch {
-      // No existing file to inherit a mode from.
+    if (existingMode !== undefined) {
+      // The umask masks a creation mode, so the file only reaches the target's
+      // exact permissions once they are set outright.
+      fs.chmodSync(tempPath, existingMode);
     }
 
     fs.renameSync(tempPath, filePath);
@@ -53,5 +60,14 @@ export function writeFileAtomic(filePath: string, content: string): void {
     }
 
     throw error;
+  }
+}
+
+/** Returns an existing file's permission bits, or undefined when it has none. */
+function readFilePermissions(filePath: string): number | undefined {
+  try {
+    return fs.statSync(filePath).mode & 0o7777;
+  } catch {
+    return undefined;
   }
 }
