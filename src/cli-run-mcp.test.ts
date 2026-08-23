@@ -901,9 +901,10 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       "---\nname: review\ndescription: Review code\n---\n\nReview.\n",
     );
 
-    // When it is installed globally for a tool with no global MCP location
+    // When it is installed globally for Copilot, whose user-scope MCP file lives
+    // in the VS Code profile directory rather than anywhere under the home root
     const output = await run(
-      ["add", SOURCE, BUNDLE, "--global", "--agent", "cursor", "-y"],
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "copilot", "-y"],
       {
         homeDir,
         cwd,
@@ -912,11 +913,11 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     );
 
     // Then the skill is installed and the dropped MCP servers are called out
-    expect(pathExists(path.join(homeDir, ".cursor", "skills", "review"))).toBe(
+    expect(pathExists(path.join(homeDir, ".github", "skills", "review"))).toBe(
       true,
     );
-    expect(output).toContain(`${MCP_SKIP_NOTE} for cursor`);
-    expect(pathExists(path.join(homeDir, ".cursor", "mcp.json"))).toBe(false);
+    expect(output).toContain(`${MCP_SKIP_NOTE} for copilot`);
+    expect(pathExists(path.join(homeDir, ".vscode", "mcp.json"))).toBe(false);
   });
 
   it("subtracts exactly what a global install merged into the user's own configuration", async () => {
@@ -984,6 +985,45 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(
       fs.readFileSync(path.join(homeDir, ".codex", "config.toml"), "utf8"),
     ).toBe(existing);
+  });
+
+  it("merges into OpenCode's user config without disturbing the settings beside it", async () => {
+    // Given a ~/.config/opencode/opencode.json holding the user's model choice
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    const configFile = path.join(
+      homeDir,
+      ".config",
+      "opencode",
+      "opencode.json",
+    );
+    fs.mkdirSync(path.dirname(configFile), { recursive: true });
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ model: "anthropic/claude-opus-5" }),
+    );
+
+    // When the bundle is installed globally for OpenCode and then removed
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "opencode", "-y"],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+    // And the servers arrive under OpenCode's own key, in its own dialect
+    const merged = readJson(configFile) as {
+      mcp: Record<string, { type: string }>;
+    };
+    expect(Object.keys(merged.mcp).sort()).toEqual(["docs", "remote"]);
+    expect(merged.mcp.docs!.type).toBe("local");
+
+    await run(["remove", "--global", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the user's own settings are all that is left
+    expect(readJson(configFile)).toEqual({ model: "anthropic/claude-opus-5" });
   });
 
   it("drops a server the bundle no longer declares when a global install is repeated", async () => {

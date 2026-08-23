@@ -107,10 +107,12 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
 /**
  * Where each tool keeps its user-scope configuration, relative to the home directory.
  *
- * `mcp` is present only for the tools whose global configuration file sits at a
- * documented, stable path in a format Skul already merges into without
- * disturbing what it does not own. The rest keep no global MCP location, and a
- * bundle's servers for them are reported as skipped rather than guessed at.
+ * `mcp` is present for every tool that documents a user-scope MCP location under
+ * the home directory. Copilot is the exception: its user configuration lives in
+ * the VS Code profile directory, whose path differs per platform and per profile
+ * (`~/Library/Application Support/Code/User/mcp.json` on macOS), so no
+ * home-relative path names it. A bundle's servers for such a tool are reported
+ * as skipped rather than guessed at.
  */
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -130,6 +132,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".cursor/commands", kind: "directory" },
       agents: { path: ".cursor/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".cursor/mcp.json", kind: "file" },
     },
   },
   {
@@ -139,6 +142,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".config/opencode/commands", kind: "directory" },
       agents: { path: ".config/opencode/agents", kind: "directory" },
       root_instruction: { path: ".config/opencode/AGENTS.md", kind: "file" },
+      mcp: { path: ".config/opencode/opencode.json", kind: "file" },
     },
   },
   {
@@ -167,6 +171,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".kiro/skills", kind: "directory" },
       agents: { path: ".kiro/agents", kind: "directory" },
       root_instruction: { path: ".kiro/steering/AGENTS.md", kind: "file" },
+      mcp: { path: ".kiro/settings/mcp.json", kind: "file" },
     },
   },
   {
