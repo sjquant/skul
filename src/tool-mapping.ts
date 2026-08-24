@@ -109,11 +109,14 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
  * Where each tool keeps its user-scope configuration, relative to the home directory.
  *
  * `mcp` is present for every tool that documents a user-scope MCP location under
- * the home directory. Copilot is the exception: its user configuration lives in
- * the VS Code profile directory, whose path differs per platform and per profile
- * (`~/Library/Application Support/Code/User/mcp.json` on macOS), so no
- * home-relative path names it. A bundle's servers for such a tool are reported
- * as skipped rather than guessed at.
+ * the home directory. Copilot is the exception: the user configuration for the
+ * surface Skul targets — VS Code, whose workspace file is `.vscode/mcp.json` —
+ * is an `mcp.json` in the VS Code profile folder, whose path differs per
+ * platform and per profile, so no home-relative path names it. VS Code also
+ * documents `~/.copilot/mcp-config.json`, but that belongs to the Copilot CLI's
+ * Agent Host, a different product with its own dialect, and writing a bundle's
+ * servers there would silently install them into a tool the user did not ask
+ * for. A bundle's servers for Copilot are reported as skipped instead.
  */
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
