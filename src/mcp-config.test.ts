@@ -10,6 +10,7 @@ import {
   supportsMcpConfig,
 } from "./mcp-config";
 import {
+  globalCapableToolNames,
   listGlobalToolDefinitions,
   listToolDefinitions,
   type ToolName,
@@ -834,6 +835,16 @@ describe("MCP dialect coverage", () => {
     // would otherwise be reported as both skipped and supported at once
     expect(globalMcpCapableToolNames()).toEqual(globalToolsWithMcpTarget);
     expect(globalToolsWithMcpTarget.length).toBeGreaterThan(0);
+  });
+
+  it("places MCP servers for every globally installable tool", () => {
+    // Given every tool a global install can target
+
+    // When those are compared with the tools a global install writes MCP for
+    // Then none is left out, so no bundle has its servers dropped by a global
+    // install. `skul add --global` still carries a note naming any tool it
+    // cannot place servers for; this is what keeps that note unreachable.
+    expect(globalMcpCapableToolNames()).toEqual(globalCapableToolNames());
   });
 
   it("declares no MCP target for tools it cannot render configuration for", () => {

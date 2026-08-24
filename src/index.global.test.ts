@@ -1836,13 +1836,13 @@ describe("run --global", () => {
     ).toBe(true);
   });
 
-  it("writes copilot root instruction to ~/.github/copilot-instructions.md", async () => {
+  it("writes Copilot CLI root instruction to ~/.copilot/copilot-instructions.md", async () => {
     // Given
     const homeDir = createHomeDir();
     writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
       name: "team-guide",
       tools: {
-        copilot: { root_instruction: { path: "AGENTS.md" } },
+        "copilot-cli": { root_instruction: { path: "AGENTS.md" } },
       },
     });
     writeBundleFile(
@@ -1856,9 +1856,13 @@ describe("run --global", () => {
     // When
     const output = await run(["add", "--global", "team-guide"], { homeDir });
 
-    // Then: root instruction lands at the copilot-native global path
-    expect(output).toContain("Applied team-guide globally for copilot");
-    const targetPath = path.join(homeDir, ".github", "copilot-instructions.md");
+    // Then: root instruction lands at the CLI's own global path
+    expect(output).toContain("Applied team-guide globally for copilot-cli");
+    const targetPath = path.join(
+      homeDir,
+      ".copilot",
+      "copilot-instructions.md",
+    );
     expect(fs.existsSync(targetPath)).toBe(true);
     expect(fs.readFileSync(targetPath, "utf8")).toBe(
       formatExpectedRootInstructionDocument(
@@ -1965,13 +1969,13 @@ describe("run --global", () => {
     ).toBe("# native agent\n");
   });
 
-  it("splits a bundle supporting both copilot and antigravity into their respective global paths", async () => {
+  it("splits a bundle supporting both Copilot CLI and antigravity into their respective global paths", async () => {
     // Given
     const homeDir = createHomeDir();
     writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
       name: "team-guide",
       tools: {
-        copilot: { root_instruction: { path: "AGENTS.md" } },
+        "copilot-cli": { root_instruction: { path: "AGENTS.md" } },
         antigravity: { root_instruction: { path: "AGENTS.md" } },
       },
     });
@@ -1986,10 +1990,10 @@ describe("run --global", () => {
     // When
     await run(["add", "--global", "team-guide"], { homeDir });
 
-    // Then: copilot goes to .github/copilot-instructions.md
+    // Then: Copilot CLI goes to .copilot/copilot-instructions.md
     const copilotPath = path.join(
       homeDir,
-      ".github",
+      ".copilot",
       "copilot-instructions.md",
     );
     expect(fs.existsSync(copilotPath)).toBe(true);
@@ -2563,14 +2567,13 @@ describe("run --global", () => {
         "cursor",
         "opencode",
         "codex",
-        "copilot",
         "copilot-cli",
         "kiro",
         "antigravity",
       ]),
     );
     // Crucially, the tools list is the REPLACED set (all auto-selected), not claude-code alone
-    expect(registry.global!.desired_state[0]!.tools).toHaveLength(8);
+    expect(registry.global!.desired_state[0]!.tools).toHaveLength(7);
   });
 
   it("unions desired tools when re-applying with an explicit --agent flag", async () => {
@@ -2609,7 +2612,7 @@ describe("run --global", () => {
     ]);
 
     // When: re-apply with an explicit different --agent (should union)
-    await run(["add", "--global", "--agent", "copilot", "team-guide"], {
+    await run(["add", "--global", "--agent", "copilot-cli", "team-guide"], {
       homeDir,
     });
 
@@ -2618,7 +2621,7 @@ describe("run --global", () => {
       path.join(homeDir, ".skul", "registry.json"),
     );
     expect(registry.global!.desired_state[0]!.tools).toEqual(
-      expect.arrayContaining(["claude-code", "copilot"]),
+      expect.arrayContaining(["claude-code", "copilot-cli"]),
     );
   });
 

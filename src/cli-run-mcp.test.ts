@@ -888,38 +888,6 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     );
   });
 
-  it("reports the tools whose MCP servers a global install cannot place", async () => {
-    // Given a bundle carrying both a skill and MCP servers
-    const homeDir = createHomeDir();
-    const cwd = createRepository();
-    writeMcpBundle(homeDir);
-    writeBundleFile(
-      homeDir,
-      SOURCE,
-      BUNDLE,
-      "skills/review/SKILL.md",
-      "---\nname: review\ndescription: Review code\n---\n\nReview.\n",
-    );
-
-    // When it is installed globally for Copilot, whose user-scope MCP file lives
-    // in the VS Code profile directory rather than anywhere under the home root
-    const output = await run(
-      ["add", SOURCE, BUNDLE, "--global", "--agent", "copilot", "-y"],
-      {
-        homeDir,
-        cwd,
-        prompts: createPromptClientStub(),
-      },
-    );
-
-    // Then the skill is installed and the dropped MCP servers are called out
-    expect(pathExists(path.join(homeDir, ".github", "skills", "review"))).toBe(
-      true,
-    );
-    expect(output).toContain(`${MCP_SKIP_NOTE} for copilot`);
-    expect(pathExists(path.join(homeDir, ".vscode", "mcp.json"))).toBe(false);
-  });
-
   it("subtracts exactly what a global install merged into the user's own configuration", async () => {
     // Given a ~/.claude.json holding the user's own server and unrelated settings
     const homeDir = createHomeDir();

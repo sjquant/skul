@@ -172,19 +172,15 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
-    name: "copilot",
-    targets: {
-      skills: { path: ".github/skills", kind: "directory" },
-      agents: { path: ".github/agents", kind: "directory" },
-      root_instruction: {
-        path: ".github/copilot-instructions.md",
-        kind: "file",
-      },
-    },
-  },
-  {
-    // Unlike Copilot in VS Code, the CLI keeps its user-scope configuration in
-    // one documented home directory, so every target has a global location.
+    // Copilot in VS Code has no global entry. Its user-scope customizations
+    // live in the VS Code profile folder, which no home-relative path names,
+    // and every Copilot location that *is* home-relative — `~/.copilot/skills`
+    // among them — belongs to the Agent Host that `copilot-cli` models. VS Code
+    // reads those too, so installing globally for `copilot-cli` serves both;
+    // a second entry here would only write the same files twice.
+    //
+    // The CLI keeps its user-scope configuration in one documented directory,
+    // so every one of its targets has a global location.
     name: "copilot-cli",
     targets: {
       skills: { path: ".copilot/skills", kind: "directory" },

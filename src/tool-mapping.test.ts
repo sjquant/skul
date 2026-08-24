@@ -188,12 +188,14 @@ describe("resolveToolTargetPath", () => {
 describe("globalCapableToolNames", () => {
   it("returns tools that support global installation", () => {
     // Given / When / Then
+    // Copilot in VS Code is absent: its user-scope customizations live in the
+    // VS Code profile folder, and the home-relative Copilot paths belong to the
+    // Agent Host that `copilot-cli` covers.
     expect(globalCapableToolNames()).toEqual([
       "claude-code",
       "cursor",
       "opencode",
       "codex",
-      "copilot",
       "copilot-cli",
       "kiro",
       "antigravity",
@@ -258,16 +260,17 @@ describe("getGlobalToolDefinition", () => {
       },
     ],
     [
-      "copilot",
+      "copilot-cli",
       {
-        name: "copilot",
+        name: "copilot-cli",
         targets: {
-          skills: { path: ".github/skills", kind: "directory" },
-          agents: { path: ".github/agents", kind: "directory" },
+          skills: { path: ".copilot/skills", kind: "directory" },
+          agents: { path: ".copilot/agents", kind: "directory" },
           root_instruction: {
-            path: ".github/copilot-instructions.md",
+            path: ".copilot/copilot-instructions.md",
             kind: "file",
           },
+          mcp: { path: ".copilot/mcp-config.json", kind: "file" },
         },
       },
     ],
@@ -345,10 +348,10 @@ describe("buildGlobalRepoRelPathRemapper", () => {
     expect(remap("claude-code", "CLAUDE.md")).toBe(".claude/CLAUDE.md");
   });
 
-  it("remaps copilot root instruction from AGENTS.md to .github/copilot-instructions.md", () => {
+  it("remaps Copilot CLI root instruction from AGENTS.md into its home directory", () => {
     const remap = buildGlobalRepoRelPathRemapper();
-    expect(remap("copilot", "AGENTS.md")).toBe(
-      ".github/copilot-instructions.md",
+    expect(remap("copilot-cli", "AGENTS.md")).toBe(
+      ".copilot/copilot-instructions.md",
     );
   });
 
