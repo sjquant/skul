@@ -158,7 +158,8 @@ const COMMANDS: CommandName[] = [
 const PROGRAM_HELP_DETAILS = [
   "",
   "Root instructions:",
-  "  cursor, codex, opencode, kiro, copilot, and antigravity target AGENTS.md; globally, codex targets .codex/AGENTS.md, opencode targets .config/opencode/AGENTS.md, kiro targets .kiro/steering/AGENTS.md, copilot targets .github/copilot-instructions.md, and antigravity targets .gemini/GEMINI.md; claude-code targets CLAUDE.md.",
+  "  cursor, codex, opencode, kiro, copilot, copilot-cli, and antigravity target AGENTS.md; globally, codex targets .codex/AGENTS.md, opencode targets .config/opencode/AGENTS.md, kiro targets .kiro/steering/AGENTS.md, copilot-cli targets .copilot/copilot-instructions.md, and antigravity targets .gemini/GEMINI.md; claude-code targets CLAUDE.md.",
+  "  copilot has no global layout: VS Code keeps its user-scope files in the profile folder, so use --agent copilot-cli, which VS Code reads too.",
   "  Untracked root instructions are composed locally and hidden through .git/info/exclude.",
   "  Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
   "",

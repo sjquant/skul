@@ -127,7 +127,6 @@ import {
   GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
   globalCapableToolNames,
-  listToolDefinitions,
   type ToolName,
   type ToolTargetName,
 } from "./tool-mapping";

@@ -46,6 +46,7 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import { globalCapableToolNames, listToolDefinitions } from "./tool-mapping";
 
 describe("run", () => {
   it("renders usage for bare invocations", async () => {
@@ -60,6 +61,28 @@ describe("run", () => {
     expect(output).toContain("Commands:");
     expect(output).toContain("Root instructions:");
     expect(output).toContain("Safety and recovery:");
+  });
+
+  it("promises no global root instruction path for a tool global mode rejects", async () => {
+    // Given the usage line describing where root instructions land globally
+    const output = await run([]);
+    const globalLine = output
+      .split("\n")
+      .find((line) => line.includes("globally,"));
+
+    // When the tools a global install rejects are looked for in it
+    const rejected = listToolDefinitions()
+      .map((definition) => definition.name)
+      .filter((toolName) => !globalCapableToolNames().includes(toolName));
+
+    // Then none is described as having a global target, so following the help
+    // cannot land on `Global mode only supports: ...`
+    expect(rejected).not.toEqual([]);
+    expect(
+      rejected.filter((toolName) =>
+        globalLine?.includes(`${toolName} targets`),
+      ),
+    ).toEqual([]);
   });
 
   it("routes command help through run", async () => {
