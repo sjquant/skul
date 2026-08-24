@@ -2564,12 +2564,13 @@ describe("run --global", () => {
         "opencode",
         "codex",
         "copilot",
+        "copilot-cli",
         "kiro",
         "antigravity",
       ]),
     );
     // Crucially, the tools list is the REPLACED set (all auto-selected), not claude-code alone
-    expect(registry.global!.desired_state[0]!.tools).toHaveLength(7);
+    expect(registry.global!.desired_state[0]!.tools).toHaveLength(8);
   });
 
   it("unions desired tools when re-applying with an explicit --agent flag", async () => {

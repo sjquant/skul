@@ -364,6 +364,24 @@ describe("dialect matrix", () => {
       { type: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
     ],
     [
+      "copilot-cli",
+      "mcpServers",
+      {
+        type: "local",
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+        tools: ["*"],
+      },
+      {
+        type: "sse",
+        url: "https://x/sse",
+        headers: { "X-Key": "v" },
+        tools: ["*"],
+      },
+    ],
+    [
       "kiro",
       "mcpServers",
       {

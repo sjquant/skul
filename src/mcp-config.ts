@@ -190,6 +190,24 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       ...(server.headers ? { http_headers: server.headers } : {}),
     }),
   },
+  "copilot-cli": {
+    format: "json",
+    serversKey: "mcpServers",
+    // The CLI names a stdio server `local` and, unlike VS Code, keys its
+    // servers under `mcpServers`. `tools` gates which of a server's tools the
+    // agent may call; every documented example opts into all of them.
+    renderStdio: (server, paths) => ({
+      ...renderConventionalStdio(server, paths, "local"),
+      tools: ["*"],
+    }),
+    renderRemote: (server) => ({
+      ...renderConventionalRemote(
+        server,
+        server.transport === "sse" ? "sse" : "http",
+      ),
+      tools: ["*"],
+    }),
+  },
   antigravity: {
     format: "json",
     serversKey: "mcpServers",

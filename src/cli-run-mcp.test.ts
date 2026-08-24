@@ -1059,6 +1059,76 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(pathExists(configFile)).toBe(false);
   });
 
+  it("installs Copilot CLI into its own home directory, not Copilot's project layout", async () => {
+    // Given a bundle carrying both a skill and MCP servers
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      BUNDLE,
+      "skills/review/SKILL.md",
+      "---\nname: review\ndescription: Review code\n---\n\nReview.\n",
+    );
+
+    // When it is installed globally for Copilot CLI
+    const output = await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "copilot-cli", "-y"],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+
+    // Then everything lands under ~/.copilot, and nothing is reported as skipped
+    expect(pathExists(path.join(homeDir, ".copilot", "skills", "review"))).toBe(
+      true,
+    );
+    expect(pathExists(path.join(homeDir, ".github", "skills"))).toBe(false);
+    expect(output).not.toContain(MCP_SKIP_NOTE);
+
+    // And the servers use the CLI's vocabulary, which is not VS Code's
+    const config = readJson(
+      path.join(homeDir, ".copilot", "mcp-config.json"),
+    ) as { mcpServers: Record<string, Record<string, unknown>> };
+    expect(Object.keys(config.mcpServers).sort()).toEqual(["docs", "remote"]);
+    expect(config.mcpServers.docs).toMatchObject({
+      type: "local",
+      tools: ["*"],
+    });
+    expect(config).not.toHaveProperty("servers");
+  });
+
+  it("keeps Copilot's and Copilot CLI's MCP configurations in separate files", async () => {
+    // Given a bundle installed for both Copilot surfaces at once
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+
+    // When it is added for VS Code Copilot and for the CLI
+    await run(
+      [
+        "add",
+        SOURCE,
+        BUNDLE,
+        "--agent",
+        "copilot",
+        "--agent",
+        "copilot-cli",
+        "-y",
+      ],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+
+    // Then each gets its own file under its own key, neither overwriting the
+    // other: VS Code reads `servers` in .vscode/mcp.json, the CLI reads
+    // `mcpServers` in .github/mcp.json
+    expect(readJson(path.join(cwd, ".vscode", "mcp.json"))).toHaveProperty(
+      "servers",
+    );
+    expect(readJson(path.join(cwd, ".github", "mcp.json"))).toHaveProperty(
+      "mcpServers",
+    );
+  });
+
   it("drops a server the bundle no longer declares when a global install is repeated", async () => {
     // Given a bundle installed globally beside a server the user added themselves
     const homeDir = createHomeDir();

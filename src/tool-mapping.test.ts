@@ -22,6 +22,7 @@ describe("listToolDefinitions", () => {
       "opencode",
       "codex",
       "copilot",
+      "copilot-cli",
       "kiro",
       "antigravity",
     ]);
@@ -193,6 +194,7 @@ describe("globalCapableToolNames", () => {
       "opencode",
       "codex",
       "copilot",
+      "copilot-cli",
       "kiro",
       "antigravity",
     ]);

@@ -115,12 +115,13 @@ If SSH authentication fails, Skul prints a hint with the HTTPS equivalent comman
 | **[OpenCode](https://opencode.ai)** | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `AGENTS.md` | `opencode.json` |
 | **[Codex](https://openai.com/index/openai-codex)** | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | `.codex/config.toml` |
 | **[GitHub Copilot](https://github.com/features/copilot)** | `.github/skills` | — | `.github/agents` | `.github/copilot-instructions.md` | `.vscode/mcp.json` |
+| **[Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli)** | `.github/skills` | — | `.github/agents` | `AGENTS.md` | `.github/mcp.json` |
 | **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
 | **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
 
 Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 
-For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`. Globally, MCP servers go to each tool's own user-scope configuration: `~/.claude.json`, `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.codex/config.toml`, `~/.kiro/settings/mcp.json`, and `~/.gemini/config/mcp_config.json`. Copilot is skipped with a note: VS Code keeps its user `mcp.json` in the profile folder, which has no home-relative path.
+For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`. Copilot CLI keeps all of its user-scope configuration in one place, so a global install writes `~/.copilot/skills`, `~/.copilot/agents`, and `~/.copilot/copilot-instructions.md`. Globally, MCP servers go to each tool's own user-scope configuration: `~/.claude.json`, `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.codex/config.toml`, `~/.kiro/settings/mcp.json`, `~/.gemini/config/mcp_config.json`, and `~/.copilot/mcp-config.json`. Copilot in VS Code is skipped with a note: it keeps its user `mcp.json` in the profile folder, which has no home-relative path.
 
 ---
 
@@ -190,7 +191,7 @@ A bundle can declare MCP servers in an `mcp.json` at the bundle root, using the 
 }
 ```
 
-Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers`, `servers`, or `mcp`) and the transport spelling. `streamable-http` becomes `http` for Claude Code and Copilot; Cursor and Kiro infer the transport from `url` and get no `type`; Antigravity infers it too but names the endpoint `serverUrl`, the only spelling it accepts; OpenCode uses `local`/`remote` and folds `command` and `args` into one array; Codex uses TOML `[mcp_servers.<name>]` tables with `http_headers`. Select it as a bundle item with `--include mcp`.
+Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers`, `servers`, or `mcp`) and the transport spelling. `streamable-http` becomes `http` for Claude Code and Copilot; Copilot CLI keys its servers under `mcpServers` rather than VS Code's `servers`, calls a stdio server `local`, and gates each server's tools with `tools: ["*"]`; Cursor and Kiro infer the transport from `url` and get no `type`; Antigravity infers it too but names the endpoint `serverUrl`, the only spelling it accepts; OpenCode uses `local`/`remote` and folds `command` and `args` into one array; Codex uses TOML `[mcp_servers.<name>]` tables with `http_headers`. Select it as a bundle item with `--include mcp`.
 
 `${PLUGIN_ROOT}` expands to the bundle's directory in `~/.skul/library/`, and `${PLUGIN_DATA}` to a per-bundle directory under `~/.skul/data/`. Both are substituted in `args`, `env` values, and `cwd`; `command` is left verbatim so it stays a single executable token. Skul resolves the data directory but does not create it.
 
@@ -218,11 +219,11 @@ If the target file is **tracked by Git** — as `opencode.json` or `.codex/confi
 
 Only one bundle may shadow a given tracked file — a shadow renders that bundle's servers onto the committed content, so a second bundle would silently replace the first's, and Skul refuses instead. (Untracked files have no such limit; any number of bundles merge into them.)
 
-`skul add --global` merges MCP servers into each tool's user-scope configuration — `~/.claude.json` (Claude Code), `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.codex/config.toml`, `~/.kiro/settings/mcp.json`, and `~/.gemini/config/mcp_config.json` (Antigravity) — using the same dialect and merge rules as a project install. Copilot has no such path. VS Code — the surface Skul's `copilot` targets, via `.vscode/mcp.json` — keeps its user `mcp.json` in the profile folder, whose location differs per platform and per profile. The home-relative `~/.copilot/mcp-config.json` that VS Code also documents belongs to the Copilot CLI's Agent Host, a separate product Skul does not model, so a global install drops Copilot's servers and says so rather than writing them somewhere the user did not ask for.
+`skul add --global` merges MCP servers into each tool's user-scope configuration — `~/.claude.json` (Claude Code), `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.codex/config.toml`, `~/.kiro/settings/mcp.json`, `~/.gemini/config/mcp_config.json` (Antigravity), and `~/.copilot/mcp-config.json` (Copilot CLI) — using the same dialect and merge rules as a project install. Copilot in VS Code is the one tool with no such path: it keeps its user `mcp.json` in the profile folder, whose location differs per platform and per profile, so a global install drops its servers and says so. Reach the terminal agent with `--agent copilot-cli` instead — it is a separate tool here because it reads a different file in a different dialect.
 
 `~/.claude.json` is one Claude Code rewrites while it runs. Skul reads it, merges, and replaces it in one atomic rename, so it never leaves a half-written file — but a running session that writes between the read and the rename loses that write. Run `skul add --global`, `skul remove --global`, and `skul reset --global` with Claude Code closed.
 
-As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`, `.agents/mcp_config.json`, `opencode.json`, `.codex/config.toml`), which scopes those servers to that tool alone.
+As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.kiro/settings/mcp.json`, `.agents/mcp_config.json`, `.github/mcp.json`, `opencode.json`, `.codex/config.toml`), which scopes those servers to that tool alone.
 
 ### Cross-Repo Bundle Item References
 

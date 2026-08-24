@@ -706,6 +706,10 @@ function unsupportedTargetPath(tool: string, target: string): never {
 /** Maps a ToolName (e.g. "claude-code") to the internal translation name (e.g. "claude"). */
 export function toTranslationToolName(toolName: ToolName): SkillTool {
   if (toolName === "claude-code") return "claude";
+  // Copilot CLI reads the same repository files as Copilot in VS Code, in the
+  // same formats — `.agent.md` agents, `SKILL.md` skills. Only where its MCP
+  // configuration lives sets it apart, and that is not translated content.
+  if (toolName === "copilot-cli") return "copilot";
   return toolName;
 }
 

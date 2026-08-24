@@ -6,6 +6,7 @@ export type ToolName =
   | "opencode"
   | "codex"
   | "copilot"
+  | "copilot-cli"
   | "kiro"
   | "antigravity";
 export type ToolTargetName =
@@ -82,6 +83,18 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       agents: { path: ".github/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
       mcp: { path: ".vscode/mcp.json", kind: "file" },
+    },
+  },
+  {
+    // Copilot CLI reads the same repository files as Copilot in VS Code, so
+    // only its MCP configuration sets it apart here: the CLI does not read
+    // `.vscode/mcp.json`, and the file it does read speaks a different dialect.
+    name: "copilot-cli",
+    targets: {
+      skills: { path: ".github/skills", kind: "directory" },
+      agents: { path: ".github/agents", kind: "directory" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".github/mcp.json", kind: "file" },
     },
   },
   {
@@ -167,6 +180,20 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
         path: ".github/copilot-instructions.md",
         kind: "file",
       },
+    },
+  },
+  {
+    // Unlike Copilot in VS Code, the CLI keeps its user-scope configuration in
+    // one documented home directory, so every target has a global location.
+    name: "copilot-cli",
+    targets: {
+      skills: { path: ".copilot/skills", kind: "directory" },
+      agents: { path: ".copilot/agents", kind: "directory" },
+      root_instruction: {
+        path: ".copilot/copilot-instructions.md",
+        kind: "file",
+      },
+      mcp: { path: ".copilot/mcp-config.json", kind: "file" },
     },
   },
   {
