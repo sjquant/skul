@@ -100,6 +100,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       agents: { path: ".agents/agents", kind: "directory" },
       commands: { path: ".agent/workflows", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".agents/mcp_config.json", kind: "file" },
     },
   },
 ];
@@ -181,6 +182,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       agents: { path: ".gemini/config/agents", kind: "directory" },
       commands: { path: ".agent/workflows", kind: "directory" },
       root_instruction: { path: ".gemini/GEMINI.md", kind: "file" },
+      mcp: { path: ".gemini/config/mcp_config.json", kind: "file" },
     },
   },
 ];

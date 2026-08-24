@@ -9,7 +9,11 @@ import {
   subtractMcpConfigServers,
   supportsMcpConfig,
 } from "./mcp-config";
-import { listGlobalToolDefinitions, listToolDefinitions } from "./tool-mapping";
+import {
+  listGlobalToolDefinitions,
+  listToolDefinitions,
+  type ToolName,
+} from "./tool-mapping";
 
 const PLUGIN_PATHS = {
   pluginRoot: "/library/github.com/acme/bundles/react",
@@ -286,7 +290,9 @@ describe("mergeMcpConfigDocument", () => {
   });
 
   it("refuses to render for a tool with no known MCP configuration", () => {
-    // Given a tool Skul has no MCP dialect for
+    // Given a name that is not one of the supported tools. Every supported tool
+    // now has a dialect, so only a name the type system would have rejected can
+    // reach this guard; the cast stands in for a caller that skipped that check.
     const servers = parseMcpConfig({
       mcpServers: { docs: { type: "stdio", command: "server" } },
     });
@@ -294,11 +300,11 @@ describe("mergeMcpConfigDocument", () => {
     // When it is rendered for that tool / Then the tool is named in the error
     expect(() =>
       mergeMcpConfigDocument({
-        toolName: "antigravity",
+        toolName: "gemini-cli" as ToolName,
         servers,
         pluginPaths: PLUGIN_PATHS,
       }),
-    ).toThrow("Tool does not support MCP servers: antigravity");
+    ).toThrow("Tool does not support MCP servers: gemini-cli");
   });
 });
 
@@ -384,6 +390,17 @@ describe("dialect matrix", () => {
         enabled: true,
         headers: { "X-Key": "v" },
       },
+    ],
+    [
+      "antigravity",
+      "mcpServers",
+      {
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { serverUrl: "https://x/sse", headers: { "X-Key": "v" } },
     ],
   ] as const)("renders stdio and sse servers in %s's vocabulary", (toolName, serversKey, expectedStdio, expectedRemote) => {
     // Given a stdio server and an sse server

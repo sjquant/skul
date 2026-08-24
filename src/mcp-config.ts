@@ -190,6 +190,19 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       ...(server.headers ? { http_headers: server.headers } : {}),
     }),
   },
+  antigravity: {
+    format: "json",
+    serversKey: "mcpServers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    // Antigravity infers a remote server from its endpoint rather than a type,
+    // and names that endpoint `serverUrl`: it rejects the `url` spelling every
+    // other tool here uses.
+    renderRemote: (server) => ({
+      serverUrl: server.url,
+      ...(server.headers ? { headers: server.headers } : {}),
+    }),
+  },
 };
 
 const TOML_BLOCK_BEGIN = "# >>> SKUL:MCP BEGIN — managed by skul, do not edit";

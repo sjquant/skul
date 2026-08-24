@@ -1026,6 +1026,39 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(readJson(configFile)).toEqual({ model: "anthropic/claude-opus-5" });
   });
 
+  it("writes Antigravity's user-scope MCP configuration in its own vocabulary", async () => {
+    // Given a cached MCP bundle and a home directory used as the global root
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+
+    // When the bundle is installed globally for Antigravity
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "antigravity", "-y"],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+
+    // Then the servers land under ~/.gemini/config, with the remote endpoint
+    // spelled `serverUrl` — Antigravity rejects the `url` spelling
+    const configFile = path.join(
+      homeDir,
+      ".gemini",
+      "config",
+      "mcp_config.json",
+    );
+    const servers = readMcpServers(configFile);
+    expect(Object.keys(servers).sort()).toEqual(["docs", "remote"]);
+    expect(servers.remote).toEqual({ serverUrl: "https://example.com/mcp" });
+
+    // And removing the bundle takes the file Skul created with it
+    await run(["remove", "--global", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    expect(pathExists(configFile)).toBe(false);
+  });
+
   it("drops a server the bundle no longer declares when a global install is repeated", async () => {
     // Given a bundle installed globally beside a server the user added themselves
     const homeDir = createHomeDir();
