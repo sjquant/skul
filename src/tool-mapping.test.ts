@@ -89,7 +89,7 @@ describe("getToolDefinition", () => {
           skills: { path: ".github/skills", kind: "directory" },
           agents: { path: ".github/agents", kind: "directory" },
           root_instruction: { path: "AGENTS.md", kind: "file" },
-          mcp: { path: ".vscode/mcp.json", kind: "file" },
+          mcp: { path: ".github/mcp.json", kind: "file" },
         },
       },
     ],
@@ -114,6 +114,7 @@ describe("getToolDefinition", () => {
           agents: { path: ".agents/agents", kind: "directory" },
           commands: { path: ".agent/workflows", kind: "directory" },
           root_instruction: { path: "AGENTS.md", kind: "file" },
+          mcp: { path: ".agents/mcp_config.json", kind: "file" },
         },
       },
     ],
@@ -209,6 +210,7 @@ describe("getGlobalToolDefinition", () => {
           commands: { path: ".claude/commands", kind: "directory" },
           agents: { path: ".claude/agents", kind: "directory" },
           root_instruction: { path: ".claude/CLAUDE.md", kind: "file" },
+          mcp: { path: ".claude.json", kind: "file" },
         },
       },
     ],
@@ -221,6 +223,7 @@ describe("getGlobalToolDefinition", () => {
           commands: { path: ".cursor/commands", kind: "directory" },
           agents: { path: ".cursor/agents", kind: "directory" },
           root_instruction: { path: "AGENTS.md", kind: "file" },
+          mcp: { path: ".cursor/mcp.json", kind: "file" },
         },
       },
     ],
@@ -236,6 +239,7 @@ describe("getGlobalToolDefinition", () => {
             path: ".config/opencode/AGENTS.md",
             kind: "file",
           },
+          mcp: { path: ".config/opencode/opencode.json", kind: "file" },
         },
       },
     ],
@@ -247,6 +251,7 @@ describe("getGlobalToolDefinition", () => {
           skills: { path: ".agents/skills", kind: "directory" },
           agents: { path: ".codex/agents", kind: "directory" },
           root_instruction: { path: ".codex/AGENTS.md", kind: "file" },
+          mcp: { path: ".codex/config.toml", kind: "file" },
         },
       },
     ],
@@ -255,12 +260,13 @@ describe("getGlobalToolDefinition", () => {
       {
         name: "copilot",
         targets: {
-          skills: { path: ".github/skills", kind: "directory" },
-          agents: { path: ".github/agents", kind: "directory" },
+          skills: { path: ".copilot/skills", kind: "directory" },
+          agents: { path: ".copilot/agents", kind: "directory" },
           root_instruction: {
-            path: ".github/copilot-instructions.md",
+            path: ".copilot/copilot-instructions.md",
             kind: "file",
           },
+          mcp: { path: ".copilot/mcp-config.json", kind: "file" },
         },
       },
     ],
@@ -272,6 +278,7 @@ describe("getGlobalToolDefinition", () => {
           skills: { path: ".kiro/skills", kind: "directory" },
           agents: { path: ".kiro/agents", kind: "directory" },
           root_instruction: { path: ".kiro/steering/AGENTS.md", kind: "file" },
+          mcp: { path: ".kiro/settings/mcp.json", kind: "file" },
         },
       },
     ],
@@ -287,6 +294,7 @@ describe("getGlobalToolDefinition", () => {
           agents: { path: ".gemini/config/agents", kind: "directory" },
           commands: { path: ".agent/workflows", kind: "directory" },
           root_instruction: { path: ".gemini/GEMINI.md", kind: "file" },
+          mcp: { path: ".gemini/config/mcp_config.json", kind: "file" },
         },
       },
     ],
@@ -336,10 +344,10 @@ describe("buildGlobalRepoRelPathRemapper", () => {
     expect(remap("claude-code", "CLAUDE.md")).toBe(".claude/CLAUDE.md");
   });
 
-  it("remaps copilot root instruction from AGENTS.md to .github/copilot-instructions.md", () => {
+  it("remaps Copilot root instruction from AGENTS.md into its home directory", () => {
     const remap = buildGlobalRepoRelPathRemapper();
     expect(remap("copilot", "AGENTS.md")).toBe(
-      ".github/copilot-instructions.md",
+      ".copilot/copilot-instructions.md",
     );
   });
 

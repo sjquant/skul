@@ -2,13 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   extractMcpOverlay,
+  globalMcpCapableToolNames,
   mergeMcpConfigDocument,
   mergeRenderedMcpServers,
   parseMcpConfig,
   subtractMcpConfigServers,
   supportsMcpConfig,
 } from "./mcp-config";
-import { listToolDefinitions } from "./tool-mapping";
+import {
+  globalCapableToolNames,
+  listGlobalToolDefinitions,
+  listToolDefinitions,
+  type ToolName,
+} from "./tool-mapping";
 
 const PLUGIN_PATHS = {
   pluginRoot: "/library/github.com/acme/bundles/react",
@@ -157,7 +163,7 @@ describe("mergeMcpConfigDocument", () => {
     });
   });
 
-  it("writes Copilot servers under the servers key", () => {
+  it("writes Copilot servers in the Agent Host's vocabulary", () => {
     // Given one stdio server
     const servers = parseMcpConfig({
       mcpServers: { docs: { type: "stdio", command: "server" } },
@@ -170,9 +176,12 @@ describe("mergeMcpConfigDocument", () => {
       pluginPaths: PLUGIN_PATHS,
     }).content;
 
-    // Then VS Code's top-level key is used instead of mcpServers
+    // Then a stdio server is `local` and carries the tool allowlist the Agent
+    // Host expects — not the `servers` key VS Code chat keeps for itself
     expect(JSON.parse(document)).toEqual({
-      servers: { docs: { type: "stdio", command: "server" } },
+      mcpServers: {
+        docs: { type: "local", command: "server", tools: ["*"] },
+      },
     });
   });
 
@@ -285,7 +294,9 @@ describe("mergeMcpConfigDocument", () => {
   });
 
   it("refuses to render for a tool with no known MCP configuration", () => {
-    // Given a tool Skul has no MCP dialect for
+    // Given a name that is not one of the supported tools. Every supported tool
+    // now has a dialect, so only a name the type system would have rejected can
+    // reach this guard; the cast stands in for a caller that skipped that check.
     const servers = parseMcpConfig({
       mcpServers: { docs: { type: "stdio", command: "server" } },
     });
@@ -293,11 +304,11 @@ describe("mergeMcpConfigDocument", () => {
     // When it is rendered for that tool / Then the tool is named in the error
     expect(() =>
       mergeMcpConfigDocument({
-        toolName: "antigravity",
+        toolName: "gemini-cli" as ToolName,
         servers,
         pluginPaths: PLUGIN_PATHS,
       }),
-    ).toThrow("Tool does not support MCP servers: antigravity");
+    ).toThrow("Tool does not support MCP servers: gemini-cli");
   });
 });
 
@@ -346,15 +357,21 @@ describe("dialect matrix", () => {
     ],
     [
       "copilot",
-      "servers",
+      "mcpServers",
       {
-        type: "stdio",
+        type: "local",
         command: "run",
         args: ["--root", "/lib/ref"],
         env: { TOKEN: "t" },
         cwd: "/lib",
+        tools: ["*"],
       },
-      { type: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
+      {
+        type: "sse",
+        url: "https://x/sse",
+        headers: { "X-Key": "v" },
+        tools: ["*"],
+      },
     ],
     [
       "kiro",
@@ -383,6 +400,17 @@ describe("dialect matrix", () => {
         enabled: true,
         headers: { "X-Key": "v" },
       },
+    ],
+    [
+      "antigravity",
+      "mcpServers",
+      {
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { serverUrl: "https://x/sse", headers: { "X-Key": "v" } },
     ],
   ] as const)("renders stdio and sse servers in %s's vocabulary", (toolName, serversKey, expectedStdio, expectedRemote) => {
     // Given a stdio server and an sse server
@@ -442,7 +470,7 @@ describe("server name collisions", () => {
   it.each([
     ["claude-code", "mcpServers"],
     ["cursor", "mcpServers"],
-    ["copilot", "servers"],
+    ["copilot", "mcpServers"],
     ["kiro", "mcpServers"],
     ["opencode", "mcp"],
   ] as const)("refuses to replace a server %s's configuration already declares", (toolName, serversKey) => {
@@ -785,6 +813,29 @@ describe("MCP dialect coverage", () => {
     // Then the two sets agree, so no tool can be given a path without a dialect
     expect(toolsWithDialect).toEqual(toolsWithMcpTarget);
     expect(toolsWithMcpTarget.length).toBeGreaterThan(0);
+  });
+
+  it("can write globally for exactly the tools the global layout gives a location", () => {
+    // Given the tools whose global layout declares where MCP configuration lives
+    const globalToolsWithMcpTarget = listGlobalToolDefinitions()
+      .filter((definition) => definition.targets.mcp)
+      .map((definition) => definition.name);
+
+    // When those are compared with the tools a global install writes for
+    // Then no tool can be given a global path Skul has no dialect for, which
+    // would otherwise be reported as both skipped and supported at once
+    expect(globalMcpCapableToolNames()).toEqual(globalToolsWithMcpTarget);
+    expect(globalToolsWithMcpTarget.length).toBeGreaterThan(0);
+  });
+
+  it("places MCP servers for every globally installable tool", () => {
+    // Given every tool a global install can target
+
+    // When those are compared with the tools a global install writes MCP for
+    // Then none is left out, so no bundle has its servers dropped by a global
+    // install. `skul add --global` still carries a note naming any tool it
+    // cannot place servers for; this is what keeps that note unreachable.
+    expect(globalMcpCapableToolNames()).toEqual(globalCapableToolNames());
   });
 
   it("declares no MCP target for tools it cannot render configuration for", () => {

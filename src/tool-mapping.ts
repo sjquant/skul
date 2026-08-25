@@ -76,12 +76,17 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    // `copilot` means the Copilot CLI and the Agent Host behind it. Its
+    // repository files — `.github/skills`, `.github/agents`, `AGENTS.md` — are
+    // the ones Copilot in VS Code reads as well, but its MCP configuration is
+    // its own: the Agent Host reads `.github/mcp.json`, not the
+    // `.vscode/mcp.json` that VS Code chat keeps for itself in another dialect.
     name: "copilot",
     targets: {
       skills: { path: ".github/skills", kind: "directory" },
       agents: { path: ".github/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
-      mcp: { path: ".vscode/mcp.json", kind: "file" },
+      mcp: { path: ".github/mcp.json", kind: "file" },
     },
   },
   {
@@ -100,10 +105,19 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       agents: { path: ".agents/agents", kind: "directory" },
       commands: { path: ".agent/workflows", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".agents/mcp_config.json", kind: "file" },
     },
   },
 ];
 
+/**
+ * Where each tool keeps its user-scope configuration, relative to the home directory.
+ *
+ * Every tool here documents a user-scope MCP location under the home directory,
+ * so a global install places a bundle's servers for all of them. Any tool added
+ * without one would have its servers dropped, which `skul add --global` reports
+ * rather than passing over in silence.
+ */
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "claude-code",
@@ -112,6 +126,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".claude/commands", kind: "directory" },
       agents: { path: ".claude/agents", kind: "directory" },
       root_instruction: { path: ".claude/CLAUDE.md", kind: "file" },
+      mcp: { path: ".claude.json", kind: "file" },
     },
   },
   {
@@ -121,6 +136,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".cursor/commands", kind: "directory" },
       agents: { path: ".cursor/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".cursor/mcp.json", kind: "file" },
     },
   },
   {
@@ -130,6 +146,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".config/opencode/commands", kind: "directory" },
       agents: { path: ".config/opencode/agents", kind: "directory" },
       root_instruction: { path: ".config/opencode/AGENTS.md", kind: "file" },
+      mcp: { path: ".config/opencode/opencode.json", kind: "file" },
     },
   },
   {
@@ -138,17 +155,22 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".agents/skills", kind: "directory" },
       agents: { path: ".codex/agents", kind: "directory" },
       root_instruction: { path: ".codex/AGENTS.md", kind: "file" },
+      mcp: { path: ".codex/config.toml", kind: "file" },
     },
   },
   {
+    // Copilot keeps every user-scope file in one documented directory, so all
+    // four targets have a global location. VS Code reads `~/.copilot/skills`
+    // too, so a global install here serves the editor as well as the terminal.
     name: "copilot",
     targets: {
-      skills: { path: ".github/skills", kind: "directory" },
-      agents: { path: ".github/agents", kind: "directory" },
+      skills: { path: ".copilot/skills", kind: "directory" },
+      agents: { path: ".copilot/agents", kind: "directory" },
       root_instruction: {
-        path: ".github/copilot-instructions.md",
+        path: ".copilot/copilot-instructions.md",
         kind: "file",
       },
+      mcp: { path: ".copilot/mcp-config.json", kind: "file" },
     },
   },
   {
@@ -157,6 +179,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       skills: { path: ".kiro/skills", kind: "directory" },
       agents: { path: ".kiro/agents", kind: "directory" },
       root_instruction: { path: ".kiro/steering/AGENTS.md", kind: "file" },
+      mcp: { path: ".kiro/settings/mcp.json", kind: "file" },
     },
   },
   {
@@ -166,6 +189,7 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       agents: { path: ".gemini/config/agents", kind: "directory" },
       commands: { path: ".agent/workflows", kind: "directory" },
       root_instruction: { path: ".gemini/GEMINI.md", kind: "file" },
+      mcp: { path: ".gemini/config/mcp_config.json", kind: "file" },
     },
   },
 ];

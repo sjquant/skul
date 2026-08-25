@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveBundleDataDir } from "./state-layout";
-import type { ToolName } from "./tool-mapping";
+import { listGlobalToolDefinitions, type ToolName } from "./tool-mapping";
 
 /**
  * Bundle-root file holding MCP server declarations, as defined by the Agent
@@ -142,14 +142,22 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
   },
   copilot: {
     format: "json",
-    serversKey: "servers",
-    renderStdio: (server, paths) =>
-      renderConventionalStdio(server, paths, "stdio"),
-    renderRemote: (server) =>
-      renderConventionalRemote(
+    serversKey: "mcpServers",
+    // The Agent Host names a stdio server `local` and keys its servers under
+    // `mcpServers` — not the `servers` that VS Code chat uses in its own
+    // `.vscode/mcp.json`. `tools` gates which of a server's tools the agent may
+    // call; every documented example opts into all of them.
+    renderStdio: (server, paths) => ({
+      ...renderConventionalStdio(server, paths, "local"),
+      tools: ["*"],
+    }),
+    renderRemote: (server) => ({
+      ...renderConventionalRemote(
         server,
         server.transport === "sse" ? "sse" : "http",
       ),
+      tools: ["*"],
+    }),
   },
   kiro: {
     format: "json",
@@ -190,10 +198,41 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       ...(server.headers ? { http_headers: server.headers } : {}),
     }),
   },
+  antigravity: {
+    format: "json",
+    serversKey: "mcpServers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    // Antigravity infers a remote server from its endpoint rather than a type,
+    // and names that endpoint `serverUrl`: it rejects the `url` spelling every
+    // other tool here uses.
+    renderRemote: (server) => ({
+      serverUrl: server.url,
+      ...(server.headers ? { headers: server.headers } : {}),
+    }),
+  },
 };
 
 const TOML_BLOCK_BEGIN = "# >>> SKUL:MCP BEGIN — managed by skul, do not edit";
 const TOML_BLOCK_END = "# <<< SKUL:MCP END";
+
+/**
+ * Names the tools whose MCP configuration a global install can write.
+ *
+ * A tool qualifies only when the global layout gives it a location and Skul
+ * knows the dialect of that file — the same pair of conditions
+ * `resolveMcpRepoRelPath` resolves against. Both halves of the skip note read
+ * this one predicate so they cannot disagree about a tool.
+ */
+export function globalMcpCapableToolNames(): ToolName[] {
+  return listGlobalToolDefinitions()
+    .filter(
+      (definition) =>
+        definition.targets.mcp !== undefined &&
+        supportsMcpConfig(definition.name),
+    )
+    .map((definition) => definition.name);
+}
 
 /** Returns true when the tool has a known MCP configuration file and dialect. */
 export function supportsMcpConfig(toolName: ToolName): boolean {

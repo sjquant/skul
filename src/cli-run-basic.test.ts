@@ -46,6 +46,7 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import { getGlobalToolDefinition } from "./tool-mapping";
 
 describe("run", () => {
   it("renders usage for bare invocations", async () => {
@@ -60,6 +61,32 @@ describe("run", () => {
     expect(output).toContain("Commands:");
     expect(output).toContain("Root instructions:");
     expect(output).toContain("Safety and recovery:");
+  });
+
+  it("names each tool's real global root instruction path in the usage text", async () => {
+    // Given the clause of the usage text describing where root instructions
+    // land globally
+    const output = await run([]);
+    const usageLine = output
+      .split("\n")
+      .find((line) => line.includes("globally,"));
+    const globalClause = (usageLine ?? "").split("globally,")[1]?.split(";")[0];
+
+    // When every "<tool> targets <path>" claim in it is read back
+    const claims = Array.from(
+      (globalClause ?? "").matchAll(/([a-z-]+) targets ([^,;]+)/g),
+    ).map(([, toolName, target]) => [toolName, target?.trim()] as const);
+
+    // Then each names the path a global install would actually write, so
+    // following the help cannot land somewhere Skul does not install
+    expect(claims.length).toBeGreaterThan(0);
+    expect(
+      claims.filter(
+        ([toolName, target]) =>
+          getGlobalToolDefinition(toolName)?.targets.root_instruction?.path !==
+          target,
+      ),
+    ).toEqual([]);
   });
 
   it("routes command help through run", async () => {

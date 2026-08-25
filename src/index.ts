@@ -43,6 +43,7 @@ import {
   normalizeBundleItemSelectors,
   stripKnownBundleItemExtension,
 } from "./bundle-items";
+import type { BundleManifest } from "./bundle-manifest";
 import {
   type MaterializeBundleResult,
   materializeBundle,
@@ -77,6 +78,7 @@ import {
 } from "./git-index";
 import {
   extractMcpOverlay,
+  globalMcpCapableToolNames,
   type McpServer,
   type McpSubtractResult,
   mergeRenderedMcpServers,
@@ -125,7 +127,6 @@ import {
   GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
   getToolDefinition,
   globalCapableToolNames,
-  listToolDefinitions,
   type ToolName,
   type ToolTargetName,
 } from "./tool-mapping";
@@ -887,24 +888,43 @@ type ManagedRemovalState = {
   files: string[];
   file_fingerprints?: Record<string, string>;
   directories?: string[];
-  mcp_servers: Record<string, string[]>;
+  mcp_servers: ManagedMcpOwnership[];
 };
 
-/** Unions per-file MCP server ownership across several bundles or tools. */
-function mergeMcpServerOwnership(
-  ownerships: Array<Record<string, string[]> | undefined>,
-): Record<string, string[]> {
-  const merged: Record<string, string[]> = {};
+/**
+ * The servers one bundle put into one tool's MCP configuration file.
+ *
+ * The tool travels with the path because subtracting the servers again needs
+ * the dialect of the file, not its location. Recording only the path would mean
+ * recovering the tool by matching that path against every tool's layout, and
+ * the caller would then have to say which layout the path came from.
+ */
+type ManagedMcpOwnership = {
+  tool: ToolName;
+  path: string;
+  servers: string[];
+};
 
-  for (const ownership of ownerships) {
-    for (const [filePath, serverNames] of Object.entries(ownership ?? {})) {
-      merged[filePath] = [
-        ...new Set([...(merged[filePath] ?? []), ...serverNames]),
-      ];
+/** Unions MCP server ownership across several bundles or tools. */
+function mergeMcpServerOwnership(
+  ownerships: Array<ManagedMcpOwnership[] | undefined>,
+): ManagedMcpOwnership[] {
+  const merged = new Map<string, ManagedMcpOwnership>();
+
+  for (const ownership of ownerships ?? []) {
+    for (const entry of ownership ?? []) {
+      const key = `${entry.tool}\u0000${entry.path}`;
+      const existing = merged.get(key);
+
+      merged.set(key, {
+        tool: entry.tool,
+        path: entry.path,
+        servers: [...new Set([...(existing?.servers ?? []), ...entry.servers])],
+      });
     }
   }
 
-  return merged;
+  return Array.from(merged.values());
 }
 
 function mergeManagedRemovalPaths(
@@ -2432,12 +2452,7 @@ async function updateBundles(options: {
           disableModelInvocation: entry.disable_model_invocation,
           resolvedBundleItemRefs,
           libraryDir: options.libraryDir,
-          ...(existingBundleState
-            ? {
-                existingMcpServers:
-                  flattenBundleState(existingBundleState).mcp_servers,
-              }
-            : {}),
+          existingMcpServers: ownedMcpServers(existingBundleState),
         });
 
         currentBundles = {
@@ -2876,12 +2891,7 @@ async function applyBundle(options: {
     disableModelInvocation: options.disableModelInvocation,
     resolvedBundleItemRefs,
     libraryDir: options.libraryDir,
-    ...(existingBundleState
-      ? {
-          existingMcpServers:
-            flattenBundleState(existingBundleState).mcp_servers,
-        }
-      : {}),
+    existingMcpServers: ownedMcpServers(existingBundleState),
   });
   currentShadowedFiles = applyTrackedShadowPlan({
     repoRoot: gitContext.worktreeRoot,
@@ -4472,7 +4482,7 @@ async function removeBundle(options: {
           files: [],
           file_fingerprints: {},
           directories: [],
-          mcp_servers: {},
+          mcp_servers: [],
         };
     const rootInstructionBaseContents =
       worktreeState?.materialized_state.root_instruction_base_contents;
@@ -5578,12 +5588,7 @@ async function applyWorktree(options: {
       resolveFileConflict: options.prompts.resolveFileConflict,
       resolvedBundleItemRefs,
       libraryDir: options.libraryDir,
-      ...(existingBundleState
-        ? {
-            existingMcpServers:
-              flattenBundleState(existingBundleState).mcp_servers,
-          }
-        : {}),
+      existingMcpServers: ownedMcpServers(existingBundleState),
     });
 
     currentBundles = {
@@ -6380,9 +6385,11 @@ function flattenBundleState(
   const files = new Set<string>();
   const file_fingerprints: Record<string, string> = {};
   const directories = new Set<string>();
-  const toolStates = Object.values(bundleState.tools);
+  const toolEntries = Object.entries(bundleState.tools) as Array<
+    [ToolName, (typeof bundleState.tools)[string]]
+  >;
 
-  for (const toolState of toolStates) {
+  for (const [, toolState] of toolEntries) {
     for (const file of toolState.files) {
       files.add(file);
     }
@@ -6400,9 +6407,39 @@ function flattenBundleState(
     file_fingerprints,
     directories: Array.from(directories),
     mcp_servers: mergeMcpServerOwnership(
-      toolStates.map((toolState) => toolState.mcp_servers),
+      toolEntries.map(([toolName, toolState]) =>
+        Object.entries(toolState.mcp_servers ?? {}).map(
+          ([filePath, servers]) => ({
+            tool: toolName,
+            path: filePath,
+            servers,
+          }),
+        ),
+      ),
     ),
   };
+}
+
+/**
+ * The MCP servers a bundle already holds, for a re-materialization to replace.
+ *
+ * Materialization looks these up by configuration path, so the shape it wants
+ * is not the one a removal wants; converting here keeps that difference out of
+ * every caller that re-applies a bundle.
+ */
+function ownedMcpServers(
+  bundleState?: MaterializedBundleState,
+): Record<string, string[]> {
+  if (!bundleState) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    flattenBundleState(bundleState).mcp_servers.map((ownership) => [
+      ownership.path,
+      ownership.servers,
+    ]),
+  );
 }
 
 function selectExistingBundleToolState(
@@ -6588,27 +6625,20 @@ function listManagedFiles(bundles: MaterializedState["bundles"]): string[] {
  */
 function releaseManagedMcpServers(options: {
   repoRoot: string;
-  mcpServers: Record<string, string[]>;
+  mcpServers: ManagedMcpOwnership[];
   managedFiles: Set<string>;
 }): Set<string> {
   const releasablePaths = new Set<string>();
 
-  for (const [relativePath, serverNames] of Object.entries(
-    options.mcpServers,
-  )) {
+  for (const {
+    tool: toolName,
+    path: relativePath,
+    servers: serverNames,
+  } of options.mcpServers) {
     const targetPath = path.join(options.repoRoot, ...relativePath.split("/"));
 
     if (!fs.existsSync(targetPath)) {
       releasablePaths.add(relativePath);
-      continue;
-    }
-
-    const toolName = findToolNameForMcpPath(options.repoRoot, relativePath);
-
-    if (!toolName) {
-      console.warn(
-        `[skul] Leaving ${relativePath} untouched: no supported tool claims that MCP configuration path.`,
-      );
       continue;
     }
 
@@ -6644,17 +6674,6 @@ function releaseManagedMcpServers(options: {
   return releasablePaths;
 }
 
-function findToolNameForMcpPath(
-  repoRoot: string,
-  relativePath: string,
-): ToolName | undefined {
-  return listToolDefinitions().find(
-    (definition) =>
-      resolveMcpRepoRelPath({ toolName: definition.name, repoRoot }) ===
-      relativePath,
-  )?.name;
-}
-
 /**
  * Deletes a bundle's managed paths and subtracts its servers from shared ones.
  *
@@ -6677,9 +6696,9 @@ function removeManagedPaths(
     managedFiles: new Set(state.files),
   });
   const retainedMcpPaths = new Set(
-    Object.keys(state.mcp_servers).filter(
-      (filePath) => !releasableMcpPaths.has(filePath),
-    ),
+    state.mcp_servers
+      .map((ownership) => ownership.path)
+      .filter((filePath) => !releasableMcpPaths.has(filePath)),
   );
   const committedPaths = options.restoreCommitted
     ? listCommittedPaths({ repoRoot, filePaths: state.files })
@@ -7272,6 +7291,11 @@ async function applyBundleGlobal(options: {
           (t) => !(supportedTools as string[]).includes(t),
         )
       : [];
+  const mcpSkipNotes = formatGlobalMcpSkipNotes({
+    manifest: preparedBundle.cachedBundle.manifest,
+    tools: availableGlobalTools,
+    itemSelectors: preparedBundle.selectedItems,
+  });
 
   if (options.dryRun) {
     return [
@@ -7283,6 +7307,7 @@ async function applyBundleGlobal(options: {
           ? preparedBundle.selectedItems
           : undefined,
       })}`,
+      ...mcpSkipNotes,
     ].join("\n");
   }
 
@@ -7421,6 +7446,8 @@ async function applyBundleGlobal(options: {
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
     resolvedBundleItemRefs,
+    libraryDir: options.libraryDir,
+    existingMcpServers: ownedMcpServers(existingBundleState),
   });
 
   const newBundleState = buildMaterializedBundleState({
@@ -7519,7 +7546,46 @@ async function applyBundleGlobal(options: {
     );
   }
 
+  lines.push(...mcpSkipNotes);
+
   return lines.join("\n");
+}
+
+/**
+ * Says which tools a global install cannot place a bundle's MCP servers for.
+ *
+ * A bundle declares its servers once and Skul writes them per tool, so a tool
+ * with no global MCP location drops them. That is a deliberate omission, not a
+ * failure — the remaining tools are still installed — but it leaves the bundle
+ * partly unconfigured, so the run says so rather than letting it pass. Every
+ * tool `--global` currently accepts has such a location, which is what keeps
+ * this quiet; it speaks up if that ever stops being true.
+ */
+function formatGlobalMcpSkipNotes(options: {
+  manifest: BundleManifest;
+  tools: ToolName[];
+  itemSelectors?: BundleItemSelector[];
+}): string[] {
+  if (!isMcpItemSelected(options.itemSelectors)) {
+    return [];
+  }
+
+  const placeable = globalMcpCapableToolNames();
+  const skipped = options.tools.filter(
+    (toolName) =>
+      options.manifest.tools[toolName]?.mcp !== undefined &&
+      !placeable.includes(toolName),
+  );
+
+  if (skipped.length === 0) {
+    return [];
+  }
+
+  return [
+    pc.yellow(
+      `Note: MCP servers were skipped for ${skipped.join(", ")}: global mode writes MCP configuration only for ${placeable.join(", ")}`,
+    ),
+  ];
 }
 
 function formatAppliedGlobalBundleMessage(options: {
