@@ -22,7 +22,6 @@ describe("listToolDefinitions", () => {
       "opencode",
       "codex",
       "copilot",
-      "copilot-cli",
       "kiro",
       "antigravity",
     ]);
@@ -90,7 +89,7 @@ describe("getToolDefinition", () => {
           skills: { path: ".github/skills", kind: "directory" },
           agents: { path: ".github/agents", kind: "directory" },
           root_instruction: { path: "AGENTS.md", kind: "file" },
-          mcp: { path: ".vscode/mcp.json", kind: "file" },
+          mcp: { path: ".github/mcp.json", kind: "file" },
         },
       },
     ],
@@ -188,15 +187,12 @@ describe("resolveToolTargetPath", () => {
 describe("globalCapableToolNames", () => {
   it("returns tools that support global installation", () => {
     // Given / When / Then
-    // Copilot in VS Code is absent: its user-scope customizations live in the
-    // VS Code profile folder, and the home-relative Copilot paths belong to the
-    // Agent Host that `copilot-cli` covers.
     expect(globalCapableToolNames()).toEqual([
       "claude-code",
       "cursor",
       "opencode",
       "codex",
-      "copilot-cli",
+      "copilot",
       "kiro",
       "antigravity",
     ]);
@@ -260,9 +256,9 @@ describe("getGlobalToolDefinition", () => {
       },
     ],
     [
-      "copilot-cli",
+      "copilot",
       {
-        name: "copilot-cli",
+        name: "copilot",
         targets: {
           skills: { path: ".copilot/skills", kind: "directory" },
           agents: { path: ".copilot/agents", kind: "directory" },
@@ -348,9 +344,9 @@ describe("buildGlobalRepoRelPathRemapper", () => {
     expect(remap("claude-code", "CLAUDE.md")).toBe(".claude/CLAUDE.md");
   });
 
-  it("remaps Copilot CLI root instruction from AGENTS.md into its home directory", () => {
+  it("remaps Copilot root instruction from AGENTS.md into its home directory", () => {
     const remap = buildGlobalRepoRelPathRemapper();
-    expect(remap("copilot-cli", "AGENTS.md")).toBe(
+    expect(remap("copilot", "AGENTS.md")).toBe(
       ".copilot/copilot-instructions.md",
     );
   });

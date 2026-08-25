@@ -122,9 +122,15 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(readJson(path.join(cwd, ".mcp.json"))).toMatchObject({
       mcpServers: { remote: { type: "http", url: "https://example.com/mcp" } },
     });
-    // And Copilot gets the servers key VS Code expects
-    expect(readJson(path.join(cwd, ".vscode", "mcp.json"))).toMatchObject({
-      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    // And Copilot gets the tool allowlist the Agent Host expects
+    expect(readJson(path.join(cwd, ".github", "mcp.json"))).toMatchObject({
+      mcpServers: {
+        remote: {
+          type: "http",
+          url: "https://example.com/mcp",
+          tools: ["*"],
+        },
+      },
     });
   });
 
@@ -1027,7 +1033,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(pathExists(configFile)).toBe(false);
   });
 
-  it("installs Copilot CLI into its own home directory, not Copilot's project layout", async () => {
+  it("installs Copilot into its own home directory, not its project layout", async () => {
     // Given a bundle carrying both a skill and MCP servers
     const homeDir = createHomeDir();
     const cwd = createRepository();
@@ -1040,9 +1046,9 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       "---\nname: review\ndescription: Review code\n---\n\nReview.\n",
     );
 
-    // When it is installed globally for Copilot CLI
+    // When it is installed globally for Copilot
     const output = await run(
-      ["add", SOURCE, BUNDLE, "--global", "--agent", "copilot-cli", "-y"],
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "copilot", "-y"],
       { homeDir, cwd, prompts: createPromptClientStub() },
     );
 
@@ -1053,7 +1059,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(pathExists(path.join(homeDir, ".github", "skills"))).toBe(false);
     expect(output).not.toContain(MCP_SKIP_NOTE);
 
-    // And the servers use the CLI's vocabulary, which is not VS Code's
+    // And the servers use the Agent Host's vocabulary
     const config = readJson(
       path.join(homeDir, ".copilot", "mcp-config.json"),
     ) as { mcpServers: Record<string, Record<string, unknown>> };
@@ -1063,38 +1069,6 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       tools: ["*"],
     });
     expect(config).not.toHaveProperty("servers");
-  });
-
-  it("keeps Copilot's and Copilot CLI's MCP configurations in separate files", async () => {
-    // Given a bundle installed for both Copilot surfaces at once
-    const homeDir = createHomeDir();
-    const cwd = createRepository();
-    writeMcpBundle(homeDir);
-
-    // When it is added for VS Code Copilot and for the CLI
-    await run(
-      [
-        "add",
-        SOURCE,
-        BUNDLE,
-        "--agent",
-        "copilot",
-        "--agent",
-        "copilot-cli",
-        "-y",
-      ],
-      { homeDir, cwd, prompts: createPromptClientStub() },
-    );
-
-    // Then each gets its own file under its own key, neither overwriting the
-    // other: VS Code reads `servers` in .vscode/mcp.json, the CLI reads
-    // `mcpServers` in .github/mcp.json
-    expect(readJson(path.join(cwd, ".vscode", "mcp.json"))).toHaveProperty(
-      "servers",
-    );
-    expect(readJson(path.join(cwd, ".github", "mcp.json"))).toHaveProperty(
-      "mcpServers",
-    );
   });
 
   it("drops a server the bundle no longer declares when a global install is repeated", async () => {
@@ -1566,10 +1540,10 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     const homeDir = createHomeDir();
     const cwd = createRepository();
     writeMcpBundle(homeDir);
-    fs.mkdirSync(path.join(cwd, ".vscode"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".github"), { recursive: true });
     fs.writeFileSync(
-      path.join(cwd, ".vscode", "mcp.json"),
-      '{\n  // a comment\n  "servers": {}\n}\n',
+      path.join(cwd, ".github", "mcp.json"),
+      '{\n  // a comment\n  "mcpServers": {}\n}\n',
     );
 
     // When the bundle is added for every tool / Then it fails
@@ -1579,7 +1553,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
         cwd,
         prompts: createPromptClientStub(),
       }),
-    ).rejects.toThrowError(/\.vscode\/mcp\.json is not valid JSON/);
+    ).rejects.toThrowError(/\.github\/mcp\.json is not valid JSON/);
 
     // And no other tool's configuration was left behind unrecorded
     expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(false);

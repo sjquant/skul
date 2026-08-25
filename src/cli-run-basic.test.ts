@@ -46,7 +46,7 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
-import { globalCapableToolNames, listToolDefinitions } from "./tool-mapping";
+import { getGlobalToolDefinition } from "./tool-mapping";
 
 describe("run", () => {
   it("renders usage for bare invocations", async () => {
@@ -63,24 +63,28 @@ describe("run", () => {
     expect(output).toContain("Safety and recovery:");
   });
 
-  it("promises no global root instruction path for a tool global mode rejects", async () => {
-    // Given the usage line describing where root instructions land globally
+  it("names each tool's real global root instruction path in the usage text", async () => {
+    // Given the clause of the usage text describing where root instructions
+    // land globally
     const output = await run([]);
-    const globalLine = output
+    const usageLine = output
       .split("\n")
       .find((line) => line.includes("globally,"));
+    const globalClause = (usageLine ?? "").split("globally,")[1]?.split(";")[0];
 
-    // When the tools a global install rejects are looked for in it
-    const rejected = listToolDefinitions()
-      .map((definition) => definition.name)
-      .filter((toolName) => !globalCapableToolNames().includes(toolName));
+    // When every "<tool> targets <path>" claim in it is read back
+    const claims = Array.from(
+      (globalClause ?? "").matchAll(/([a-z-]+) targets ([^,;]+)/g),
+    ).map(([, toolName, target]) => [toolName, target?.trim()] as const);
 
-    // Then none is described as having a global target, so following the help
-    // cannot land on `Global mode only supports: ...`
-    expect(rejected).not.toEqual([]);
+    // Then each names the path a global install would actually write, so
+    // following the help cannot land somewhere Skul does not install
+    expect(claims.length).toBeGreaterThan(0);
     expect(
-      rejected.filter((toolName) =>
-        globalLine?.includes(`${toolName} targets`),
+      claims.filter(
+        ([toolName, target]) =>
+          getGlobalToolDefinition(toolName)?.targets.root_instruction?.path !==
+          target,
       ),
     ).toEqual([]);
   });

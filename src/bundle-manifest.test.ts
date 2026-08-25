@@ -149,9 +149,6 @@ describe("parseBundleManifest", () => {
         copilot: {
           root_instruction: { path: "CLAUDE.md" },
         },
-        "copilot-cli": {
-          root_instruction: { path: "CLAUDE.md" },
-        },
         kiro: {
           root_instruction: { path: "CLAUDE.md" },
         },
@@ -191,9 +188,6 @@ describe("parseBundleManifest", () => {
           root_instruction: { path: "CLAUDE.md" },
         },
         copilot: {
-          root_instruction: { path: "CLAUDE.md" },
-        },
-        "copilot-cli": {
           root_instruction: { path: "CLAUDE.md" },
         },
         kiro: {

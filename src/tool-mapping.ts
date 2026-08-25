@@ -6,7 +6,6 @@ export type ToolName =
   | "opencode"
   | "codex"
   | "copilot"
-  | "copilot-cli"
   | "kiro"
   | "antigravity";
 export type ToolTargetName =
@@ -77,19 +76,12 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    // `copilot` means the Copilot CLI and the Agent Host behind it. Its
+    // repository files — `.github/skills`, `.github/agents`, `AGENTS.md` — are
+    // the ones Copilot in VS Code reads as well, but its MCP configuration is
+    // its own: the Agent Host reads `.github/mcp.json`, not the
+    // `.vscode/mcp.json` that VS Code chat keeps for itself in another dialect.
     name: "copilot",
-    targets: {
-      skills: { path: ".github/skills", kind: "directory" },
-      agents: { path: ".github/agents", kind: "directory" },
-      root_instruction: { path: "AGENTS.md", kind: "file" },
-      mcp: { path: ".vscode/mcp.json", kind: "file" },
-    },
-  },
-  {
-    // Copilot CLI reads the same repository files as Copilot in VS Code, so
-    // only its MCP configuration sets it apart here: the CLI does not read
-    // `.vscode/mcp.json`, and the file it does read speaks a different dialect.
-    name: "copilot-cli",
     targets: {
       skills: { path: ".github/skills", kind: "directory" },
       agents: { path: ".github/agents", kind: "directory" },
@@ -121,15 +113,10 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
 /**
  * Where each tool keeps its user-scope configuration, relative to the home directory.
  *
- * `mcp` is present for every tool that documents a user-scope MCP location under
- * the home directory. Copilot is the exception: the user configuration for the
- * surface Skul targets — VS Code, whose workspace file is `.vscode/mcp.json` —
- * is an `mcp.json` in the VS Code profile folder, whose path differs per
- * platform and per profile, so no home-relative path names it. VS Code also
- * documents `~/.copilot/mcp-config.json`, but that belongs to the Copilot CLI's
- * Agent Host, a different product with its own dialect, and writing a bundle's
- * servers there would silently install them into a tool the user did not ask
- * for. A bundle's servers for Copilot are reported as skipped instead.
+ * Every tool here documents a user-scope MCP location under the home directory,
+ * so a global install places a bundle's servers for all of them. Any tool added
+ * without one would have its servers dropped, which `skul add --global` reports
+ * rather than passing over in silence.
  */
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -172,16 +159,10 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
-    // Copilot in VS Code has no global entry. Its user-scope customizations
-    // live in the VS Code profile folder, which no home-relative path names,
-    // and every Copilot location that *is* home-relative — `~/.copilot/skills`
-    // among them — belongs to the Agent Host that `copilot-cli` models. VS Code
-    // reads those too, so installing globally for `copilot-cli` serves both;
-    // a second entry here would only write the same files twice.
-    //
-    // The CLI keeps its user-scope configuration in one documented directory,
-    // so every one of its targets has a global location.
-    name: "copilot-cli",
+    // Copilot keeps every user-scope file in one documented directory, so all
+    // four targets have a global location. VS Code reads `~/.copilot/skills`
+    // too, so a global install here serves the editor as well as the terminal.
+    name: "copilot",
     targets: {
       skills: { path: ".copilot/skills", kind: "directory" },
       agents: { path: ".copilot/agents", kind: "directory" },

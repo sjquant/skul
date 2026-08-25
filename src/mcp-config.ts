@@ -142,14 +142,22 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
   },
   copilot: {
     format: "json",
-    serversKey: "servers",
-    renderStdio: (server, paths) =>
-      renderConventionalStdio(server, paths, "stdio"),
-    renderRemote: (server) =>
-      renderConventionalRemote(
+    serversKey: "mcpServers",
+    // The Agent Host names a stdio server `local` and keys its servers under
+    // `mcpServers` — not the `servers` that VS Code chat uses in its own
+    // `.vscode/mcp.json`. `tools` gates which of a server's tools the agent may
+    // call; every documented example opts into all of them.
+    renderStdio: (server, paths) => ({
+      ...renderConventionalStdio(server, paths, "local"),
+      tools: ["*"],
+    }),
+    renderRemote: (server) => ({
+      ...renderConventionalRemote(
         server,
         server.transport === "sse" ? "sse" : "http",
       ),
+      tools: ["*"],
+    }),
   },
   kiro: {
     format: "json",
@@ -188,24 +196,6 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
     renderRemote: (server) => ({
       url: server.url,
       ...(server.headers ? { http_headers: server.headers } : {}),
-    }),
-  },
-  "copilot-cli": {
-    format: "json",
-    serversKey: "mcpServers",
-    // The CLI names a stdio server `local` and, unlike VS Code, keys its
-    // servers under `mcpServers`. `tools` gates which of a server's tools the
-    // agent may call; every documented example opts into all of them.
-    renderStdio: (server, paths) => ({
-      ...renderConventionalStdio(server, paths, "local"),
-      tools: ["*"],
-    }),
-    renderRemote: (server) => ({
-      ...renderConventionalRemote(
-        server,
-        server.transport === "sse" ? "sse" : "http",
-      ),
-      tools: ["*"],
     }),
   },
   antigravity: {

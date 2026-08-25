@@ -163,7 +163,7 @@ describe("mergeMcpConfigDocument", () => {
     });
   });
 
-  it("writes Copilot servers under the servers key", () => {
+  it("writes Copilot servers in the Agent Host's vocabulary", () => {
     // Given one stdio server
     const servers = parseMcpConfig({
       mcpServers: { docs: { type: "stdio", command: "server" } },
@@ -176,9 +176,12 @@ describe("mergeMcpConfigDocument", () => {
       pluginPaths: PLUGIN_PATHS,
     }).content;
 
-    // Then VS Code's top-level key is used instead of mcpServers
+    // Then a stdio server is `local` and carries the tool allowlist the Agent
+    // Host expects — not the `servers` key VS Code chat keeps for itself
     expect(JSON.parse(document)).toEqual({
-      servers: { docs: { type: "stdio", command: "server" } },
+      mcpServers: {
+        docs: { type: "local", command: "server", tools: ["*"] },
+      },
     });
   });
 
@@ -354,18 +357,6 @@ describe("dialect matrix", () => {
     ],
     [
       "copilot",
-      "servers",
-      {
-        type: "stdio",
-        command: "run",
-        args: ["--root", "/lib/ref"],
-        env: { TOKEN: "t" },
-        cwd: "/lib",
-      },
-      { type: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
-    ],
-    [
-      "copilot-cli",
       "mcpServers",
       {
         type: "local",
@@ -479,7 +470,7 @@ describe("server name collisions", () => {
   it.each([
     ["claude-code", "mcpServers"],
     ["cursor", "mcpServers"],
-    ["copilot", "servers"],
+    ["copilot", "mcpServers"],
     ["kiro", "mcpServers"],
     ["opencode", "mcp"],
   ] as const)("refuses to replace a server %s's configuration already declares", (toolName, serversKey) => {
