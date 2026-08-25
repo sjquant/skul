@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { resolveBundleDataDir } from "./state-layout";
 import { listGlobalToolDefinitions, type ToolName } from "./tool-mapping";
@@ -584,11 +585,19 @@ function matchTomlTableHeader(line: string): string[] | null {
   for (;;) {
     rest = rest.trimStart();
     const quoted = rest.match(/^"((?:[^"\\]|\\.)*)"/);
+    const literal = rest.match(/^'([^']*)'/);
     const bare = rest.match(/^[A-Za-z0-9_-]+/);
 
     if (quoted) {
-      segments.push(JSON.parse(quoted[0]) as string);
+      try {
+        segments.push(JSON.parse(quoted[0]) as string);
+      } catch {
+        return null;
+      }
       rest = rest.slice(quoted[0].length);
+    } else if (literal) {
+      segments.push(literal[1]);
+      rest = rest.slice(literal[0].length);
     } else if (bare) {
       segments.push(bare[0]);
       rest = rest.slice(bare[0].length);
@@ -765,10 +774,10 @@ export function subtractMcpConfigServers(options: {
 /**
  * Reads back the servers Skul owns in a document as they stand on disk.
  *
- * Returns null when any of them is no longer declared, which is how the shadow
- * status tells "Skul's servers are in place" from "something removed them". The
- * returned text is the stored overlay verbatim when the declarations still
- * match it, so an unchanged file fingerprints identically.
+ * Returns null when any of them is no longer declared or the managed block
+ * cannot be read. The returned text is the stored overlay when the declarations
+ * still match it by value, so harmless formatting changes do not make the
+ * shadow look stale.
  */
 export function extractMcpOverlay(options: {
   toolName: ToolName;
@@ -779,27 +788,25 @@ export function extractMcpOverlay(options: {
   const serverNames = Object.keys(options.overlay);
 
   if (dialect.format === "toml") {
-    const tables = parseTomlBlockTables(
+    const tables = parseTomlBlockValues(
       splitTomlBlock(options.content).blockBody,
       dialect.serversKey,
     );
-    const declared = serverNames.map((serverName) => tables[serverName]);
 
-    if (declared.some((table) => table === undefined)) {
+    if (
+      tables === null ||
+      !serverNames.every((serverName) => Object.hasOwn(tables, serverName))
+    ) {
       return null;
     }
 
-    const expected = serverNames.map((serverName) =>
-      renderTomlTable(
-        dialect.serversKey,
-        serverName,
-        options.overlay[serverName] as Record<string, unknown>,
-      ),
+    const declared = Object.fromEntries(
+      serverNames.map((serverName) => [serverName, tables[serverName]]),
     );
 
-    return declared.join("\n\n") === expected.join("\n\n")
+    return isDeepStrictEqual(declared, options.overlay)
       ? JSON.stringify(options.overlay)
-      : declared.join("\n\n");
+      : JSON.stringify(declared);
   }
 
   let servers: Record<string, unknown>;
@@ -824,6 +831,277 @@ export function extractMcpOverlay(options: {
       serverNames.map((serverName) => [serverName, servers[serverName]]),
     ),
   );
+}
+
+function parseTomlBlockValues(
+  blockBody: string,
+  tablePrefix: string,
+): Record<string, Record<string, unknown>> | null {
+  const tables = parseTomlBlockTables(blockBody, tablePrefix);
+  const parsed: Record<string, Record<string, unknown>> = {};
+
+  for (const [serverName, table] of Object.entries(tables)) {
+    const fields = parseTomlTableValues(table, tablePrefix, serverName);
+
+    if (fields === null) {
+      return null;
+    }
+
+    parsed[serverName] = fields;
+  }
+
+  return parsed;
+}
+
+function parseTomlTableValues(
+  table: string,
+  tablePrefix: string,
+  serverName: string,
+): Record<string, unknown> | null {
+  const lines = table.split("\n");
+  const header = matchTomlTableHeader(lines.shift()?.trim() ?? "");
+
+  if (
+    header === null ||
+    header.length !== 2 ||
+    header[0] !== tablePrefix ||
+    header[1] !== serverName
+  ) {
+    return null;
+  }
+
+  const reader: TomlReader = {
+    source: lines.join("\n"),
+    index: 0,
+  };
+  const fields: Record<string, unknown> = {};
+
+  for (;;) {
+    skipTomlTrivia(reader);
+
+    if (reader.index === reader.source.length) {
+      return fields;
+    }
+
+    const key = readTomlKey(reader);
+
+    if (key === null) {
+      return null;
+    }
+
+    skipTomlWhitespace(reader);
+
+    if (reader.source[reader.index] !== "=") {
+      return null;
+    }
+
+    reader.index += 1;
+    skipTomlWhitespace(reader);
+
+    const value = readTomlValue(reader);
+
+    if (value === null || Object.hasOwn(fields, key)) {
+      return null;
+    }
+
+    fields[key] = value;
+  }
+}
+
+interface TomlReader {
+  source: string;
+  index: number;
+}
+
+function readTomlKey(reader: TomlReader): string | null {
+  const rest = reader.source.slice(reader.index);
+
+  if (rest.startsWith('"')) {
+    const value = readTomlString(reader, '"');
+    return value;
+  }
+
+  if (rest.startsWith("'")) {
+    return readTomlString(reader, "'");
+  }
+
+  const bare = rest.match(/^[A-Za-z0-9_-]+/);
+
+  if (!bare) {
+    return null;
+  }
+
+  reader.index += bare[0].length;
+  return bare[0];
+}
+
+function readTomlValue(reader: TomlReader): unknown | null {
+  const character = reader.source[reader.index];
+
+  if (character === '"') {
+    return readTomlString(reader, '"');
+  }
+
+  if (character === "'") {
+    return readTomlString(reader, "'");
+  }
+
+  if (character === "[") {
+    return readTomlStringArray(reader);
+  }
+
+  if (character === "{") {
+    return readTomlStringTable(reader);
+  }
+
+  return null;
+}
+
+function readTomlString(reader: TomlReader, quote: '"' | "'"): string | null {
+  reader.index += 1;
+  const start = reader.index;
+
+  if (quote === "'") {
+    const end = reader.source.indexOf("'", reader.index);
+
+    if (end === -1) {
+      return null;
+    }
+
+    reader.index = end + 1;
+    return reader.source.slice(start, end);
+  }
+
+  let escaped = false;
+
+  while (reader.index < reader.source.length) {
+    const character = reader.source[reader.index];
+
+    if (character === '"' && !escaped) {
+      const encoded = reader.source.slice(start - 1, reader.index + 1);
+      reader.index += 1;
+
+      try {
+        return JSON.parse(encoded) as string;
+      } catch {
+        return null;
+      }
+    }
+
+    if (character === "\\") {
+      escaped = !escaped;
+    } else {
+      escaped = false;
+    }
+
+    reader.index += 1;
+  }
+
+  return null;
+}
+
+function readTomlStringArray(reader: TomlReader): string[] | null {
+  reader.index += 1;
+  const values: string[] = [];
+
+  for (;;) {
+    skipTomlWhitespace(reader);
+
+    if (reader.source[reader.index] === "]") {
+      reader.index += 1;
+      return values;
+    }
+
+    const value = readTomlValue(reader);
+
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    values.push(value);
+    skipTomlWhitespace(reader);
+
+    if (reader.source[reader.index] === "]") {
+      reader.index += 1;
+      return values;
+    }
+
+    if (reader.source[reader.index] !== ",") {
+      return null;
+    }
+
+    reader.index += 1;
+  }
+}
+
+function readTomlStringTable(
+  reader: TomlReader,
+): Record<string, string> | null {
+  reader.index += 1;
+  const values: Record<string, string> = {};
+
+  for (;;) {
+    skipTomlWhitespace(reader);
+
+    if (reader.source[reader.index] === "}") {
+      reader.index += 1;
+      return values;
+    }
+
+    const key = readTomlKey(reader);
+
+    if (key === null) {
+      return null;
+    }
+
+    skipTomlWhitespace(reader);
+
+    if (reader.source[reader.index] !== "=") {
+      return null;
+    }
+
+    reader.index += 1;
+    skipTomlWhitespace(reader);
+
+    const value = readTomlValue(reader);
+
+    if (typeof value !== "string" || Object.hasOwn(values, key)) {
+      return null;
+    }
+
+    values[key] = value;
+    skipTomlWhitespace(reader);
+
+    if (reader.source[reader.index] === "}") {
+      reader.index += 1;
+      return values;
+    }
+
+    if (reader.source[reader.index] !== ",") {
+      return null;
+    }
+
+    reader.index += 1;
+  }
+}
+
+function skipTomlWhitespace(reader: TomlReader): void {
+  while (/\s/.test(reader.source[reader.index] ?? "")) {
+    reader.index += 1;
+  }
+}
+
+function skipTomlTrivia(reader: TomlReader): void {
+  for (;;) {
+    skipTomlWhitespace(reader);
+
+    if (reader.source[reader.index] !== "#") {
+      return;
+    }
+
+    const newline = reader.source.indexOf("\n", reader.index);
+    reader.index = newline === -1 ? reader.source.length : newline + 1;
+  }
 }
 
 function requireDialect(toolName: ToolName): McpConfigDialect {

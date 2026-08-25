@@ -787,6 +787,88 @@ describe("extractMcpOverlay", () => {
     );
   });
 
+  it("treats a reformatted Codex block with equivalent values as current", () => {
+    // Given a managed block reformatted with different quoting, spacing, and
+    // key order
+    const reformattedOverlay = {
+      docs: {
+        command: "docs-server",
+        args: ["--mode", "fast"],
+        env: { TOKEN: "abc", REGION: "us" },
+      },
+    };
+    const content = `# >>> SKUL:MCP BEGIN — managed by skul, do not edit
+[ 'mcp_servers' . "docs" ]
+env={ REGION='us', "TOKEN" = "abc" }
+args = [ '--mode' , "fast" ]
+command='docs-server'
+# <<< SKUL:MCP END
+`;
+
+    // When the overlay is read back
+    const extracted = extractMcpOverlay({
+      toolName: "codex",
+      content,
+      overlay: reformattedOverlay,
+    });
+
+    // Then formatting differences do not make its values stale
+    expect(extracted).toBe(JSON.stringify(reformattedOverlay));
+  });
+
+  it("reports a Codex block with changed values as stale", () => {
+    // Given a managed block whose server value was edited
+    const content = `# >>> SKUL:MCP BEGIN — managed by skul, do not edit
+[mcp_servers.docs]
+command = "different-server"
+# <<< SKUL:MCP END
+`;
+
+    // When the overlay is read back / Then its changed value is reported
+    expect(extractMcpOverlay({ toolName: "codex", content, overlay })).toBe(
+      JSON.stringify({ docs: { command: "different-server" } }),
+    );
+  });
+
+  it("reads Codex inline string tables used for remote headers", () => {
+    // Given a remote server whose headers are written as a reformatted inline table
+    const remoteOverlay = {
+      remote: {
+        url: "https://example.com/mcp",
+        http_headers: { Authorization: "Bearer token", "X-Trace": "abc" },
+      },
+    };
+    const content = `# >>> SKUL:MCP BEGIN — managed by skul, do not edit
+[mcp_servers.remote]
+http_headers = { 'X-Trace' = 'abc', Authorization="Bearer token" }
+url='https://example.com/mcp'
+# <<< SKUL:MCP END
+`;
+
+    // When the overlay is read back / Then all header values survive parsing
+    expect(
+      extractMcpOverlay({
+        toolName: "codex",
+        content,
+        overlay: remoteOverlay,
+      }),
+    ).toBe(JSON.stringify(remoteOverlay));
+  });
+
+  it("returns null when a Codex managed value cannot be parsed", () => {
+    // Given a managed block with an unterminated string
+    const content = `# >>> SKUL:MCP BEGIN — managed by skul, do not edit
+[mcp_servers.docs]
+command = "unterminated
+# <<< SKUL:MCP END
+`;
+
+    // When the overlay is read back / Then it is clearly inactive
+    expect(
+      extractMcpOverlay({ toolName: "codex", content, overlay }),
+    ).toBeNull();
+  });
+
   it("returns null when a Codex managed block no longer holds the server", () => {
     // Given a Codex config with nothing of Skul's in it
     // When the overlay is read back / Then it reports the shadow inactive
