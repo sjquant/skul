@@ -94,6 +94,49 @@ describe("materializeBundle", () => {
     ).toBe("context\n");
   });
 
+  it("keeps an executable bundle script executable where it lands", async () => {
+    // Given a skill shipping an executable helper script
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    const scriptPath = path.join(
+      bundleDir,
+      ".claude",
+      "skills",
+      "react",
+      "scripts",
+      "build.sh",
+    );
+    writeFile(scriptPath, "#!/bin/sh\necho build\n");
+    fs.chmodSync(scriptPath, 0o755);
+
+    // When
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+    });
+
+    // Then
+    expect(
+      fs.statSync(
+        path.join(
+          repoRoot,
+          ".claude",
+          "skills",
+          "react",
+          "scripts",
+          "build.sh",
+        ),
+      ).mode & 0o777,
+    ).toBe(0o755);
+  });
+
   it("tracks created nested directories for deterministic cleanup", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
@@ -562,6 +605,149 @@ describe("materializeBundle", () => {
         },
       }),
     ).rejects.toThrowError(/conflict detected/i);
+  });
+
+  it("owns only the directories it created for a referenced agent in a native directory", async () => {
+    // Given a bundle whose agent target is the tool's own directory and whose
+    // single agent comes from a reference carrying a description override
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalAgentPath = path.join(
+      createTempDir("skul-external-agent-"),
+      "reviewer.md",
+    );
+    writeFile(
+      externalAgentPath,
+      [
+        "---",
+        "name: reviewer",
+        "description: Review code for correctness",
+        "---",
+        "",
+        "Review the diff.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { agents: { path: ".claude/agents" } } },
+      },
+      resolvedBundleItemRefs: new Map([
+        [
+          "agents/reviewer",
+          { path: externalAgentPath, description: "Review only pull requests" },
+        ],
+      ]),
+    });
+
+    // Then the registry records the directory that now holds the agent, and
+    // nothing outside the repository
+    expect(result.byTool["claude-code"]!.directories).toEqual([
+      ".claude/agents",
+    ]);
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/agents/reviewer.md",
+    ]);
+  });
+
+  it("leaves no files behind when a later tool's skill cannot be written", async () => {
+    // Given a bundle whose second tool's skill collides with a user file
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeFile(
+      path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+      "user file\n",
+    );
+
+    // When the bundle is materialized with no way to resolve the collision
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          tools: {
+            "claude-code": { skills: { path: ".claude/skills" } },
+            cursor: { skills: { path: ".cursor/skills" } },
+          },
+        },
+      }),
+    ).rejects.toThrowError(/conflict detected/i);
+
+    // Then the tool processed before the failure wrote nothing
+    expect(fs.existsSync(path.join(repoRoot, ".claude"))).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("user file\n");
+  });
+
+  it("leaves no files behind when a later tool's agent source is missing", async () => {
+    // Given a bundle that declares agents for two tools but ships only one
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "agents", "reviewer.md"),
+      "# reviewer\n",
+    );
+
+    // When the bundle is materialized
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          tools: {
+            "claude-code": { agents: { path: ".claude/agents" } },
+            cursor: { agents: { path: ".cursor/agents" } },
+          },
+        },
+      }),
+    ).rejects.toThrowError(/bundle target path does not exist/i);
+
+    // Then the tool processed before the failure wrote nothing
+    expect(fs.existsSync(path.join(repoRoot, ".claude"))).toBe(false);
+  });
+
+  it("leaves no files behind when a later tool's root instruction source is a symlink", async () => {
+    // Given a bundle whose codex root instruction is a symlink
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "bundle root instruction\n");
+    fs.symlinkSync(
+      path.join(bundleDir, "CLAUDE.md"),
+      path.join(bundleDir, "AGENTS.md"),
+    );
+
+    // When the bundle is materialized
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          tools: {
+            "claude-code": { root_instruction: { path: "CLAUDE.md" } },
+            codex: { root_instruction: { path: "AGENTS.md" } },
+          },
+        },
+      }),
+    ).rejects.toThrowError(/symlink/i);
+
+    // Then the tool processed before the failure wrote nothing
+    expect(fs.existsSync(path.join(repoRoot, "CLAUDE.md"))).toBe(false);
   });
 
   it("materializes files into each tool's native directory for a multi-tool manifest", async () => {

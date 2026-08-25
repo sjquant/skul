@@ -2442,8 +2442,6 @@ async function updateBundles(options: {
             repoRoot: gitContext.worktreeRoot,
             operation: existingBundleState ? "refresh" : "create",
           }),
-          allowFileOverwriteTargets:
-            collectManagedRootInstructionTargets(currentBundles),
           deferredWriteTargets:
             trackedShadowPlan.deferredMaterializationTargets,
           rootInstructionBaseContents,
@@ -2881,9 +2879,6 @@ async function applyBundle(options: {
       repoRoot: gitContext.worktreeRoot,
       operation: existingBundleState ? "refresh" : "create",
     }),
-    allowFileOverwriteTargets: collectManagedRootInstructionTargets(
-      existingWorktreeState?.bundles ?? {},
-    ),
     deferredWriteTargets: trackedShadowPlan.deferredMaterializationTargets,
     rootInstructionBaseContents,
     rootInstructionMode: effectiveRootInstructionMode,
@@ -5580,8 +5575,6 @@ async function applyWorktree(options: {
         repoRoot: gitContext.worktreeRoot,
         operation: existingBundleState ? "refresh" : "create",
       }),
-      allowFileOverwriteTargets:
-        collectManagedRootInstructionTargets(currentBundles),
       deferredWriteTargets: trackedShadowPlan.deferredMaterializationTargets,
       rootInstructionBaseContents,
       rootInstructionMode: entry.root_instruction_mode,
@@ -7437,8 +7430,6 @@ async function applyBundleGlobal(options: {
     tools: availableGlobalTools,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
-    allowFileOverwriteTargets:
-      collectManagedRootInstructionTargets(existingBundles),
     rootInstructionBaseContents,
     rootInstructionMode: effectiveRootInstructionMode,
     resolveFileConflict: options.prompts.resolveFileConflict,

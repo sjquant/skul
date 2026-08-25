@@ -30,13 +30,21 @@ export function escapeRegExp(value: string): string {
  * target's own mode rather than the ambient umask default, so a configuration
  * the user restricted — a home-directory file holding account details, say — is
  * never briefly world-readable while the copy sits beside the original.
+ *
+ * `mode` applies only when the target does not exist yet; an existing file keeps
+ * its own permissions. Callers copying a bundle file pass the source's mode so
+ * an executable script stays executable where it lands.
  */
-export function writeFileAtomic(filePath: string, content: string): void {
+export function writeFileAtomic(
+  filePath: string,
+  content: string | Buffer,
+  mode?: number,
+): void {
   const tempPath = path.join(
     path.dirname(filePath),
     `.${path.basename(filePath)}.skul-${process.pid}-${Date.now()}`,
   );
-  const existingMode = readFilePermissions(filePath);
+  const existingMode = readFilePermissions(filePath) ?? mode;
 
   try {
     fs.writeFileSync(

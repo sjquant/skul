@@ -3,7 +3,6 @@ import path from "node:path";
 import type { ResolvedBundleItemRef } from "./bundle-item-refs";
 import {
   type BundleItemSelector,
-  isDirectoryItemSelected,
   isMcpItemSelected,
   isRootInstructionItemSelected,
   stripKnownBundleItemExtension,
@@ -177,15 +176,26 @@ export function previewMaterializeBundleWriteTargets(options: {
   );
 }
 
-/**
- * Materializes a bundle into the repository, returning the files and
- * directories that became owned by each tool.
- *
- * Callers may optionally provide `assertSafeWriteTarget` to veto individual
- * writes before they happen and `resolveFileConflict` to overwrite or abort
- * colliding outputs.
- */
-export async function materializeBundle(options: {
+/** One file a plan will land on disk, with its content already resolved. */
+interface PlannedFileWrite {
+  repoRelPath: string;
+  content: string | Buffer;
+  /** The source file's permission bits, so a copied executable stays executable. */
+  mode?: number;
+}
+
+/** Everything one tool's materialization does, resolved before any of it happens. */
+interface PlannedToolWrites {
+  writes: PlannedFileWrite[];
+  /** Repo-relative files the registry records as owned by this tool. */
+  ownedFiles: string[];
+  /** Repo-relative directories Skul brings into existence, and so owns. */
+  ownedDirectories: Set<string>;
+  /** MCP server names this tool now owns in each shared configuration file. */
+  mcpServers: Record<string, string[]>;
+}
+
+export interface MaterializeBundleOptions {
   repoRoot: string;
   bundleDir: string;
   manifest: BundleManifest;
@@ -194,7 +204,6 @@ export async function materializeBundle(options: {
   bundleName?: string;
   bundleSource?: string;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
-  allowFileOverwriteTargets?: Set<string>;
   deferredWriteTargets?: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
   rootInstructionMode?: RootInstructionMode;
@@ -212,9 +221,43 @@ export async function materializeBundle(options: {
    * bundle and is refused rather than replaced.
    */
   existingMcpServers?: Record<string, string[]>;
-}): Promise<MaterializeBundleResult> {
-  const byTool: MaterializeBundleResult["byTool"] = {};
-  const writtenSharedFileTargets = new Set<string>();
+}
+
+/**
+ * Materializes a bundle into the repository, returning the files and
+ * directories that became owned by each tool.
+ *
+ * Callers may optionally provide `assertSafeWriteTarget` to veto individual
+ * writes before they happen and `resolveFileConflict` to overwrite or abort
+ * colliding outputs.
+ *
+ * Every write is resolved before the first one lands. Reading a bundle source,
+ * translating it, and settling a collision can all fail, and failing partway
+ * through a run that wrote as it went would leave files on disk that no registry
+ * entry records, so nothing later could remove them. Planning the whole set
+ * first makes materialization either succeed or touch nothing.
+ */
+export async function materializeBundle(
+  options: MaterializeBundleOptions,
+): Promise<MaterializeBundleResult> {
+  return applyBundleMaterializationPlan(
+    options.repoRoot,
+    await planBundleMaterialization(options),
+  );
+}
+
+/**
+ * Resolves the path and final content of every write the manifest calls for,
+ * without touching the worktree.
+ */
+async function planBundleMaterialization(
+  options: MaterializeBundleOptions,
+): Promise<Map<ToolName, PlannedToolWrites>> {
+  const plans = new Map<ToolName, PlannedToolWrites>();
+  // Repo-relative paths an earlier write in this run already claimed. Nothing is
+  // on disk yet during planning, so this stands in for the filesystem when a
+  // later target asks whether its destination is taken.
+  const claimedWriteTargets = new Set<string>();
   const pathLayout = options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT;
   const toolEntries =
     options.tools && options.tools.length > 0
@@ -260,9 +303,12 @@ export async function materializeBundle(options: {
     : new Map<ToolName, PlannedMcpWrite>();
 
   for (const [toolName, targets] of toolEntries) {
-    const toolFiles: string[] = [];
-    const toolDirectories = new Set<string>();
-    const toolMcpServers: Record<string, string[]> = {};
+    const toolPlan: PlannedToolWrites = {
+      writes: [],
+      ownedFiles: [],
+      ownedDirectories: new Set<string>(),
+      mcpServers: {},
+    };
 
     for (const [targetName, target] of Object.entries(targets)) {
       const targetDefinition = getToolDefinition(toolName as ToolName)?.targets[
@@ -273,14 +319,12 @@ export async function materializeBundle(options: {
         const plannedWrite = plannedMcpWrites.get(toolName as ToolName);
 
         if (plannedWrite) {
-          await writeMcpTarget({
+          await planMcpTargetWrite({
             plannedWrite,
             repoRoot: options.repoRoot,
-            writtenFiles: toolFiles,
-            ownedDirectories: toolDirectories,
-            writtenSharedFileTargets,
+            toolPlan,
+            claimedWriteTargets,
             assertSafeWriteTarget: options.assertSafeWriteTarget,
-            ownedMcpServers: toolMcpServers,
           });
         }
 
@@ -292,19 +336,17 @@ export async function materializeBundle(options: {
           continue;
         }
 
-        await materializeRootInstructionTarget({
+        await planRootInstructionTarget({
           bundleDir: options.bundleDir,
           sourcePath: target.path,
           toolName: toolName as ToolName,
           targetName: targetName as ToolTargetName,
           repoRoot: options.repoRoot,
-          writtenFiles: toolFiles,
-          ownedDirectories: toolDirectories,
+          toolPlan,
+          claimedWriteTargets,
           assertSafeWriteTarget: options.assertSafeWriteTarget,
-          allowFileOverwriteTargets: options.allowFileOverwriteTargets,
           deferredWriteTargets: options.deferredWriteTargets,
           composedRootInstructionContents,
-          writtenSharedFileTargets,
           rootInstructionBaseContents: options.rootInstructionBaseContents,
           rootInstructionMode: options.rootInstructionMode,
           bundleName: options.bundleName ?? options.manifest.name ?? "bundle",
@@ -323,14 +365,14 @@ export async function materializeBundle(options: {
           target.path,
         )
       ) {
-        await materializeNativeTarget({
+        await planNativeTarget({
           bundleDir: options.bundleDir,
           sourcePath: target.path,
           toolName: toolName as ToolName,
           targetName: targetName as ToolTargetName,
           repoRoot: options.repoRoot,
-          writtenFiles: toolFiles,
-          ownedDirectories: toolDirectories,
+          toolPlan,
+          claimedWriteTargets,
           assertSafeWriteTarget: options.assertSafeWriteTarget,
           resolveFileConflict: options.resolveFileConflict,
           itemSelectors: options.itemSelectors,
@@ -339,14 +381,14 @@ export async function materializeBundle(options: {
         });
       } else {
         // Canonical path: apply cross-tool content transforms via bundle-translation.
-        await materializeCanonicalTarget({
+        await planCanonicalTarget({
           bundleDir: options.bundleDir,
           sourcePath: target.path,
           toolName: toolName as ToolName,
           targetName: targetName as ToolTargetName,
           repoRoot: options.repoRoot,
-          writtenFiles: toolFiles,
-          ownedDirectories: toolDirectories,
+          toolPlan,
+          claimedWriteTargets,
           assertSafeWriteTarget: options.assertSafeWriteTarget,
           resolveFileConflict: options.resolveFileConflict,
           itemSelectors: options.itemSelectors,
@@ -357,41 +399,73 @@ export async function materializeBundle(options: {
       }
     }
 
-    toolFiles.sort((left, right) => {
-      const depthDifference = pathDepth(left) - pathDepth(right);
-      return depthDifference !== 0
-        ? depthDifference
-        : left.localeCompare(right);
-    });
-    const sortedToolDirs = Array.from(toolDirectories).sort((left, right) => {
-      const depthDifference = pathDepth(right) - pathDepth(left);
-      return depthDifference !== 0
-        ? depthDifference
-        : left.localeCompare(right);
-    });
-    byTool[toolName as ToolName] = {
-      files: toolFiles,
-      directories: sortedToolDirs,
-      mcpServers: toolMcpServers,
+    plans.set(toolName as ToolName, toolPlan);
+  }
+
+  return plans;
+}
+
+/** Performs a resolved plan: the only pass that touches the worktree. */
+function applyBundleMaterializationPlan(
+  repoRoot: string,
+  plans: Map<ToolName, PlannedToolWrites>,
+): MaterializeBundleResult {
+  const byTool: MaterializeBundleResult["byTool"] = {};
+
+  for (const [toolName, toolPlan] of plans) {
+    for (const directory of toolPlan.ownedDirectories) {
+      fs.mkdirSync(repoAbsPath(repoRoot, directory), { recursive: true });
+    }
+
+    for (const write of toolPlan.writes) {
+      const absPath = repoAbsPath(repoRoot, write.repoRelPath);
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      writeFileAtomic(absPath, write.content, write.mode);
+    }
+
+    byTool[toolName] = {
+      files: toolPlan.ownedFiles.sort(shallowestFirst),
+      directories: Array.from(toolPlan.ownedDirectories).sort(deepestFirst),
+      mcpServers: toolPlan.mcpServers,
     };
   }
 
   return { byTool };
 }
 
-async function materializeRootInstructionTarget(options: {
+/** Orders paths parents first, the order they have to be created in. */
+function shallowestFirst(left: string, right: string): number {
+  const depthDifference = pathDepth(left) - pathDepth(right);
+  return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
+}
+
+/** Orders paths children first, the order they have to be removed in. */
+function deepestFirst(left: string, right: string): number {
+  const depthDifference = pathDepth(right) - pathDepth(left);
+  return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
+}
+
+/** Resolves a slash-delimited repo-relative path against the repository root. */
+function repoAbsPath(repoRoot: string, repoRelPath: string): string {
+  return path.join(repoRoot, ...repoRelPath.split("/"));
+}
+
+/** Expresses an absolute path as a slash-delimited repo-relative one. */
+function repoRelPathOf(repoRoot: string, absPath: string): string {
+  return path.relative(repoRoot, absPath).split(path.sep).join("/");
+}
+
+async function planRootInstructionTarget(options: {
   bundleDir: string;
   sourcePath: string;
   toolName: ToolName;
   targetName: ToolTargetName;
   repoRoot: string;
-  writtenFiles: string[];
-  ownedDirectories: Set<string>;
+  toolPlan: PlannedToolWrites;
+  claimedWriteTargets: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
-  allowFileOverwriteTargets?: Set<string>;
   deferredWriteTargets?: Set<string>;
   composedRootInstructionContents: Record<string, string>;
-  writtenSharedFileTargets: Set<string>;
   rootInstructionBaseContents?: Record<string, string>;
   rootInstructionMode?: RootInstructionMode;
   bundleName: string;
@@ -421,8 +495,10 @@ async function materializeRootInstructionTarget(options: {
       origRelPath,
     );
 
-    if (options.writtenSharedFileTargets.has(repoRelPath)) {
-      options.writtenFiles.push(repoRelPath);
+    // Tools sharing one root-instruction file compose into a single write, which
+    // every one of them still owns.
+    if (options.claimedWriteTargets.has(repoRelPath)) {
+      options.toolPlan.ownedFiles.push(repoRelPath);
       continue;
     }
 
@@ -430,7 +506,7 @@ async function materializeRootInstructionTarget(options: {
       continue;
     }
 
-    await writeTranslatedFile({
+    await planTranslatedFile({
       repoRelPath,
       content: renderRootInstructionDocument({
         repoRoot: options.repoRoot,
@@ -443,16 +519,14 @@ async function materializeRootInstructionTarget(options: {
           options.composedRootInstructionContents[origRelPath] ?? content,
       }),
       repoRoot: options.repoRoot,
-      writtenFiles: options.writtenFiles,
-      ownedDirectories: options.ownedDirectories,
+      toolPlan: options.toolPlan,
       reservedDestinations: new Set<string>(),
+      claimedWriteTargets: options.claimedWriteTargets,
       assertSafeWriteTarget: options.assertSafeWriteTarget,
       allowExistingFileOverwrite: true,
       resolveFileConflict: options.resolveFileConflict,
       targetRoot: "",
     });
-
-    options.writtenSharedFileTargets.add(repoRelPath);
   }
 }
 
@@ -623,48 +697,47 @@ function readExistingMcpConfig(
 }
 
 /**
- * Writes one planned MCP configuration and records what Skul now owns in it.
+ * Folds one planned MCP configuration into a tool's plan and records what Skul
+ * will own in it.
  *
- * Only a file Skul brought into existence is recorded as a managed file. A file
+ * Only a file Skul brings into existence is recorded as a managed file. A file
  * that was already there is merged into but never owned, so removal subtracts
  * Skul's servers from it rather than deleting the user's file.
  */
-async function writeMcpTarget(options: {
+async function planMcpTargetWrite(options: {
   plannedWrite: PlannedMcpWrite;
   repoRoot: string;
-  writtenFiles: string[];
-  ownedDirectories: Set<string>;
-  writtenSharedFileTargets: Set<string>;
+  toolPlan: PlannedToolWrites;
+  claimedWriteTargets: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
-  ownedMcpServers: Record<string, string[]>;
 }): Promise<void> {
   const { repoRelPath, content, serverNames, created } = options.plannedWrite;
 
-  await writeTranslatedFile({
+  await planTranslatedFile({
     repoRelPath,
     content,
     repoRoot: options.repoRoot,
-    writtenFiles: created ? options.writtenFiles : [],
-    ownedDirectories: options.ownedDirectories,
+    toolPlan: options.toolPlan,
     reservedDestinations: new Set<string>(),
+    claimedWriteTargets: options.claimedWriteTargets,
     assertSafeWriteTarget: options.assertSafeWriteTarget,
     allowExistingFileOverwrite: true,
+    ownsFile: created,
     resolveFileConflict: undefined,
     targetRoot: "",
   });
 
-  options.writtenSharedFileTargets.add(repoRelPath);
-  options.ownedMcpServers[repoRelPath] = serverNames;
+  options.toolPlan.mcpServers[repoRelPath] = serverNames;
 }
 
-async function materializeNativeTarget(options: {
+async function planNativeTarget(options: {
   bundleDir: string;
   sourcePath: string;
   toolName: ToolName;
   targetName: ToolTargetName;
   repoRoot: string;
-  writtenFiles: string[];
-  ownedDirectories: Set<string>;
+  toolPlan: PlannedToolWrites;
+  claimedWriteTargets: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   resolveFileConflict:
     | ((conflictPath: string) => Promise<FileConflictResolution>)
@@ -684,13 +757,10 @@ async function materializeNativeTarget(options: {
   }
 
   const reservedDestinations = new Set<string>();
-  const destinationDirExisted = fs.existsSync(destinationDir);
-  fs.mkdirSync(destinationDir, { recursive: true });
+  const targetRoot = repoRelPathOf(options.repoRoot, destinationDir);
 
-  if (!destinationDirExisted) {
-    options.ownedDirectories.add(
-      path.relative(options.repoRoot, destinationDir),
-    );
+  if (!fs.existsSync(destinationDir)) {
+    options.toolPlan.ownedDirectories.add(targetRoot);
   }
 
   for (const item of listNativeTargetItems(options)) {
@@ -717,32 +787,32 @@ async function materializeNativeTarget(options: {
           toolName: options.toolName,
           targetName: options.targetName,
         });
-        await writeTranslatedItemFiles({
+        await planTranslatedItemFiles({
           translated,
           pathLayout: options.pathLayout,
           toolName: options.toolName,
           repoRoot: options.repoRoot,
-          writtenFiles: options.writtenFiles,
-          ownedDirectories: options.ownedDirectories,
+          toolPlan: options.toolPlan,
           reservedDestinations,
+          claimedWriteTargets: options.claimedWriteTargets,
           assertSafeWriteTarget: options.assertSafeWriteTarget,
           resolveFileConflict,
-          targetRoot: destinationDir,
+          targetRoot,
         });
         continue;
       }
 
-      await copyDirectory(
-        sourcePath,
-        destinationPath,
-        destinationDir,
-        options.writtenFiles,
-        options.ownedDirectories,
+      await planDirectoryCopy({
+        sourceDir: sourcePath,
+        destinationDir: destinationPath,
+        targetRootAbsPath: destinationDir,
+        toolPlan: options.toolPlan,
         reservedDestinations,
-        options.repoRoot,
-        options.assertSafeWriteTarget,
+        claimedWriteTargets: options.claimedWriteTargets,
+        repoRoot: options.repoRoot,
+        assertSafeWriteTarget: options.assertSafeWriteTarget,
         resolveFileConflict,
-      );
+      });
       continue;
     }
 
@@ -752,28 +822,28 @@ async function materializeNativeTarget(options: {
         toolName: options.toolName,
         targetName: options.targetName,
       });
-      await writeTranslatedItemFiles({
+      await planTranslatedItemFiles({
         translated,
         pathLayout: options.pathLayout,
         toolName: options.toolName,
         repoRoot: options.repoRoot,
-        writtenFiles: options.writtenFiles,
-        ownedDirectories: options.ownedDirectories,
+        toolPlan: options.toolPlan,
         reservedDestinations,
+        claimedWriteTargets: options.claimedWriteTargets,
         assertSafeWriteTarget: options.assertSafeWriteTarget,
         resolveFileConflict,
-        targetRoot: destinationDir,
+        targetRoot,
       });
       continue;
     }
 
-    await copyFileToDestination({
+    await planFileCopy({
       sourcePath,
       destinationPath,
-      targetRoot: destinationDir,
-      writtenFiles: options.writtenFiles,
-      ownedDirectories: options.ownedDirectories,
+      targetRootAbsPath: destinationDir,
+      toolPlan: options.toolPlan,
       reservedDestinations,
+      claimedWriteTargets: options.claimedWriteTargets,
       repoRoot: options.repoRoot,
       assertSafeWriteTarget: options.assertSafeWriteTarget,
       resolveFileConflict,
@@ -781,14 +851,14 @@ async function materializeNativeTarget(options: {
   }
 }
 
-async function writeTranslatedItemFiles(options: {
+async function planTranslatedItemFiles(options: {
   translated: Record<string, string>;
   pathLayout: ToolMaterializationLayout;
   toolName: ToolName;
   repoRoot: string;
-  writtenFiles: string[];
-  ownedDirectories: Set<string>;
+  toolPlan: PlannedToolWrites;
   reservedDestinations: Set<string>;
+  claimedWriteTargets: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   resolveFileConflict:
     | ((conflictPath: string) => Promise<FileConflictResolution>)
@@ -800,13 +870,13 @@ async function writeTranslatedItemFiles(options: {
       options.toolName,
       origRelPath,
     );
-    await writeTranslatedFile({
+    await planTranslatedFile({
       repoRelPath,
       content,
       repoRoot: options.repoRoot,
-      writtenFiles: options.writtenFiles,
-      ownedDirectories: options.ownedDirectories,
+      toolPlan: options.toolPlan,
       reservedDestinations: options.reservedDestinations,
+      claimedWriteTargets: options.claimedWriteTargets,
       assertSafeWriteTarget: options.assertSafeWriteTarget,
       resolveFileConflict: options.resolveFileConflict,
       targetRoot: options.targetRoot,
@@ -1120,97 +1190,59 @@ function renderRootInstructionDocument(options: {
   );
 }
 
-async function copyDirectory(
-  sourceDir: string,
-  destinationDir: string,
-  targetRoot: string,
-  writtenFiles: string[],
-  ownedDirectories: Set<string>,
-  reservedDestinations: Set<string>,
-  repoRoot: string,
-  assertSafeWriteTarget: ((repoRelativePath: string) => void) | undefined,
+async function planDirectoryCopy(options: {
+  sourceDir: string;
+  destinationDir: string;
+  targetRootAbsPath: string;
+  toolPlan: PlannedToolWrites;
+  reservedDestinations: Set<string>;
+  claimedWriteTargets: Set<string>;
+  repoRoot: string;
+  assertSafeWriteTarget: ((repoRelativePath: string) => void) | undefined;
   resolveFileConflict:
     | ((conflictPath: string) => Promise<FileConflictResolution>)
-    | undefined,
-  itemFilter?: {
-    targetName: ToolTargetName;
-    selectors: BundleItemSelector[];
-    sourceRoot: string;
-  },
-): Promise<void> {
-  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    assertNotSymlink(entry, sourceDir);
+    | undefined;
+}): Promise<void> {
+  for (const entry of fs.readdirSync(options.sourceDir, {
+    withFileTypes: true,
+  })) {
+    assertNotSymlink(entry, options.sourceDir);
 
-    const sourcePath = path.join(sourceDir, entry.name);
-    const destinationPath = path.join(destinationDir, entry.name);
-    const relativeSourcePath = path.relative(
-      itemFilter?.sourceRoot ?? sourceDir,
-      sourcePath,
-    );
-    const topLevelEntryName =
-      relativeSourcePath.split(path.sep)[0] ?? entry.name;
-
-    if (
-      itemFilter &&
-      !isDirectoryItemSelected({
-        selectors: itemFilter.selectors,
-        targetName: itemFilter.targetName,
-        entryName: topLevelEntryName,
-      })
-    ) {
-      continue;
-    }
+    const sourcePath = path.join(options.sourceDir, entry.name);
+    const destinationPath = path.join(options.destinationDir, entry.name);
 
     if (entry.isDirectory()) {
-      await copyDirectory(
-        sourcePath,
-        destinationPath,
-        targetRoot,
-        writtenFiles,
-        ownedDirectories,
-        reservedDestinations,
-        repoRoot,
-        assertSafeWriteTarget,
-        resolveFileConflict,
-        itemFilter,
-      );
+      await planDirectoryCopy({
+        ...options,
+        sourceDir: sourcePath,
+        destinationDir: destinationPath,
+      });
       continue;
     }
 
     if (entry.isFile()) {
-      const finalDestinationPath = await resolveDestinationPath({
+      await planFileCopy({
+        sourcePath,
         destinationPath,
-        targetRoot,
-        reservedDestinations,
-        resolveFileConflict,
+        targetRootAbsPath: options.targetRootAbsPath,
+        toolPlan: options.toolPlan,
+        reservedDestinations: options.reservedDestinations,
+        claimedWriteTargets: options.claimedWriteTargets,
+        repoRoot: options.repoRoot,
+        assertSafeWriteTarget: options.assertSafeWriteTarget,
+        resolveFileConflict: options.resolveFileConflict,
       });
-
-      ensureOwnedParentDirectories(
-        path.dirname(finalDestinationPath),
-        targetRoot,
-        ownedDirectories,
-        repoRoot,
-      );
-      assertSafeWriteTarget?.(path.relative(repoRoot, finalDestinationPath));
-      fs.copyFileSync(sourcePath, finalDestinationPath);
-      reservedDestinations.add(
-        path
-          .relative(targetRoot, finalDestinationPath)
-          .split(path.sep)
-          .join("/"),
-      );
-      writtenFiles.push(path.relative(repoRoot, finalDestinationPath));
     }
   }
 }
 
-async function copyFileToDestination(options: {
+async function planFileCopy(options: {
   sourcePath: string;
   destinationPath: string;
-  targetRoot: string;
-  writtenFiles: string[];
-  ownedDirectories: Set<string>;
+  targetRootAbsPath: string;
+  toolPlan: PlannedToolWrites;
   reservedDestinations: Set<string>;
+  claimedWriteTargets: Set<string>;
   repoRoot: string;
   assertSafeWriteTarget: ((repoRelativePath: string) => void) | undefined;
   resolveFileConflict:
@@ -1218,44 +1250,51 @@ async function copyFileToDestination(options: {
     | undefined;
 }): Promise<void> {
   assertBundleTargetFile(options.sourcePath, options.sourcePath);
-  const finalDestinationPath = await resolveDestinationPath({
+  await settleDestinationConflict({
     destinationPath: options.destinationPath,
-    targetRoot: options.targetRoot,
+    targetRootAbsPath: options.targetRootAbsPath,
     reservedDestinations: options.reservedDestinations,
+    claimedWriteTargets: options.claimedWriteTargets,
+    repoRoot: options.repoRoot,
     resolveFileConflict: options.resolveFileConflict,
   });
+  const repoRelPath = repoRelPathOf(options.repoRoot, options.destinationPath);
 
-  ensureOwnedParentDirectories(
-    path.dirname(finalDestinationPath),
-    options.targetRoot,
-    options.ownedDirectories,
+  planOwnedParentDirectories(
+    path.dirname(options.destinationPath),
+    options.targetRootAbsPath,
+    options.toolPlan.ownedDirectories,
     options.repoRoot,
   );
-  options.assertSafeWriteTarget?.(
-    path.relative(options.repoRoot, finalDestinationPath),
-  );
-  fs.copyFileSync(options.sourcePath, finalDestinationPath);
+  options.assertSafeWriteTarget?.(repoRelPath);
+  options.toolPlan.writes.push({
+    repoRelPath,
+    content: fs.readFileSync(options.sourcePath),
+    mode: fs.statSync(options.sourcePath).mode & 0o777,
+  });
   options.reservedDestinations.add(
     path
-      .relative(options.targetRoot, finalDestinationPath)
+      .relative(options.targetRootAbsPath, options.destinationPath)
       .split(path.sep)
       .join("/"),
   );
-  options.writtenFiles.push(
-    path.relative(options.repoRoot, finalDestinationPath),
-  );
+  options.claimedWriteTargets.add(repoRelPath);
+  options.toolPlan.ownedFiles.push(repoRelPath);
 }
 
-async function resolveDestinationPath(options: {
+/** Refuses a taken destination, or lets the caller decide to overwrite it. */
+async function settleDestinationConflict(options: {
   destinationPath: string;
-  targetRoot: string;
+  targetRootAbsPath: string;
   reservedDestinations: Set<string>;
+  claimedWriteTargets: Set<string>;
+  repoRoot: string;
   resolveFileConflict:
     | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined;
-}): Promise<string> {
+}): Promise<void> {
   const relativePath = path
-    .relative(options.targetRoot, options.destinationPath)
+    .relative(options.targetRootAbsPath, options.destinationPath)
     .split(path.sep)
     .join("/");
 
@@ -1263,8 +1302,14 @@ async function resolveDestinationPath(options: {
     throw new Error(`Conflict detected: ${relativePath}`);
   }
 
-  if (!fs.existsSync(options.destinationPath)) {
-    return options.destinationPath;
+  if (
+    !isWriteTargetTaken({
+      repoRoot: options.repoRoot,
+      repoRelPath: repoRelPathOf(options.repoRoot, options.destinationPath),
+      claimedWriteTargets: options.claimedWriteTargets,
+    })
+  ) {
+    return;
   }
 
   if (!options.resolveFileConflict) {
@@ -1272,32 +1317,38 @@ async function resolveDestinationPath(options: {
   }
 
   await options.resolveFileConflict(relativePath);
-  return options.destinationPath;
 }
 
-function ensureOwnedParentDirectories(
+/**
+ * Records the directories a write brings into existence, without creating them.
+ *
+ * Nothing has been written yet, so every planned file under one new directory
+ * sees it as missing and names it again; the set keeps a single entry.
+ */
+function planOwnedParentDirectories(
   directoryPath: string,
-  targetRoot: string,
+  targetRootAbsPath: string,
   ownedDirectories: Set<string>,
   repoRoot: string,
 ): void {
-  if (directoryPath === targetRoot) {
-    return;
-  }
-
-  const missingDirectories: string[] = [];
   let currentPath = directoryPath;
 
-  while (currentPath !== targetRoot && !fs.existsSync(currentPath)) {
-    missingDirectories.push(currentPath);
+  while (currentPath !== targetRootAbsPath && !fs.existsSync(currentPath)) {
+    ownedDirectories.add(repoRelPathOf(repoRoot, currentPath));
     currentPath = path.dirname(currentPath);
   }
+}
 
-  fs.mkdirSync(directoryPath, { recursive: true });
-
-  for (const missingDirectory of missingDirectories) {
-    ownedDirectories.add(path.relative(repoRoot, missingDirectory));
-  }
+/** Reports whether a destination is taken — on disk, or by an earlier planned write. */
+function isWriteTargetTaken(options: {
+  repoRoot: string;
+  repoRelPath: string;
+  claimedWriteTargets: Set<string>;
+}): boolean {
+  return (
+    options.claimedWriteTargets.has(options.repoRelPath) ||
+    fs.existsSync(repoAbsPath(options.repoRoot, options.repoRelPath))
+  );
 }
 
 function listRelativeFiles(sourceDir: string, prefix = ""): string[] {
@@ -1360,14 +1411,14 @@ function readFilesIntoRecord(
   }
 }
 
-async function materializeCanonicalTarget(options: {
+async function planCanonicalTarget(options: {
   bundleDir: string;
   sourcePath: string;
   toolName: ToolName;
   targetName: ToolTargetName;
   repoRoot: string;
-  writtenFiles: string[];
-  ownedDirectories: Set<string>;
+  toolPlan: PlannedToolWrites;
+  claimedWriteTargets: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   resolveFileConflict:
     | ((conflictPath: string) => Promise<FileConflictResolution>)
@@ -1400,13 +1451,13 @@ async function materializeCanonicalTarget(options: {
         targetName: options.targetName,
         repoRoot: options.repoRoot,
       });
-      await writeTranslatedFile({
+      await planTranslatedFile({
         repoRelPath,
         content,
         repoRoot: options.repoRoot,
-        writtenFiles: options.writtenFiles,
-        ownedDirectories: options.ownedDirectories,
+        toolPlan: options.toolPlan,
         reservedDestinations,
+        claimedWriteTargets: options.claimedWriteTargets,
         assertSafeWriteTarget: options.assertSafeWriteTarget,
         resolveFileConflict: itemResolveFileConflict,
         targetRoot,
@@ -1691,15 +1742,21 @@ function resolveDirectoryTargetRoot(options: {
   return path.relative(options.repoRoot, targetPath).split(path.sep).join("/");
 }
 
-async function writeTranslatedFile(options: {
+/**
+ * Resolves one translated file into the tool's plan: where it lands, what it
+ * will contain, and which directories Skul has to create to hold it.
+ */
+async function planTranslatedFile(options: {
   repoRelPath: string;
   content: string;
   repoRoot: string;
-  writtenFiles: string[];
-  ownedDirectories: Set<string>;
+  toolPlan: PlannedToolWrites;
   reservedDestinations: Set<string>;
+  claimedWriteTargets: Set<string>;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
   allowExistingFileOverwrite?: boolean;
+  /** False for a shared file Skul merges into but never owns. */
+  ownsFile?: boolean;
   resolveFileConflict:
     | ((conflictPath: string) => Promise<FileConflictResolution>)
     | undefined;
@@ -1709,26 +1766,23 @@ async function writeTranslatedFile(options: {
   // targets use the two-segment tool root (e.g. ".cursor/skills"); repo-root files use "".
   const targetRoot =
     options.targetRoot ?? options.repoRelPath.split("/").slice(0, 2).join("/");
-  const targetRootAbsPath = path.join(
-    options.repoRoot,
-    ...targetRoot.split("/"),
-  );
+  const targetRootAbsPath = repoAbsPath(options.repoRoot, targetRoot);
   const targetRootIsNew = !fs.existsSync(targetRootAbsPath);
 
   const currentRepoRelPath = options.repoRelPath;
-  const currentAbsPath = path.join(
-    options.repoRoot,
-    ...currentRepoRelPath.split("/"),
-  );
+  const currentAbsPath = repoAbsPath(options.repoRoot, currentRepoRelPath);
 
-  const hasReserved = options.reservedDestinations.has(currentRepoRelPath);
-  const hasFilesystem = fs.existsSync(currentAbsPath);
-
-  if (hasReserved) {
+  if (options.reservedDestinations.has(currentRepoRelPath)) {
     throw new Error(`Conflict detected: ${currentRepoRelPath}`);
   }
 
-  if (hasFilesystem && !options.allowExistingFileOverwrite) {
+  const isTaken = isWriteTargetTaken({
+    repoRoot: options.repoRoot,
+    repoRelPath: currentRepoRelPath,
+    claimedWriteTargets: options.claimedWriteTargets,
+  });
+
+  if (isTaken && !options.allowExistingFileOverwrite) {
     if (!options.resolveFileConflict) {
       throw new Error(`Conflict detected: ${currentRepoRelPath}`);
     }
@@ -1741,31 +1795,28 @@ async function writeTranslatedFile(options: {
     await options.resolveFileConflict(relWithinTarget);
   }
 
-  const parentAbsDir = path.dirname(currentAbsPath);
-  const newDirs: string[] = [];
-  let current = parentAbsDir;
-
-  while (current !== targetRootAbsPath && !fs.existsSync(current)) {
-    newDirs.push(current);
-    current = path.dirname(current);
-  }
-
-  fs.mkdirSync(parentAbsDir, { recursive: true });
-
-  for (const dir of newDirs) {
-    options.ownedDirectories.add(path.relative(options.repoRoot, dir));
-  }
+  planOwnedParentDirectories(
+    path.dirname(currentAbsPath),
+    targetRootAbsPath,
+    options.toolPlan.ownedDirectories,
+    options.repoRoot,
+  );
 
   if (targetRoot !== "" && targetRootIsNew) {
-    options.ownedDirectories.add(
-      path.relative(options.repoRoot, targetRootAbsPath),
-    );
+    options.toolPlan.ownedDirectories.add(targetRoot);
   }
 
   options.assertSafeWriteTarget?.(currentRepoRelPath);
-  writeFileAtomic(currentAbsPath, options.content);
+  options.toolPlan.writes.push({
+    repoRelPath: currentRepoRelPath,
+    content: options.content,
+  });
   options.reservedDestinations.add(currentRepoRelPath);
-  options.writtenFiles.push(currentRepoRelPath);
+  options.claimedWriteTargets.add(currentRepoRelPath);
+
+  if (options.ownsFile !== false) {
+    options.toolPlan.ownedFiles.push(currentRepoRelPath);
+  }
 }
 
 function assertBundleTargetDirectory(
