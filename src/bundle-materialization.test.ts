@@ -137,6 +137,53 @@ describe("materializeBundle", () => {
     ).toBe(0o755);
   });
 
+  it("makes a script executable when it overwrites a non-executable copy", async () => {
+    // Given a repository holding an earlier, non-executable copy of a script the
+    // bundle now ships executable
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    const scriptPath = path.join(
+      bundleDir,
+      ".claude",
+      "skills",
+      "react",
+      "scripts",
+      "build.sh",
+    );
+    writeFile(scriptPath, "#!/bin/sh\necho build\n");
+    fs.chmodSync(scriptPath, 0o755);
+    const existingScriptPath = path.join(
+      repoRoot,
+      ".claude",
+      "skills",
+      "react",
+      "scripts",
+      "build.sh",
+    );
+    writeFile(existingScriptPath, "#!/bin/sh\necho stale\n");
+    fs.chmodSync(existingScriptPath, 0o644);
+
+    // When the user confirms the overwrite
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      resolveFileConflict: async () => ({ action: "overwrite" }),
+    });
+
+    // Then the bundle's permissions replace the stale ones
+    expect(fs.statSync(existingScriptPath).mode & 0o777).toBe(0o755);
+    expect(fs.readFileSync(existingScriptPath, "utf8")).toBe(
+      "#!/bin/sh\necho build\n",
+    );
+  });
+
   it("tracks created nested directories for deterministic cleanup", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
@@ -607,9 +654,11 @@ describe("materializeBundle", () => {
     ).rejects.toThrowError(/conflict detected/i);
   });
 
-  it("owns only the directories it created for a referenced agent in a native directory", async () => {
+  it("records a referenced agent's directory as a repository-relative path", async () => {
     // Given a bundle whose agent target is the tool's own directory and whose
-    // single agent comes from a reference carrying a description override
+    // single agent comes from a reference. The description override is what
+    // routes the item through translation rather than a verbatim copy, which is
+    // the path that resolves the directory the registry ends up recording.
     const repoRoot = createTempDir("skul-repo-");
     const bundleDir = createTempDir("skul-bundle-");
     const externalAgentPath = path.join(
@@ -644,8 +693,8 @@ describe("materializeBundle", () => {
       ]),
     });
 
-    // Then the registry records the directory that now holds the agent, and
-    // nothing outside the repository
+    // Then the registry names that directory relative to the repository, so a
+    // later removal can find it
     expect(result.byTool["claude-code"]!.directories).toEqual([
       ".claude/agents",
     ]);

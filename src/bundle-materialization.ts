@@ -234,8 +234,12 @@ export interface MaterializeBundleOptions {
  * Every write is resolved before the first one lands. Reading a bundle source,
  * translating it, and settling a collision can all fail, and failing partway
  * through a run that wrote as it went would leave files on disk that no registry
- * entry records, so nothing later could remove them. Planning the whole set
- * first makes materialization either succeed or touch nothing.
+ * entry records, so nothing later could remove them. Resolving the whole set
+ * first confines those failures to a pass that touches nothing.
+ *
+ * The write pass is not rolled back. A filesystem error partway through it — no
+ * space, a read-only mount, a directory whose path is held by a regular file —
+ * still leaves whatever already landed behind.
  */
 export async function materializeBundle(
   options: MaterializeBundleOptions,
@@ -319,7 +323,7 @@ async function planBundleMaterialization(
         const plannedWrite = plannedMcpWrites.get(toolName as ToolName);
 
         if (plannedWrite) {
-          await planMcpTargetWrite({
+          await foldMcpWriteIntoToolPlan({
             plannedWrite,
             repoRoot: options.repoRoot,
             toolPlan,
@@ -697,14 +701,14 @@ function readExistingMcpConfig(
 }
 
 /**
- * Folds one planned MCP configuration into a tool's plan and records what Skul
- * will own in it.
+ * Folds one resolved MCP configuration write into a tool's plan and records what
+ * Skul will own in it.
  *
  * Only a file Skul brings into existence is recorded as a managed file. A file
  * that was already there is merged into but never owned, so removal subtracts
  * Skul's servers from it rather than deleting the user's file.
  */
-async function planMcpTargetWrite(options: {
+async function foldMcpWriteIntoToolPlan(options: {
   plannedWrite: PlannedMcpWrite;
   repoRoot: string;
   toolPlan: PlannedToolWrites;
