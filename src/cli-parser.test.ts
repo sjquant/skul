@@ -9,33 +9,7 @@ import {
   createPromptClientForSelections,
   parseCliArgs,
 } from "./cli";
-import {
-  assertAgentsDocument,
-  assertClaudeDocument,
-  createHomeDir,
-  createLinkedWorktree,
-  createPromptClientStub,
-  createRemoteBundleSource,
-  createRepository,
-  createSyncRepository,
-  expectAgentsDocument,
-  expectClaudeDocument,
-  fingerprintFile,
-  formatExpectedRootInstructionDocument,
-  formatRootInstructionBundleBlock,
-  formatTrackedRootInstructionShadowBlock,
-  pathExists,
-  pushSyncRepositoryUpdate,
-  readGitIndexFlag,
-  renderBundleListOutput,
-  runGit,
-  setupSharedRootInstructionBundles,
-  tempDirs,
-  updateRemoteBundleSource,
-  writeBundleFile,
-  writeManifest,
-  writeRootInstructionBundleFixture,
-} from "./cli.test-support";
+import { createPromptClientStub } from "./cli.test-stubs";
 import { detectGitContext } from "./git-context";
 import { assertTrackedShadowSafety, run } from "./index";
 import {
