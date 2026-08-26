@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 
 import type { PromptClient } from "./cli";
 import {
@@ -26,6 +26,10 @@ export {
 };
 
 export const tempDirs: string[] = [];
+
+// CLI suites drive real git subprocesses and temporary worktrees. Keep their
+// generous budget local so pure-function suites retain Vitest's tight defaults.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
