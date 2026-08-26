@@ -30,25 +30,35 @@ export function escapeRegExp(value: string): string {
  * target's own mode rather than the ambient umask default, so a configuration
  * the user restricted — a home-directory file holding account details, say — is
  * never briefly world-readable while the copy sits beside the original.
+ *
+ * A caller copying a bundle file passes the source's `mode`, which then decides
+ * the target's permissions whether or not it already exists — the same bits
+ * `fs.copyFileSync` would have stamped, so a bundle that makes a script
+ * executable still lands it executable over an earlier copy. Callers that pass
+ * no `mode` leave an existing target's own permissions alone.
  */
-export function writeFileAtomic(filePath: string, content: string): void {
+export function writeFileAtomic(
+  filePath: string,
+  content: string | Buffer,
+  mode?: number,
+): void {
   const tempPath = path.join(
     path.dirname(filePath),
     `.${path.basename(filePath)}.skul-${process.pid}-${Date.now()}`,
   );
-  const existingMode = readFilePermissions(filePath);
+  const targetMode = mode ?? readFilePermissions(filePath);
 
   try {
     fs.writeFileSync(
       tempPath,
       content,
-      existingMode === undefined ? {} : { mode: existingMode },
+      targetMode === undefined ? {} : { mode: targetMode },
     );
 
-    if (existingMode !== undefined) {
+    if (targetMode !== undefined) {
       // The umask masks a creation mode, so the file only reaches the target's
       // exact permissions once they are set outright.
-      fs.chmodSync(tempPath, existingMode);
+      fs.chmodSync(tempPath, targetMode);
     }
 
     fs.renameSync(tempPath, filePath);

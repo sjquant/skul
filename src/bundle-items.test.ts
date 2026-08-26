@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertBundleSupportsRequestedItems,
   bundleItemSelectionsEqual,
-  isDirectoryItemSelected,
   isMcpItemSelected,
   isRootInstructionItemSelected,
   listSelectableBundleItems,
@@ -353,84 +352,6 @@ describe("isRootInstructionItemSelected", () => {
   it("returns false for an empty selector list", () => {
     // When
     const result = isRootInstructionItemSelected([]);
-
-    // Then
-    expect(result).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// isDirectoryItemSelected
-// ---------------------------------------------------------------------------
-
-describe("isDirectoryItemSelected", () => {
-  it("returns true when selectors is undefined (whole bundle)", () => {
-    // When
-    const result = isDirectoryItemSelected({
-      selectors: undefined,
-      targetName: "skills",
-      entryName: "react",
-    });
-
-    // Then
-    expect(result).toBe(true);
-  });
-
-  it("returns true when the selector list contains the normalised entry", () => {
-    // Given
-    const selectors = ["skills/react"];
-
-    // When
-    const result = isDirectoryItemSelected({
-      selectors,
-      targetName: "skills",
-      entryName: "react",
-    });
-
-    // Then
-    expect(result).toBe(true);
-  });
-
-  it("strips a known extension from the entry name before matching", () => {
-    // Given
-    const selectors = ["skills/react"];
-
-    // When
-    const result = isDirectoryItemSelected({
-      selectors,
-      targetName: "skills",
-      entryName: "react.md",
-    });
-
-    // Then
-    expect(result).toBe(true);
-  });
-
-  it("returns false when the entry is absent from the selector list", () => {
-    // Given
-    const selectors = ["skills/other"];
-
-    // When
-    const result = isDirectoryItemSelected({
-      selectors,
-      targetName: "skills",
-      entryName: "react",
-    });
-
-    // Then
-    expect(result).toBe(false);
-  });
-
-  it("returns false when the selector targets a different target type", () => {
-    // Given
-    const selectors = ["commands/react"];
-
-    // When
-    const result = isDirectoryItemSelected({
-      selectors,
-      targetName: "skills",
-      entryName: "react",
-    });
 
     // Then
     expect(result).toBe(false);

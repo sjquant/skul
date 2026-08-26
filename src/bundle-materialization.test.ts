@@ -94,6 +94,134 @@ describe("materializeBundle", () => {
     ).toBe("context\n");
   });
 
+  it("keeps an executable bundle script executable where it lands", async () => {
+    // Given a skill shipping an executable helper script
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    const scriptPath = path.join(
+      bundleDir,
+      ".claude",
+      "skills",
+      "react",
+      "scripts",
+      "build.sh",
+    );
+    writeFile(scriptPath, "#!/bin/sh\necho build\n");
+    fs.chmodSync(scriptPath, 0o755);
+
+    // When
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+    });
+
+    // Then
+    expect(
+      fs.statSync(
+        path.join(
+          repoRoot,
+          ".claude",
+          "skills",
+          "react",
+          "scripts",
+          "build.sh",
+        ),
+      ).mode & 0o777,
+    ).toBe(0o755);
+  });
+
+  it("makes a script executable when it overwrites a non-executable copy", async () => {
+    // Given a repository holding an earlier, non-executable copy of a script the
+    // bundle now ships executable
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    const scriptPath = path.join(
+      bundleDir,
+      ".claude",
+      "skills",
+      "react",
+      "scripts",
+      "build.sh",
+    );
+    writeFile(scriptPath, "#!/bin/sh\necho build\n");
+    fs.chmodSync(scriptPath, 0o755);
+    const existingScriptPath = path.join(
+      repoRoot,
+      ".claude",
+      "skills",
+      "react",
+      "scripts",
+      "build.sh",
+    );
+    writeFile(existingScriptPath, "#!/bin/sh\necho stale\n");
+    fs.chmodSync(existingScriptPath, 0o644);
+
+    // When the user confirms the overwrite
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      resolveFileConflict: async () => ({ action: "overwrite" }),
+    });
+
+    // Then the bundle's permissions replace the stale ones
+    expect(fs.statSync(existingScriptPath).mode & 0o777).toBe(0o755);
+    expect(fs.readFileSync(existingScriptPath, "utf8")).toBe(
+      "#!/bin/sh\necho build\n",
+    );
+  });
+
+  it("separates a shared MCP configuration from the files it solely owns", async () => {
+    // Given a bundle shipping both a skill and an MCP server declaration
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeFile(
+      path.join(bundleDir, "mcp.json"),
+      JSON.stringify({
+        mcpServers: { docs: { type: "stdio", command: "docs-server" } },
+      }),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: {
+          "claude-code": {
+            skills: { path: ".claude/skills" },
+            mcp: { path: "mcp.json" },
+          },
+        },
+      },
+    });
+
+    // Then both files are managed, but only the configuration another bundle
+    // could also write into is reported as shared
+    expect(result.byTool["claude-code"]!.files).toContain(".mcp.json");
+    expect(result.byTool["claude-code"]!.files).toContain(
+      ".claude/skills/react/SKILL.md",
+    );
+    expect(result.byTool["claude-code"]!.sharedFiles).toEqual([".mcp.json"]);
+  });
+
   it("tracks created nested directories for deterministic cleanup", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");
@@ -562,6 +690,151 @@ describe("materializeBundle", () => {
         },
       }),
     ).rejects.toThrowError(/conflict detected/i);
+  });
+
+  it("records a referenced agent's directory as a repository-relative path", async () => {
+    // Given a bundle whose agent target is the tool's own directory and whose
+    // single agent comes from a reference. The description override is what
+    // routes the item through translation rather than a verbatim copy, which is
+    // the path that resolves the directory the registry ends up recording.
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const externalAgentPath = path.join(
+      createTempDir("skul-external-agent-"),
+      "reviewer.md",
+    );
+    writeFile(
+      externalAgentPath,
+      [
+        "---",
+        "name: reviewer",
+        "description: Review code for correctness",
+        "---",
+        "",
+        "Review the diff.",
+        "",
+      ].join("\n"),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: { "claude-code": { agents: { path: ".claude/agents" } } },
+      },
+      resolvedBundleItemRefs: new Map([
+        [
+          "agents/reviewer",
+          { path: externalAgentPath, description: "Review only pull requests" },
+        ],
+      ]),
+    });
+
+    // Then the registry names that directory relative to the repository, so a
+    // later removal can find it
+    expect(result.byTool["claude-code"]!.directories).toEqual([
+      ".claude/agents",
+    ]);
+    expect(result.byTool["claude-code"]!.files).toEqual([
+      ".claude/agents/reviewer.md",
+    ]);
+  });
+
+  it("leaves no files behind when a later tool's skill cannot be written", async () => {
+    // Given a bundle whose second tool's skill collides with a user file
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeFile(
+      path.join(bundleDir, ".cursor", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeFile(
+      path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+      "user file\n",
+    );
+
+    // When the bundle is materialized with no way to resolve the collision
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          tools: {
+            "claude-code": { skills: { path: ".claude/skills" } },
+            cursor: { skills: { path: ".cursor/skills" } },
+          },
+        },
+      }),
+    ).rejects.toThrowError(/conflict detected/i);
+
+    // Then the tool processed before the failure wrote nothing
+    expect(fs.existsSync(path.join(repoRoot, ".claude"))).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".cursor", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("user file\n");
+  });
+
+  it("leaves no files behind when a later tool's agent source is missing", async () => {
+    // Given a bundle that declares agents for two tools but ships only one
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "agents", "reviewer.md"),
+      "# reviewer\n",
+    );
+
+    // When the bundle is materialized
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          tools: {
+            "claude-code": { agents: { path: ".claude/agents" } },
+            cursor: { agents: { path: ".cursor/agents" } },
+          },
+        },
+      }),
+    ).rejects.toThrowError(/bundle target path does not exist/i);
+
+    // Then the tool processed before the failure wrote nothing
+    expect(fs.existsSync(path.join(repoRoot, ".claude"))).toBe(false);
+  });
+
+  it("leaves no files behind when a later tool's root instruction source is a symlink", async () => {
+    // Given a bundle whose codex root instruction is a symlink
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(path.join(bundleDir, "CLAUDE.md"), "bundle root instruction\n");
+    fs.symlinkSync(
+      path.join(bundleDir, "CLAUDE.md"),
+      path.join(bundleDir, "AGENTS.md"),
+    );
+
+    // When the bundle is materialized
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: {
+          tools: {
+            "claude-code": { root_instruction: { path: "CLAUDE.md" } },
+            codex: { root_instruction: { path: "AGENTS.md" } },
+          },
+        },
+      }),
+    ).rejects.toThrowError(/symlink/i);
+
+    // Then the tool processed before the failure wrote nothing
+    expect(fs.existsSync(path.join(repoRoot, "CLAUDE.md"))).toBe(false);
   });
 
   it("materializes files into each tool's native directory for a multi-tool manifest", async () => {

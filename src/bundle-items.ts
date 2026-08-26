@@ -106,21 +106,6 @@ export function isMcpItemSelected(
   return !selectors || selectors.includes(MCP_SELECTOR);
 }
 
-/** Returns true when a directory target item should be materialized. */
-export function isDirectoryItemSelected(options: {
-  selectors: BundleItemSelector[] | undefined;
-  targetName: ToolTargetName;
-  entryName: string;
-}): boolean {
-  if (!options.selectors) {
-    return true;
-  }
-
-  return options.selectors.includes(
-    `${options.targetName}/${stripKnownItemExtension(options.entryName)}`,
-  );
-}
-
 /** Lists installable item selectors available from a cached bundle. */
 export function listSelectableBundleItems(options: {
   bundleDir: string;
