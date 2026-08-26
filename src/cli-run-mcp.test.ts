@@ -1060,7 +1060,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
   });
 
-  it("refuses a second bundle shadowing the same tracked MCP configuration", async () => {
+  it("merges a second bundle into a tracked MCP configuration another bundle already shadows", async () => {
     // Given a committed MCP config already shadowed by one bundle
     const homeDir = createHomeDir();
     const cwd = createRepository();
@@ -1087,18 +1087,72 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       prompts: createPromptClientStub(),
     });
 
-    // When a second bundle would shadow the same file / Then it is refused,
-    // because a shadow renders one bundle's overlay onto committed content
-    await expect(
-      run(["add", SOURCE, "two", "--agent", "claude-code", "-y"], {
+    // When a second bundle shadows the same committed file
+    await run(["add", SOURCE, "two", "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then both overlays sit on the committed base, and Git still sees no change
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      mine: { command: "m" },
+      one: { type: "stdio", command: "one" },
+      two: { type: "stdio", command: "two" },
+    });
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("restores the remaining overlay when one of two bundles shadowing a tracked MCP configuration is removed", async () => {
+    // Given a committed MCP config shadowed by two bundles
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
+    );
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "add mcp config"]);
+    for (const bundle of ["one", "two"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--agent", "claude-code", "-y"], {
         homeDir,
         cwd,
         prompts: createPromptClientStub(),
-      }),
-    ).rejects.toThrowError(/already shadowed by one/);
+      });
+    }
 
-    // And the first bundle's servers are still in place
-    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toHaveProperty("one");
+    // When the first bundle is removed
+    await run(["remove", "one"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then only its servers leave; the other bundle keeps shadowing the file
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      mine: { command: "m" },
+      two: { type: "stdio", command: "two" },
+    });
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+
+    // And removing the last bundle gives the committed file back
+    await run(["remove", "two"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      mine: { command: "m" },
+    });
   });
 
   it("suspends and refreshes a shadowed MCP configuration around a HEAD change", async () => {
@@ -2346,16 +2400,15 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       worktree: {
         shadowed_files: Record<
           string,
-          { active: boolean; overlay_fresh: boolean }
+          { overlays: Array<{ active: boolean; overlay_fresh: boolean }> }
         >;
       };
     };
 
     // Then the merge shadow reads as live, not as a missing text overlay
-    expect(status.worktree.shadowed_files[".mcp.json"]).toMatchObject({
-      active: true,
-      overlay_fresh: true,
-    });
+    expect(status.worktree.shadowed_files[".mcp.json"]?.overlays).toEqual([
+      expect.objectContaining({ active: true, overlay_fresh: true }),
+    ]);
   });
 
   it("excludes a pre-existing configuration only while its servers are merged in", async () => {

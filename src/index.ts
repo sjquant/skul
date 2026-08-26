@@ -71,6 +71,7 @@ import {
 } from "./git-exclude";
 import {
   clearGitSkipWorktree,
+  type GitHeadBlob,
   inspectTrackedShadowTarget,
   isTrackedGitPath,
   listCommittedPaths,
@@ -105,6 +106,7 @@ import {
   readRegistryFile,
   removeWorktreeState,
   type ShadowedFileState,
+  type ShadowOverlayState,
   type ShadowStrategy,
   upsertGlobalState,
   upsertRepoState,
@@ -769,11 +771,13 @@ async function removeAllWorktreeBundles(options: {
       }),
     ),
   );
-  const shadowedFilePaths = Object.entries(worktreeState?.shadowed_files ?? {})
-    .filter(([, shadowedFile]) =>
-      selections.some((selection) => selection.bundle === shadowedFile.bundle),
-    )
-    .map(([filePath]) => filePath);
+  const shadowedBundleNames = selections.map((selection) => selection.bundle);
+  const shadowedFilePaths = shadowedBundleNames.flatMap((bundle) =>
+    listShadowedPathsForBundle({
+      shadowedFiles: worktreeState?.shadowed_files ?? {},
+      bundle,
+    }),
+  );
   const removedBundlePaths = mergeManagedRemovalPaths(
     materializedTargets.map(([, bundleState]) =>
       flattenBundleState(bundleState),
@@ -829,10 +833,10 @@ async function removeAllWorktreeBundles(options: {
   }
 
   let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
-  currentShadowedFiles = retireTrackedShadows({
+  currentShadowedFiles = retireTrackedShadowsForBundles({
     repoRoot: gitContext.worktreeRoot,
     shadowedFiles: currentShadowedFiles,
-    filePaths: shadowedFilePaths,
+    bundleNames: shadowedBundleNames,
   });
 
   if (Object.keys(remainingBundles).length > 0) {
@@ -998,19 +1002,32 @@ function renderWorktreeRemoveDryRun(options: {
     bundle: options.selection.bundle,
     source: options.selection.source,
   });
-  const shadowedFilesForBundle = Object.entries(
-    options.worktreeState?.shadowed_files ?? {},
-  ).filter(
-    ([, shadowedFile]) => shadowedFile.bundle === options.selection.bundle,
-  );
+  const shadowedFilesForBundle = listShadowedPathsForBundle({
+    shadowedFiles: options.worktreeState?.shadowed_files ?? {},
+    bundle: options.selection.bundle,
+  });
 
   return renderRemoveDryRun({
     bundle: options.selection.bundle,
     prefix: "",
     materializedState: bundleMaterializedState,
-    extraFiles: shadowedFilesForBundle.map(([filePath]) => filePath),
+    extraFiles: shadowedFilesForBundle,
     desiredStateLabel: "desired state",
   });
+}
+
+/** Lists the shadowed files one bundle contributes an overlay to. */
+function listShadowedPathsForBundle(options: {
+  shadowedFiles: Record<string, ShadowedFileState>;
+  bundle: string;
+}): string[] {
+  return Object.entries(options.shadowedFiles)
+    .filter(([, shadowedFile]) =>
+      shadowedFile.overlays.some(
+        (overlay) => overlay.bundle === options.bundle,
+      ),
+    )
+    .map(([filePath]) => filePath);
 }
 
 /**
@@ -1607,32 +1624,34 @@ function renderSyncWorktreeResult(options: {
 }
 
 /**
- * Renders one tracked shadow, whichever kind it is.
+ * Renders one shadowed file from the committed base and every overlay on it.
  *
  * Root instructions compose text; MCP configuration folds stored server entries
- * into the committed document. Both produce the same rendered/fingerprint shape
- * so the shadow lifecycle — suspend, refresh, retire — stays common to them.
+ * into the committed document. Both fold overlays in list order and produce the
+ * same rendered/fingerprint shape, so the shadow lifecycle — suspend, refresh,
+ * retire — stays common to them.
  */
-function renderTrackedShadow(options: {
+function renderShadowedFile(options: {
   baseContent: string;
-  overlay: string;
-  bundleName: string;
-  toolName: ToolName;
-  strategy: ShadowStrategy;
+  overlays: ShadowOverlayContribution[];
   allowReplace?: boolean;
   filePath?: string;
 }): {
   rendered: string;
-  overlayFingerprint: string;
+  overlayFingerprints: string[];
   renderedFingerprint: string;
 } {
-  if (options.strategy !== "merge") {
+  const strategy = requireSingleShadowStrategy(options.overlays);
+
+  if (strategy !== "merge") {
     const render = renderTrackedRootInstructionShadow({
       baseContent: options.baseContent,
-      overlayContent: options.overlay,
-      bundleName: options.bundleName,
-      toolName: options.toolName,
-      strategy: options.strategy,
+      overlays: options.overlays.map((overlay) => ({
+        bundleName: overlay.bundle,
+        content: overlay.overlay,
+      })),
+      toolName: options.overlays[0]!.tool,
+      strategy,
       ...(options.allowReplace !== undefined
         ? { allowReplace: options.allowReplace }
         : {}),
@@ -1640,27 +1659,84 @@ function renderTrackedShadow(options: {
 
     return {
       rendered: render.rendered,
-      overlayFingerprint: render.overlayFingerprint,
+      overlayFingerprints: render.blocks.map((block) =>
+        fingerprintShadowContent(block),
+      ),
       renderedFingerprint: render.renderedFingerprint,
     };
   }
 
-  const renderedServers = JSON.parse(options.overlay) as RenderedMcpServers;
-  const merged = mergeRenderedMcpServers({
-    toolName: options.toolName,
-    renderedServers,
-    existingContent: options.baseContent,
-    // The base here is committed content, which may already declare the very
-    // servers this shadow replays — that is this bundle's own earlier work
-    // being folded onto a new base, not a collision with someone else's.
-    ownedServerNames: Object.keys(renderedServers),
-    ...(options.filePath !== undefined ? { configPath: options.filePath } : {}),
+  let rendered = options.baseContent;
+
+  for (const overlay of options.overlays) {
+    const renderedServers = JSON.parse(overlay.overlay) as RenderedMcpServers;
+    rendered = mergeRenderedMcpServers({
+      toolName: overlay.tool,
+      renderedServers,
+      existingContent: rendered,
+      // The base here is committed content, which may already declare the very
+      // servers this shadow replays — that is this bundle's own earlier work
+      // being folded onto a new base, not a collision with someone else's.
+      ownedServerNames: Object.keys(renderedServers),
+      ...(options.filePath !== undefined
+        ? { configPath: options.filePath }
+        : {}),
+    }).content;
+  }
+
+  return {
+    rendered,
+    overlayFingerprints: options.overlays.map((overlay) =>
+      fingerprintShadowContent(overlay.overlay),
+    ),
+    renderedFingerprint: fingerprintShadowContent(rendered),
+  };
+}
+
+/** Rejects overlay sets that disagree about what to do with the committed base. */
+function requireSingleShadowStrategy(
+  overlays: ShadowOverlayContribution[],
+): ShadowStrategy {
+  const strategy = overlays[0]!.strategy;
+  const mixed = overlays.find((overlay) => overlay.strategy !== strategy);
+
+  if (mixed) {
+    throw new Error(
+      `Cannot compose shadow overlays that use mixed strategies: ${strategy} and ${mixed.strategy}`,
+    );
+  }
+
+  return strategy;
+}
+
+/** Rebuilds one shadowed file's state from its overlays and a committed base. */
+function buildShadowedFileState(options: {
+  baseBlob: GitHeadBlob;
+  overlays: ShadowOverlayContribution[];
+  filePath: string;
+  allowReplace?: boolean;
+}): PlannedTrackedShadow {
+  const render = renderShadowedFile({
+    baseContent: options.baseBlob.content,
+    overlays: options.overlays,
+    filePath: options.filePath,
+    ...(options.allowReplace !== undefined
+      ? { allowReplace: options.allowReplace }
+      : {}),
   });
 
   return {
-    rendered: merged.content,
-    overlayFingerprint: fingerprintShadowContent(options.overlay),
-    renderedFingerprint: fingerprintShadowContent(merged.content),
+    filePath: options.filePath,
+    rendered: render.rendered,
+    state: {
+      base_blob: options.baseBlob.objectId,
+      overlays: options.overlays.map((overlay, index) => ({
+        ...overlay,
+        overlay_fingerprint: render.overlayFingerprints[index]!,
+      })),
+      rendered_fingerprint: render.renderedFingerprint,
+      skip_worktree: true,
+    },
   };
 }
 
@@ -1734,38 +1810,23 @@ function refreshTrackedShadows(options: {
         filePath,
         action: "refresh",
       });
-      const render = renderTrackedShadow({
-        baseContent: headBlob.content,
-        overlay: shadowedFile.overlay,
-        bundleName: shadowedFile.bundle,
-        toolName: shadowedFile.tool,
-        strategy: shadowedFile.strategy,
+
+      return buildShadowedFileState({
+        baseBlob: headBlob,
+        overlays: shadowedFile.overlays,
+        filePath,
         allowReplace: true,
       });
-
-      return { filePath, shadowedFile, headBlob, render };
     });
 
   for (const plan of plans) {
     const targetPath = path.join(options.repoRoot, plan.filePath);
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.writeFileSync(targetPath, plan.render.rendered);
+    fs.writeFileSync(targetPath, plan.rendered);
     setGitSkipWorktree({ repoRoot: options.repoRoot, filePath: plan.filePath });
   }
 
-  return Object.fromEntries(
-    plans.map(({ filePath, shadowedFile, headBlob, render }) => [
-      filePath,
-      {
-        ...shadowedFile,
-        base_blob: headBlob.objectId,
-        overlay: shadowedFile.overlay,
-        overlay_fingerprint: render.overlayFingerprint,
-        rendered_fingerprint: render.renderedFingerprint,
-        skip_worktree: true,
-      },
-    ]),
-  );
+  return Object.fromEntries(plans.map((plan) => [plan.filePath, plan.state]));
 }
 
 function requireTrackedShadowHeadBlob(options: {
@@ -2079,11 +2140,18 @@ function renderStatus(options: {
   return lines.join("\n");
 }
 
-interface ShadowedInstructionStatus extends ShadowedFileState {
-  path: string;
+interface ShadowedOverlayStatus extends ShadowOverlayState {
   active: boolean;
-  base_fresh: boolean;
   overlay_fresh: boolean;
+}
+
+interface ShadowedInstructionStatus {
+  path: string;
+  base_blob: string;
+  overlays: ShadowedOverlayStatus[];
+  rendered_fingerprint: string;
+  skip_worktree: boolean;
+  base_fresh: boolean;
   skip_worktree_active: boolean;
   manual_edit_suspected: boolean;
 }
@@ -2114,24 +2182,31 @@ function collectShadowedInstructionStatus(options: {
   });
   const targetPath = path.join(options.repoRoot, options.filePath);
   const currentContent = readStatusTargetFile(targetPath);
-  const overlay = extractTrackedShadowOverlay({
-    content: currentContent,
-    bundleName: options.shadowedFile.bundle,
-    toolName: options.shadowedFile.tool,
-    strategy: options.shadowedFile.strategy,
-    overlay: options.shadowedFile.overlay,
-  });
 
   return {
     path: options.filePath,
-    ...options.shadowedFile,
-    active: overlay !== null,
+    base_blob: options.shadowedFile.base_blob,
+    overlays: options.shadowedFile.overlays.map((overlay) => {
+      const rendered = extractTrackedShadowOverlay({
+        content: currentContent,
+        bundleName: overlay.bundle,
+        toolName: overlay.tool,
+        strategy: overlay.strategy,
+        overlay: overlay.overlay,
+      });
+
+      return {
+        ...overlay,
+        active: rendered !== null,
+        overlay_fresh:
+          rendered !== null &&
+          fingerprintShadowContent(rendered) === overlay.overlay_fingerprint,
+      };
+    }),
+    rendered_fingerprint: options.shadowedFile.rendered_fingerprint,
+    skip_worktree: options.shadowedFile.skip_worktree,
     base_fresh:
       inspection.headBlob?.objectId === options.shadowedFile.base_blob,
-    overlay_fresh:
-      overlay !== null &&
-      fingerprintShadowContent(overlay) ===
-        options.shadowedFile.overlay_fingerprint,
     skip_worktree_active: inspection.indexFlags.includes("S"),
     manual_edit_suspected:
       currentContent === null ||
@@ -2147,16 +2222,18 @@ function buildShadowedFilesJson(
     shadowedInstructionStatuses.map((status) => [
       status.path,
       {
-        tool: status.tool,
-        bundle: status.bundle,
-        strategy: status.strategy,
         base_blob: status.base_blob,
-        overlay_fingerprint: status.overlay_fingerprint,
+        overlays: status.overlays.map((overlay) => ({
+          tool: overlay.tool,
+          bundle: overlay.bundle,
+          strategy: overlay.strategy,
+          overlay_fingerprint: overlay.overlay_fingerprint,
+          active: overlay.active,
+          overlay_fresh: overlay.overlay_fresh,
+        })),
         rendered_fingerprint: status.rendered_fingerprint,
         skip_worktree: status.skip_worktree,
-        active: status.active,
         base_fresh: status.base_fresh,
-        overlay_fresh: status.overlay_fresh,
         skip_worktree_active: status.skip_worktree_active,
         manual_edit_suspected: status.manual_edit_suspected,
       },
@@ -2176,17 +2253,8 @@ function appendShadowedInstructionLines(
 
   for (const status of shadowedInstructionStatuses) {
     lines.push(`  ${status.path}`);
-    lines.push(`    Bundle: ${pc.cyan(status.bundle)}`);
-    lines.push(`    Tool: ${status.tool}`);
-    lines.push(`    Strategy: ${status.strategy}`);
-    lines.push(
-      `    Active: ${status.active ? pc.green("yes") : pc.yellow("no")}`,
-    );
     lines.push(
       `    Base: ${status.base_fresh ? pc.green("current") : pc.yellow("stale")}`,
-    );
-    lines.push(
-      `    Overlay: ${status.overlay_fresh ? pc.green("current") : pc.yellow("stale")}`,
     );
     lines.push(
       `    Skip-worktree: ${status.skip_worktree_active ? pc.green("set") : pc.yellow("missing")}`,
@@ -2194,6 +2262,19 @@ function appendShadowedInstructionLines(
     lines.push(
       `    Manual edits: ${status.manual_edit_suspected ? pc.yellow("suspected") : pc.green("no")}`,
     );
+    lines.push("    Overlays:");
+
+    for (const overlay of status.overlays) {
+      lines.push(`      Bundle: ${pc.cyan(overlay.bundle)}`);
+      lines.push(`        Tool: ${overlay.tool}`);
+      lines.push(`        Strategy: ${overlay.strategy}`);
+      lines.push(
+        `        Active: ${overlay.active ? pc.green("yes") : pc.yellow("no")}`,
+      );
+      lines.push(
+        `        Overlay: ${overlay.overlay_fresh ? pc.green("current") : pc.yellow("stale")}`,
+      );
+    }
   }
 }
 
@@ -2209,7 +2290,7 @@ function extractTrackedShadowOverlay(options: {
   content: string | null;
   bundleName: string;
   toolName: ToolName;
-  strategy: ShadowedFileState["strategy"];
+  strategy: ShadowStrategy;
   overlay: string;
 }): string | null {
   if (options.content === null) {
@@ -2222,10 +2303,6 @@ function extractTrackedShadowOverlay(options: {
       content: options.content,
       overlay: JSON.parse(options.overlay) as RenderedMcpServers,
     });
-  }
-
-  if (options.strategy === "replace") {
-    return normalizeTrackedRootInstructionStatusContent(options.content);
   }
 
   const startMarker = `<!-- SKUL SHADOW START bundle=${options.bundleName} -->`;
@@ -2519,6 +2596,7 @@ async function updateBundles(options: {
         resolvedBundleItemRefs,
         existingShadowedFiles: currentShadowedFiles,
         materializedBundles: currentBundles,
+        desiredState: nextDesiredState,
         libraryDir: options.libraryDir,
       });
       assertRootInstructionModeCompatibility({
@@ -2931,6 +3009,7 @@ async function applyBundle(options: {
     resolvedBundleItemRefs,
     existingShadowedFiles: currentShadowedFiles,
     materializedBundles: existingWorktreeState?.bundles ?? {},
+    desiredState: existingDesiredState,
     libraryDir: options.libraryDir,
   });
   assertRootInstructionModeCompatibility({
@@ -4626,9 +4705,10 @@ async function removeBundle(options: {
     bundle,
     source,
   });
-  const shadowedFilesForBundle = Object.entries(
-    worktreeState?.shadowed_files ?? {},
-  ).filter(([, shadowedFile]) => shadowedFile.bundle === bundle);
+  const shadowedFilesForBundle = listShadowedPathsForBundle({
+    shadowedFiles: worktreeState?.shadowed_files ?? {},
+    bundle,
+  });
 
   if (!isInDesiredState && !bundleMaterializedState) {
     const configured =
@@ -4744,10 +4824,10 @@ async function removeBundle(options: {
       );
     }
 
-    currentShadowedFiles = retireTrackedShadows({
+    currentShadowedFiles = retireTrackedShadowsForBundles({
       repoRoot: gitContext.worktreeRoot,
       shadowedFiles: currentShadowedFiles,
-      filePaths: shadowedFilesForBundle.map(([filePath]) => filePath),
+      bundleNames: [bundle],
     });
 
     if (Object.keys(remainingBundles).length > 0) {
@@ -5722,6 +5802,7 @@ async function applyWorktree(options: {
       resolvedBundleItemRefs,
       existingShadowedFiles: currentShadowedFiles,
       materializedBundles: currentBundles,
+      desiredState: repoState.desired_state,
       libraryDir: options.libraryDir,
     });
     assertRootInstructionModeCompatibility({
@@ -5935,6 +6016,20 @@ interface PlannedTrackedShadow {
   state: ShadowedFileState;
 }
 
+/** One bundle's overlay for one file, before fingerprints are computed. */
+interface ShadowOverlayContribution {
+  tool: ToolName;
+  bundle: string;
+  strategy: ShadowStrategy;
+  overlay: string;
+}
+
+interface PlannedShadowOverlay {
+  filePath: string;
+  headBlob: GitHeadBlob;
+  contribution: ShadowOverlayContribution;
+}
+
 interface TrackedShadowPlan {
   writes: PlannedTrackedShadow[];
   deferredMaterializationTargets: Set<string>;
@@ -6031,6 +6126,7 @@ function planTrackedShadows(options: {
   resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
   existingShadowedFiles: Record<string, ShadowedFileState>;
   materializedBundles: MaterializedState["bundles"];
+  desiredState: DesiredBundleEntry[];
   libraryDir?: string;
 }): TrackedShadowPlan {
   const activeOverlayContents = collectComposedRootInstructionContents({
@@ -6058,19 +6154,17 @@ function planTrackedShadows(options: {
     }
   }
 
-  const mcpWrites = planTrackedMcpShadows(options);
+  const mcpOverlays = planTrackedMcpShadows(options);
 
-  for (const write of mcpWrites) {
-    trackedTargetPaths.add(write.filePath);
+  for (const overlay of mcpOverlays) {
+    trackedTargetPaths.add(overlay.filePath);
   }
 
-  // Runs once both kinds of target are known: a shadow renders one bundle's
-  // overlay onto committed content, so a second bundle claiming the same file
-  // would silently replace the first bundle's contribution.
+  // Runs once both kinds of target are known: another bundle may already own
+  // the path as a plain materialized file, which the shadow would overwrite.
   assertTrackedShadowConflicts({
     targetPaths: trackedTargetPaths,
     bundleName: options.bundleName,
-    existingShadowedFiles: options.existingShadowedFiles,
     materializedBundles: options.materializedBundles,
   });
 
@@ -6083,10 +6177,10 @@ function planTrackedShadows(options: {
     };
   }
 
-  const writes = Array.from(options.targetPaths)
+  const rootInstructionOverlays = Array.from(options.targetPaths)
     .filter((targetPath) => trackedTargetPaths.has(targetPath))
     .map((targetPath) =>
-      renderTrackedRootInstructionShadowWrite({
+      planRootInstructionShadowOverlay({
         repoRoot: options.repoRoot,
         filePath: targetPath,
         overlayContent: activeOverlayContents[targetPath] ?? "",
@@ -6101,11 +6195,60 @@ function planTrackedShadows(options: {
     ),
   );
   return {
-    writes: [...writes, ...mcpWrites],
+    writes: [...rootInstructionOverlays, ...mcpOverlays].map((plannedOverlay) =>
+      buildShadowedFileState({
+        baseBlob: plannedOverlay.headBlob,
+        filePath: plannedOverlay.filePath,
+        overlays: composeShadowOverlays({
+          existingOverlays:
+            options.existingShadowedFiles[plannedOverlay.filePath]?.overlays,
+          contribution: plannedOverlay.contribution,
+          desiredState: options.desiredState,
+        }),
+        allowReplace: plannedOverlay.contribution.strategy === "replace",
+      }),
+    ),
     deferredMaterializationTargets: trackedTargetPaths,
     untrackedTargetPaths,
     activeShadowPaths: trackedTargetPaths,
   };
+}
+
+/**
+ * Folds one bundle's overlay into the overlays a shadowed file already carries.
+ *
+ * Order is the repository's desired-bundle order, matching how untracked shared
+ * root instructions compose, so a file reads the same however its bundles were
+ * installed. A bundle not yet in the desired state — the one being added right
+ * now — lands last, which is where `add` appends it.
+ */
+function composeShadowOverlays(options: {
+  existingOverlays: ShadowOverlayState[] | undefined;
+  contribution: ShadowOverlayContribution;
+  desiredState: DesiredBundleEntry[];
+}): ShadowOverlayContribution[] {
+  const overlays: ShadowOverlayContribution[] = [
+    ...(options.existingOverlays ?? []).filter(
+      (overlay) => overlay.bundle !== options.contribution.bundle,
+    ),
+    options.contribution,
+  ];
+  const desiredOrder = options.desiredState.map((entry) => entry.bundle);
+
+  return overlays.sort(
+    (left, right) =>
+      desiredBundleOrderIndex(desiredOrder, left.bundle) -
+      desiredBundleOrderIndex(desiredOrder, right.bundle),
+  );
+}
+
+function desiredBundleOrderIndex(
+  desiredOrder: string[],
+  bundleName: string,
+): number {
+  const index = desiredOrder.indexOf(bundleName);
+
+  return index < 0 ? desiredOrder.length : index;
 }
 
 /**
@@ -6123,12 +6266,12 @@ function planTrackedMcpShadows(options: {
   itemSelectors?: BundleItemSelector[];
   bundleName: string;
   libraryDir?: string;
-}): PlannedTrackedShadow[] {
+}): PlannedShadowOverlay[] {
   if (!isMcpItemSelected(options.itemSelectors)) {
     return [];
   }
 
-  const writes: PlannedTrackedShadow[] = [];
+  const overlays: PlannedShadowOverlay[] = [];
   // Tools may point at different declaration files, but most point at the same
   // one, so each is read and parsed at most once.
   const declarationsBySource = new Map<string, Record<string, McpServer>>();
@@ -6190,32 +6333,20 @@ function planTrackedMcpShadows(options: {
         }),
       }),
     );
-    const render = renderTrackedShadow({
-      baseContent: headBlob.content,
-      overlay,
-      bundleName: options.bundleName,
-      toolName,
-      strategy: "merge",
-      filePath,
-    });
 
-    writes.push({
+    overlays.push({
       filePath,
-      rendered: render.rendered,
-      state: {
+      headBlob,
+      contribution: {
         tool: toolName,
         bundle: options.bundleName,
         strategy: "merge",
-        base_blob: headBlob.objectId,
         overlay,
-        overlay_fingerprint: render.overlayFingerprint,
-        rendered_fingerprint: render.renderedFingerprint,
-        skip_worktree: true,
       },
     });
   }
 
-  return writes;
+  return overlays;
 }
 
 /** Rejects append/replace mixtures before any bundle files are removed or written. */
@@ -6258,18 +6389,9 @@ function assertRootInstructionModeCompatibility(options: {
 function assertTrackedShadowConflicts(options: {
   targetPaths: Set<string>;
   bundleName: string;
-  existingShadowedFiles: Record<string, ShadowedFileState>;
   materializedBundles: MaterializedState["bundles"];
 }): void {
   for (const targetPath of options.targetPaths) {
-    const existingShadow = options.existingShadowedFiles[targetPath];
-
-    if (existingShadow && existingShadow.bundle !== options.bundleName) {
-      throw new Error(
-        `Cannot shadow the tracked file ${targetPath} for ${options.bundleName} because it is already shadowed by ${existingShadow.bundle}`,
-      );
-    }
-
     for (const [bundleName, bundleState] of Object.entries(
       options.materializedBundles,
     )) {
@@ -6290,14 +6412,14 @@ function assertTrackedShadowConflicts(options: {
   }
 }
 
-function renderTrackedRootInstructionShadowWrite(options: {
+function planRootInstructionShadowOverlay(options: {
   repoRoot: string;
   filePath: string;
   overlayContent: string;
   bundleName: string;
   toolName: ToolName;
   strategy: RootInstructionMode;
-}): PlannedTrackedShadow {
+}): PlannedShadowOverlay {
   const inspection = inspectTrackedShadowTarget({
     repoRoot: options.repoRoot,
     filePath: options.filePath,
@@ -6309,27 +6431,14 @@ function renderTrackedRootInstructionShadowWrite(options: {
     );
   }
 
-  const render = renderTrackedRootInstructionShadow({
-    baseContent: inspection.headBlob.content,
-    overlayContent: options.overlayContent,
-    bundleName: options.bundleName,
-    toolName: options.toolName,
-    strategy: options.strategy,
-    allowReplace: options.strategy === "replace",
-  });
-
   return {
     filePath: options.filePath,
-    rendered: render.rendered,
-    state: {
+    headBlob: inspection.headBlob,
+    contribution: {
       tool: options.toolName,
       bundle: options.bundleName,
       strategy: options.strategy,
-      base_blob: inspection.headBlob.objectId,
       overlay: options.overlayContent,
-      overlay_fingerprint: render.overlayFingerprint,
-      rendered_fingerprint: render.renderedFingerprint,
-      skip_worktree: true,
     },
   };
 }
@@ -6360,29 +6469,11 @@ function applyTrackedShadowPlan(options: {
   existingShadowedFiles: Record<string, ShadowedFileState>;
   plan: TrackedShadowPlan;
 }): Record<string, ShadowedFileState> {
-  const nextShadowedFiles = { ...options.existingShadowedFiles };
-
-  for (const [filePath, shadowedFile] of Object.entries(
-    options.existingShadowedFiles,
-  )) {
-    if (
-      shadowedFile.bundle !== options.bundleName ||
-      options.plan.activeShadowPaths.has(filePath)
-    ) {
-      continue;
-    }
-
-    assertTrackedShadowRetirementSafety({
-      repoRoot: options.repoRoot,
-      filePath,
-      existingShadowedFile: shadowedFile,
-    });
-    restoreTrackedShadowTarget({
-      repoRoot: options.repoRoot,
-      filePath,
-    });
-    delete nextShadowedFiles[filePath];
-  }
+  let nextShadowedFiles = applyShadowOverlayRetirements({
+    repoRoot: options.repoRoot,
+    shadowedFiles: options.existingShadowedFiles,
+    retirements: planStaleShadowOverlayRetirements(options),
+  });
 
   for (const write of options.plan.writes) {
     const targetPath = path.join(options.repoRoot, write.filePath);
@@ -6392,7 +6483,10 @@ function applyTrackedShadowPlan(options: {
       repoRoot: options.repoRoot,
       filePath: write.filePath,
     });
-    nextShadowedFiles[write.filePath] = write.state;
+    nextShadowedFiles = {
+      ...nextShadowedFiles,
+      [write.filePath]: write.state,
+    };
   }
 
   return nextShadowedFiles;
@@ -6404,22 +6498,11 @@ function assertTrackedShadowPlanCanApply(options: {
   existingShadowedFiles: Record<string, ShadowedFileState>;
   plan: TrackedShadowPlan;
 }): void {
-  for (const [filePath, shadowedFile] of Object.entries(
-    options.existingShadowedFiles,
-  )) {
-    if (
-      shadowedFile.bundle !== options.bundleName ||
-      options.plan.activeShadowPaths.has(filePath)
-    ) {
-      continue;
-    }
-
-    assertTrackedShadowRetirementSafety({
-      repoRoot: options.repoRoot,
-      filePath,
-      existingShadowedFile: shadowedFile,
-    });
-  }
+  assertShadowOverlayRetirementsSafe({
+    repoRoot: options.repoRoot,
+    shadowedFiles: options.existingShadowedFiles,
+    retirements: planStaleShadowOverlayRetirements(options),
+  });
 
   for (const write of options.plan.writes) {
     assertTrackedShadowWriteSafety({
@@ -6431,6 +6514,20 @@ function assertTrackedShadowPlanCanApply(options: {
         : "create",
     });
   }
+}
+
+/** Finds files this bundle still has an overlay on but no longer contributes to. */
+function planStaleShadowOverlayRetirements(options: {
+  bundleName: string;
+  existingShadowedFiles: Record<string, ShadowedFileState>;
+  plan: TrackedShadowPlan;
+}): ShadowOverlayRetirement[] {
+  return planShadowOverlayRetirements({
+    shadowedFiles: options.existingShadowedFiles,
+    isRetired: (filePath, overlay) =>
+      overlay.bundle === options.bundleName &&
+      !options.plan.activeShadowPaths.has(filePath),
+  });
 }
 
 function assertTrackedShadowWriteSafety(options: {
@@ -6490,44 +6587,131 @@ function assertTrackedShadowRetirementSafety(options: {
   }
 }
 
+/** Drops whole shadows, restoring each file to its committed content. */
 function retireTrackedShadows(options: {
   repoRoot: string;
   shadowedFiles: Record<string, ShadowedFileState>;
   filePaths: string[];
 }): Record<string, ShadowedFileState> {
-  const nextShadowedFiles = { ...options.shadowedFiles };
+  const filePaths = new Set(options.filePaths);
 
-  for (const filePath of options.filePaths) {
-    const shadowedFile = nextShadowedFiles[filePath];
+  return retireShadowOverlays({
+    repoRoot: options.repoRoot,
+    shadowedFiles: options.shadowedFiles,
+    isRetired: (filePath) => filePaths.has(filePath),
+  });
+}
 
-    if (!shadowedFile) {
-      continue;
-    }
+/**
+ * Drops the named bundles' overlays from every file they contribute to.
+ *
+ * A file other bundles still contribute to is re-rendered without the retired
+ * overlays; only the last overlay leaving restores the committed content.
+ */
+function retireTrackedShadowsForBundles(options: {
+  repoRoot: string;
+  shadowedFiles: Record<string, ShadowedFileState>;
+  bundleNames: string[];
+}): Record<string, ShadowedFileState> {
+  const bundleNames = new Set(options.bundleNames);
 
+  return retireShadowOverlays({
+    repoRoot: options.repoRoot,
+    shadowedFiles: options.shadowedFiles,
+    isRetired: (_filePath, overlay) => bundleNames.has(overlay.bundle),
+  });
+}
+
+function retireShadowOverlays(options: {
+  repoRoot: string;
+  shadowedFiles: Record<string, ShadowedFileState>;
+  isRetired: (filePath: string, overlay: ShadowOverlayState) => boolean;
+}): Record<string, ShadowedFileState> {
+  const retirements = planShadowOverlayRetirements({
+    shadowedFiles: options.shadowedFiles,
+    isRetired: options.isRetired,
+  });
+
+  assertShadowOverlayRetirementsSafe({
+    repoRoot: options.repoRoot,
+    shadowedFiles: options.shadowedFiles,
+    retirements,
+  });
+
+  return applyShadowOverlayRetirements({
+    repoRoot: options.repoRoot,
+    shadowedFiles: options.shadowedFiles,
+    retirements,
+  });
+}
+
+interface ShadowOverlayRetirement {
+  filePath: string;
+  remainingOverlays: ShadowOverlayState[];
+}
+
+function planShadowOverlayRetirements(options: {
+  shadowedFiles: Record<string, ShadowedFileState>;
+  isRetired: (filePath: string, overlay: ShadowOverlayState) => boolean;
+}): ShadowOverlayRetirement[] {
+  return Object.entries(options.shadowedFiles)
+    .map(([filePath, shadowedFile]) => ({
+      filePath,
+      remainingOverlays: shadowedFile.overlays.filter(
+        (overlay) => !options.isRetired(filePath, overlay),
+      ),
+    }))
+    .filter(
+      ({ filePath, remainingOverlays }) =>
+        remainingOverlays.length !==
+        options.shadowedFiles[filePath]!.overlays.length,
+    );
+}
+
+function assertShadowOverlayRetirementsSafe(options: {
+  repoRoot: string;
+  shadowedFiles: Record<string, ShadowedFileState>;
+  retirements: ShadowOverlayRetirement[];
+}): void {
+  for (const { filePath } of options.retirements) {
     assertTrackedShadowRetirementSafety({
       repoRoot: options.repoRoot,
       filePath,
-      existingShadowedFile: shadowedFile,
+      existingShadowedFile: options.shadowedFiles[filePath]!,
     });
   }
+}
 
-  for (const filePath of options.filePaths) {
-    const shadowedFile = nextShadowedFiles[filePath];
+function applyShadowOverlayRetirements(options: {
+  repoRoot: string;
+  shadowedFiles: Record<string, ShadowedFileState>;
+  retirements: ShadowOverlayRetirement[];
+}): Record<string, ShadowedFileState> {
+  const nextShadowedFiles = { ...options.shadowedFiles };
 
-    if (!shadowedFile) {
+  for (const { filePath, remainingOverlays } of options.retirements) {
+    if (remainingOverlays.length === 0) {
+      restoreTrackedShadowTarget({
+        repoRoot: options.repoRoot,
+        filePath,
+      });
+      delete nextShadowedFiles[filePath];
       continue;
     }
 
-    assertTrackedShadowRetirementSafety({
-      repoRoot: options.repoRoot,
+    const rewrite = buildShadowedFileState({
+      baseBlob: requireTrackedShadowHeadBlob({
+        repoRoot: options.repoRoot,
+        filePath,
+        action: "refresh",
+      }),
+      overlays: remainingOverlays,
       filePath,
-      existingShadowedFile: shadowedFile,
+      allowReplace: true,
     });
-    restoreTrackedShadowTarget({
-      repoRoot: options.repoRoot,
-      filePath,
-    });
-    delete nextShadowedFiles[filePath];
+    fs.writeFileSync(path.join(options.repoRoot, filePath), rewrite.rendered);
+    setGitSkipWorktree({ repoRoot: options.repoRoot, filePath });
+    nextShadowedFiles[filePath] = rewrite.state;
   }
 
   return nextShadowedFiles;

@@ -12,6 +12,7 @@ import {
   readRegistryFile,
   removeWorktreeState,
   type ShadowedFileState,
+  type ShadowOverlayState,
   upsertRepoState,
   upsertWorktreeState,
   writeRegistryFile,
@@ -64,17 +65,26 @@ function makeRegistry(overrides: object = {}) {
   };
 }
 
-function makeShadowedFileEntry(
-  overrides: Partial<ShadowedFileState> = {},
-): ShadowedFileState {
+function makeShadowOverlayEntry(
+  overrides: Partial<ShadowOverlayState> = {},
+): ShadowOverlayState {
   return {
     tool: "codex",
     bundle: "personal-rules",
     strategy: "append",
-    base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
     overlay:
       "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->",
     overlay_fingerprint: "overlay-abc123",
+    ...overrides,
+  };
+}
+
+function makeShadowedFileEntry(
+  overrides: Partial<ShadowedFileState> = {},
+): ShadowedFileState {
+  return {
+    base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
+    overlays: [makeShadowOverlayEntry()],
     rendered_fingerprint: "rendered-def456",
     skip_worktree: true,
     ...overrides,
@@ -833,14 +843,18 @@ describe("parseRegistry", () => {
           [WORKTREE_ID]: makeWorktreeEntry({
             shadowed_files: {
               ".mcp.json": makeShadowedFileEntry({
-                strategy: "merge",
-                overlay: "not json",
+                overlays: [
+                  makeShadowOverlayEntry({
+                    strategy: "merge",
+                    overlay: "not json",
+                  }),
+                ],
               }),
             },
           }),
         },
       }),
-      /shadowed_files\..+\.overlay must be JSON/i,
+      /shadowed_files\..+\.overlays\[0\]\.overlay must be JSON/i,
     ],
     [
       "shadowed file metadata with an unsupported strategy",
@@ -849,7 +863,9 @@ describe("parseRegistry", () => {
           [WORKTREE_ID]: makeWorktreeEntry({
             shadowed_files: {
               "AGENTS.md": makeShadowedFileEntry({
-                strategy: "sideways" as never,
+                overlays: [
+                  makeShadowOverlayEntry({ strategy: "sideways" as never }),
+                ],
               }),
             },
           }),
@@ -876,7 +892,9 @@ describe("parseRegistry", () => {
         worktrees: {
           [WORKTREE_ID]: makeWorktreeEntry({
             shadowed_files: {
-              "AGENTS.md": makeShadowedFileEntry({ overlay: "" }),
+              "AGENTS.md": makeShadowedFileEntry({
+                overlays: [makeShadowOverlayEntry({ overlay: "" })],
+              }),
             },
           }),
         },
@@ -889,7 +907,9 @@ describe("parseRegistry", () => {
         worktrees: {
           [WORKTREE_ID]: makeWorktreeEntry({
             shadowed_files: {
-              "AGENTS.md": makeShadowedFileEntry({ overlay_fingerprint: "" }),
+              "AGENTS.md": makeShadowedFileEntry({
+                overlays: [makeShadowOverlayEntry({ overlay_fingerprint: "" })],
+              }),
             },
           }),
         },
@@ -910,13 +930,49 @@ describe("parseRegistry", () => {
       /\.rendered_fingerprint must be a non-empty string/i,
     ],
     [
+      "shadowed file metadata that lists no overlay",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "AGENTS.md": makeShadowedFileEntry({ overlays: [] }),
+            },
+          }),
+        },
+      }),
+      /\.overlays must list at least one overlay/i,
+    ],
+    [
+      "shadowed file metadata whose overlays disagree about the committed base",
+      makeRegistry({
+        worktrees: {
+          [WORKTREE_ID]: makeWorktreeEntry({
+            shadowed_files: {
+              "AGENTS.md": makeShadowedFileEntry({
+                overlays: [
+                  makeShadowOverlayEntry({ bundle: "repo-standards" }),
+                  makeShadowOverlayEntry({
+                    bundle: "personal-rules",
+                    strategy: "replace",
+                  }),
+                ],
+              }),
+            },
+          }),
+        },
+      }),
+      /\.overlays must use one shadow strategy, but found append and replace/i,
+    ],
+    [
       "shadowed file metadata with an unknown tool name",
       makeRegistry({
         worktrees: {
           [WORKTREE_ID]: makeWorktreeEntry({
             shadowed_files: {
               "AGENTS.md": makeShadowedFileEntry({
-                tool: "unknown-tool" as never,
+                overlays: [
+                  makeShadowOverlayEntry({ tool: "unknown-tool" as never }),
+                ],
               }),
             },
           }),
@@ -1103,7 +1159,9 @@ describe("registry persistence", () => {
           exclude_configured: false,
         },
         shadowed_files: {
-          "CLAUDE.md": makeShadowedFileEntry({ tool: "claude-code" }),
+          "CLAUDE.md": makeShadowedFileEntry({
+            overlays: [makeShadowOverlayEntry({ tool: "claude-code" })],
+          }),
           "AGENTS.md": makeShadowedFileEntry(),
         },
       },

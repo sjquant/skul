@@ -80,13 +80,24 @@ export interface MaterializedState {
  */
 export type ShadowStrategy = "append" | "prepend" | "replace" | "merge";
 
-export interface ShadowedFileState {
+/** One bundle's contribution to a shadowed file. */
+export interface ShadowOverlayState {
   tool: ToolName;
   bundle: string;
   strategy: ShadowStrategy;
-  base_blob: string;
   overlay: string;
   overlay_fingerprint: string;
+}
+
+/**
+ * A committed file Skul renders over, plus every overlay folded onto it.
+ *
+ * Overlays are ordered: rendering folds them onto the committed base in this
+ * order, which is the repository's desired-bundle order.
+ */
+export interface ShadowedFileState {
+  base_blob: string;
+  overlays: ShadowOverlayState[];
   rendered_fingerprint: string;
   skip_worktree: boolean;
 }
@@ -581,7 +592,53 @@ function parseShadowedFileState(
   label: string,
 ): ShadowedFileState {
   const shadowedFile = expectRecord(input, label);
-  const tool = expectNonEmptyString(shadowedFile.tool, `${label}.tool`);
+
+  return {
+    base_blob: expectGitObjectId(shadowedFile.base_blob, `${label}.base_blob`),
+    overlays: parseShadowOverlays(shadowedFile.overlays, `${label}.overlays`),
+    rendered_fingerprint: expectNonEmptyString(
+      shadowedFile.rendered_fingerprint,
+      `${label}.rendered_fingerprint`,
+    ),
+    skip_worktree: expectBoolean(
+      shadowedFile.skip_worktree,
+      `${label}.skip_worktree`,
+    ),
+  };
+}
+
+function parseShadowOverlays(
+  input: unknown,
+  label: string,
+): ShadowOverlayState[] {
+  const overlays = expectArray(input, label).map((value, index) =>
+    parseShadowOverlayState(value, `${label}[${index}]`),
+  );
+
+  if (overlays.length === 0) {
+    throw new Error(`${label} must list at least one overlay`);
+  }
+
+  // Every overlay on one file folds onto the same committed base, so they have
+  // to agree on what to do with it: `replace` drops the base the others read.
+  const strategy = overlays[0]!.strategy;
+  const mixed = overlays.find((overlay) => overlay.strategy !== strategy);
+
+  if (mixed) {
+    throw new Error(
+      `${label} must use one shadow strategy, but found ${strategy} and ${mixed.strategy}`,
+    );
+  }
+
+  return overlays;
+}
+
+function parseShadowOverlayState(
+  input: unknown,
+  label: string,
+): ShadowOverlayState {
+  const overlayState = expectRecord(input, label);
+  const tool = expectNonEmptyString(overlayState.tool, `${label}.tool`);
 
   if (!isToolName(tool)) {
     throw new Error(
@@ -590,31 +647,22 @@ function parseShadowedFileState(
   }
 
   const strategy = expectShadowStrategy(
-    shadowedFile.strategy,
+    overlayState.strategy,
     `${label}.strategy`,
   );
 
   return {
     tool,
-    bundle: expectNonEmptyString(shadowedFile.bundle, `${label}.bundle`),
+    bundle: expectNonEmptyString(overlayState.bundle, `${label}.bundle`),
     strategy,
-    base_blob: expectGitObjectId(shadowedFile.base_blob, `${label}.base_blob`),
     overlay: expectShadowOverlay(
-      shadowedFile.overlay,
+      overlayState.overlay,
       strategy,
       `${label}.overlay`,
     ),
     overlay_fingerprint: expectNonEmptyString(
-      shadowedFile.overlay_fingerprint,
+      overlayState.overlay_fingerprint,
       `${label}.overlay_fingerprint`,
-    ),
-    rendered_fingerprint: expectNonEmptyString(
-      shadowedFile.rendered_fingerprint,
-      `${label}.rendered_fingerprint`,
-    ),
-    skip_worktree: expectBoolean(
-      shadowedFile.skip_worktree,
-      `${label}.skip_worktree`,
     ),
   };
 }
@@ -747,7 +795,10 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([relativePath, shadowedFile]) => [
           relativePath,
-          { ...shadowedFile },
+          {
+            ...shadowedFile,
+            overlays: shadowedFile.overlays.map((overlay) => ({ ...overlay })),
+          },
         ]),
     ),
   };

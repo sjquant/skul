@@ -30,19 +30,24 @@ export function composeRootInstructionContent(
     .join("\n\n");
 }
 
+/** One bundle's contribution to a tracked root-instruction shadow. */
+export interface TrackedRootInstructionOverlay {
+  bundleName: string;
+  content: string;
+}
+
 export interface RenderTrackedRootInstructionShadowOptions {
   baseContent?: string;
-  overlayContent: string;
-  bundleName: string;
+  overlays: TrackedRootInstructionOverlay[];
   toolName: ToolName;
   strategy: "append" | "prepend" | "replace";
   allowReplace?: boolean;
 }
 
 export interface RenderTrackedRootInstructionShadowResult {
-  overlay: string;
+  /** The marker-wrapped block rendered for each overlay, in the same order. */
+  blocks: string[];
   rendered: string;
-  overlayFingerprint: string;
   renderedFingerprint: string;
 }
 
@@ -50,6 +55,11 @@ export interface RenderTrackedRootInstructionShadowResult {
  * Renders a deterministic tracked root-instruction shadow plus the
  * fingerprints later lifecycle commands use to detect stale overlays and
  * local manual edits.
+ *
+ * Every overlay keeps its own boundary markers, so a file several bundles
+ * contribute to stays readable and each contribution stays identifiable. The
+ * strategy decides where the composed blocks sit relative to the committed
+ * base — or, for `replace`, that the base is dropped entirely.
  */
 export function renderTrackedRootInstructionShadow(
   options: RenderTrackedRootInstructionShadowOptions,
@@ -60,26 +70,23 @@ export function renderTrackedRootInstructionShadow(
     );
   }
 
-  const normalizedOverlayContent = normalizeRootInstructionPart(
-    options.overlayContent,
+  const blocks = options.overlays.map((overlay) =>
+    formatTrackedRootInstructionShadowBlock({
+      bundleName: overlay.bundleName,
+      content: overlay.content,
+    }),
   );
-  const overlay =
-    options.strategy === "replace"
-      ? normalizedOverlayContent
-      : formatTrackedRootInstructionShadowBlock({
-          bundleName: options.bundleName,
-          content: normalizedOverlayContent,
-        });
   const rendered = renderTrackedRootInstructionDocument({
-    baseContent: options.baseContent,
-    overlay,
+    ...(options.baseContent !== undefined
+      ? { baseContent: options.baseContent }
+      : {}),
+    overlay: composeRootInstructionContent(blocks),
     strategy: options.strategy,
   });
 
   return {
-    overlay,
+    blocks,
     rendered,
-    overlayFingerprint: fingerprintShadowContent(overlay),
     renderedFingerprint: fingerprintShadowContent(rendered),
   };
 }
