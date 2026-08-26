@@ -45,10 +45,7 @@ import {
   upsertWorktreeState,
   writeRegistryFile,
 } from "./registry";
-import {
-  fingerprintShadowContent,
-  renderTrackedRootInstructionShadow,
-} from "./root-instruction-render";
+import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
 
 describe("run", () => {
   it("overwrites the existing file when the user confirms the conflict prompt", async () => {
@@ -357,9 +354,7 @@ describe("run", () => {
                   bundle: "agents-rules",
                   strategy: "append",
                   overlay: "Follow the agents guidance.",
-                  overlay_fingerprint: fingerprintShadowContent(
-                    agentsShadow.blocks[0]!,
-                  ),
+                  overlay_fingerprint: agentsShadow.overlayFingerprints[0]!,
                 },
               ],
               rendered_fingerprint: agentsShadow.renderedFingerprint,
@@ -373,9 +368,7 @@ describe("run", () => {
                   bundle: "claude-rules",
                   strategy: "prepend",
                   overlay: "Follow the claude guidance.",
-                  overlay_fingerprint: fingerprintShadowContent(
-                    claudeShadow.blocks[0]!,
-                  ),
+                  overlay_fingerprint: claudeShadow.overlayFingerprints[0]!,
                 },
               ],
               rendered_fingerprint: claudeShadow.renderedFingerprint,

@@ -72,8 +72,7 @@ function makeShadowOverlayEntry(
     tool: "codex",
     bundle: "personal-rules",
     strategy: "append",
-    overlay:
-      "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->",
+    overlay: "# Personal rules\n",
     overlay_fingerprint: "overlay-abc123",
     ...overrides,
   };
@@ -961,7 +960,7 @@ describe("parseRegistry", () => {
           }),
         },
       }),
-      /\.overlays must use one shadow strategy, but found append and replace/i,
+      /\.overlays must use one shadow strategy, but repo-standards uses append and personal-rules uses replace/i,
     ],
     [
       "shadowed file metadata with an unknown tool name",

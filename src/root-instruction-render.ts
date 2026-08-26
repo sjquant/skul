@@ -17,6 +17,7 @@ const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set([
 
 const SKUL_INSTRUCTIONS_START = "<!-- SKUL:INSTRUCTIONS START -->";
 const SKUL_INSTRUCTIONS_END = "<!-- SKUL:INSTRUCTIONS END -->";
+const SHADOW_BLOCK_END = "<!-- SKUL SHADOW END -->";
 const SKUL_INSTRUCTIONS_PREAMBLE =
   "Follow the instructions in this section; SKUL markers are metadata used to manage the content.";
 
@@ -45,8 +46,8 @@ export interface RenderTrackedRootInstructionShadowOptions {
 }
 
 export interface RenderTrackedRootInstructionShadowResult {
-  /** The marker-wrapped block rendered for each overlay, in the same order. */
-  blocks: string[];
+  /** Fingerprint of the block rendered for each overlay, in the same order. */
+  overlayFingerprints: string[];
   rendered: string;
   renderedFingerprint: string;
 }
@@ -77,18 +78,45 @@ export function renderTrackedRootInstructionShadow(
     }),
   );
   const rendered = renderTrackedRootInstructionDocument({
-    ...(options.baseContent !== undefined
-      ? { baseContent: options.baseContent }
-      : {}),
+    baseContent: options.baseContent,
     overlay: composeRootInstructionContent(blocks),
     strategy: options.strategy,
   });
 
   return {
-    blocks,
+    overlayFingerprints: blocks.map((block) => fingerprintShadowContent(block)),
     rendered,
     renderedFingerprint: fingerprintShadowContent(rendered),
   };
+}
+
+/**
+ * Reads one bundle's rendered shadow block back out of a shadowed file.
+ *
+ * Status compares this against the stored overlay fingerprint, so it has to
+ * find the very markers `renderTrackedRootInstructionShadow` wrote — which is
+ * why extraction lives beside the formatter rather than restating its markers.
+ */
+export function extractTrackedRootInstructionShadowBlock(options: {
+  content: string;
+  bundleName: string;
+}): string | null {
+  const startMarker = formatShadowBlockStartMarker(options.bundleName);
+  const startIndex = options.content.indexOf(startMarker);
+
+  if (startIndex < 0) {
+    return null;
+  }
+
+  const endIndex = options.content.indexOf(SHADOW_BLOCK_END, startIndex);
+
+  if (endIndex < 0) {
+    return null;
+  }
+
+  return normalizeRootInstructionPart(
+    options.content.slice(startIndex, endIndex + SHADOW_BLOCK_END.length),
+  );
 }
 
 /** Wraps one bundle's root-instruction content with explicit boundary markers. */
@@ -142,10 +170,14 @@ function formatTrackedRootInstructionShadowBlock(options: {
   }
 
   return [
-    `<!-- SKUL SHADOW START bundle=${options.bundleName} -->`,
+    formatShadowBlockStartMarker(options.bundleName),
     normalizedContent,
-    "<!-- SKUL SHADOW END -->",
+    SHADOW_BLOCK_END,
   ].join("\n");
+}
+
+function formatShadowBlockStartMarker(bundleName: string): string {
+  return `<!-- SKUL SHADOW START bundle=${bundleName} -->`;
 }
 
 /** Returns whether a repo-relative path is a managed root-instruction file. */

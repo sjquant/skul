@@ -1103,6 +1103,92 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
   });
 
+  it("refuses two bundles declaring the same server in a tracked MCP configuration", async () => {
+    // Given a committed MCP config and two bundles that both declare "docs"
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
+    );
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "add mcp config"]);
+    for (const bundle of ["one", "two"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { docs: { type: "stdio", command: bundle } },
+        }),
+      );
+    }
+    await run(["add", SOURCE, "one", "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the second bundle would claim the same server name
+    await expect(
+      run(["add", SOURCE, "two", "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(
+      /MCP server "docs" is declared by both one and two in \.mcp\.json/,
+    );
+
+    // Then the first bundle keeps the server, exactly as on an untracked file
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      mine: { command: "m" },
+      docs: { type: "stdio", command: "one" },
+    });
+    expect(runGit(cwd, ["status", "--porcelain"]).trim()).toBe("");
+  });
+
+  it("tells a dry run apart from removal when another bundle keeps shadowing the file", async () => {
+    // Given a committed MCP config shadowed by two bundles
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { mine: { command: "m" } } }, null, 2)}\n`,
+    );
+    runGit(cwd, ["add", ".mcp.json"]);
+    runGit(cwd, ["commit", "-m", "add mcp config"]);
+    for (const bundle of ["one", "two"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When a removal is previewed
+    const output = await run(["remove", "one", "--dry-run"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the file is reported as rewritten, not as removed
+    expect(output).toContain("Would remove one (0 file(s))");
+    expect(output).toContain("Would keep shadowing without one (1 file(s))");
+    expect(output).toContain("  .mcp.json");
+  });
+
   it("restores the remaining overlay when one of two bundles shadowing a tracked MCP configuration is removed", async () => {
     // Given a committed MCP config shadowed by two bundles
     const homeDir = createHomeDir();

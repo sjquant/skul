@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import {
+  extractTrackedRootInstructionShadowBlock,
+  fingerprintShadowContent,
+  renderTrackedRootInstructionShadow,
+} from "./root-instruction-render";
 
 const PREAMBLE =
   "Follow the instructions in this section; SKUL markers are metadata used to manage the content.";
@@ -71,9 +75,45 @@ describe("tracked root-instruction shadow rendering", () => {
     });
 
     // Then
-    expect(render.blocks).toEqual([
+    expect(render.rendered).toContain(
       "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\nUse local overrides.\n<!-- SKUL SHADOW END -->",
-    ]);
+    );
+  });
+
+  it("reads each bundle's block back out of a rendered shadow", () => {
+    // Given a file two bundles contribute to
+    const render = renderTrackedRootInstructionShadow({
+      baseContent: "# Team rules\n",
+      overlays: [
+        {
+          bundleName: "repo-standards",
+          content: "Use consistent conventions.",
+        },
+        { bundleName: "security-standards", content: "Never commit secrets." },
+      ],
+      toolName: "codex",
+      strategy: "append",
+    });
+
+    // When each block is extracted by bundle name
+    const extracted = ["repo-standards", "security-standards"].map(
+      (bundleName) =>
+        extractTrackedRootInstructionShadowBlock({
+          content: render.rendered,
+          bundleName,
+        }),
+    );
+
+    // Then each round-trips to the fingerprint stored for that overlay
+    expect(extracted.map((block) => fingerprintShadowContent(block!))).toEqual(
+      render.overlayFingerprints,
+    );
+    expect(
+      extractTrackedRootInstructionShadowBlock({
+        content: render.rendered,
+        bundleName: "absent-bundle",
+      }),
+    ).toBeNull();
   });
 
   it("folds several bundles onto one committed base in overlay order", () => {
@@ -98,7 +138,7 @@ describe("tracked root-instruction shadow rendering", () => {
     expect(render.rendered).toBe(
       `# Team rules\n\n<!-- SKUL:INSTRUCTIONS START -->\n\n${PREAMBLE}\n\n<!-- SKUL SHADOW START bundle=repo-standards -->\nUse consistent conventions.\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL SHADOW START bundle=security-standards -->\nNever commit secrets.\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
     );
-    expect(render.blocks).toHaveLength(2);
+    expect(render.overlayFingerprints).toHaveLength(2);
   });
 
   it("keeps each bundle's block fingerprint independent of the bundles beside it", () => {
@@ -130,7 +170,9 @@ describe("tracked root-instruction shadow rendering", () => {
     });
 
     // Then
-    expect(sharedRender.blocks[0]).toBe(soloRender.blocks[0]);
+    expect(sharedRender.overlayFingerprints[0]).toBe(
+      soloRender.overlayFingerprints[0],
+    );
     expect(sharedRender.renderedFingerprint).not.toBe(
       soloRender.renderedFingerprint,
     );
@@ -149,7 +191,7 @@ describe("tracked root-instruction shadow rendering", () => {
     });
 
     // Then
-    expect(render.blocks).toEqual([""]);
+    expect(render.overlayFingerprints).toEqual([fingerprintShadowContent("")]);
     expect(render.rendered).toBe(baseContent);
   });
 
@@ -195,7 +237,9 @@ describe("tracked root-instruction shadow rendering", () => {
     });
 
     // Then
-    expect(refreshedRender.blocks).toEqual(initialRender.blocks);
+    expect(refreshedRender.overlayFingerprints).toEqual(
+      initialRender.overlayFingerprints,
+    );
     expect(refreshedRender.renderedFingerprint).not.toBe(
       initialRender.renderedFingerprint,
     );

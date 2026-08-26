@@ -18,8 +18,6 @@ import {
   createRemoteBundleSource,
   createRepository,
   createSyncRepository,
-  expectAgentsDocument,
-  expectClaudeDocument,
   fingerprintFile,
   formatExpectedRootInstructionDocument,
   formatRootInstructionBundleBlock,
@@ -199,7 +197,7 @@ describe("tracked root-instruction shadow safety", () => {
 
     // Then both overlays sit on the committed base in desired-state order,
     // and Git still reports the tracked file as unchanged
-    expectAgentsDocument(
+    assertAgentsDocument(
       repoRoot,
       "# Team base",
       formatTrackedRootInstructionShadowBlock(
@@ -221,6 +219,116 @@ describe("tracked root-instruction shadow safety", () => {
         (overlay) => overlay.bundle,
       ),
     ).toEqual(["repo-standards", "security-standards"]);
+  });
+
+  it("keeps overlays in desired order when the first bundle is re-added last", async () => {
+    // Given a committed AGENTS.md shadowed by two bundles, in desired order
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    for (const [bundle, content] of [
+      ["repo-standards", "# Repo standards\n"],
+      ["security-standards", "# Security standards\n"],
+    ] as const) {
+      writeRootInstructionBundleFixture(homeDir, { bundle, content });
+      await run(["add", bundle, "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When the bundle that is first in desired state is applied again last
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then it keeps its desired-state position instead of moving to the end
+    assertAgentsDocument(
+      repoRoot,
+      "# Team base",
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards",
+      ),
+      formatTrackedRootInstructionShadowBlock(
+        "security-standards",
+        "# Security standards",
+      ),
+    );
+
+    const worktreeState = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    ).worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    expect(
+      worktreeState.shadowed_files["AGENTS.md"]!.overlays.map(
+        (overlay) => overlay.bundle,
+      ),
+    ).toEqual(["repo-standards", "security-standards"]);
+  });
+
+  it("reports every overlay on a shadowed file in status", async () => {
+    // Given a committed AGENTS.md shadowed by two bundles
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    for (const [bundle, content] of [
+      ["repo-standards", "# Repo standards\n"],
+      ["security-standards", "# Security standards\n"],
+    ] as const) {
+      writeRootInstructionBundleFixture(homeDir, { bundle, content });
+      await run(["add", bundle, "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When one bundle's block is edited out of the rendered file by hand
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      fs
+        .readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")
+        .replace(
+          formatTrackedRootInstructionShadowBlock(
+            "security-standards",
+            "# Security standards",
+          ),
+          "",
+        ),
+    );
+    const status = JSON.parse(
+      await run(["status", "--json"], { homeDir, cwd: repoRoot }),
+    ) as {
+      worktree: {
+        shadowed_files: Record<
+          string,
+          {
+            manual_edit_suspected: boolean;
+            overlays: Array<{
+              bundle: string;
+              active: boolean;
+              overlay_fresh: boolean;
+            }>;
+          }
+        >;
+      };
+    };
+
+    // Then the surviving overlay still reads as live while the edited one does not
+    expect(status.worktree.shadowed_files["AGENTS.md"]).toMatchObject({
+      manual_edit_suspected: true,
+      overlays: [
+        { bundle: "repo-standards", active: true, overlay_fresh: true },
+        { bundle: "security-standards", active: false, overlay_fresh: false },
+      ],
+    });
   });
 
   it("keeps the remaining overlay when one of two bundles shadowing AGENTS.md is removed", async () => {
@@ -246,7 +354,7 @@ describe("tracked root-instruction shadow safety", () => {
     await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
 
     // Then the file keeps shadowing with only the other bundle's overlay
-    expectAgentsDocument(
+    assertAgentsDocument(
       repoRoot,
       "# Team base",
       formatTrackedRootInstructionShadowBlock(
@@ -298,10 +406,12 @@ describe("tracked root-instruction shadow safety", () => {
         ],
         { homeDir, cwd: repoRoot, prompts: createPromptClientStub() },
       ),
-    ).rejects.toThrowError(/mixed strategies: append and replace/i);
+    ).rejects.toThrowError(
+      /AGENTS\.md must use one shadow strategy, but repo-standards uses append and personal-rules uses replace/i,
+    );
 
     // Then the first bundle's shadow is left exactly as it was
-    expectAgentsDocument(
+    assertAgentsDocument(
       repoRoot,
       "# Team base",
       formatTrackedRootInstructionShadowBlock(
@@ -347,6 +457,20 @@ describe("tracked root-instruction shadow safety", () => {
     expect(worktree.shadowed_files["AGENTS.md"]?.overlays[0]?.strategy).toBe(
       "replace",
     );
+    expect(
+      (
+        JSON.parse(
+          await run(["status", "--json"], { homeDir, cwd: repoRoot }),
+        ) as {
+          worktree: {
+            shadowed_files: Record<
+              string,
+              { overlays: Array<{ active: boolean; overlay_fresh: boolean }> }
+            >;
+          };
+        }
+      ).worktree.shadowed_files["AGENTS.md"]?.overlays,
+    ).toEqual([expect.objectContaining({ active: true, overlay_fresh: true })]);
 
     // When
     await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });

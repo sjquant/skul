@@ -80,13 +80,45 @@ export interface MaterializedState {
  */
 export type ShadowStrategy = "append" | "prepend" | "replace" | "merge";
 
-/** One bundle's contribution to a shadowed file. */
-export interface ShadowOverlayState {
+/** One bundle's contribution to a shadowed file, before it is fingerprinted. */
+export interface ShadowOverlay {
   tool: ToolName;
   bundle: string;
   strategy: ShadowStrategy;
   overlay: string;
+}
+
+/** A contribution as stored, once rendering has fingerprinted it. */
+export interface ShadowOverlayState extends ShadowOverlay {
   overlay_fingerprint: string;
+}
+
+/**
+ * Rejects overlay sets that disagree about what to do with the committed base.
+ *
+ * Every overlay on one file folds onto the same base, so they have to agree on
+ * what to do with it: `replace` drops the base the others read. `label` names
+ * the file or registry field the overlays belong to.
+ */
+export function assertSingleShadowStrategy(
+  overlays: readonly ShadowOverlay[],
+  label: string,
+): ShadowStrategy {
+  const first = overlays[0];
+
+  if (!first) {
+    throw new Error(`${label} must list at least one overlay`);
+  }
+
+  const mixed = overlays.find((overlay) => overlay.strategy !== first.strategy);
+
+  if (mixed) {
+    throw new Error(
+      `${label} must use one shadow strategy, but ${first.bundle} uses ${first.strategy} and ${mixed.bundle} uses ${mixed.strategy}`,
+    );
+  }
+
+  return first.strategy;
 }
 
 /**
@@ -614,21 +646,7 @@ function parseShadowOverlays(
   const overlays = expectArray(input, label).map((value, index) =>
     parseShadowOverlayState(value, `${label}[${index}]`),
   );
-
-  if (overlays.length === 0) {
-    throw new Error(`${label} must list at least one overlay`);
-  }
-
-  // Every overlay on one file folds onto the same committed base, so they have
-  // to agree on what to do with it: `replace` drops the base the others read.
-  const strategy = overlays[0]!.strategy;
-  const mixed = overlays.find((overlay) => overlay.strategy !== strategy);
-
-  if (mixed) {
-    throw new Error(
-      `${label} must use one shadow strategy, but found ${strategy} and ${mixed.strategy}`,
-    );
-  }
+  assertSingleShadowStrategy(overlays, label);
 
   return overlays;
 }
