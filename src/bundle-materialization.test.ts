@@ -184,6 +184,44 @@ describe("materializeBundle", () => {
     );
   });
 
+  it("separates a shared MCP configuration from the files it solely owns", async () => {
+    // Given a bundle shipping both a skill and an MCP server declaration
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".claude", "skills", "react", "SKILL.md"),
+      "# react\n",
+    );
+    writeFile(
+      path.join(bundleDir, "mcp.json"),
+      JSON.stringify({
+        mcpServers: { docs: { type: "stdio", command: "docs-server" } },
+      }),
+    );
+
+    // When
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: {
+        tools: {
+          "claude-code": {
+            skills: { path: ".claude/skills" },
+            mcp: { path: "mcp.json" },
+          },
+        },
+      },
+    });
+
+    // Then both files are managed, but only the configuration another bundle
+    // could also write into is reported as shared
+    expect(result.byTool["claude-code"]!.files).toContain(".mcp.json");
+    expect(result.byTool["claude-code"]!.files).toContain(
+      ".claude/skills/react/SKILL.md",
+    );
+    expect(result.byTool["claude-code"]!.sharedFiles).toEqual([".mcp.json"]);
+  });
+
   it("tracks created nested directories for deterministic cleanup", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");

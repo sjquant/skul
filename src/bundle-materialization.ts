@@ -44,13 +44,43 @@ export interface MaterializeBundleResult {
     Record<
       ToolName,
       {
+        /** Repo-relative files this tool now manages, and removal deletes. */
         files: string[];
+        /**
+         * The subset of `files` whose content Skul does not solely own, because
+         * another bundle or the user may write into the same document.
+         *
+         * A caller that fingerprints managed files to detect tampering must skip
+         * these: a second bundle adding its own servers to a shared MCP
+         * configuration is legitimate, and a fingerprint would read it as
+         * damage and refuse a removal that only subtracts this bundle's servers.
+         */
+        sharedFiles: string[];
         directories: string[];
         /** MCP server names now owned in each shared configuration file. */
         mcpServers: Record<string, string[]>;
       }
     >
   >;
+}
+
+/**
+ * Which bundle sources materialize, for which tools, under which path layout.
+ *
+ * `previewMaterializeBundleWriteTargets` and `materializeBundle` must resolve
+ * to the same set of paths, because a refresh deletes the previously managed
+ * files the preview names before the write pass runs. Both take this one object
+ * so a caller cannot hand them differing manifests, tool filters, or layouts.
+ */
+export interface BundleMaterializationScope {
+  repoRoot: string;
+  bundleDir: string;
+  manifest: BundleManifest;
+  tools?: ToolName[];
+  itemSelectors?: BundleItemSelector[];
+  pathLayout?: ToolMaterializationLayout;
+  disableModelInvocation?: boolean;
+  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
 }
 
 interface CanonicalTargetItem {
@@ -71,16 +101,9 @@ interface CanonicalTargetItem {
  * root-instruction targets before it removes existing managed files or writes
  * new content.
  */
-export function previewMaterializeBundleWriteTargets(options: {
-  repoRoot: string;
-  bundleDir: string;
-  manifest: BundleManifest;
-  tools?: ToolName[];
-  itemSelectors?: BundleItemSelector[];
-  pathLayout?: ToolMaterializationLayout;
-  disableModelInvocation?: boolean;
-  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
-}): string[] {
+export function previewMaterializeBundleWriteTargets(
+  options: BundleMaterializationScope,
+): string[] {
   const writeTargets = new Set<string>();
   const pathLayout = options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT;
   const toolEntries =
@@ -189,36 +212,47 @@ interface PlannedToolWrites {
   writes: PlannedFileWrite[];
   /** Repo-relative files the registry records as owned by this tool. */
   ownedFiles: string[];
+  /** The subset of `ownedFiles` other bundles may also write into. */
+  sharedFiles: Set<string>;
   /** Repo-relative directories Skul brings into existence, and so owns. */
   ownedDirectories: Set<string>;
   /** MCP server names this tool now owns in each shared configuration file. */
   mcpServers: Record<string, string[]>;
 }
 
-export interface MaterializeBundleOptions {
-  repoRoot: string;
-  bundleDir: string;
-  manifest: BundleManifest;
-  tools?: ToolName[];
-  itemSelectors?: BundleItemSelector[];
+export interface MaterializeBundleOptions extends BundleMaterializationScope {
   bundleName?: string;
   bundleSource?: string;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
+  /**
+   * Repo-relative paths materialization resolves but does not write, because the
+   * tracked-shadow lifecycle writes them instead to keep a committed file clean
+   * in `git status`. They are absent from the result, so nothing records them
+   * here as managed.
+   */
   deferredWriteTargets?: Set<string>;
+  /**
+   * The user's own content for each root-instruction output path, which Skul
+   * composes its managed block onto. Keyed by the repo-relative paths
+   * `previewMaterializeBundleWriteTargets` reports, and captured before the
+   * first bundle of a run writes, so that applying several bundles composes onto
+   * one base rather than onto each other's output. Falls back to reading the
+   * file when a path is absent.
+   */
   rootInstructionBaseContents?: Record<string, string>;
   rootInstructionMode?: RootInstructionMode;
   resolveFileConflict?: (
     conflictPath: string,
   ) => Promise<FileConflictResolution>;
-  pathLayout?: ToolMaterializationLayout;
-  disableModelInvocation?: boolean;
-  resolvedBundleItemRefs?: ReadonlyMap<string, ResolvedBundleItemRef>;
   /** Skul's bundle cache root, used to derive the bundle's ${PLUGIN_DATA} directory. */
   libraryDir?: string;
   /**
    * MCP server names this bundle already owns per configuration file, which it
    * may overwrite. Anything else in the file belongs to the user or another
    * bundle and is refused rather than replaced.
+   *
+   * Keyed by the same repo-relative paths the result reports, so a caller holding
+   * a previous result can feed it straight back on a refresh.
    */
   existingMcpServers?: Record<string, string[]>;
 }
@@ -310,6 +344,7 @@ async function planBundleMaterialization(
     const toolPlan: PlannedToolWrites = {
       writes: [],
       ownedFiles: [],
+      sharedFiles: new Set<string>(),
       ownedDirectories: new Set<string>(),
       mcpServers: {},
     };
@@ -429,6 +464,7 @@ function applyBundleMaterializationPlan(
 
     byTool[toolName] = {
       files: toolPlan.ownedFiles.sort(shallowestFirst),
+      sharedFiles: Array.from(toolPlan.sharedFiles).sort(shallowestFirst),
       directories: Array.from(toolPlan.ownedDirectories).sort(deepestFirst),
       mcpServers: toolPlan.mcpServers,
     };
@@ -730,6 +766,10 @@ async function foldMcpWriteIntoToolPlan(options: {
     resolveFileConflict: undefined,
     targetRoot: "",
   });
+
+  if (created) {
+    options.toolPlan.sharedFiles.add(repoRelPath);
+  }
 
   options.toolPlan.mcpServers[repoRelPath] = serverNames;
 }

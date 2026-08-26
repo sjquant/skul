@@ -45,6 +45,7 @@ import {
 } from "./bundle-items";
 import type { BundleManifest } from "./bundle-manifest";
 import {
+  type BundleMaterializationScope,
   type MaterializeBundleResult,
   materializeBundle,
   previewMaterializeBundleWriteTargets,
@@ -2314,7 +2315,7 @@ async function updateBundles(options: {
         protocol: entry.protocol,
       });
 
-      const plannedWriteTargets = previewMaterializeBundleWriteTargets({
+      const materializationScope: BundleMaterializationScope = {
         repoRoot: gitContext.worktreeRoot,
         bundleDir: path.dirname(cachedBundle.manifestFile),
         manifest: cachedBundle.manifest,
@@ -2322,7 +2323,9 @@ async function updateBundles(options: {
         itemSelectors: entry.items,
         disableModelInvocation: entry.disable_model_invocation,
         resolvedBundleItemRefs,
-      });
+      };
+      const plannedWriteTargets =
+        previewMaterializeBundleWriteTargets(materializationScope);
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
           isRootInstructionPath(filePath),
@@ -2431,11 +2434,7 @@ async function updateBundles(options: {
           { restoreCommitted: true },
         );
         const materializedResult = await materializeBundle({
-          repoRoot: gitContext.worktreeRoot,
-          bundleDir: path.dirname(cachedBundle.manifestFile),
-          manifest: cachedBundle.manifest,
-          tools: toolsToRefresh,
-          itemSelectors: entry.items,
+          ...materializationScope,
           bundleName: entry.bundle,
           bundleSource: entry.source,
           assertSafeWriteTarget: createManagedWriteSafetyAssertion({
@@ -2447,8 +2446,6 @@ async function updateBundles(options: {
           rootInstructionBaseContents,
           rootInstructionMode: entry.root_instruction_mode,
           resolveFileConflict: options.prompts.resolveFileConflict,
-          disableModelInvocation: entry.disable_model_invocation,
-          resolvedBundleItemRefs,
           libraryDir: options.libraryDir,
           existingMcpServers: ownedMcpServers(existingBundleState),
         });
@@ -2731,7 +2728,7 @@ async function applyBundle(options: {
     libraryDir: options.libraryDir,
     protocol: options.protocol,
   });
-  const plannedWriteTargets = previewMaterializeBundleWriteTargets({
+  const materializationScope: BundleMaterializationScope = {
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
@@ -2739,7 +2736,9 @@ async function applyBundle(options: {
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
     resolvedBundleItemRefs,
-  });
+  };
+  const plannedWriteTargets =
+    previewMaterializeBundleWriteTargets(materializationScope);
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
   );
@@ -2868,11 +2867,7 @@ async function applyBundle(options: {
   }
 
   const materializedResult = await materializeBundle({
-    repoRoot: gitContext.worktreeRoot,
-    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
-    manifest: preparedBundle.cachedBundle.manifest,
-    tools: preparedBundle.selectedTools,
-    itemSelectors: preparedBundle.selectedItems,
+    ...materializationScope,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
     assertSafeWriteTarget: createManagedWriteSafetyAssertion({
@@ -2883,8 +2878,6 @@ async function applyBundle(options: {
     rootInstructionBaseContents,
     rootInstructionMode: effectiveRootInstructionMode,
     resolveFileConflict: options.prompts.resolveFileConflict,
-    disableModelInvocation: options.disableModelInvocation,
-    resolvedBundleItemRefs,
     libraryDir: options.libraryDir,
     existingMcpServers: ownedMcpServers(existingBundleState),
   });
@@ -5424,14 +5417,16 @@ async function applyWorktree(options: {
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
     });
-    const plannedWriteTargets = previewMaterializeBundleWriteTargets({
+    const materializationScope: BundleMaterializationScope = {
       repoRoot: gitContext.worktreeRoot,
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
       itemSelectors: entry.items,
       resolvedBundleItemRefs,
-    });
+    };
+    const plannedWriteTargets =
+      previewMaterializeBundleWriteTargets(materializationScope);
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
     );
@@ -5564,11 +5559,7 @@ async function applyWorktree(options: {
     }
 
     const materializedResult = await materializeBundle({
-      repoRoot: gitContext.worktreeRoot,
-      bundleDir: path.dirname(cachedBundle.manifestFile),
-      manifest: cachedBundle.manifest,
-      tools: toolsToApply,
-      itemSelectors: entry.items,
+      ...materializationScope,
       bundleName: entry.bundle,
       bundleSource: entry.source,
       assertSafeWriteTarget: createManagedWriteSafetyAssertion({
@@ -5579,7 +5570,6 @@ async function applyWorktree(options: {
       rootInstructionBaseContents,
       rootInstructionMode: entry.root_instruction_mode,
       resolveFileConflict: options.prompts.resolveFileConflict,
-      resolvedBundleItemRefs,
       libraryDir: options.libraryDir,
       existingMcpServers: ownedMcpServers(existingBundleState),
     });
@@ -6464,14 +6454,10 @@ function buildMaterializedToolStates(
       toolName,
       {
         files: toolResult.files,
-        // MCP configuration files are shared, not owned: another bundle or the
-        // user may legitimately hold servers in the same document. Fingerprinting
-        // them would report that as tampering and block a removal that only
-        // subtracts this bundle's own server names.
         file_fingerprints: captureManagedFileFingerprints(
           repoRoot,
           toolResult.files.filter(
-            (filePath) => !(filePath in toolResult.mcpServers),
+            (filePath) => !toolResult.sharedFiles.includes(filePath),
           ),
         ),
         ...(toolResult.directories.length > 0
@@ -7323,7 +7309,7 @@ async function applyBundleGlobal(options: {
     libraryDir: options.libraryDir,
     protocol: options.protocol,
   });
-  const plannedWriteTargets = previewMaterializeBundleWriteTargets({
+  const materializationScope: BundleMaterializationScope = {
     repoRoot: options.homeDir,
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
     manifest: preparedBundle.cachedBundle.manifest,
@@ -7332,7 +7318,9 @@ async function applyBundleGlobal(options: {
     itemSelectors: preparedBundle.selectedItems,
     disableModelInvocation: options.disableModelInvocation,
     resolvedBundleItemRefs,
-  });
+  };
+  const plannedWriteTargets =
+    previewMaterializeBundleWriteTargets(materializationScope);
 
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((p) => isRootInstructionPath(p)),
@@ -7424,19 +7412,12 @@ async function applyBundleGlobal(options: {
   }
 
   const materializedResult = await materializeBundle({
-    repoRoot: options.homeDir,
-    bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
-    manifest: preparedBundle.cachedBundle.manifest,
-    tools: availableGlobalTools,
+    ...materializationScope,
     bundleName: preparedBundle.cachedBundle.bundle,
     bundleSource: preparedBundle.bundleSource,
     rootInstructionBaseContents,
     rootInstructionMode: effectiveRootInstructionMode,
     resolveFileConflict: options.prompts.resolveFileConflict,
-    pathLayout: GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
-    itemSelectors: preparedBundle.selectedItems,
-    disableModelInvocation: options.disableModelInvocation,
-    resolvedBundleItemRefs,
     libraryDir: options.libraryDir,
     existingMcpServers: ownedMcpServers(existingBundleState),
   });
