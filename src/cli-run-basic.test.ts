@@ -278,7 +278,6 @@ describe("run", () => {
       overlays: [
         { bundleName: "agents-rules", content: "Follow the agents guidance." },
       ],
-      toolName: "codex",
       strategy: "append",
     });
     const claudeShadow = renderTrackedRootInstructionShadow({
@@ -286,7 +285,6 @@ describe("run", () => {
       overlays: [
         { bundleName: "claude-rules", content: "Follow the claude guidance." },
       ],
-      toolName: "claude-code",
       strategy: "prepend",
     });
 

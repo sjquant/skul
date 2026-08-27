@@ -1,10 +1,6 @@
 import { createHash } from "node:crypto";
 
-import {
-  listGlobalToolDefinitions,
-  listToolDefinitions,
-  type ToolName,
-} from "./tool-mapping";
+import { listGlobalToolDefinitions, listToolDefinitions } from "./tool-mapping";
 
 const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set([
   ...listToolDefinitions()
@@ -40,9 +36,7 @@ export interface TrackedRootInstructionOverlay {
 export interface RenderTrackedRootInstructionShadowOptions {
   baseContent?: string;
   overlays: TrackedRootInstructionOverlay[];
-  toolName: ToolName;
   strategy: "append" | "prepend" | "replace";
-  allowReplace?: boolean;
 }
 
 export interface RenderTrackedRootInstructionShadowResult {
@@ -60,17 +54,13 @@ export interface RenderTrackedRootInstructionShadowResult {
  * Every overlay keeps its own boundary markers, so a file several bundles
  * contribute to stays readable and each contribution stays identifiable. The
  * strategy decides where the composed blocks sit relative to the committed
- * base — or, for `replace`, that the base is dropped entirely.
+ * base — or, for `replace`, that the base is dropped entirely. Asking the user
+ * before dropping a committed base is the command layer's job, in
+ * `confirmRootInstructionReplacements`.
  */
 export function renderTrackedRootInstructionShadow(
   options: RenderTrackedRootInstructionShadowOptions,
 ): RenderTrackedRootInstructionShadowResult {
-  if (options.strategy === "replace" && options.allowReplace !== true) {
-    throw new Error(
-      `Tracked root-instruction replace strategy for ${options.toolName} requires explicit confirmation`,
-    );
-  }
-
   const blocks = options.overlays.map((overlay) =>
     formatTrackedRootInstructionShadowBlock({
       bundleName: overlay.bundleName,

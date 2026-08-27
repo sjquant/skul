@@ -1687,13 +1687,11 @@ function buildShadowedFileState(options: {
   baseBlob: GitHeadBlob;
   overlays: ShadowOverlay[];
   filePath: string;
-  allowReplace?: boolean;
 }): PlannedTrackedShadow {
   const render = renderShadowedFile({
     baseContent: options.baseBlob.content,
     overlays: options.overlays,
     filePath: options.filePath,
-    allowReplace: options.allowReplace,
   });
 
   return {
@@ -1722,21 +1720,16 @@ function buildShadowedFileState(options: {
 function renderShadowedFile(options: {
   baseContent: string;
   overlays: ShadowOverlay[];
-  allowReplace?: boolean;
-  filePath?: string;
+  filePath: string;
 }): {
   rendered: string;
   overlayFingerprints: string[];
   renderedFingerprint: string;
 } {
-  const label = options.filePath ?? "the shadowed file";
-  const [firstOverlay] = options.overlays;
-
-  if (!firstOverlay) {
-    throw new Error(`Cannot render ${label} without any overlay`);
-  }
-
-  const strategy = assertSingleShadowStrategy(options.overlays, label);
+  const strategy = assertSingleShadowStrategy(
+    options.overlays,
+    options.filePath,
+  );
 
   if (strategy !== "merge") {
     const render = renderTrackedRootInstructionShadow({
@@ -1745,9 +1738,7 @@ function renderShadowedFile(options: {
         bundleName: overlay.bundle,
         content: overlay.overlay,
       })),
-      toolName: firstOverlay.tool,
       strategy,
-      allowReplace: options.allowReplace,
     });
 
     return {
@@ -1757,7 +1748,7 @@ function renderShadowedFile(options: {
     };
   }
 
-  assertDistinctMcpOverlayServers(options.overlays, label);
+  assertDistinctMcpOverlayServers(options.overlays, options.filePath);
 
   let rendered = options.baseContent;
 
@@ -1773,9 +1764,7 @@ function renderShadowedFile(options: {
       // new base. A collision with another bundle is caught above instead,
       // because that check cannot see whose earlier work the base holds.
       ownedServerNames: Object.keys(renderedServers),
-      ...(options.filePath !== undefined
-        ? { configPath: options.filePath }
-        : {}),
+      configPath: options.filePath,
     }).content;
   }
 
@@ -1892,7 +1881,6 @@ function refreshTrackedShadows(options: {
         baseBlob: headBlob,
         overlays: shadowedFile.overlays,
         filePath,
-        allowReplace: true,
       });
     });
 
@@ -2686,7 +2674,6 @@ async function updateBundles(options: {
       }
       assertTrackedShadowPlanCanApply({
         repoRoot: gitContext.worktreeRoot,
-        existingShadowedFiles: currentShadowedFiles,
         plan: trackedShadowPlan,
       });
 
@@ -2772,7 +2759,6 @@ async function updateBundles(options: {
         mcpOwnership.recordMaterialization(materializedResult);
         currentShadowedFiles = applyTrackedShadowPlan({
           repoRoot: gitContext.worktreeRoot,
-          existingShadowedFiles: currentShadowedFiles,
           plan: trackedShadowPlan,
         });
 
@@ -3159,7 +3145,6 @@ async function applyBundle(options: {
   }
   assertTrackedShadowPlanCanApply({
     repoRoot: gitContext.worktreeRoot,
-    existingShadowedFiles: currentShadowedFiles,
     plan: trackedShadowPlan,
   });
 
@@ -3194,7 +3179,6 @@ async function applyBundle(options: {
   mcpOwnership.recordMaterialization(materializedResult);
   currentShadowedFiles = applyTrackedShadowPlan({
     repoRoot: gitContext.worktreeRoot,
-    existingShadowedFiles: currentShadowedFiles,
     plan: trackedShadowPlan,
   });
 
@@ -5937,7 +5921,6 @@ async function applyWorktree(options: {
     }
     assertTrackedShadowPlanCanApply({
       repoRoot: gitContext.worktreeRoot,
-      existingShadowedFiles: currentShadowedFiles,
       plan: trackedShadowPlan,
     });
 
@@ -6005,7 +5988,6 @@ async function applyWorktree(options: {
     };
     currentShadowedFiles = applyTrackedShadowPlan({
       repoRoot: gitContext.worktreeRoot,
-      existingShadowedFiles: currentShadowedFiles,
       plan: trackedShadowPlan,
     });
 
@@ -6082,9 +6064,14 @@ interface TrackedShadowPlan {
   writes: PlannedTrackedShadow[];
   /** Files this bundle still overlays but no longer contributes to. */
   retirements: ShadowOverlayRetirement[];
+  /**
+   * The shadows as they stood when this plan was built. Applying the plan to
+   * any other snapshot would check the wrong files and record the wrong state,
+   * so the plan carries its own rather than trusting callers to re-supply it.
+   */
+  existingShadowedFiles: Record<string, ShadowedFileState>;
   deferredMaterializationTargets: Set<string>;
   untrackedTargetPaths: Set<string>;
-  activeShadowPaths: Set<string>;
 }
 
 function selectTrackedShadowToolNames(options: {
@@ -6231,9 +6218,9 @@ function planTrackedShadows(options: {
         existingShadowedFiles: options.existingShadowedFiles,
         activeShadowPaths: trackedTargetPaths,
       }),
+      existingShadowedFiles: options.existingShadowedFiles,
       deferredMaterializationTargets: trackedTargetPaths,
       untrackedTargetPaths: new Set(activeRootInstructionPaths),
-      activeShadowPaths: trackedTargetPaths,
     };
   }
 
@@ -6265,7 +6252,6 @@ function planTrackedShadows(options: {
           contribution: plannedOverlay.contribution,
           bundleOrder: options.bundleOrder,
         }),
-        allowReplace: plannedOverlay.contribution.strategy === "replace",
       }),
     ),
     retirements: planStaleShadowOverlayRetirements({
@@ -6273,9 +6259,9 @@ function planTrackedShadows(options: {
       existingShadowedFiles: options.existingShadowedFiles,
       activeShadowPaths: trackedTargetPaths,
     }),
+    existingShadowedFiles: options.existingShadowedFiles,
     deferredMaterializationTargets: trackedTargetPaths,
     untrackedTargetPaths,
-    activeShadowPaths: trackedTargetPaths,
   };
 }
 
@@ -6542,12 +6528,11 @@ function selectShadowToolForPath(
 
 function applyTrackedShadowPlan(options: {
   repoRoot: string;
-  existingShadowedFiles: Record<string, ShadowedFileState>;
   plan: TrackedShadowPlan;
 }): Record<string, ShadowedFileState> {
   const nextShadowedFiles = applyShadowOverlayRetirements({
     repoRoot: options.repoRoot,
-    shadowedFiles: options.existingShadowedFiles,
+    shadowedFiles: options.plan.existingShadowedFiles,
     retirements: options.plan.retirements,
   });
 
@@ -6567,23 +6552,23 @@ function applyTrackedShadowPlan(options: {
 
 function assertTrackedShadowPlanCanApply(options: {
   repoRoot: string;
-  existingShadowedFiles: Record<string, ShadowedFileState>;
   plan: TrackedShadowPlan;
 }): void {
   assertShadowOverlayRetirementsSafe({
     repoRoot: options.repoRoot,
-    shadowedFiles: options.existingShadowedFiles,
+    shadowedFiles: options.plan.existingShadowedFiles,
     retirements: options.plan.retirements,
   });
 
   for (const write of options.plan.writes) {
+    const existingShadowedFile =
+      options.plan.existingShadowedFiles[write.filePath];
+
     assertTrackedShadowWriteSafety({
       repoRoot: options.repoRoot,
       filePath: write.filePath,
-      existingShadowedFile: options.existingShadowedFiles[write.filePath],
-      operation: options.existingShadowedFiles[write.filePath]
-        ? "refresh"
-        : "create",
+      existingShadowedFile,
+      operation: existingShadowedFile ? "refresh" : "create",
     });
   }
 }
@@ -6764,7 +6749,6 @@ function applyShadowOverlayRetirements(options: {
               }),
               overlays: remainingOverlays,
               filePath,
-              allowReplace: true,
             }),
     }),
   );

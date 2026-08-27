@@ -19,7 +19,6 @@ describe("tracked root-instruction shadow rendering", () => {
       overlays: [
         { bundleName: "personal-rules", content: "# Personal rules\n" },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -29,7 +28,6 @@ describe("tracked root-instruction shadow rendering", () => {
       overlays: [
         { bundleName: "personal-rules", content: "# Personal rules\n\n" },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -47,7 +45,6 @@ describe("tracked root-instruction shadow rendering", () => {
       overlays: [
         { bundleName: "personal-rules", content: "# Personal rules\n\n" },
       ],
-      toolName: "codex" as const,
       strategy: "prepend" as const,
     };
 
@@ -70,7 +67,6 @@ describe("tracked root-instruction shadow rendering", () => {
           content: "# Personal rules\nUse local overrides.\n",
         },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -91,7 +87,6 @@ describe("tracked root-instruction shadow rendering", () => {
         },
         { bundleName: "security-standards", content: "Never commit secrets." },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -130,7 +125,6 @@ describe("tracked root-instruction shadow rendering", () => {
     const render = renderTrackedRootInstructionShadow({
       baseContent: "# Team rules\n",
       overlays,
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -151,7 +145,6 @@ describe("tracked root-instruction shadow rendering", () => {
           content: "Use consistent conventions.",
         },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -165,7 +158,6 @@ describe("tracked root-instruction shadow rendering", () => {
         },
         { bundleName: "security-standards", content: "Never commit secrets." },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -186,7 +178,6 @@ describe("tracked root-instruction shadow rendering", () => {
     const render = renderTrackedRootInstructionShadow({
       baseContent,
       overlays: [{ bundleName: "personal-rules", content: " \n\n" }],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -205,7 +196,6 @@ describe("tracked root-instruction shadow rendering", () => {
       overlays: [
         { bundleName: "personal-rules", content: "# Personal rules\n" },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -222,7 +212,6 @@ describe("tracked root-instruction shadow rendering", () => {
       overlays: [
         { bundleName: "personal-rules", content: "# Personal rules\n" },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -232,7 +221,6 @@ describe("tracked root-instruction shadow rendering", () => {
       overlays: [
         { bundleName: "personal-rules", content: "# Personal rules\n" },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -252,7 +240,6 @@ describe("tracked root-instruction shadow rendering", () => {
       overlays: [
         { bundleName: "personal-rules", content: "# Personal rules\n" },
       ],
-      toolName: "codex",
       strategy: "append",
     });
 
@@ -268,27 +255,22 @@ describe("tracked root-instruction shadow rendering", () => {
     expect(manualEditFingerprint).not.toBe(render.renderedFingerprint);
   });
 
-  it("guards replace rendering behind explicit confirmation", () => {
+  it("leaves the committed base out of a replace render", () => {
     // Given
-    const options = {
-      baseContent: "# Team rules\n",
+    const baseContent = "# Team rules\n";
+
+    // When
+    const render = renderTrackedRootInstructionShadow({
+      baseContent,
       overlays: [
         { bundleName: "personal-rules", content: "# Personal rules\n" },
       ],
-      toolName: "codex" as const,
-      strategy: "replace" as const,
-    };
+      strategy: "replace",
+    });
 
-    // When / Then
-    expect(() => renderTrackedRootInstructionShadow(options)).toThrowError(
-      /requires explicit confirmation/i,
-    );
-    expect(
-      renderTrackedRootInstructionShadow({
-        ...options,
-        allowReplace: true,
-      }).rendered,
-    ).toBe(
+    // Then
+    expect(render.rendered).not.toContain("# Team rules");
+    expect(render.rendered).toBe(
       `<!-- SKUL:INSTRUCTIONS START -->\n\n${PREAMBLE}\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
     );
   });
@@ -304,9 +286,7 @@ describe("tracked root-instruction shadow rendering", () => {
     const render = renderTrackedRootInstructionShadow({
       baseContent: "# Team rules\n",
       overlays,
-      toolName: "codex",
       strategy: "replace",
-      allowReplace: true,
     });
 
     // Then
