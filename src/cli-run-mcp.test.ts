@@ -9,6 +9,7 @@ import {
   pathExists,
   runGit,
   writeBundleFile,
+  writeManifest,
 } from "./cli.test-support";
 import { run } from "./index";
 import { listToolDefinitions } from "./tool-mapping";
@@ -45,6 +46,26 @@ function writeMcpBundle(homeDir: string, config: object = MCP_CONFIG): void {
   );
 }
 
+function writeMcpBundleWithSkill(homeDir: string): void {
+  writeManifest(homeDir, SOURCE, BUNDLE, {
+    name: BUNDLE,
+    tools: {
+      "claude-code": {
+        skills: { path: ".claude/skills" },
+        mcp: { path: "mcp.json" },
+      },
+    },
+  });
+  writeMcpBundle(homeDir);
+  writeBundleFile(
+    homeDir,
+    SOURCE,
+    BUNDLE,
+    ".claude/skills/guide/SKILL.md",
+    "# guide\n",
+  );
+}
+
 function readJson(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
@@ -67,6 +88,20 @@ async function captureWarnings(
   }
 
   return warnings.join("\n");
+}
+
+async function runWithoutConsoleWarnings(
+  action: () => Promise<string>,
+): Promise<string> {
+  const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+  try {
+    const output = await action();
+    expect(spy).not.toHaveBeenCalled();
+    return output;
+  } finally {
+    spy.mockRestore();
+  }
 }
 
 function readMcpServers(
@@ -1598,15 +1633,45 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
 
     // When the bundle is removed with machine-readable output
-    const output = await run(["remove", BUNDLE, "-y", "--json"], {
-      homeDir,
-      cwd,
-      prompts: createPromptClientStub(),
-    });
+    const output = await runWithoutConsoleWarnings(() =>
+      run(["remove", BUNDLE, "-y", "--json"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
 
     // Then the warning travels with the successful command result
     expect(JSON.parse(output)).toMatchObject({
       output: "Removed mcp-bundle",
+      warnings: [expect.stringContaining("Remove these MCP servers by hand")],
+    });
+  });
+
+  it("returns recovery warnings in JSON when removing the MCP item from a broken shared configuration", async () => {
+    // Given a bundle whose MCP configuration and skill are both materialized
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundleWithSkill(homeDir);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
+
+    // When only the MCP item is removed with machine-readable output
+    const output = await runWithoutConsoleWarnings(() =>
+      run(["remove", BUNDLE, "--include", "mcp", "-y", "--json"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then the partial removal succeeds and includes the recovery warning
+    expect(JSON.parse(output)).toMatchObject({
+      output: "Removed mcp from mcp-bundle",
       warnings: [expect.stringContaining("Remove these MCP servers by hand")],
     });
   });
@@ -1624,15 +1689,98 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
 
     // When all materialized bundles are reset with machine-readable output
-    const output = await run(["reset", "-y", "--json"], {
-      homeDir,
-      cwd,
-      prompts: createPromptClientStub(),
-    });
+    const output = await runWithoutConsoleWarnings(() =>
+      run(["reset", "-y", "--json"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
 
     // Then reset succeeds and includes the recovery warning
     expect(JSON.parse(output)).toMatchObject({
       output: "Reset Skul-managed files from the current worktree",
+      warnings: [expect.stringContaining("Remove these MCP servers by hand")],
+    });
+  });
+
+  it.each([
+    {
+      name: "removing one global bundle",
+      argv: ["remove", "--global", BUNDLE, "-y", "--json"],
+      output: "Removed global mcp-bundle",
+    },
+    {
+      name: "removing all global bundles",
+      argv: ["remove", "--global", "--all", "-y", "--json"],
+      output: "Removed global mcp-bundle",
+    },
+    {
+      name: "resetting globally",
+      argv: ["reset", "--global", "-y", "--json"],
+      output: "Reset globally managed Skul files",
+    },
+  ])("returns recovery warnings in JSON when $name with a broken shared configuration", async ({
+    argv,
+    output: expectedOutput,
+  }) => {
+    // Given a globally materialized bundle whose shared configuration is invalid
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
+      {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      },
+    );
+    fs.writeFileSync(path.join(homeDir, ".claude.json"), "{ broken");
+
+    // When the global mutation runs with machine-readable output
+    const output = await runWithoutConsoleWarnings(() =>
+      run([...argv], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then the command succeeds with the warning attached to its result
+    expect(JSON.parse(output)).toMatchObject({
+      output: expectedOutput,
+      warnings: [expect.stringContaining("Remove these MCP servers by hand")],
+    });
+  });
+
+  it("returns recovery warnings in JSON when removing the global MCP item from a broken shared configuration", async () => {
+    // Given a globally materialized bundle whose MCP configuration and skill are both active
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundleWithSkill(homeDir);
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
+      {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      },
+    );
+    fs.writeFileSync(path.join(homeDir, ".claude.json"), "{ broken");
+
+    // When only the MCP item is removed with machine-readable output
+    const output = await runWithoutConsoleWarnings(() =>
+      run(["remove", "--global", BUNDLE, "--include", "mcp", "-y", "--json"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    );
+
+    // Then the partial global removal succeeds and includes the warning
+    expect(JSON.parse(output)).toMatchObject({
+      output: "Removed mcp from global mcp-bundle",
       warnings: [expect.stringContaining("Remove these MCP servers by hand")],
     });
   });

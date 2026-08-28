@@ -142,6 +142,11 @@ const pc = new Proxy({} as ReturnType<typeof createColors>, {
   },
 });
 
+const ansiEscapeCodePattern = new RegExp(
+  `${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`,
+  "g",
+);
+
 type RefreshedSourceUpdate = {
   updated: boolean;
   before: SourceItemFingerprints;
@@ -469,7 +474,10 @@ function renderMutatingCommandResult(options: {
 }): string {
   if (options.json) {
     return JSON.stringify(
-      { output: options.output, warnings: options.warnings },
+      {
+        output: stripAnsiEscapeCodes(options.output),
+        warnings: options.warnings.map(stripAnsiEscapeCodes),
+      },
       null,
       2,
     );
@@ -478,6 +486,10 @@ function renderMutatingCommandResult(options: {
   return options.warnings.length > 0
     ? [options.output, ...options.warnings].join("\n")
     : options.output;
+}
+
+function stripAnsiEscapeCodes(value: string): string {
+  return value.replace(ansiEscapeCodePattern, "");
 }
 
 function createYesPromptClient(
@@ -4518,6 +4530,7 @@ async function removeBundle(options: {
       includeItems: options.includeItems,
       selectItems: options.selectItems,
       dryRun: options.dryRun,
+      warnings: options.warnings,
     });
 
     if (itemRemoval.kind === "completed") {
@@ -7938,6 +7951,7 @@ async function removeGlobalBundle(options: {
       includeItems: options.includeItems,
       selectItems: options.selectItems,
       dryRun: options.dryRun,
+      warnings: options.warnings,
     });
 
     if (itemRemoval.kind === "completed") {
