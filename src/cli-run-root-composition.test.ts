@@ -1109,9 +1109,12 @@ describe("run", () => {
     runGit(repoRoot, ["commit", "-m", "materialize shared roots"]);
 
     // When
-    await expect(
-      run(["remove", "repo-guide"], { homeDir, cwd: repoRoot }),
-    ).resolves.toBe("Removed repo-guide");
+    const removeOutput = await run(["remove", "repo-guide"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+    expect(removeOutput).toContain("Removed repo-guide");
+    expect(removeOutput).toContain("checked out from HEAD instead of deleted");
 
     // Then
     expectAgentsDocument(

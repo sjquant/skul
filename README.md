@@ -52,7 +52,7 @@ skul apply
 | `skul remove <bundle>` | Remove a bundle and delete its managed files |
 | `skul apply` | Re-materialize all desired bundles in the current worktree |
 
-All mutating commands accept `--dry-run`. `skul add <source> --all` installs every bundle from a source, and `skul remove --all` removes every active bundle. `skul add`, `skul remove`, `skul apply`, `skul update`, and `skul reset` accept `-y, --yes` to auto-approve overwrite/removal confirmations. `skul list` and `skul status` accept `--json`. Bare `owner/repo` sources default to `github.com/owner/repo`. For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
+All mutating commands accept `--dry-run`. `skul add <source> --all` installs every bundle from a source, and `skul remove --all` removes every active bundle. `skul add`, `skul remove`, `skul apply`, `skul update`, and `skul reset` accept `-y, --yes` to auto-approve overwrite/removal confirmations. `skul list`, `skul status`, `skul remove`, and `skul reset` accept `--json`; mutating command results use `{ "output": "…", "warnings": [] }`. Bare `owner/repo` sources default to `github.com/owner/repo`. For scripting and agent use, set `SKUL_NO_TUI=1` to suppress all interactive prompts.
 
 See [docs/advanced.md](docs/advanced.md) for maintenance, recovery, and cleanup commands (`check`, `update`, `sync`, `shadow`, `reset`).
 

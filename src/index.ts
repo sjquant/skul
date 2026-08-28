@@ -142,6 +142,11 @@ const pc = new Proxy({} as ReturnType<typeof createColors>, {
   },
 });
 
+const ansiEscapeCodePattern = new RegExp(
+  `${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`,
+  "g",
+);
+
 type RefreshedSourceUpdate = {
   updated: boolean;
   before: SourceItemFingerprints;
@@ -158,6 +163,8 @@ export interface RunOptions {
   cwd?: string;
   prompts?: PromptClient;
 }
+
+type CommandWarningCollector = string[];
 
 /**
  * Managed paths already reported as committed during the current `run`.
@@ -183,6 +190,7 @@ export async function run(
     options.prompts ?? createDefaultPromptClient(stateLayout.libraryDir);
   const parsed = await parseCliArgs(argv, prompts);
   const cwd = options.cwd ?? process.cwd();
+  const commandWarnings: CommandWarningCollector = [];
 
   if (parsed.kind === "help") {
     return createHelpText(parsed.command);
@@ -311,47 +319,70 @@ export async function run(
       });
     case "reset":
       if (parsed.options.global) {
-        return resetGlobal({
+        const output = await resetGlobal({
           homeDir: options.homeDir ?? os.homedir(),
           prompts: parsed.options.yes
             ? createYesPromptClient(prompts)
             : prompts,
           registryFile: stateLayout.registryFile,
           dryRun: parsed.options.dryRun,
+          warnings: commandWarnings,
+        });
+        return renderMutatingCommandResult({
+          output,
+          warnings: commandWarnings,
+          json: parsed.options.json ?? false,
         });
       }
-      return resetWorktree({
-        cwd,
-        prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
-        registryFile: stateLayout.registryFile,
-        dryRun: parsed.options.dryRun,
-      });
+      {
+        const output = await resetWorktree({
+          cwd,
+          prompts: parsed.options.yes
+            ? createYesPromptClient(prompts)
+            : prompts,
+          registryFile: stateLayout.registryFile,
+          dryRun: parsed.options.dryRun,
+          warnings: commandWarnings,
+        });
+        return renderMutatingCommandResult({
+          output,
+          warnings: commandWarnings,
+          json: parsed.options.json ?? false,
+        });
+      }
     case "remove":
       if (parsed.options.all) {
         const removePrompts = parsed.options.yes
           ? createYesPromptClient(prompts)
           : prompts;
-        return parsed.options.global
-          ? removeAllGlobalBundles({
+        const output = parsed.options.global
+          ? await removeAllGlobalBundles({
               homeDir: options.homeDir ?? os.homedir(),
               prompts: removePrompts,
               registryFile: stateLayout.registryFile,
               libraryDir: stateLayout.libraryDir,
               source: parsed.options.source,
               dryRun: parsed.options.dryRun,
+              warnings: commandWarnings,
             })
-          : removeAllWorktreeBundles({
+          : await removeAllWorktreeBundles({
               cwd,
               prompts: removePrompts,
               registryFile: stateLayout.registryFile,
               libraryDir: stateLayout.libraryDir,
               source: parsed.options.source,
               dryRun: parsed.options.dryRun,
+              warnings: commandWarnings,
             });
+        return renderMutatingCommandResult({
+          output,
+          warnings: commandWarnings,
+          json: parsed.options.json ?? false,
+        });
       }
 
       if (parsed.options.global) {
-        return removeGlobalBundle({
+        const output = await removeGlobalBundle({
           homeDir: options.homeDir ?? os.homedir(),
           prompts: parsed.options.yes
             ? createYesPromptClient(prompts)
@@ -364,20 +395,36 @@ export async function run(
           selectItems: parsed.options.selectItems ?? false,
           dryRun: parsed.options.dryRun,
           inferredBundleFromSource: parsed.options.inferredBundleFromSource,
+          warnings: commandWarnings,
+        });
+        return renderMutatingCommandResult({
+          output,
+          warnings: commandWarnings,
+          json: parsed.options.json ?? false,
         });
       }
-      return removeBundle({
-        cwd,
-        prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
-        registryFile: stateLayout.registryFile,
-        libraryDir: stateLayout.libraryDir,
-        bundle: parsed.options.bundle,
-        source: parsed.options.source,
-        includeItems: parsed.options.includeItems ?? [],
-        selectItems: parsed.options.selectItems ?? false,
-        dryRun: parsed.options.dryRun,
-        inferredBundleFromSource: parsed.options.inferredBundleFromSource,
-      });
+      {
+        const output = await removeBundle({
+          cwd,
+          prompts: parsed.options.yes
+            ? createYesPromptClient(prompts)
+            : prompts,
+          registryFile: stateLayout.registryFile,
+          libraryDir: stateLayout.libraryDir,
+          bundle: parsed.options.bundle,
+          source: parsed.options.source,
+          includeItems: parsed.options.includeItems ?? [],
+          selectItems: parsed.options.selectItems ?? false,
+          dryRun: parsed.options.dryRun,
+          inferredBundleFromSource: parsed.options.inferredBundleFromSource,
+          warnings: commandWarnings,
+        });
+        return renderMutatingCommandResult({
+          output,
+          warnings: commandWarnings,
+          json: parsed.options.json ?? false,
+        });
+      }
     case "apply":
       if (parsed.options.global) {
         return applyGlobal({
@@ -400,6 +447,49 @@ export async function run(
     default:
       return assertUnreachable(parsed);
   }
+}
+
+/**
+ * Keeps recovery notices attached to the command result instead of writing
+ * them to stderr. Commands that do not provide a collector retain the legacy
+ * warning behavior used by internal apply/refresh flows.
+ */
+function reportCommandWarning(
+  message: string,
+  warnings?: CommandWarningCollector,
+): void {
+  if (warnings) {
+    warnings.push(message);
+    return;
+  }
+
+  console.warn(message);
+}
+
+/** Renders a mutating command result in text or machine-readable JSON form. */
+function renderMutatingCommandResult(options: {
+  output: string;
+  warnings: CommandWarningCollector;
+  json: boolean;
+}): string {
+  if (options.json) {
+    return JSON.stringify(
+      {
+        output: stripAnsiEscapeCodes(options.output),
+        warnings: options.warnings.map(stripAnsiEscapeCodes),
+      },
+      null,
+      2,
+    );
+  }
+
+  return options.warnings.length > 0
+    ? [options.output, ...options.warnings].join("\n")
+    : options.output;
+}
+
+function stripAnsiEscapeCodes(value: string): string {
+  return value.replace(ansiEscapeCodePattern, "");
 }
 
 function createYesPromptClient(
@@ -631,6 +721,7 @@ async function removeAllWorktreeBundles(options: {
   libraryDir: string;
   source?: string;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "remove");
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -757,6 +848,7 @@ async function removeAllWorktreeBundles(options: {
 
   removeManagedPaths(gitContext.worktreeRoot, removedBundlePaths, {
     restoreCommitted: true,
+    warnings: options.warnings,
   });
   const rootInstructionBaseContents =
     worktreeState?.materialized_state.root_instruction_base_contents;
@@ -953,6 +1045,7 @@ async function removeAllGlobalBundles(options: {
   libraryDir: string;
   source?: string;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   let registry = readRegistryWithGuidance(options.registryFile);
   const selections = listActiveGlobalRemoveBundleSelections({
@@ -1055,6 +1148,7 @@ async function removeAllGlobalBundles(options: {
 
   removeManagedPaths(options.homeDir, removedBundlePaths, {
     restoreCommitted: false,
+    warnings: options.warnings,
   });
 
   const rootInstructionBaseContents =
@@ -4234,6 +4328,7 @@ async function resetWorktree(options: {
   prompts: PromptClient;
   registryFile: string;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "reset");
 
@@ -4299,6 +4394,7 @@ async function resetWorktree(options: {
     for (const bundlePaths of allBundlePaths) {
       removeManagedPaths(gitContext.worktreeRoot, bundlePaths, {
         restoreCommitted: true,
+        warnings: options.warnings,
       });
     }
 
@@ -4355,6 +4451,7 @@ async function removeBundle(options: {
   selectItems: boolean;
   dryRun: boolean;
   inferredBundleFromSource?: true;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "remove");
 
@@ -4374,6 +4471,7 @@ async function removeBundle(options: {
       includeItems: options.includeItems,
       selectItems: options.selectItems,
       dryRun: options.dryRun,
+      warnings: options.warnings,
     });
   }
 
@@ -4432,6 +4530,7 @@ async function removeBundle(options: {
       includeItems: options.includeItems,
       selectItems: options.selectItems,
       dryRun: options.dryRun,
+      warnings: options.warnings,
     });
 
     if (itemRemoval.kind === "completed") {
@@ -4536,6 +4635,7 @@ async function removeBundle(options: {
 
     removeManagedPaths(gitContext.worktreeRoot, bundlePaths, {
       restoreCommitted: true,
+      warnings: options.warnings,
     });
     const remainingRootInstructionTargets =
       collectManagedRootInstructionTargets(remainingBundles);
@@ -4659,6 +4759,7 @@ async function removeBundleItemsAcrossActiveBundles(options: {
   includeItems: BundleItemSelector[];
   selectItems: boolean;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   if (!options.repoState || options.repoState.desired_state.length === 0) {
     throw new Error(
@@ -4708,6 +4809,7 @@ async function removeBundleItemsAcrossActiveBundles(options: {
       includeItems: target.items,
       selectItems: false,
       dryRun: false,
+      warnings: options.warnings,
     });
   }
 
@@ -5156,6 +5258,7 @@ async function removeBundleItems(options: {
   includeItems: BundleItemSelector[];
   selectItems: boolean;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<{ kind: "completed"; output: string } | { kind: "remove-bundle" }> {
   if (!options.repoState || !options.desiredEntry) {
     throw new Error(
@@ -5251,6 +5354,7 @@ async function removeBundleItems(options: {
       registryFile: options.registryFile,
       libraryDir: options.libraryDir,
       dryRun: false,
+      warnings: options.warnings,
     });
   } catch (error) {
     writeRegistryFile(options.registryFile, options.registry);
@@ -5271,6 +5375,7 @@ async function applyWorktree(options: {
   registryFile: string;
   libraryDir: string;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "apply");
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -5546,6 +5651,7 @@ async function applyWorktree(options: {
 
       removeManagedPaths(gitContext.worktreeRoot, pathsToReplace, {
         restoreCommitted: true,
+        warnings: options.warnings,
       });
       restoreRootInstructionBaseContents({
         repoRoot: gitContext.worktreeRoot,
@@ -6606,6 +6712,7 @@ function releaseManagedMcpServers(options: {
   repoRoot: string;
   mcpServers: ManagedMcpOwnership[];
   managedFiles: Set<string>;
+  warnings?: CommandWarningCollector;
 }): Set<string> {
   const releasablePaths = new Set<string>();
 
@@ -6634,10 +6741,11 @@ function releaseManagedMcpServers(options: {
         configPath: relativePath,
       });
     } catch (error) {
-      console.warn(
+      reportCommandWarning(
         `[skul] Leaving ${relativePath} untouched: ${
           error instanceof Error ? error.message : String(error)
         }\n[skul] Remove these MCP servers by hand once it parses: ${serverNames.join(", ")}`,
+        options.warnings,
       );
       continue;
     }
@@ -6667,12 +6775,16 @@ function removeManagedPaths(
   repoRoot: string,
   state: Parameters<typeof listManagedPathsForRemoval>[0] &
     Pick<ManagedRemovalState, "mcp_servers">,
-  options: { restoreCommitted: boolean },
+  options: {
+    restoreCommitted: boolean;
+    warnings?: CommandWarningCollector;
+  },
 ): void {
   const releasableMcpPaths = releaseManagedMcpServers({
     repoRoot,
     mcpServers: state.mcp_servers,
     managedFiles: new Set(state.files),
+    warnings: options.warnings,
   });
   const retainedMcpPaths = new Set(
     state.mcp_servers
@@ -6724,6 +6836,7 @@ function removeManagedPaths(
     modifiedPaths: Array.from(retainedMcpPaths).filter((filePath) =>
       committedPaths.has(filePath),
     ),
+    warnings: options.warnings,
   });
 }
 
@@ -6738,6 +6851,7 @@ function reportCommittedRemovalOutcome(options: {
   repoRoot: string;
   restoredPaths: string[];
   modifiedPaths: string[];
+  warnings?: CommandWarningCollector;
 }): void {
   const restoredPaths = [...options.restoredPaths].sort();
   const modifiedPaths = [...options.modifiedPaths].sort();
@@ -6749,28 +6863,32 @@ function reportCommittedRemovalOutcome(options: {
     });
 
   if (restored) {
-    console.warn(
+    reportCommandWarning(
       `[skul] Committed by the repository, so checked out from HEAD instead of deleted: ${restoredPaths.join(", ")}`,
+      options.warnings,
     );
-    console.warn(
+    reportCommandWarning(
       "[skul] They now hold exactly what HEAD has; any local edits to them are gone.",
+      options.warnings,
     );
   } else if (restoredPaths.length > 0) {
-    console.warn(
+    reportCommandWarning(
       `[skul] Left in place but could not be checked out from HEAD: ${restoredPaths.join(", ")}`,
+      options.warnings,
     );
   }
 
   if (modifiedPaths.length > 0) {
-    console.warn(
+    reportCommandWarning(
       `[skul] Committed by the repository and left modified, because other servers remain in ${modifiedPaths.length === 1 ? "it" : "them"}: ${modifiedPaths.join(", ")}`,
+      options.warnings,
     );
   }
 
   const untrackPaths = [...restoredPaths, ...modifiedPaths];
 
   if (untrackPaths.length > 0) {
-    console.warn(formatUntrackHint(untrackPaths));
+    reportCommandWarning(formatUntrackHint(untrackPaths), options.warnings);
   }
 }
 
@@ -7158,6 +7276,7 @@ async function applyBundleGlobal(options: {
   refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
 
@@ -7408,6 +7527,7 @@ async function applyBundleGlobal(options: {
   if (pathsToReplace) {
     removeManagedPaths(options.homeDir, pathsToReplace, {
       restoreCommitted: false,
+      warnings: options.warnings,
     });
   }
 
@@ -7757,6 +7877,7 @@ async function removeGlobalBundle(options: {
   selectItems: boolean;
   dryRun: boolean;
   inferredBundleFromSource?: true;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   const repoRelPathRemapper =
     GLOBAL_TOOL_MATERIALIZATION_LAYOUT.remapRepoRelPath;
@@ -7776,6 +7897,7 @@ async function removeGlobalBundle(options: {
       includeItems: options.includeItems,
       selectItems: options.selectItems,
       dryRun: options.dryRun,
+      warnings: options.warnings,
     });
   }
 
@@ -7829,6 +7951,7 @@ async function removeGlobalBundle(options: {
       includeItems: options.includeItems,
       selectItems: options.selectItems,
       dryRun: options.dryRun,
+      warnings: options.warnings,
     });
 
     if (itemRemoval.kind === "completed") {
@@ -7899,6 +8022,7 @@ async function removeGlobalBundle(options: {
 
     removeManagedPaths(options.homeDir, bundlePaths, {
       restoreCommitted: false,
+      warnings: options.warnings,
     });
 
     const remainingRootInstructionTargets =
@@ -7995,6 +8119,7 @@ async function removeGlobalBundleItemsAcrossActiveBundles(options: {
   includeItems: BundleItemSelector[];
   selectItems: boolean;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   if (!options.globalState || options.globalState.desired_state.length === 0) {
     throw new Error(
@@ -8044,6 +8169,7 @@ async function removeGlobalBundleItemsAcrossActiveBundles(options: {
       includeItems: target.items,
       selectItems: false,
       dryRun: false,
+      warnings: options.warnings,
     });
   }
 
@@ -8288,6 +8414,7 @@ async function removeGlobalBundleItems(options: {
   includeItems: BundleItemSelector[];
   selectItems: boolean;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<{ kind: "completed"; output: string } | { kind: "remove-bundle" }> {
   if (!options.globalState || !options.desiredEntry) {
     throw new Error(
@@ -8380,6 +8507,7 @@ async function removeGlobalBundleItems(options: {
       registryFile: options.registryFile,
       libraryDir: options.libraryDir,
       dryRun: false,
+      warnings: options.warnings,
     });
   } catch (error) {
     writeRegistryFile(options.registryFile, options.registry);
@@ -8399,6 +8527,7 @@ async function resetGlobal(options: {
   prompts: PromptClient;
   registryFile: string;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   let registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
@@ -8438,6 +8567,7 @@ async function resetGlobal(options: {
   for (const bundlePaths of allBundlePaths) {
     removeManagedPaths(options.homeDir, bundlePaths, {
       restoreCommitted: false,
+      warnings: options.warnings,
     });
   }
 
@@ -8467,6 +8597,7 @@ async function applyGlobal(options: {
   registryFile: string;
   libraryDir: string;
   dryRun: boolean;
+  warnings?: CommandWarningCollector;
 }): Promise<string> {
   const registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
@@ -8525,6 +8656,7 @@ async function applyGlobal(options: {
         selectItems: false,
         dryRun: false,
         ref: entry.ref,
+        warnings: options.warnings,
       });
       outputLines.push(result);
     } catch (err) {
