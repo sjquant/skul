@@ -64,7 +64,12 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "reset";
-      options: { dryRun: boolean; global: boolean; yes?: boolean };
+      options: {
+        dryRun: boolean;
+        global: boolean;
+        yes?: boolean;
+        json: boolean;
+      };
     }
   | {
       kind: "command";
@@ -99,6 +104,7 @@ export type CliParseResult =
         global: boolean;
         yes?: boolean;
         all?: boolean;
+        json: boolean;
       };
     };
 
@@ -960,19 +966,28 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
+    .option("-j, --json", "Output as JSON (for scripting and agent use)")
     .option("-g, --global", "Reset globally managed tool config")
     .option("-y, --yes", "Run without interactive confirmation prompts")
-    .action((opts: { dryRun?: boolean; global?: boolean; yes?: boolean }) => {
-      context.result = {
-        kind: "command",
-        command: "reset",
-        options: {
-          dryRun: opts.dryRun ?? false,
-          global: opts.global ?? false,
-          ...(opts.yes ? { yes: true } : {}),
-        },
-      };
-    });
+    .action(
+      (opts: {
+        dryRun?: boolean;
+        global?: boolean;
+        yes?: boolean;
+        json?: boolean;
+      }) => {
+        context.result = {
+          kind: "command",
+          command: "reset",
+          options: {
+            dryRun: opts.dryRun ?? false,
+            global: opts.global ?? false,
+            ...(opts.yes ? { yes: true } : {}),
+            json: opts.json ?? false,
+          },
+        };
+      },
+    );
 
   program
     .command("remove")
@@ -996,6 +1011,7 @@ function createProgram(
       "-n, --dry-run",
       "Preview what would be deleted without removing any files",
     )
+    .option("-j, --json", "Output as JSON (for scripting and agent use)")
     .option("-g, --global", "Remove from globally managed tool config")
     .option("-y, --yes", "Run without interactive confirmation prompts")
     .action(
@@ -1009,6 +1025,7 @@ function createProgram(
           dryRun?: boolean;
           global?: boolean;
           yes?: boolean;
+          json?: boolean;
         },
       ) => {
         const includeItems = opts.include;
@@ -1016,6 +1033,7 @@ function createProgram(
         const all = opts.all ?? false;
         const dryRun = opts.dryRun ?? false;
         const global = opts.global ?? false;
+        const json = opts.json ?? false;
 
         if (all) {
           if (bundle) {
@@ -1040,6 +1058,7 @@ function createProgram(
               dryRun,
               global,
               ...(opts.yes ? { yes: true } : {}),
+              json,
               all: true,
             },
           };
@@ -1057,6 +1076,7 @@ function createProgram(
                 dryRun,
                 global,
                 ...(opts.yes ? { yes: true } : {}),
+                json,
               },
             };
             return;
@@ -1083,6 +1103,7 @@ function createProgram(
                 inferredBundleFromSource: true,
                 global,
                 ...(opts.yes ? { yes: true } : {}),
+                json,
               },
             };
           } catch {
@@ -1096,6 +1117,7 @@ function createProgram(
                 dryRun,
                 global,
                 ...(opts.yes ? { yes: true } : {}),
+                json,
               },
             };
           }
@@ -1113,6 +1135,7 @@ function createProgram(
             dryRun,
             global,
             ...(opts.yes ? { yes: true } : {}),
+            json,
           },
         };
       },

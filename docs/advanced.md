@@ -14,7 +14,7 @@ This guide covers the commands and flags that aren't part of the day-to-day work
 | `skul shadow --suspend \| --refresh` | Restore or rebuild tracked root-instruction shadows |
 | `skul reset` | Remove all Skul-managed files from the current worktree |
 
-All mutating commands accept `--dry-run`. `skul check` accepts `--json`.
+All mutating commands accept `--dry-run`. `skul check`, `skul remove`, and `skul reset` accept `--json`; mutating command results use `{ "output": "…", "warnings": [] }`.
 
 ---
 

@@ -1258,13 +1258,11 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     fs.writeFileSync(path.join(cwd, ".mcp.json"), '{ "mcpServers": {} }\n');
 
     // When the bundle is removed
-    const removeWarnings = await captureWarnings(() =>
-      run(["remove", BUNDLE, "-y"], {
-        homeDir,
-        cwd,
-        prompts: createPromptClientStub(),
-      }),
-    );
+    const removeOutput = await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
 
     // Then the committed content is back, byte for byte
     expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
@@ -1272,10 +1270,10 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     );
 
     // And the path is reported, alongside the edit that was replaced
-    expect(removeWarnings).toContain(
+    expect(removeOutput).toContain(
       "checked out from HEAD instead of deleted: .mcp.json",
     );
-    expect(removeWarnings).toContain("git rm --cached .mcp.json");
+    expect(removeOutput).toContain("git rm --cached .mcp.json");
 
     // And no other tool's configuration survived, leaving the worktree clean
     expect(pathExists(path.join(cwd, ".cursor", "mcp.json"))).toBe(false);
@@ -1338,20 +1336,18 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     runGit(cwd, ["commit", "-m", "commit the shared config"]);
 
     // When only one of them is removed
-    const removeWarnings = await captureWarnings(() =>
-      run(["remove", BUNDLE, "-y"], {
-        homeDir,
-        cwd,
-        prompts: createPromptClientStub(),
-      }),
-    );
+    const removeOutput = await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
 
     // Then the surviving bundle keeps its server and the change is explained
     expect(Object.keys(readMcpServers(path.join(cwd, ".mcp.json")))).toEqual([
       "other",
     ]);
-    expect(removeWarnings).toContain("left modified");
-    expect(removeWarnings).toContain(".mcp.json");
+    expect(removeOutput).toContain("left modified");
+    expect(removeOutput).toContain(".mcp.json");
   });
 
   it("names every committed configuration on apply, and nothing else", async () => {
@@ -1575,20 +1571,70 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
 
     // When the bundle is removed
-    const warnings = await captureWarnings(() =>
-      run(["remove", BUNDLE, "-y"], {
-        homeDir,
-        cwd,
-        prompts: createPromptClientStub(),
-      }),
-    );
+    const output = await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
 
     // Then removal finishes, the file is left alone, and the servers are named
     expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe(
       "{ broken",
     );
-    expect(warnings).toContain(".mcp.json");
-    expect(warnings).toContain("docs");
+    expect(output).toContain(".mcp.json");
+    expect(output).toContain("docs");
+  });
+
+  it("returns recovery warnings in JSON when removing a broken shared configuration", async () => {
+    // Given a bundle whose shared MCP configuration has become invalid
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
+
+    // When the bundle is removed with machine-readable output
+    const output = await run(["remove", BUNDLE, "-y", "--json"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the warning travels with the successful command result
+    expect(JSON.parse(output)).toMatchObject({
+      output: "Removed mcp-bundle",
+      warnings: [expect.stringContaining("Remove these MCP servers by hand")],
+    });
+  });
+
+  it("returns recovery warnings in JSON when resetting a broken shared configuration", async () => {
+    // Given a materialized bundle whose shared MCP configuration has become invalid
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
+
+    // When all materialized bundles are reset with machine-readable output
+    const output = await run(["reset", "-y", "--json"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then reset succeeds and includes the recovery warning
+    expect(JSON.parse(output)).toMatchObject({
+      output: "Reset Skul-managed files from the current worktree",
+      warnings: [expect.stringContaining("Remove these MCP servers by hand")],
+    });
   });
 
   it("refuses a configuration whose server key is not an object", async () => {

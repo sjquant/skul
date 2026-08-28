@@ -79,7 +79,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(resetArgs)).resolves.toEqual({
       kind: "command",
       command: "reset",
-      options: { dryRun: false, global: false },
+      options: { dryRun: false, global: false, json: false },
     });
     await expect(parseCliArgs(applyArgs)).resolves.toEqual({
       kind: "command",
@@ -479,7 +479,12 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["remove", "react-expert"])).resolves.toEqual({
       kind: "command",
       command: "remove",
-      options: { bundle: "react-expert", dryRun: false, global: false },
+      options: {
+        bundle: "react-expert",
+        dryRun: false,
+        global: false,
+        json: false,
+      },
     });
   });
 
@@ -504,6 +509,7 @@ describe("parseCliArgs", () => {
         selectItems: true,
         dryRun: false,
         global: false,
+        json: false,
       },
     });
   });
@@ -519,6 +525,7 @@ describe("parseCliArgs", () => {
         dryRun: false,
         inferredBundleFromSource: true,
         global: false,
+        json: false,
       },
     });
   });
@@ -532,6 +539,7 @@ describe("parseCliArgs", () => {
         selectItems: true,
         dryRun: false,
         global: false,
+        json: false,
       },
     });
   });
@@ -547,11 +555,12 @@ describe("parseCliArgs", () => {
         includeItems: ["skills/review"],
         dryRun: false,
         global: false,
+        json: false,
       },
     });
   });
 
-  it("parses --json flag on list and status", async () => {
+  it("parses --json flag on read and mutating commands", async () => {
     // Given / When / Then
     await expect(parseCliArgs(["list", "--json"])).resolves.toEqual({
       kind: "command",
@@ -569,6 +578,25 @@ describe("parseCliArgs", () => {
       kind: "command",
       command: "check",
       options: { json: true },
+    });
+
+    await expect(
+      parseCliArgs(["remove", "react-expert", "--json"]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "remove",
+      options: {
+        bundle: "react-expert",
+        dryRun: false,
+        global: false,
+        json: true,
+      },
+    });
+
+    await expect(parseCliArgs(["reset", "--json"])).resolves.toEqual({
+      kind: "command",
+      command: "reset",
+      options: { dryRun: false, global: false, json: true },
     });
   });
 
@@ -719,13 +747,18 @@ describe("parseCliArgs", () => {
     ).resolves.toEqual({
       kind: "command",
       command: "remove",
-      options: { bundle: "react-expert", dryRun: true, global: false },
+      options: {
+        bundle: "react-expert",
+        dryRun: true,
+        global: false,
+        json: false,
+      },
     });
 
     await expect(parseCliArgs(["reset", "--dry-run"])).resolves.toEqual({
       kind: "command",
       command: "reset",
-      options: { dryRun: true, global: false },
+      options: { dryRun: true, global: false, json: false },
     });
   });
 
@@ -746,7 +779,7 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["reset", "--yes"])).resolves.toEqual({
       kind: "command",
       command: "reset",
-      options: { dryRun: false, global: false, yes: true },
+      options: { dryRun: false, global: false, json: false, yes: true },
     });
 
     await expect(
@@ -758,6 +791,7 @@ describe("parseCliArgs", () => {
         bundle: "react-expert",
         dryRun: false,
         global: false,
+        json: false,
         yes: true,
       },
     });
@@ -786,6 +820,7 @@ describe("parseCliArgs", () => {
       options: {
         dryRun: false,
         global: false,
+        json: false,
         all: true,
       },
     });
@@ -799,6 +834,7 @@ describe("parseCliArgs", () => {
         source: "github.com/sjquant/ghosts",
         dryRun: false,
         global: false,
+        json: false,
         all: true,
       },
     });

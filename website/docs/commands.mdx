@@ -62,7 +62,7 @@ skul add [options] [source] [bundle]
 - Mutating commands accept `--dry-run`.
 - `skul add <source> --all` installs every bundle from a source, and `skul remove --all` removes every active bundle.
 - `skul add`, `skul remove`, `skul apply`, `skul update`, and `skul reset` accept `-y, --yes` to auto-approve overwrite/removal confirmations.
-- `skul list`, `skul status`, and `skul check` accept `--json`.
+- `skul list`, `skul status`, `skul check`, `skul remove`, and `skul reset` accept `--json`. Mutating command results use `{ "output": "…", "warnings": [] }`.
 
 ## Protocol behavior
 
