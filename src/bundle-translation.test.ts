@@ -1995,6 +1995,42 @@ describe("YAML frontmatter parser", () => {
     });
   });
 
+  it("parses folded multiline scalar values with a chomping indicator", () => {
+    // Given
+    const files = {
+      "SKILL.md": [
+        "---",
+        "name: release-notes",
+        "description: >-",
+        "  Generate release notes for repositories, tags,",
+        "  and changelogs.",
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n"),
+    };
+
+    // When
+    const translated = translateSkill({
+      sourceTool: "claude",
+      targetTool: "cursor",
+      files,
+    });
+
+    // Then
+    expect(translated).toEqual({
+      ".cursor/skills/release-notes/SKILL.md": [
+        "---",
+        "name: release-notes",
+        "description: Generate release notes for repositories, tags, and changelogs.",
+        "---",
+        "Body.",
+        "",
+      ].join("\n"),
+    });
+  });
+
   it("throws when SKILL.md has an unclosed frontmatter block", () => {
     const files = {
       "SKILL.md": "---\nname: broken\ndescription: Missing close marker\n",

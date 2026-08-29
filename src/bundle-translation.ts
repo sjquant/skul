@@ -541,7 +541,7 @@ function parseYamlMap(source: string): MetadataMap {
     frame.lastKey = key;
     frame.lastKeyIndent = indent;
 
-    if (rawValue === ">") {
+    if (/^>[+-]?$/.test(rawValue)) {
       const foldedLines: string[] = [];
       let contentIndent: number | undefined;
 
