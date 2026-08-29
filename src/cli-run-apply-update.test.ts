@@ -929,6 +929,57 @@ describe("run", () => {
     void commitBefore; // silence unused-var warning
   });
 
+  it("keeps MCP ownership through update so the final removal deletes the created file", async () => {
+    // Given: a remote bundle that creates a project MCP configuration
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(
+      homeDir,
+      {
+        bundle: "mcp-bundle",
+        manifest: {
+          name: "mcp-bundle",
+          tools: {
+            "claude-code": { mcp: { path: "mcp.json" } },
+          },
+        },
+        files: {
+          "mcp.json": JSON.stringify({
+            mcpServers: { docs: { type: "stdio", command: "docs-v1" } },
+          }),
+        },
+      },
+    );
+    await run(["add", source, bundle, "-y"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // When: the remote MCP configuration changes and the bundle is updated
+    updateRemoteBundleSource(remoteRepoPath, bundle, {
+      "mcp.json": JSON.stringify({
+        mcpServers: { docs: { type: "stdio", command: "docs-v2" } },
+      }),
+    });
+    await run(["update", "-y"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    expect(fs.readFileSync(path.join(repoRoot, ".mcp.json"), "utf8")).toContain(
+      "docs-v2",
+    );
+    await run(["remove", bundle, "-y"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then: the created MCP file is still recognized and removed
+    expect(pathExists(path.join(repoRoot, ".mcp.json"))).toBe(false);
+  });
+
   it("returns JSON output for check", async () => {
     // Given — desired state contains a source-less bundle entry
     const homeDir = createHomeDir();

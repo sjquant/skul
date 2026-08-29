@@ -40,6 +40,10 @@ import {
 } from "./tool-mapping";
 
 export interface MaterializeBundleResult {
+  /** MCP configuration files this materialization brought into existence. */
+  createdMcpFiles: string[];
+  /** Parent directories created for those MCP configuration files. */
+  createdMcpDirectories: string[];
   byTool: Partial<
     Record<
       ToolName,
@@ -214,8 +218,12 @@ interface PlannedToolWrites {
   ownedFiles: string[];
   /** The subset of `ownedFiles` other bundles may also write into. */
   sharedFiles: Set<string>;
+  /** MCP configuration files this plan brings into existence. */
+  createdMcpFiles: Set<string>;
   /** Repo-relative directories Skul brings into existence, and so owns. */
   ownedDirectories: Set<string>;
+  /** Parent directories created for MCP configuration files. */
+  createdMcpDirectories: Set<string>;
   /** MCP server names this tool now owns in each shared configuration file. */
   mcpServers: Record<string, string[]>;
 }
@@ -345,7 +353,9 @@ async function planBundleMaterialization(
       writes: [],
       ownedFiles: [],
       sharedFiles: new Set<string>(),
+      createdMcpFiles: new Set<string>(),
       ownedDirectories: new Set<string>(),
+      createdMcpDirectories: new Set<string>(),
       mcpServers: {},
     };
 
@@ -450,6 +460,8 @@ function applyBundleMaterializationPlan(
   plans: Map<ToolName, PlannedToolWrites>,
 ): MaterializeBundleResult {
   const byTool: MaterializeBundleResult["byTool"] = {};
+  const createdMcpFiles = new Set<string>();
+  const createdMcpDirectories = new Set<string>();
 
   for (const [toolName, toolPlan] of plans) {
     for (const directory of toolPlan.ownedDirectories) {
@@ -468,9 +480,19 @@ function applyBundleMaterializationPlan(
       directories: Array.from(toolPlan.ownedDirectories).sort(deepestFirst),
       mcpServers: toolPlan.mcpServers,
     };
+    for (const filePath of toolPlan.createdMcpFiles) {
+      createdMcpFiles.add(filePath);
+    }
+    for (const directory of toolPlan.createdMcpDirectories) {
+      createdMcpDirectories.add(directory);
+    }
   }
 
-  return { byTool };
+  return {
+    byTool,
+    createdMcpFiles: Array.from(createdMcpFiles).sort(shallowestFirst),
+    createdMcpDirectories: Array.from(createdMcpDirectories).sort(deepestFirst),
+  };
 }
 
 /** Orders paths parents first, the order they have to be created in. */
@@ -769,6 +791,12 @@ async function foldMcpWriteIntoToolPlan(options: {
 
   if (created) {
     options.toolPlan.sharedFiles.add(repoRelPath);
+    options.toolPlan.createdMcpFiles.add(repoRelPath);
+    for (const directory of options.toolPlan.ownedDirectories) {
+      if (repoRelPath.startsWith(`${directory}/`)) {
+        options.toolPlan.createdMcpDirectories.add(directory);
+      }
+    }
   }
 
   options.toolPlan.mcpServers[repoRelPath] = serverNames;

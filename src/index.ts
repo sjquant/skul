@@ -89,6 +89,10 @@ import {
   subtractMcpConfigServers,
 } from "./mcp-config";
 import {
+  createMcpMaterializationOwnership,
+  type McpMaterializationOwnership,
+} from "./mcp-materialization-state";
+import {
   type DesiredBundleEntry,
   type GlobalState,
   listManagedPathsForRemoval,
@@ -775,6 +779,9 @@ async function removeAllWorktreeBundles(options: {
       flattenBundleState(bundleState),
     ),
   );
+  const mcpOwnership = createMcpMaterializationOwnership(
+    worktreeState?.materialized_state,
+  );
   const removedRootInstructionPaths = new Set(
     removedBundlePaths.files.filter((filePath) =>
       isRootInstructionPath(filePath),
@@ -846,10 +853,19 @@ async function removeAllWorktreeBundles(options: {
         })
       : undefined;
 
-  removeManagedPaths(gitContext.worktreeRoot, removedBundlePaths, {
-    restoreCommitted: true,
-    warnings: options.warnings,
-  });
+  const removalResult = removeManagedPaths(
+    gitContext.worktreeRoot,
+    removedBundlePaths,
+    {
+      restoreCommitted: true,
+      mcpOwnership,
+      warnings: options.warnings,
+    },
+  );
+  const failedBundleStates = retainFailedMcpBundleStates(
+    Object.fromEntries(materializedTargets),
+    removalResult.failedMcpServers,
+  );
   const rootInstructionBaseContents =
     worktreeState?.materialized_state.root_instruction_base_contents;
   const remainingRootInstructionTargets =
@@ -889,8 +905,9 @@ async function removeAllWorktreeBundles(options: {
       syncedRootInstructionPaths,
     );
     const newMatState: MaterializedState = {
-      bundles: refreshedRemainingBundles,
+      bundles: { ...refreshedRemainingBundles, ...failedBundleStates },
       exclude_configured: false,
+      ...mcpOwnership.toRegistryFields(),
       ...(nextRootInstructionBaseContents !== undefined &&
       Object.keys(nextRootInstructionBaseContents).length > 0
         ? { root_instruction_base_contents: nextRootInstructionBaseContents }
@@ -915,18 +932,44 @@ async function removeAllWorktreeBundles(options: {
       shadowed_files: currentShadowedFiles,
     });
   } else {
-    removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
-    if (Object.keys(currentShadowedFiles).length > 0) {
+    if (
+      Object.keys(currentShadowedFiles).length > 0 ||
+      Object.keys(failedBundleStates).length > 0
+    ) {
+      const retainedBundles = failedBundleStates;
+      const retainedMaterializedState: MaterializedState = {
+        bundles: retainedBundles,
+        exclude_configured: false,
+        ...mcpOwnership.toRegistryFields(),
+        ...(worktreeState.materialized_state.root_instruction_base_contents !==
+        undefined
+          ? {
+              root_instruction_base_contents:
+                worktreeState.materialized_state.root_instruction_base_contents,
+            }
+          : {}),
+      };
+      const retainedManagedFiles = collectExcludedPaths(
+        retainedMaterializedState,
+      );
+      retainedMaterializedState.exclude_configured =
+        retainedManagedFiles.length > 0;
+      if (retainedManagedFiles.length > 0) {
+        configureSkulExcludeBlock({
+          gitDir: gitContext.gitDir,
+          files: retainedManagedFiles,
+        });
+      } else {
+        removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+      }
       registry = upsertWorktreeState(registry, gitContext.worktreeId, {
         repo_fingerprint: gitContext.repoFingerprint,
         path: gitContext.worktreeRoot,
-        materialized_state: {
-          bundles: {},
-          exclude_configured: false,
-        },
+        materialized_state: retainedMaterializedState,
         shadowed_files: currentShadowedFiles,
       });
     } else {
+      removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
       registry = removeWorktreeState(registry, gitContext.worktreeId);
     }
   }
@@ -1091,6 +1134,9 @@ async function removeAllGlobalBundles(options: {
       flattenBundleState(bundleState),
     ),
   );
+  const mcpOwnership = createMcpMaterializationOwnership(
+    globalState?.materialized_state,
+  );
   const removedRootInstructionPaths = new Set(
     removedBundlePaths.files.filter((filePath) =>
       isRootInstructionPath(filePath),
@@ -1146,10 +1192,19 @@ async function removeAllGlobalBundles(options: {
         })
       : undefined;
 
-  removeManagedPaths(options.homeDir, removedBundlePaths, {
-    restoreCommitted: false,
-    warnings: options.warnings,
-  });
+  const removalResult = removeManagedPaths(
+    options.homeDir,
+    removedBundlePaths,
+    {
+      restoreCommitted: false,
+      mcpOwnership,
+      warnings: options.warnings,
+    },
+  );
+  const failedBundleStates = retainFailedMcpBundleStates(
+    Object.fromEntries(materializedTargets),
+    removalResult.failedMcpServers,
+  );
 
   const rootInstructionBaseContents =
     globalState?.materialized_state.root_instruction_base_contents;
@@ -1198,7 +1253,8 @@ async function removeAllGlobalBundles(options: {
       registry = upsertGlobalState(registry, {
         desired_state: remainingDesiredState,
         materialized_state: {
-          bundles: refreshedBundles,
+          bundles: { ...refreshedBundles, ...failedBundleStates },
+          ...mcpOwnership.toRegistryFields(),
           ...(nextRootInstructionBaseContents !== undefined &&
           Object.keys(nextRootInstructionBaseContents).length > 0
             ? {
@@ -1210,9 +1266,20 @@ async function removeAllGlobalBundles(options: {
     } else {
       registry = upsertGlobalState(registry, {
         desired_state: remainingDesiredState,
-        materialized_state: { bundles: {} },
+        materialized_state: {
+          bundles: failedBundleStates,
+          ...mcpOwnership.toRegistryFields(),
+        },
       });
     }
+  } else if (Object.keys(failedBundleStates).length > 0) {
+    registry = upsertGlobalState(registry, {
+      desired_state: remainingDesiredState,
+      materialized_state: {
+        bundles: failedBundleStates,
+        ...mcpOwnership.toRegistryFields(),
+      },
+    });
   } else {
     registry = { ...registry, global: undefined };
   }
@@ -1252,9 +1319,17 @@ function renderRemoveDryRun(options: {
 }): string {
   if (options.materializedState || options.extraFiles.length > 0) {
     const materializedFiles = options.materializedState
-      ? flattenBundleState(options.materializedState).files
-      : [];
-    const files = [...materializedFiles, ...options.extraFiles];
+      ? flattenBundleState(options.materializedState)
+      : undefined;
+    const files = Array.from(
+      new Set([
+        ...(materializedFiles?.files ?? []),
+        ...(materializedFiles?.mcp_servers.map(
+          ({ path: filePath }) => filePath,
+        ) ?? []),
+        ...options.extraFiles,
+      ]),
+    );
     const lines = [
       `${pc.yellow("DRY RUN:")} Would remove ${options.prefix}${options.bundle} (${files.length} file(s))`,
     ];
@@ -2360,6 +2435,7 @@ async function updateBundles(options: {
   let currentBundles: MaterializedState["bundles"] = {
     ...(existingWorktreeState?.bundles ?? {}),
   };
+  const mcpOwnership = createMcpMaterializationOwnership(existingWorktreeState);
   let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
   const nextDesiredState = [...(repoState?.desired_state ?? [])];
   const outputLines: string[] = [];
@@ -2525,7 +2601,7 @@ async function updateBundles(options: {
             flattenBundleState(bundleStateToReplace),
             trackedShadowPlan.deferredMaterializationTargets,
           ),
-          { restoreCommitted: true },
+          { restoreCommitted: true, mcpOwnership },
         );
         const materializedResult = await materializeBundle({
           ...materializationScope,
@@ -2556,6 +2632,7 @@ async function updateBundles(options: {
             selectedItems: entry.items,
           }),
         };
+        mcpOwnership.recordMaterialization(materializedResult);
         currentShadowedFiles = applyTrackedShadowPlan({
           repoRoot: gitContext.worktreeRoot,
           bundleName: entry.bundle,
@@ -2634,6 +2711,7 @@ async function updateBundles(options: {
     const newMaterializedState: MaterializedState = {
       bundles: currentBundles,
       exclude_configured: managedFiles.length > 0,
+      ...mcpOwnership.toRegistryFields(),
       ...(rootInstructionBaseContents !== undefined
         ? { root_instruction_base_contents: rootInstructionBaseContents }
         : {}),
@@ -2796,6 +2874,7 @@ async function applyBundle(options: {
   let registry = registryBeforePrepare;
   const existingWorktreeState =
     registry.worktrees[gitContext.worktreeId]?.materialized_state;
+  const mcpOwnership = createMcpMaterializationOwnership(existingWorktreeState);
   // Only an earlier command can have recorded a path the repository went on to
   // commit, so the state as found on entry already holds every such path.
   warnAboutCommittedManagedFiles({
@@ -2957,6 +3036,7 @@ async function applyBundle(options: {
   if (pathsToReplace) {
     removeManagedPaths(gitContext.worktreeRoot, pathsToReplace, {
       restoreCommitted: true,
+      mcpOwnership,
     });
   }
 
@@ -2975,6 +3055,7 @@ async function applyBundle(options: {
     libraryDir: options.libraryDir,
     existingMcpServers: ownedMcpServers(existingBundleState),
   });
+  mcpOwnership.recordMaterialization(materializedResult);
   currentShadowedFiles = applyTrackedShadowPlan({
     repoRoot: gitContext.worktreeRoot,
     bundleName: preparedBundle.cachedBundle.bundle,
@@ -3021,6 +3102,7 @@ async function applyBundle(options: {
       [preparedBundle.cachedBundle.bundle]: newBundleState,
     },
     exclude_configured: false,
+    ...mcpOwnership.toRegistryFields(),
     ...(rootInstructionBaseContents !== undefined
       ? { root_instruction_base_contents: rootInstructionBaseContents }
       : {}),
@@ -4340,16 +4422,25 @@ async function resetWorktree(options: {
   const hasShadowedFiles = worktreeState
     ? Object.keys(worktreeState.shadowed_files).length > 0
     : false;
+  let cleanupPending = false;
 
   if (options.dryRun) {
     if (!hasMaterializedBundles && !hasShadowedFiles) {
       return `${pc.yellow("DRY RUN:")} No Skul-managed files found in the current worktree`;
     }
 
-    const allFiles = Object.values(
-      worktreeState.materialized_state.bundles,
-    ).flatMap((bundleState) =>
-      Object.values(bundleState.tools).flatMap((toolState) => toolState.files),
+    const allFiles = Array.from(
+      new Set(
+        Object.values(worktreeState.materialized_state.bundles).flatMap(
+          (bundleState) => {
+            const paths = flattenBundleState(bundleState);
+            return [
+              ...paths.files,
+              ...paths.mcp_servers.map(({ path: filePath }) => filePath),
+            ];
+          },
+        ),
+      ),
     );
     const lines = [
       `${pc.yellow("DRY RUN:")} Would restore ${Object.keys(worktreeState.shadowed_files).length} tracked shadow file(s) and remove ${allFiles.length} managed file(s) from ${gitContext.worktreeRoot}`,
@@ -4365,9 +4456,15 @@ async function resetWorktree(options: {
   }
 
   if ((hasMaterializedBundles || hasShadowedFiles) && worktreeState) {
-    const allBundlePaths = Object.values(
+    const mcpOwnership = createMcpMaterializationOwnership(
+      worktreeState.materialized_state,
+    );
+    const allBundleEntries = Object.entries(
       worktreeState.materialized_state.bundles,
-    ).map(flattenBundleState);
+    );
+    const allBundlePaths = allBundleEntries.map(([, bundleState]) =>
+      flattenBundleState(bundleState),
+    );
 
     // Confirm all removals before touching any files (all-or-nothing)
     for (const bundlePaths of allBundlePaths) {
@@ -4391,11 +4488,22 @@ async function resetWorktree(options: {
       filePaths: Object.keys(worktreeState.shadowed_files),
     });
 
-    for (const bundlePaths of allBundlePaths) {
-      removeManagedPaths(gitContext.worktreeRoot, bundlePaths, {
-        restoreCommitted: true,
-        warnings: options.warnings,
-      });
+    const failedBundleStates: Record<string, MaterializedBundleState> = {};
+    for (const [bundleName, bundleState] of allBundleEntries) {
+      const removalResult = removeManagedPaths(
+        gitContext.worktreeRoot,
+        flattenBundleState(bundleState),
+        {
+          restoreCommitted: true,
+          mcpOwnership,
+          warnings: options.warnings,
+        },
+      );
+      const retained = retainFailedMcpBundleState(
+        bundleState,
+        removalResult.failedMcpServers,
+      );
+      if (retained) failedBundleStates[bundleName] = retained;
     }
 
     restoreRootInstructionBaseContents({
@@ -4407,22 +4515,40 @@ async function resetWorktree(options: {
       ),
     });
 
-    if (Object.keys(remainingShadowedFiles).length > 0) {
+    if (
+      Object.keys(remainingShadowedFiles).length > 0 ||
+      Object.keys(failedBundleStates).length > 0
+    ) {
+      const retainedMaterializedState: MaterializedState = {
+        bundles: failedBundleStates,
+        exclude_configured: false,
+        ...mcpOwnership.toRegistryFields(),
+        ...(worktreeState.materialized_state.root_instruction_base_contents !==
+        undefined
+          ? {
+              root_instruction_base_contents:
+                worktreeState.materialized_state.root_instruction_base_contents,
+            }
+          : {}),
+      };
+      cleanupPending = Object.keys(failedBundleStates).length > 0;
+      const retainedManagedFiles = collectExcludedPaths(
+        retainedMaterializedState,
+      );
+      retainedMaterializedState.exclude_configured =
+        retainedManagedFiles.length > 0;
+      if (retainedManagedFiles.length > 0) {
+        configureSkulExcludeBlock({
+          gitDir: gitContext.gitDir,
+          files: retainedManagedFiles,
+        });
+      } else {
+        removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+      }
       registry = upsertWorktreeState(registry, gitContext.worktreeId, {
         repo_fingerprint: gitContext.repoFingerprint,
         path: gitContext.worktreeRoot,
-        materialized_state: {
-          bundles: {},
-          exclude_configured: false,
-          ...(worktreeState.materialized_state
-            .root_instruction_base_contents !== undefined
-            ? {
-                root_instruction_base_contents:
-                  worktreeState.materialized_state
-                    .root_instruction_base_contents,
-              }
-            : {}),
-        },
+        materialized_state: retainedMaterializedState,
         shadowed_files: remainingShadowedFiles,
       });
     } else {
@@ -4431,7 +4557,9 @@ async function resetWorktree(options: {
     writeRegistryFile(options.registryFile, registry);
   }
 
-  const excludeRemoved = removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+  const excludeRemoved = cleanupPending
+    ? false
+    : removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
 
   if (!hasMaterializedBundles && !hasShadowedFiles && !excludeRemoved) {
     return "No Skul-managed files found in the current worktree";
@@ -4540,19 +4668,23 @@ async function removeBundle(options: {
 
   if (options.dryRun) {
     if (bundleMaterializedState || shadowedFilesForBundle.length > 0) {
-      const files = bundleMaterializedState
-        ? Object.values(bundleMaterializedState.tools).flatMap(
-            (toolState) => toolState.files,
-          )
-        : [];
+      const flattened = bundleMaterializedState
+        ? flattenBundleState(bundleMaterializedState)
+        : undefined;
+      const removableFiles = Array.from(
+        new Set([
+          ...(flattened?.files ?? []),
+          ...(flattened?.mcp_servers ?? []).map(
+            ({ path: filePath }) => filePath,
+          ),
+          ...shadowedFilesForBundle.map(([filePath]) => filePath),
+        ]),
+      );
       const lines = [
-        `${pc.yellow("DRY RUN:")} Would remove ${bundle} (${files.length + shadowedFilesForBundle.length} file(s))`,
+        `${pc.yellow("DRY RUN:")} Would remove ${bundle} (${removableFiles.length} file(s))`,
       ];
-      for (const file of files) {
+      for (const file of removableFiles) {
         lines.push(`  ${file}`);
-      }
-      for (const [filePath] of shadowedFilesForBundle) {
-        lines.push(`  ${filePath}`);
       }
       return lines.join("\n");
     }
@@ -4561,6 +4693,9 @@ async function removeBundle(options: {
   }
 
   let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
+  const mcpOwnership = createMcpMaterializationOwnership(
+    worktreeState?.materialized_state,
+  );
 
   if (bundleMaterializedState || shadowedFilesForBundle.length > 0) {
     const bundlePaths = bundleMaterializedState
@@ -4633,10 +4768,21 @@ async function removeBundle(options: {
           })
         : undefined;
 
-    removeManagedPaths(gitContext.worktreeRoot, bundlePaths, {
-      restoreCommitted: true,
-      warnings: options.warnings,
-    });
+    const removalResult = removeManagedPaths(
+      gitContext.worktreeRoot,
+      bundlePaths,
+      {
+        restoreCommitted: true,
+        mcpOwnership,
+        warnings: options.warnings,
+      },
+    );
+    const failedBundleState = bundleMaterializedState
+      ? retainFailedMcpBundleState(
+          bundleMaterializedState,
+          removalResult.failedMcpServers,
+        )
+      : undefined;
     const remainingRootInstructionTargets =
       collectManagedRootInstructionTargets(remainingBundles);
     const restoredRootInstructionPaths = new Set(
@@ -4674,8 +4820,11 @@ async function removeBundle(options: {
         syncedRootInstructionPaths,
       );
       const newMatState: MaterializedState = {
-        bundles: refreshedRemainingBundles,
+        bundles: failedBundleState
+          ? { ...refreshedRemainingBundles, [bundle]: failedBundleState }
+          : refreshedRemainingBundles,
         exclude_configured: false,
+        ...mcpOwnership.toRegistryFields(),
         ...(nextRootInstructionBaseContents !== undefined &&
         Object.keys(nextRootInstructionBaseContents).length > 0
           ? { root_instruction_base_contents: nextRootInstructionBaseContents }
@@ -4701,18 +4850,33 @@ async function removeBundle(options: {
         shadowed_files: currentShadowedFiles,
       });
     } else {
-      removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
-      if (Object.keys(currentShadowedFiles).length > 0) {
+      if (Object.keys(currentShadowedFiles).length > 0 || failedBundleState) {
+        const retainedMaterializedState: MaterializedState = {
+          bundles: failedBundleState ? { [bundle]: failedBundleState } : {},
+          exclude_configured: false,
+          ...mcpOwnership.toRegistryFields(),
+        };
+        const retainedManagedFiles = collectExcludedPaths(
+          retainedMaterializedState,
+        );
+        retainedMaterializedState.exclude_configured =
+          retainedManagedFiles.length > 0;
+        if (retainedManagedFiles.length > 0) {
+          configureSkulExcludeBlock({
+            gitDir: gitContext.gitDir,
+            files: retainedManagedFiles,
+          });
+        } else {
+          removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+        }
         registry = upsertWorktreeState(registry, gitContext.worktreeId, {
           repo_fingerprint: gitContext.repoFingerprint,
           path: gitContext.worktreeRoot,
-          materialized_state: {
-            bundles: {},
-            exclude_configured: false,
-          },
+          materialized_state: retainedMaterializedState,
           shadowed_files: currentShadowedFiles,
         });
       } else {
+        removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
         registry = removeWorktreeState(registry, gitContext.worktreeId);
       }
     }
@@ -5484,6 +5648,9 @@ async function applyWorktree(options: {
   }
 
   let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
+  const mcpOwnership = createMcpMaterializationOwnership(
+    worktreeState?.materialized_state,
+  );
   let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
   let rootInstructionBaseContents =
     worktreeState?.materialized_state.root_instruction_base_contents;
@@ -5511,9 +5678,13 @@ async function applyWorktree(options: {
       : existingBundleState && toolsToApply
         ? selectExistingBundleToolState(existingBundleState, toolsToApply)
         : existingBundleState;
+    const replacementPaths = replacementState
+      ? flattenBundleState(replacementState)
+      : undefined;
     const replacesExistingToolState =
-      replacementState !== undefined &&
-      flattenBundleState(replacementState).files.length > 0;
+      replacementPaths !== undefined &&
+      (replacementPaths.files.length > 0 ||
+        replacementPaths.mcp_servers.length > 0);
     const resolvedBundleItemRefs = await resolveBundleItemRefs({
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
@@ -5591,7 +5762,7 @@ async function applyWorktree(options: {
       const replacementAllowed = await confirmManagedFileRemovals(
         gitContext.worktreeRoot,
         excludeShadowedTrackedTargets(
-          flattenBundleState(replacementState),
+          replacementPaths,
           trackedShadowPlan.deferredMaterializationTargets,
         ),
         options.prompts,
@@ -5651,6 +5822,7 @@ async function applyWorktree(options: {
 
       removeManagedPaths(gitContext.worktreeRoot, pathsToReplace, {
         restoreCommitted: true,
+        mcpOwnership,
         warnings: options.warnings,
       });
       restoreRootInstructionBaseContents({
@@ -5679,6 +5851,7 @@ async function applyWorktree(options: {
       libraryDir: options.libraryDir,
       existingMcpServers: ownedMcpServers(existingBundleState),
     });
+    mcpOwnership.recordMaterialization(materializedResult);
 
     currentBundles = {
       ...currentBundles,
@@ -5725,6 +5898,7 @@ async function applyWorktree(options: {
     const newMatState: MaterializedState = {
       bundles: currentBundles,
       exclude_configured: false,
+      ...mcpOwnership.toRegistryFields(),
       ...(rootInstructionBaseContents !== undefined
         ? { root_instruction_base_contents: rootInstructionBaseContents }
         : {}),
@@ -6711,10 +6885,11 @@ function listManagedFiles(bundles: MaterializedState["bundles"]): string[] {
 function releaseManagedMcpServers(options: {
   repoRoot: string;
   mcpServers: ManagedMcpOwnership[];
-  managedFiles: Set<string>;
+  mcpOwnership: McpMaterializationOwnership;
   warnings?: CommandWarningCollector;
-}): Set<string> {
+}): { releasablePaths: Set<string>; failedMcpServers: ManagedMcpOwnership[] } {
   const releasablePaths = new Set<string>();
+  const failedMcpServers: ManagedMcpOwnership[] = [];
 
   for (const {
     tool: toolName,
@@ -6725,6 +6900,7 @@ function releaseManagedMcpServers(options: {
 
     if (!fs.existsSync(targetPath)) {
       releasablePaths.add(relativePath);
+      options.mcpOwnership.removeCreatedFile(relativePath);
       continue;
     }
 
@@ -6747,18 +6923,24 @@ function releaseManagedMcpServers(options: {
         }\n[skul] Remove these MCP servers by hand once it parses: ${serverNames.join(", ")}`,
         options.warnings,
       );
+      failedMcpServers.push({
+        tool: toolName,
+        path: relativePath,
+        servers: serverNames,
+      });
       continue;
     }
 
-    if (result.emptied && options.managedFiles.has(relativePath)) {
+    if (result.emptied && options.mcpOwnership.hasCreatedFile(relativePath)) {
       releasablePaths.add(relativePath);
+      options.mcpOwnership.removeCreatedFile(relativePath);
       continue;
     }
 
     writeFileAtomic(targetPath, result.content);
   }
 
-  return releasablePaths;
+  return { releasablePaths, failedMcpServers };
 }
 
 /**
@@ -6777,26 +6959,36 @@ function removeManagedPaths(
     Pick<ManagedRemovalState, "mcp_servers">,
   options: {
     restoreCommitted: boolean;
+    mcpOwnership: McpMaterializationOwnership;
     warnings?: CommandWarningCollector;
   },
-): void {
-  const releasableMcpPaths = releaseManagedMcpServers({
+): { failedMcpServers: ManagedMcpOwnership[] } {
+  const releaseResult = releaseManagedMcpServers({
     repoRoot,
     mcpServers: state.mcp_servers,
-    managedFiles: new Set(state.files),
+    mcpOwnership: options.mcpOwnership,
     warnings: options.warnings,
   });
+  const releasableMcpPaths = releaseResult.releasablePaths;
   const retainedMcpPaths = new Set(
     state.mcp_servers
       .map((ownership) => ownership.path)
       .filter((filePath) => !releasableMcpPaths.has(filePath)),
   );
+  const removableFiles = new Set([...state.files, ...releasableMcpPaths]);
+  const removableDirectories = new Set([
+    ...(state.directories ?? []),
+    ...options.mcpOwnership.listCreatedDirectories(),
+  ]);
   const committedPaths = options.restoreCommitted
-    ? listCommittedPaths({ repoRoot, filePaths: state.files })
+    ? listCommittedPaths({ repoRoot, filePaths: Array.from(removableFiles) })
     : new Set<string>();
   const restoredPaths: string[] = [];
 
-  for (const relativePath of listManagedPathsForRemoval(state)) {
+  for (const relativePath of listManagedPathsForRemoval({
+    files: Array.from(removableFiles),
+    directories: Array.from(removableDirectories),
+  })) {
     if (retainedMcpPaths.has(relativePath)) {
       continue;
     }
@@ -6811,6 +7003,7 @@ function removeManagedPaths(
     const targetPath = path.join(repoRoot, relativePath);
 
     if (!fs.existsSync(targetPath)) {
+      options.mcpOwnership.removeCreatedDirectory(relativePath);
       continue;
     }
 
@@ -6819,6 +7012,7 @@ function removeManagedPaths(
     if (stats.isDirectory()) {
       try {
         fs.rmdirSync(targetPath);
+        options.mcpOwnership.removeCreatedDirectory(relativePath);
       } catch (error) {
         if (!isDirectoryNotEmptyError(error)) {
           throw error;
@@ -6838,6 +7032,69 @@ function removeManagedPaths(
     ),
     warnings: options.warnings,
   });
+
+  return { failedMcpServers: releaseResult.failedMcpServers };
+}
+
+function retainFailedMcpBundleState(
+  bundleState: MaterializedBundleState,
+  failedMcpServers: ManagedMcpOwnership[],
+): MaterializedBundleState | undefined {
+  const failedByTool = new Map<string, Set<string>>();
+  for (const ownership of failedMcpServers) {
+    const paths = failedByTool.get(ownership.tool) ?? new Set<string>();
+    paths.add(ownership.path);
+    failedByTool.set(ownership.tool, paths);
+  }
+
+  const tools = Object.fromEntries(
+    Object.entries(bundleState.tools).flatMap(([toolName, toolState]) => {
+      const failedPaths = failedByTool.get(toolName);
+      const mcpServers = Object.fromEntries(
+        Object.entries(toolState.mcp_servers ?? {}).filter(([filePath]) =>
+          failedPaths?.has(filePath),
+        ),
+      );
+      return Object.keys(mcpServers).length > 0
+        ? [
+            [
+              toolName,
+              {
+                files: [],
+                mcp_servers: mcpServers,
+              } satisfies MaterializedToolState,
+            ],
+          ]
+        : [];
+    }),
+  );
+
+  return Object.keys(tools).length > 0
+    ? {
+        ...(bundleState.source !== undefined
+          ? { source: bundleState.source }
+          : {}),
+        ...(bundleState.resolved_commit !== undefined
+          ? { resolved_commit: bundleState.resolved_commit }
+          : {}),
+        tools,
+      }
+    : undefined;
+}
+
+function retainFailedMcpBundleStates(
+  bundleStates: Record<string, MaterializedBundleState>,
+  failedMcpServers: ManagedMcpOwnership[],
+): Record<string, MaterializedBundleState> {
+  return Object.fromEntries(
+    Object.entries(bundleStates).flatMap(([bundleName, bundleState]) => {
+      const retained = retainFailedMcpBundleState(
+        bundleState,
+        failedMcpServers,
+      );
+      return retained ? [[bundleName, retained]] : [];
+    }),
+  );
 }
 
 /**
@@ -7411,6 +7668,9 @@ async function applyBundleGlobal(options: {
 
   let rootInstructionBaseContents =
     existingGlobal?.materialized_state.root_instruction_base_contents;
+  const mcpOwnership = createMcpMaterializationOwnership(
+    existingGlobal?.materialized_state,
+  );
   const existingBundleState =
     existingGlobal?.materialized_state.bundles[
       preparedBundle.cachedBundle.bundle
@@ -7527,6 +7787,7 @@ async function applyBundleGlobal(options: {
   if (pathsToReplace) {
     removeManagedPaths(options.homeDir, pathsToReplace, {
       restoreCommitted: false,
+      mcpOwnership,
       warnings: options.warnings,
     });
   }
@@ -7541,6 +7802,7 @@ async function applyBundleGlobal(options: {
     libraryDir: options.libraryDir,
     existingMcpServers: ownedMcpServers(existingBundleState),
   });
+  mcpOwnership.recordMaterialization(materializedResult);
 
   const newBundleState = buildMaterializedBundleState({
     existingBundleState,
@@ -7607,6 +7869,7 @@ async function applyBundleGlobal(options: {
     desired_state: newDesiredState,
     materialized_state: {
       bundles: refreshedBundles,
+      ...mcpOwnership.toRegistryFields(),
       ...(rootInstructionBaseContents !== undefined
         ? { root_instruction_base_contents: rootInstructionBaseContents }
         : {}),
@@ -7961,11 +8224,19 @@ async function removeGlobalBundle(options: {
 
   if (options.dryRun) {
     if (bundleMaterializedState) {
-      const { files } = flattenBundleState(bundleMaterializedState);
+      const { files, mcp_servers } = flattenBundleState(
+        bundleMaterializedState,
+      );
+      const removableFiles = Array.from(
+        new Set([
+          ...files,
+          ...mcp_servers.map(({ path: filePath }) => filePath),
+        ]),
+      );
       const lines = [
-        `${pc.yellow("DRY RUN:")} Would remove global ${bundle} (${files.length} file(s))`,
+        `${pc.yellow("DRY RUN:")} Would remove global ${bundle} (${removableFiles.length} file(s))`,
       ];
-      for (const file of files) lines.push(`  ${file}`);
+      for (const file of removableFiles) lines.push(`  ${file}`);
       return lines.join("\n");
     }
     return `${pc.yellow("DRY RUN:")} Would remove ${bundle} from global desired state`;
@@ -7973,6 +8244,9 @@ async function removeGlobalBundle(options: {
 
   if (bundleMaterializedState) {
     const bundlePaths = flattenBundleState(bundleMaterializedState);
+    const mcpOwnership = createMcpMaterializationOwnership(
+      globalState?.materialized_state,
+    );
     const rootInstructionBaseContents =
       globalState?.materialized_state.root_instruction_base_contents;
     const removedRootInstructionPaths = new Set(
@@ -8020,10 +8294,15 @@ async function removeGlobalBundle(options: {
           })
         : undefined;
 
-    removeManagedPaths(options.homeDir, bundlePaths, {
+    const removalResult = removeManagedPaths(options.homeDir, bundlePaths, {
       restoreCommitted: false,
+      mcpOwnership,
       warnings: options.warnings,
     });
+    const failedBundleState = retainFailedMcpBundleState(
+      bundleMaterializedState,
+      removalResult.failedMcpServers,
+    );
 
     const remainingRootInstructionTargets =
       collectManagedRootInstructionTargets(remainingBundles);
@@ -8067,7 +8346,10 @@ async function removeGlobalBundle(options: {
       const newGlobalState: GlobalState = {
         desired_state: remainingDesiredState,
         materialized_state: {
-          bundles: refreshedBundles,
+          bundles: failedBundleState
+            ? { ...refreshedBundles, [bundle]: failedBundleState }
+            : refreshedBundles,
+          ...mcpOwnership.toRegistryFields(),
           ...(nextRootInstructionBaseContents &&
           Object.keys(nextRootInstructionBaseContents).length > 0
             ? {
@@ -8078,10 +8360,13 @@ async function removeGlobalBundle(options: {
       };
       registry = upsertGlobalState(registry, newGlobalState);
     } else {
-      if (remainingDesiredState.length > 0) {
+      if (remainingDesiredState.length > 0 || failedBundleState) {
         registry = upsertGlobalState(registry, {
           desired_state: remainingDesiredState,
-          materialized_state: { bundles: {} },
+          materialized_state: {
+            bundles: failedBundleState ? { [bundle]: failedBundleState } : {},
+            ...mcpOwnership.toRegistryFields(),
+          },
         });
       } else {
         registry = { ...registry, global: undefined };
@@ -8539,10 +8824,23 @@ async function resetGlobal(options: {
     return "No globally materialized Skul bundles found";
   }
 
-  const allBundlePaths = Object.values(
+  const allBundleEntries = Object.entries(
     globalState.materialized_state.bundles,
-  ).map(flattenBundleState);
-  const allFiles = allBundlePaths.flatMap((bp) => bp.files);
+  );
+  const allBundlePaths = allBundleEntries.map(([, bundleState]) =>
+    flattenBundleState(bundleState),
+  );
+  const mcpOwnership = createMcpMaterializationOwnership(
+    globalState.materialized_state,
+  );
+  const allFiles = Array.from(
+    new Set(
+      allBundlePaths.flatMap((bp) => [
+        ...bp.files,
+        ...bp.mcp_servers.map(({ path: filePath }) => filePath),
+      ]),
+    ),
+  );
 
   if (options.dryRun) {
     const lines = [
@@ -8564,11 +8862,22 @@ async function resetGlobal(options: {
     }
   }
 
-  for (const bundlePaths of allBundlePaths) {
-    removeManagedPaths(options.homeDir, bundlePaths, {
-      restoreCommitted: false,
-      warnings: options.warnings,
-    });
+  const failedBundleStates: Record<string, MaterializedBundleState> = {};
+  for (const [bundleName, bundleState] of allBundleEntries) {
+    const removalResult = removeManagedPaths(
+      options.homeDir,
+      flattenBundleState(bundleState),
+      {
+        restoreCommitted: false,
+        mcpOwnership,
+        warnings: options.warnings,
+      },
+    );
+    const retained = retainFailedMcpBundleState(
+      bundleState,
+      removalResult.failedMcpServers,
+    );
+    if (retained) failedBundleStates[bundleName] = retained;
   }
 
   // reset --global removes all bundle materialization entirely; shared root-instruction files
@@ -8584,7 +8893,10 @@ async function resetGlobal(options: {
 
   registry = upsertGlobalState(registry, {
     desired_state: globalState.desired_state,
-    materialized_state: { bundles: {} },
+    materialized_state: {
+      bundles: failedBundleStates,
+      ...mcpOwnership.toRegistryFields(),
+    },
   });
   writeRegistryFile(options.registryFile, registry);
 

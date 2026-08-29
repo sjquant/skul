@@ -220,6 +220,8 @@ describe("materializeBundle", () => {
       ".claude/skills/react/SKILL.md",
     );
     expect(result.byTool["claude-code"]!.sharedFiles).toEqual([".mcp.json"]);
+    expect(result.createdMcpFiles).toEqual([".mcp.json"]);
+    expect(result.createdMcpDirectories).toEqual([]);
   });
 
   it("tracks created nested directories for deterministic cleanup", async () => {

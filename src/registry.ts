@@ -66,6 +66,10 @@ export interface MaterializedBundleState {
 export interface MaterializedState {
   bundles: Record<string, MaterializedBundleState>;
   exclude_configured: boolean;
+  /** MCP configuration files Skul created and may delete once emptied. */
+  created_mcp_files?: string[];
+  /** Parent directories Skul created for those MCP configuration files. */
+  created_mcp_directories?: string[];
   root_instruction_base_contents?: Record<string, string>;
 }
 
@@ -101,6 +105,10 @@ export interface WorktreeState {
 
 export interface GlobalMaterializedState {
   bundles: Record<string, MaterializedBundleState>;
+  /** MCP configuration files Skul created and may delete once emptied. */
+  created_mcp_files?: string[];
+  /** Parent directories Skul created for those MCP configuration files. */
+  created_mcp_directories?: string[];
   root_instruction_base_contents?: Record<string, string>;
 }
 
@@ -421,6 +429,14 @@ function parseMaterializedState(
           `${label}.root_instruction_base_contents`,
           buildWorktreeRootInstructionAllowedPaths(),
         );
+  const createdMcpFiles = parseOptionalRelativePaths(
+    state.created_mcp_files,
+    `${label}.created_mcp_files`,
+  );
+  const createdMcpDirectories = parseOptionalRelativePaths(
+    state.created_mcp_directories,
+    `${label}.created_mcp_directories`,
+  );
 
   return {
     bundles,
@@ -428,6 +444,12 @@ function parseMaterializedState(
       state.exclude_configured,
       `${label}.exclude_configured`,
     ),
+    ...(createdMcpFiles !== undefined
+      ? { created_mcp_files: createdMcpFiles }
+      : {}),
+    ...(createdMcpDirectories !== undefined
+      ? { created_mcp_directories: createdMcpDirectories }
+      : {}),
     ...(rootInstructionBaseContents !== undefined
       ? { root_instruction_base_contents: rootInstructionBaseContents }
       : {}),
@@ -650,6 +672,23 @@ function sortRegistry(registry: Registry): Registry {
                     cloneMaterializedBundleState(state),
                   ]),
               ),
+              ...(registry.global.materialized_state.created_mcp_files !==
+              undefined
+                ? {
+                    created_mcp_files: [
+                      ...registry.global.materialized_state.created_mcp_files,
+                    ],
+                  }
+                : {}),
+              ...(registry.global.materialized_state.created_mcp_directories !==
+              undefined
+                ? {
+                    created_mcp_directories: [
+                      ...registry.global.materialized_state
+                        .created_mcp_directories,
+                    ],
+                  }
+                : {}),
               ...(registry.global.materialized_state
                 .root_instruction_base_contents !== undefined
                 ? {
@@ -679,6 +718,20 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
         ),
       ),
       exclude_configured: worktreeState.materialized_state.exclude_configured,
+      ...(worktreeState.materialized_state.created_mcp_files !== undefined
+        ? {
+            created_mcp_files: [
+              ...worktreeState.materialized_state.created_mcp_files,
+            ],
+          }
+        : {}),
+      ...(worktreeState.materialized_state.created_mcp_directories !== undefined
+        ? {
+            created_mcp_directories: [
+              ...worktreeState.materialized_state.created_mcp_directories,
+            ],
+          }
+        : {}),
       ...(worktreeState.materialized_state.root_instruction_base_contents !==
       undefined
         ? {
@@ -779,9 +832,23 @@ function parseGlobalMaterializedState(
           `${label}.root_instruction_base_contents`,
           buildGlobalRootInstructionAllowedPaths(),
         );
+  const createdMcpFiles = parseOptionalRelativePaths(
+    state.created_mcp_files,
+    `${label}.created_mcp_files`,
+  );
+  const createdMcpDirectories = parseOptionalRelativePaths(
+    state.created_mcp_directories,
+    `${label}.created_mcp_directories`,
+  );
 
   return {
     bundles,
+    ...(createdMcpFiles !== undefined
+      ? { created_mcp_files: createdMcpFiles }
+      : {}),
+    ...(createdMcpDirectories !== undefined
+      ? { created_mcp_directories: createdMcpDirectories }
+      : {}),
     ...(rootInstructionBaseContents !== undefined
       ? { root_instruction_base_contents: rootInstructionBaseContents }
       : {}),
@@ -804,6 +871,20 @@ export function upsertGlobalState(
             ([name, state]) => [name, cloneMaterializedBundleState(state)],
           ),
         ),
+        ...(globalState.materialized_state.created_mcp_files !== undefined
+          ? {
+              created_mcp_files: [
+                ...globalState.materialized_state.created_mcp_files,
+              ],
+            }
+          : {}),
+        ...(globalState.materialized_state.created_mcp_directories !== undefined
+          ? {
+              created_mcp_directories: [
+                ...globalState.materialized_state.created_mcp_directories,
+              ],
+            }
+          : {}),
         ...(globalState.materialized_state.root_instruction_base_contents !==
         undefined
           ? {
@@ -860,6 +941,17 @@ function expectRecord(input: unknown, label: string): UnknownRecord {
   }
 
   return input as UnknownRecord;
+}
+
+function parseOptionalRelativePaths(
+  input: unknown,
+  label: string,
+): string[] | undefined {
+  return input === undefined
+    ? undefined
+    : expectArray(input, label).map((value, index) =>
+        expectRelativePath(value, `${label}[${index}]`),
+      );
 }
 
 function expectArray(input: unknown, label: string): unknown[] {
