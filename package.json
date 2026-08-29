@@ -1,6 +1,6 @@
 {
   "name": "@solaqua/skul",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "AI configuration layer manager for project-scoped bundles (project setup only)",
   "homepage": "https://skul.solaqua.dev/",
   "bugs": {
