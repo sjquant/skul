@@ -2000,10 +2000,10 @@ describe("YAML frontmatter parser", () => {
     const files = {
       "SKILL.md": [
         "---",
-        "name: orca-cli",
+        "name: release-notes",
         "description: >-",
-        "  Use the public `orca` CLI to operate Orca-managed worktrees, folder contexts,",
-        "  terminals, repos, and automations.",
+        "  Generate release notes for repositories, tags,",
+        "  and changelogs.",
         "---",
         "",
         "Body.",
@@ -2020,10 +2020,10 @@ describe("YAML frontmatter parser", () => {
 
     // Then
     expect(translated).toEqual({
-      ".cursor/skills/orca-cli/SKILL.md": [
+      ".cursor/skills/release-notes/SKILL.md": [
         "---",
-        "name: orca-cli",
-        "description: Use the public `orca` CLI to operate Orca-managed worktrees, folder contexts, terminals, repos, and automations.",
+        "name: release-notes",
+        "description: Generate release notes for repositories, tags, and changelogs.",
         "---",
         "Body.",
         "",
