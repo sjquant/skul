@@ -249,6 +249,120 @@ describe("parseRegistry", () => {
     });
   });
 
+  it("parses created MCP file ownership at materialized-state scope", () => {
+    // Given a worktree registry carrying a Skul-created shared MCP file
+    const parsed = parseRegistry({
+      version: 1,
+      repos: {
+        [REPO_FINGERPRINT]: {
+          repo_root: "/Users/dev/project",
+          desired_state: [],
+        },
+      },
+      worktrees: {
+        [WORKTREE_ID]: {
+          repo_fingerprint: REPO_FINGERPRINT,
+          path: "/Users/dev/project",
+          materialized_state: {
+            bundles: {},
+            exclude_configured: true,
+            created_mcp_files: [".mcp.json"],
+          },
+          shadowed_files: {},
+        },
+      },
+    });
+
+    // Then the ownership survives parsing as a state-level record
+    expect(
+      parsed.worktrees[WORKTREE_ID]?.materialized_state.created_mcp_files,
+    ).toEqual([".mcp.json"]);
+  });
+
+  it("parses created MCP directory ownership for worktree and global state", () => {
+    // Given worktree and global registries carrying MCP-created directories
+    const parsed = parseRegistry({
+      version: 1,
+      repos: {
+        [REPO_FINGERPRINT]: {
+          repo_root: "/Users/dev/project",
+          desired_state: [],
+        },
+      },
+      worktrees: {
+        [WORKTREE_ID]: {
+          repo_fingerprint: REPO_FINGERPRINT,
+          path: "/Users/dev/project",
+          materialized_state: {
+            bundles: {},
+            exclude_configured: true,
+            created_mcp_directories: [".codex"],
+          },
+          shadowed_files: {},
+        },
+      },
+      global: {
+        desired_state: [],
+        materialized_state: {
+          bundles: {},
+          created_mcp_directories: [".codex"],
+        },
+      },
+    });
+
+    // Then both scopes retain the validated directory ownership
+    expect(
+      parsed.worktrees[WORKTREE_ID]?.materialized_state.created_mcp_directories,
+    ).toEqual([".codex"]);
+    expect(parsed.global?.materialized_state.created_mcp_directories).toEqual([
+      ".codex",
+    ]);
+  });
+
+  it.each([
+    ["not-an-array", /created_mcp_files must be an array/],
+    [["/absolute.json"], /created_mcp_files\[0\] must be a relative path/],
+    [["../outside.json"], /created_mcp_files\[0\] must be a relative path/],
+  ])("rejects unsafe created MCP ownership: %s", (value, message) => {
+    // Given a registry with an invalid created-MCP path field
+    const input = {
+      version: 1,
+      repos: {},
+      worktrees: {},
+      global: {
+        desired_state: [],
+        materialized_state: {
+          bundles: {},
+          created_mcp_files: value,
+        },
+      },
+    };
+
+    // When the registry is parsed / Then the path safety contract is enforced
+    expect(() => parseRegistry(input)).toThrowError(message);
+  });
+
+  it("rejects unsafe created MCP directory ownership", () => {
+    // Given a registry with a parent directory outside the project
+    const input = {
+      version: 1,
+      repos: {},
+      worktrees: {},
+      global: {
+        desired_state: [],
+        materialized_state: {
+          bundles: {},
+          created_mcp_directories: ["../outside"],
+        },
+      },
+    };
+
+    // When the registry is parsed / Then directory ownership is rejected
+    expect(() => parseRegistry(input)).toThrowError(
+      /created_mcp_directories\[0\] must be a relative path/,
+    );
+  });
+
   it("parses and round-trips protocol field on desired_state entries", () => {
     // Given
     const input = {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   createHomeDir,
+  createLinkedWorktree,
   createPromptClientStub,
   createRepository,
   pathExists,
@@ -12,6 +13,7 @@ import {
   writeManifest,
 } from "./cli.test-support";
 import { run } from "./index";
+import { readRegistryFile } from "./registry";
 import { listToolDefinitions } from "./tool-mapping";
 
 const SOURCE = "github.com/acme/bundles";
@@ -425,6 +427,365 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
       second: { type: "stdio", command: "second" },
     });
+
+    // When the remaining bundle is removed
+    await run(["remove", "second", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the file Skul originally created is deleted instead of left empty
+    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(false);
+  });
+
+  it("deletes a globally created shared MCP file after its bundles are removed in order", async () => {
+    // Given two global bundles sharing a configuration file created by the first
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(
+        ["add", SOURCE, bundle, "--global", "--agent", "claude-code", "-y"],
+        {
+          homeDir,
+          cwd,
+          prompts: createPromptClientStub(),
+        },
+      );
+    }
+
+    // When the creator is removed before the remaining bundle
+    await run(["remove", "--global", "first", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    expect(pathExists(path.join(homeDir, ".claude.json"))).toBe(true);
+    expect(readMcpServers(path.join(homeDir, ".claude.json"))).toEqual({
+      second: { type: "stdio", command: "second" },
+    });
+
+    // And then the final bundle is removed
+    await run(["remove", "--global", "second", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the global file Skul originally created is deleted
+    expect(pathExists(path.join(homeDir, ".claude.json"))).toBe(false);
+  });
+
+  it("reports a final shared MCP file in a dry run after its creator is removed", async () => {
+    // Given two bundles sharing a project MCP file created by the first
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      });
+    }
+    await run(["remove", "first", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the final bundle is inspected without changing files
+    const output = await run(["remove", "second", "--dry-run"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the dry run names the shared file that actual removal will delete
+    expect(output).toContain("Would remove second (1 file(s))");
+    expect(output).toContain(".mcp.json");
+    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(true);
+  });
+
+  it("preserves a pre-existing empty global MCP configuration after removal", async () => {
+    // Given an empty global configuration that predates Skul
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(path.join(homeDir, ".claude.json"), "{}\n");
+
+    // When a bundle is installed and then removed globally
+    await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "claude-code", "-y"],
+      {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      },
+    );
+    await run(["remove", "--global", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the user's empty file remains
+    expect(pathExists(path.join(homeDir, ".claude.json"))).toBe(true);
+    expect(readJson(path.join(homeDir, ".claude.json"))).toEqual({});
+  });
+
+  it("deletes nested MCP directories after global shared bundles are removed", async () => {
+    // Given two global Codex bundles sharing a configuration created by the first
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--global", "--agent", "codex", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When the creator and then the remaining bundle are removed
+    await run(["remove", "--global", "first", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    expect(pathExists(path.join(homeDir, ".codex"))).toBe(true);
+    await run(["remove", "--global", "second", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then both the configuration and its Skul-created parent directory are gone
+    expect(pathExists(path.join(homeDir, ".codex", "config.toml"))).toBe(false);
+    expect(pathExists(path.join(homeDir, ".codex"))).toBe(false);
+  });
+
+  it("removes an MCP-created parent directory after a later bundle releases its last file", async () => {
+    // Given a global Codex MCP file and a later bundle that adds an agent below
+    // the same Skul-created parent directory
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeManifest(homeDir, SOURCE, "first", {
+      name: "first",
+      tools: { codex: { mcp: { path: "mcp.json" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      "first",
+      "mcp.json",
+      JSON.stringify({
+        mcpServers: { first: { type: "stdio", command: "first" } },
+      }),
+    );
+    writeManifest(homeDir, SOURCE, "second", {
+      name: "second",
+      tools: { codex: { agents: { path: "agents" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      "second",
+      "agents/reviewer.md",
+      "---\nname: reviewer\ndescription: Review changes\n---\n\n# reviewer\n",
+    );
+
+    await run(["add", SOURCE, "first", "--global", "--agent", "codex", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    await run(["add", SOURCE, "second", "--global", "--agent", "codex", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When the MCP-owning bundle is removed first
+    await run(["remove", "--global", "first", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    expect(pathExists(path.join(homeDir, ".codex"))).toBe(true);
+
+    // And then the later bundle releases its final file
+    await run(["remove", "--global", "second", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the parent directory created for the MCP file is removed too
+    expect(pathExists(path.join(homeDir, ".codex"))).toBe(false);
+  });
+
+  it("deletes a created shared MCP file when worktree remove --all is used", async () => {
+    // Given two project bundles sharing a configuration created by the first
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When all bundles are removed at once
+    await run(["remove", "--all", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the created shared file is deleted
+    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(false);
+  });
+
+  it("deletes a created shared MCP file when worktree reset is used", async () => {
+    // Given two project bundles sharing a configuration created by the first
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When all worktree materialization is reset
+    await run(["reset", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the created shared file is deleted
+    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(false);
+  });
+
+  it("preserves created MCP ownership when apply materializes a linked worktree", async () => {
+    // Given two desired bundles sharing a project MCP file
+    const homeDir = createHomeDir();
+    const mainWorktree = createRepository();
+    const linkedWorktree = createLinkedWorktree(mainWorktree);
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(["add", SOURCE, bundle, "--agent", "claude-code", "-y"], {
+        homeDir,
+        cwd: mainWorktree,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When the linked worktree materializes both desired bundles
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+    await run(["remove", "first", "-y"], {
+      homeDir,
+      cwd: linkedWorktree,
+      prompts: createPromptClientStub(),
+    });
+    await run(["remove", "second", "-y"], {
+      homeDir,
+      cwd: linkedWorktree,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then final removal still deletes the file created during apply
+    expect(pathExists(path.join(linkedWorktree, ".mcp.json"))).toBe(false);
+  });
+
+  it("deletes a created shared MCP file when global reset is used", async () => {
+    // Given two global bundles sharing a configuration created by the first
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    for (const bundle of ["first", "second"]) {
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundle,
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { [bundle]: { type: "stdio", command: bundle } },
+        }),
+      );
+      await run(
+        ["add", SOURCE, bundle, "--global", "--agent", "claude-code", "-y"],
+        {
+          homeDir,
+          cwd,
+          prompts: createPromptClientStub(),
+        },
+      );
+    }
+
+    // When the global installation is reset
+    await run(["reset", "--global", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the created shared file is deleted
+    expect(pathExists(path.join(homeDir, ".claude.json"))).toBe(false);
   });
 
   it("preserves unrelated OpenCode settings sharing the config file", async () => {
@@ -1498,6 +1859,37 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({});
   });
 
+  it("removes a bundle's servers from a pre-existing file when only its MCP item is removed", async () => {
+    // Given a bundle with MCP and skills content merged into a user-owned file
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundleWithSkill(homeDir);
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      JSON.stringify({ mcpServers: { mine: { command: "mine" } } }),
+    );
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // When only the MCP item is removed
+    await run(["remove", BUNDLE, "--include", "mcp", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the user-owned config keeps its server and the skill remains active
+    expect(readMcpServers(path.join(cwd, ".mcp.json"))).toEqual({
+      mine: { command: "mine" },
+    });
+    expect(
+      pathExists(path.join(cwd, ".claude", "skills", "guide", "SKILL.md")),
+    ).toBe(true);
+  });
+
   it("keeps a second bundle's servers when the bundle that created the file goes", async () => {
     // Given two bundles sharing a file the first one created
     const homeDir = createHomeDir();
@@ -1618,6 +2010,29 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     );
     expect(output).toContain(".mcp.json");
     expect(output).toContain("docs");
+
+    // And the failed MCP ownership remains retryable after the warning
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(
+      registry.worktrees[Object.keys(registry.worktrees)[0]!]
+        ?.materialized_state.bundles[BUNDLE],
+    ).toBeDefined();
+
+    // When the user repairs the configuration and retries removal
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      JSON.stringify({ mcpServers: { docs: { command: "docs" } } }),
+    );
+    await run(["remove", BUNDLE, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the repaired, originally-created file is deleted
+    expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(false);
   });
 
   it("returns recovery warnings in JSON when removing a broken shared configuration", async () => {
