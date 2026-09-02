@@ -179,8 +179,8 @@ describe("tracked root-instruction shadow safety", () => {
     expect(updatedShadow.base_blob).toBe(
       runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
     );
-    expect(updatedShadow.overlay_fingerprint).not.toBe(
-      initialShadow.overlay_fingerprint,
+    expect(updatedShadow.overlays[0]!.overlay_fingerprint).not.toBe(
+      initialShadow.overlays[0]!.overlay_fingerprint,
     );
     expect(updatedShadow.rendered_fingerprint).not.toBe(
       initialShadow.rendered_fingerprint,

@@ -275,16 +275,16 @@ describe("run", () => {
     const claudeBaseBlob = runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]);
     const agentsShadow = renderTrackedRootInstructionShadow({
       baseContent: agentsBaseContent,
-      overlayContent: "Follow the agents guidance.",
-      bundleName: "agents-rules",
-      toolName: "codex",
+      overlays: [
+        { bundleName: "agents-rules", content: "Follow the agents guidance." },
+      ],
       strategy: "append",
     });
     const claudeShadow = renderTrackedRootInstructionShadow({
       baseContent: claudeBaseContent,
-      overlayContent: "Follow the claude guidance.",
-      bundleName: "claude-rules",
-      toolName: "claude-code",
+      overlays: [
+        { bundleName: "claude-rules", content: "Follow the claude guidance." },
+      ],
       strategy: "prepend",
     });
 
@@ -313,22 +313,30 @@ describe("run", () => {
           },
           shadowed_files: {
             "AGENTS.md": {
-              tool: "codex",
-              bundle: "agents-rules",
-              strategy: "append",
               base_blob: agentsBaseBlob,
-              overlay: "Follow the agents guidance.",
-              overlay_fingerprint: agentsShadow.overlayFingerprint,
+              overlays: [
+                {
+                  tool: "codex",
+                  bundle: "agents-rules",
+                  strategy: "append",
+                  overlay: "Follow the agents guidance.",
+                  overlay_fingerprint: agentsShadow.overlayFingerprints[0]!,
+                },
+              ],
               rendered_fingerprint: agentsShadow.renderedFingerprint,
               skip_worktree: true,
             },
             "CLAUDE.md": {
-              tool: "claude-code",
-              bundle: "claude-rules",
-              strategy: "prepend",
               base_blob: agentsBaseBlob,
-              overlay: "Follow the claude guidance.",
-              overlay_fingerprint: claudeShadow.overlayFingerprint,
+              overlays: [
+                {
+                  tool: "claude-code",
+                  bundle: "claude-rules",
+                  strategy: "prepend",
+                  overlay: "Follow the claude guidance.",
+                  overlay_fingerprint: claudeShadow.overlayFingerprints[0]!,
+                },
+              ],
               rendered_fingerprint: claudeShadow.renderedFingerprint,
               skip_worktree: true,
             },
@@ -343,30 +351,38 @@ describe("run", () => {
 
     // Then
     expect(parsed.worktree.shadowed_files["AGENTS.md"]).toEqual({
-      tool: "codex",
-      bundle: "agents-rules",
-      strategy: "append",
       base_blob: agentsBaseBlob,
-      overlay_fingerprint: agentsShadow.overlayFingerprint,
+      overlays: [
+        {
+          tool: "codex",
+          bundle: "agents-rules",
+          strategy: "append",
+          overlay_fingerprint: agentsShadow.overlayFingerprints[0]!,
+          active: true,
+          overlay_fresh: true,
+        },
+      ],
       rendered_fingerprint: agentsShadow.renderedFingerprint,
       skip_worktree: true,
-      active: true,
       base_fresh: true,
-      overlay_fresh: true,
       skip_worktree_active: true,
       manual_edit_suspected: false,
     });
     expect(parsed.worktree.shadowed_files["CLAUDE.md"]).toEqual({
-      tool: "claude-code",
-      bundle: "claude-rules",
-      strategy: "prepend",
       base_blob: agentsBaseBlob,
-      overlay_fingerprint: claudeShadow.overlayFingerprint,
+      overlays: [
+        {
+          tool: "claude-code",
+          bundle: "claude-rules",
+          strategy: "prepend",
+          overlay_fingerprint: claudeShadow.overlayFingerprints[0]!,
+          active: false,
+          overlay_fresh: false,
+        },
+      ],
       rendered_fingerprint: claudeShadow.renderedFingerprint,
       skip_worktree: true,
-      active: false,
       base_fresh: false,
-      overlay_fresh: false,
       skip_worktree_active: false,
       manual_edit_suspected: true,
     });

@@ -18,8 +18,6 @@ import {
   createRemoteBundleSource,
   createRepository,
   createSyncRepository,
-  expectAgentsDocument,
-  expectClaudeDocument,
   fingerprintFile,
   formatExpectedRootInstructionDocument,
   formatRootInstructionBundleBlock,
@@ -98,14 +96,15 @@ describe("tracked root-instruction shadow safety", () => {
       ]!.files,
     ).toEqual([]);
     expect(worktreeState.shadowed_files["AGENTS.md"]).toMatchObject({
-      tool: "codex",
-      bundle: "personal-rules",
-      strategy: "append",
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
+      overlays: [
+        { tool: "codex", bundle: "personal-rules", strategy: "append" },
+      ],
       skip_worktree: true,
     });
     expect(
-      worktreeState.shadowed_files["AGENTS.md"]!.overlay_fingerprint,
+      worktreeState.shadowed_files["AGENTS.md"]!.overlays[0]!
+        .overlay_fingerprint,
     ).toMatch(/^[0-9a-f]{64}$/);
     expect(
       worktreeState.shadowed_files["AGENTS.md"]!.rendered_fingerprint,
@@ -163,12 +162,263 @@ describe("tracked root-instruction shadow safety", () => {
       ]!.files,
     ).toEqual([]);
     expect(worktreeState.shadowed_files["CLAUDE.md"]).toMatchObject({
-      tool: "claude-code",
-      bundle: "repo-guide",
-      strategy: "append",
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]),
+      overlays: [
+        { tool: "claude-code", bundle: "repo-guide", strategy: "append" },
+      ],
       skip_worktree: true,
     });
+  });
+
+  it("folds a second bundle onto a tracked AGENTS.md the first already shadows", async () => {
+    // Given a committed AGENTS.md and two bundles that both target it
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\n",
+    });
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "security-standards",
+      content: "# Security standards\n",
+    });
+
+    // When both bundles are added
+    for (const bundle of ["repo-standards", "security-standards"]) {
+      await run(["add", bundle, "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // Then both overlays sit on the committed base in desired-state order,
+    // and Git still reports the tracked file as unchanged
+    assertAgentsDocument(
+      repoRoot,
+      "# Team base",
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards",
+      ),
+      formatTrackedRootInstructionShadowBlock(
+        "security-standards",
+        "# Security standards",
+      ),
+    );
+    expect(runGit(repoRoot, ["status", "--porcelain"]).trim()).toBe("");
+
+    const worktreeState = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    ).worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    expect(
+      worktreeState.shadowed_files["AGENTS.md"]!.overlays.map(
+        (overlay) => overlay.bundle,
+      ),
+    ).toEqual(["repo-standards", "security-standards"]);
+  });
+
+  it("keeps overlays in desired order when the first bundle is re-added last", async () => {
+    // Given a committed AGENTS.md shadowed by two bundles, in desired order
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    for (const [bundle, content] of [
+      ["repo-standards", "# Repo standards\n"],
+      ["security-standards", "# Security standards\n"],
+    ] as const) {
+      writeRootInstructionBundleFixture(homeDir, { bundle, content });
+      await run(["add", bundle, "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When the bundle that is first in desired state is applied again last
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then it keeps its desired-state position instead of moving to the end
+    assertAgentsDocument(
+      repoRoot,
+      "# Team base",
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards",
+      ),
+      formatTrackedRootInstructionShadowBlock(
+        "security-standards",
+        "# Security standards",
+      ),
+    );
+
+    const worktreeState = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    ).worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
+    expect(
+      worktreeState.shadowed_files["AGENTS.md"]!.overlays.map(
+        (overlay) => overlay.bundle,
+      ),
+    ).toEqual(["repo-standards", "security-standards"]);
+  });
+
+  it("reports every overlay on a shadowed file in status", async () => {
+    // Given a committed AGENTS.md shadowed by two bundles
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    for (const [bundle, content] of [
+      ["repo-standards", "# Repo standards\n"],
+      ["security-standards", "# Security standards\n"],
+    ] as const) {
+      writeRootInstructionBundleFixture(homeDir, { bundle, content });
+      await run(["add", bundle, "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When one bundle's block is edited out of the rendered file by hand
+    fs.writeFileSync(
+      path.join(repoRoot, "AGENTS.md"),
+      fs
+        .readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")
+        .replace(
+          formatTrackedRootInstructionShadowBlock(
+            "security-standards",
+            "# Security standards",
+          ),
+          "",
+        ),
+    );
+    const status = JSON.parse(
+      await run(["status", "--json"], { homeDir, cwd: repoRoot }),
+    ) as {
+      worktree: {
+        shadowed_files: Record<
+          string,
+          {
+            manual_edit_suspected: boolean;
+            overlays: Array<{
+              bundle: string;
+              active: boolean;
+              overlay_fresh: boolean;
+            }>;
+          }
+        >;
+      };
+    };
+
+    // Then the surviving overlay still reads as live while the edited one does not
+    expect(status.worktree.shadowed_files["AGENTS.md"]).toMatchObject({
+      manual_edit_suspected: true,
+      overlays: [
+        { bundle: "repo-standards", active: true, overlay_fresh: true },
+        { bundle: "security-standards", active: false, overlay_fresh: false },
+      ],
+    });
+  });
+
+  it("keeps the remaining overlay when one of two bundles shadowing AGENTS.md is removed", async () => {
+    // Given a committed AGENTS.md shadowed by two bundles
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    for (const [bundle, content] of [
+      ["repo-standards", "# Repo standards\n"],
+      ["security-standards", "# Security standards\n"],
+    ] as const) {
+      writeRootInstructionBundleFixture(homeDir, { bundle, content });
+      await run(["add", bundle, "--agent", "codex"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When the first bundle is removed
+    await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
+
+    // Then the file keeps shadowing with only the other bundle's overlay
+    assertAgentsDocument(
+      repoRoot,
+      "# Team base",
+      formatTrackedRootInstructionShadowBlock(
+        "security-standards",
+        "# Security standards",
+      ),
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
+
+    // And removing the last one gives the committed file back
+    await run(["remove", "security-standards"], { homeDir, cwd: repoRoot });
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
+      "# Team base\n",
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("H");
+  });
+
+  it("refuses a bundle that would replace a tracked file another bundle appends to", async () => {
+    // Given a committed AGENTS.md already shadowed with append
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\n",
+    });
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "personal-rules",
+      content: "# Personal rules\n",
+    });
+    await run(["add", "repo-standards", "--agent", "codex"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // When a second bundle would drop the base the first one renders onto
+    await expect(
+      run(
+        [
+          "add",
+          "personal-rules",
+          "--agent",
+          "codex",
+          "--root-instruction-mode",
+          "replace",
+        ],
+        { homeDir, cwd: repoRoot, prompts: createPromptClientStub() },
+      ),
+    ).rejects.toThrowError(
+      /AGENTS\.md must use one shadow strategy, but repo-standards uses append and personal-rules uses replace/i,
+    );
+
+    // Then the first bundle's shadow is left exactly as it was
+    assertAgentsDocument(
+      repoRoot,
+      "# Team base",
+      formatTrackedRootInstructionShadowBlock(
+        "repo-standards",
+        "# Repo standards",
+      ),
+    );
   });
 
   it("creates a tracked replace shadow when explicitly requested", async () => {
@@ -198,13 +448,29 @@ describe("tracked root-instruction shadow safety", () => {
 
     // Then
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n# personal policy\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
+      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n<!-- SKUL SHADOW START bundle=repo-standards -->\n# personal policy\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
     );
     const registry = readRegistryFile(
       path.join(homeDir, ".skul", "registry.json"),
     );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]!];
-    expect(worktree.shadowed_files["AGENTS.md"]?.strategy).toBe("replace");
+    expect(worktree.shadowed_files["AGENTS.md"]?.overlays[0]?.strategy).toBe(
+      "replace",
+    );
+    expect(
+      (
+        JSON.parse(
+          await run(["status", "--json"], { homeDir, cwd: repoRoot }),
+        ) as {
+          worktree: {
+            shadowed_files: Record<
+              string,
+              { overlays: Array<{ active: boolean; overlay_fresh: boolean }> }
+            >;
+          };
+        }
+      ).worktree.shadowed_files["AGENTS.md"]?.overlays,
+    ).toEqual([expect.objectContaining({ active: true, overlay_fresh: true })]);
 
     // When
     await run(["remove", "repo-standards"], { homeDir, cwd: repoRoot });
@@ -255,7 +521,7 @@ describe("tracked root-instruction shadow safety", () => {
     // Then
     expect(resolveFileConflict).toHaveBeenCalledWith("AGENTS.md");
     expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toBe(
-      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n# personal policy\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
+      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n<!-- SKUL SHADOW START bundle=repo-standards -->\n# personal policy\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
     );
   });
 
@@ -308,7 +574,7 @@ describe("tracked root-instruction shadow safety", () => {
     expect(shadowedFile.base_blob).toBe(
       runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
     );
-    expect(shadowedFile.overlay.trimEnd()).toBe(
+    expect(shadowedFile.overlays[0]!.overlay.trimEnd()).toBe(
       "# Repo standards\nUse consistent conventions.",
     );
   });
@@ -364,7 +630,7 @@ describe("tracked root-instruction shadow safety", () => {
     expect(shadowedFile.base_blob).toBe(
       runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]),
     );
-    expect(shadowedFile.overlay.trimEnd()).toBe(
+    expect(shadowedFile.overlays[0]!.overlay.trimEnd()).toBe(
       "# Claude standards\nUse Claude defaults.",
     );
   });
@@ -481,12 +747,12 @@ describe("tracked root-instruction shadow safety", () => {
 
     expect(worktreeState.shadowed_files["AGENTS.md"]).toMatchObject({
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
-      overlay: "# Repo standards\nUse consistent conventions.",
+      overlays: [{ overlay: "# Repo standards\nUse consistent conventions." }],
       skip_worktree: true,
     });
     expect(worktreeState.shadowed_files["CLAUDE.md"]).toMatchObject({
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]),
-      overlay: "# Claude standards\nUse Claude defaults.",
+      overlays: [{ overlay: "# Claude standards\nUse Claude defaults." }],
       skip_worktree: true,
     });
   });
@@ -545,7 +811,7 @@ describe("tracked root-instruction shadow safety", () => {
     expect(shadowedFile.base_blob).toBe(
       runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
     );
-    expect(shadowedFile.overlay).toBe(
+    expect(shadowedFile.overlays[0]!.overlay).toBe(
       "# Repo standards\nUse consistent conventions.",
     );
   });

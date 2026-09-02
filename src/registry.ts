@@ -80,13 +80,56 @@ export interface MaterializedState {
  */
 export type ShadowStrategy = "append" | "prepend" | "replace" | "merge";
 
-export interface ShadowedFileState {
+/** One bundle's contribution to a shadowed file, before it is fingerprinted. */
+export interface ShadowOverlay {
   tool: ToolName;
   bundle: string;
   strategy: ShadowStrategy;
-  base_blob: string;
   overlay: string;
+}
+
+/** A contribution as stored, once rendering has fingerprinted it. */
+export interface ShadowOverlayState extends ShadowOverlay {
   overlay_fingerprint: string;
+}
+
+/**
+ * Rejects overlay sets that disagree about what to do with the committed base.
+ *
+ * Every overlay on one file folds onto the same base, so they have to agree on
+ * what to do with it: `replace` drops the base the others read. `label` names
+ * the file or registry field the overlays belong to.
+ */
+export function assertSingleShadowStrategy(
+  overlays: readonly ShadowOverlay[],
+  label: string,
+): ShadowStrategy {
+  const first = overlays[0];
+
+  if (!first) {
+    throw new Error(`${label} must list at least one overlay`);
+  }
+
+  const mixed = overlays.find((overlay) => overlay.strategy !== first.strategy);
+
+  if (mixed) {
+    throw new Error(
+      `${label} must use one shadow strategy, but ${first.bundle} uses ${first.strategy} and ${mixed.bundle} uses ${mixed.strategy}`,
+    );
+  }
+
+  return first.strategy;
+}
+
+/**
+ * A committed file Skul renders over, plus every overlay folded onto it.
+ *
+ * Overlays are ordered: rendering folds them onto the committed base in this
+ * order, which is the repository's desired-bundle order.
+ */
+export interface ShadowedFileState {
+  base_blob: string;
+  overlays: ShadowOverlayState[];
   rendered_fingerprint: string;
   skip_worktree: boolean;
 }
@@ -581,7 +624,39 @@ function parseShadowedFileState(
   label: string,
 ): ShadowedFileState {
   const shadowedFile = expectRecord(input, label);
-  const tool = expectNonEmptyString(shadowedFile.tool, `${label}.tool`);
+
+  return {
+    base_blob: expectGitObjectId(shadowedFile.base_blob, `${label}.base_blob`),
+    overlays: parseShadowOverlays(shadowedFile.overlays, `${label}.overlays`),
+    rendered_fingerprint: expectNonEmptyString(
+      shadowedFile.rendered_fingerprint,
+      `${label}.rendered_fingerprint`,
+    ),
+    skip_worktree: expectBoolean(
+      shadowedFile.skip_worktree,
+      `${label}.skip_worktree`,
+    ),
+  };
+}
+
+function parseShadowOverlays(
+  input: unknown,
+  label: string,
+): ShadowOverlayState[] {
+  const overlays = expectArray(input, label).map((value, index) =>
+    parseShadowOverlayState(value, `${label}[${index}]`),
+  );
+  assertSingleShadowStrategy(overlays, label);
+
+  return overlays;
+}
+
+function parseShadowOverlayState(
+  input: unknown,
+  label: string,
+): ShadowOverlayState {
+  const overlayState = expectRecord(input, label);
+  const tool = expectNonEmptyString(overlayState.tool, `${label}.tool`);
 
   if (!isToolName(tool)) {
     throw new Error(
@@ -590,31 +665,22 @@ function parseShadowedFileState(
   }
 
   const strategy = expectShadowStrategy(
-    shadowedFile.strategy,
+    overlayState.strategy,
     `${label}.strategy`,
   );
 
   return {
     tool,
-    bundle: expectNonEmptyString(shadowedFile.bundle, `${label}.bundle`),
+    bundle: expectNonEmptyString(overlayState.bundle, `${label}.bundle`),
     strategy,
-    base_blob: expectGitObjectId(shadowedFile.base_blob, `${label}.base_blob`),
     overlay: expectShadowOverlay(
-      shadowedFile.overlay,
+      overlayState.overlay,
       strategy,
       `${label}.overlay`,
     ),
     overlay_fingerprint: expectNonEmptyString(
-      shadowedFile.overlay_fingerprint,
+      overlayState.overlay_fingerprint,
       `${label}.overlay_fingerprint`,
-    ),
-    rendered_fingerprint: expectNonEmptyString(
-      shadowedFile.rendered_fingerprint,
-      `${label}.rendered_fingerprint`,
-    ),
-    skip_worktree: expectBoolean(
-      shadowedFile.skip_worktree,
-      `${label}.skip_worktree`,
     ),
   };
 }
@@ -747,7 +813,10 @@ function cloneWorktreeState(worktreeState: WorktreeState): WorktreeState {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([relativePath, shadowedFile]) => [
           relativePath,
-          { ...shadowedFile },
+          {
+            ...shadowedFile,
+            overlays: shadowedFile.overlays.map((overlay) => ({ ...overlay })),
+          },
         ]),
     ),
   };

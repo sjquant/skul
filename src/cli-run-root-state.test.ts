@@ -244,12 +244,16 @@ describe("run", () => {
         },
         shadowed_files: {
           "AGENTS.md": {
-            tool: "codex",
-            bundle: "personal-rules",
-            strategy: "append",
             base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
-            overlay: "# Personal rules\n",
-            overlay_fingerprint: "overlay-abc123",
+            overlays: [
+              {
+                tool: "codex",
+                bundle: "personal-rules",
+                strategy: "append",
+                overlay: "# Personal rules\n",
+                overlay_fingerprint: "overlay-abc123",
+              },
+            ],
             rendered_fingerprint: "rendered-def456",
             skip_worktree: true,
           },
@@ -270,14 +274,15 @@ describe("run", () => {
         "",
         "Shadowed Instructions",
         "  AGENTS.md",
-        "    Bundle: personal-rules",
-        "    Tool: codex",
-        "    Strategy: append",
-        "    Active: no",
         "    Base: stale",
-        "    Overlay: stale",
         "    Skip-worktree: missing",
         "    Manual edits: suspected",
+        "    Overlays:",
+        "      Bundle: personal-rules",
+        "        Tool: codex",
+        "        Strategy: append",
+        "        Active: no",
+        "        Overlay: stale",
         'Suggested Action: run "skul apply"',
       ].join("\n"),
     );
@@ -303,16 +308,16 @@ describe("run", () => {
     const agentsBaseBlob = runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]);
     const agentsShadow = renderTrackedRootInstructionShadow({
       baseContent: agentsBaseContent,
-      overlayContent: "Follow the agents guidance.",
-      bundleName: "agents-rules",
-      toolName: "codex",
+      overlays: [
+        { bundleName: "agents-rules", content: "Follow the agents guidance." },
+      ],
       strategy: "append",
     });
     const claudeShadow = renderTrackedRootInstructionShadow({
       baseContent: claudeBaseContent,
-      overlayContent: "Follow the claude guidance.",
-      bundleName: "claude-rules",
-      toolName: "claude-code",
+      overlays: [
+        { bundleName: "claude-rules", content: "Follow the claude guidance." },
+      ],
       strategy: "prepend",
     });
 
@@ -340,22 +345,30 @@ describe("run", () => {
           },
           shadowed_files: {
             "AGENTS.md": {
-              tool: "codex",
-              bundle: "agents-rules",
-              strategy: "append",
               base_blob: agentsBaseBlob,
-              overlay: "Follow the agents guidance.",
-              overlay_fingerprint: agentsShadow.overlayFingerprint,
+              overlays: [
+                {
+                  tool: "codex",
+                  bundle: "agents-rules",
+                  strategy: "append",
+                  overlay: "Follow the agents guidance.",
+                  overlay_fingerprint: agentsShadow.overlayFingerprints[0]!,
+                },
+              ],
               rendered_fingerprint: agentsShadow.renderedFingerprint,
               skip_worktree: true,
             },
             "CLAUDE.md": {
-              tool: "claude-code",
-              bundle: "claude-rules",
-              strategy: "prepend",
               base_blob: agentsBaseBlob,
-              overlay: "Follow the claude guidance.",
-              overlay_fingerprint: claudeShadow.overlayFingerprint,
+              overlays: [
+                {
+                  tool: "claude-code",
+                  bundle: "claude-rules",
+                  strategy: "prepend",
+                  overlay: "Follow the claude guidance.",
+                  overlay_fingerprint: claudeShadow.overlayFingerprints[0]!,
+                },
+              ],
               rendered_fingerprint: claudeShadow.renderedFingerprint,
               skip_worktree: true,
             },
@@ -376,23 +389,25 @@ describe("run", () => {
         "",
         "Shadowed Instructions",
         "  AGENTS.md",
-        "    Bundle: agents-rules",
-        "    Tool: codex",
-        "    Strategy: append",
-        "    Active: yes",
         "    Base: current",
-        "    Overlay: current",
         "    Skip-worktree: set",
         "    Manual edits: no",
+        "    Overlays:",
+        "      Bundle: agents-rules",
+        "        Tool: codex",
+        "        Strategy: append",
+        "        Active: yes",
+        "        Overlay: current",
         "  CLAUDE.md",
-        "    Bundle: claude-rules",
-        "    Tool: claude-code",
-        "    Strategy: prepend",
-        "    Active: no",
         "    Base: stale",
-        "    Overlay: stale",
         "    Skip-worktree: missing",
         "    Manual edits: suspected",
+        "    Overlays:",
+        "      Bundle: claude-rules",
+        "        Tool: claude-code",
+        "        Strategy: prepend",
+        "        Active: no",
+        "        Overlay: stale",
         'Suggested Action: run "skul apply"',
       ].join("\n"),
     );
@@ -823,12 +838,16 @@ describe("run", () => {
           },
           shadowed_files: {
             "AGENTS.md": {
-              tool: "codex",
-              bundle: "personal-rules",
-              strategy: "append",
               base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
-              overlay: "# Shadowed content\n",
-              overlay_fingerprint: renderedFingerprint,
+              overlays: [
+                {
+                  tool: "codex",
+                  bundle: "personal-rules",
+                  strategy: "append",
+                  overlay: "# Shadowed content\n",
+                  overlay_fingerprint: renderedFingerprint,
+                },
+              ],
               rendered_fingerprint: renderedFingerprint,
               skip_worktree: true,
             },
@@ -902,17 +921,20 @@ describe("run", () => {
     const linkedEntry = registry.worktrees[linkedCtx.worktreeId]!;
     const linkedShadowState = {
       "AGENTS.md": {
-        tool: "codex" as const,
-        bundle: "personal-rules",
-        strategy: "append" as const,
         base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
-        overlay: "# Shadowed content\n",
-        overlay_fingerprint: "overlay-abc123",
+        overlays: [
+          {
+            tool: "codex" as const,
+            bundle: "personal-rules",
+            strategy: "append" as const,
+            overlay: "# Shadowed content\n",
+            overlay_fingerprint: renderedFingerprint,
+          },
+        ],
         rendered_fingerprint: renderedFingerprint,
         skip_worktree: true,
       },
     };
-    linkedShadowState["AGENTS.md"].overlay_fingerprint = renderedFingerprint;
 
     writeRegistryFile(
       registryFile,

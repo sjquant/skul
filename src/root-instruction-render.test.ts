@@ -2,32 +2,39 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import {
+  extractTrackedRootInstructionShadowBlock,
+  fingerprintShadowContent,
+  renderTrackedRootInstructionShadow,
+} from "./root-instruction-render";
+
+const PREAMBLE =
+  "Follow the instructions in this section; SKUL markers are metadata used to manage the content.";
 
 describe("tracked root-instruction shadow rendering", () => {
   it("renders append shadows deterministically for normalized inputs", () => {
     // Given
     const firstRender = renderTrackedRootInstructionShadow({
       baseContent: "# Team rules\n",
-      overlayContent: "# Personal rules\n",
-      bundleName: "personal-rules",
-      toolName: "codex",
+      overlays: [
+        { bundleName: "personal-rules", content: "# Personal rules\n" },
+      ],
       strategy: "append",
     });
 
     // When
     const secondRender = renderTrackedRootInstructionShadow({
       baseContent: "# Team rules\n\n",
-      overlayContent: "# Personal rules\n\n",
-      bundleName: "personal-rules",
-      toolName: "codex",
+      overlays: [
+        { bundleName: "personal-rules", content: "# Personal rules\n\n" },
+      ],
       strategy: "append",
     });
 
     // Then
     expect(secondRender).toEqual(firstRender);
     expect(firstRender.rendered).toBe(
-      "# Team rules\n\n<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
+      `# Team rules\n\n<!-- SKUL:INSTRUCTIONS START -->\n\n${PREAMBLE}\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
     );
   });
 
@@ -35,9 +42,9 @@ describe("tracked root-instruction shadow rendering", () => {
     // Given
     const options = {
       baseContent: "# Team rules\n",
-      overlayContent: "# Personal rules\n\n",
-      bundleName: "personal-rules",
-      toolName: "codex" as const,
+      overlays: [
+        { bundleName: "personal-rules", content: "# Personal rules\n\n" },
+      ],
       strategy: "prepend" as const,
     };
 
@@ -46,23 +53,120 @@ describe("tracked root-instruction shadow rendering", () => {
 
     // Then
     expect(render.rendered).toBe(
-      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n\n# Team rules\n",
+      `<!-- SKUL:INSTRUCTIONS START -->\n\n${PREAMBLE}\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n\n# Team rules\n`,
     );
   });
 
   it("formats tracked shadow markers deterministically", () => {
     // Given
     const render = renderTrackedRootInstructionShadow({
-      bundleName: "personal-rules",
       baseContent: "# Team rules\n",
-      overlayContent: "# Personal rules\nUse local overrides.\n",
-      toolName: "codex",
+      overlays: [
+        {
+          bundleName: "personal-rules",
+          content: "# Personal rules\nUse local overrides.\n",
+        },
+      ],
       strategy: "append",
     });
 
     // Then
-    expect(render.overlay).toBe(
+    expect(render.rendered).toContain(
       "<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\nUse local overrides.\n<!-- SKUL SHADOW END -->",
+    );
+  });
+
+  it("reads each bundle's block back out of a rendered shadow", () => {
+    // Given a file two bundles contribute to
+    const render = renderTrackedRootInstructionShadow({
+      baseContent: "# Team rules\n",
+      overlays: [
+        {
+          bundleName: "repo-standards",
+          content: "Use consistent conventions.",
+        },
+        { bundleName: "security-standards", content: "Never commit secrets." },
+      ],
+      strategy: "append",
+    });
+
+    // When each block is extracted by bundle name
+    const extracted = ["repo-standards", "security-standards"].map(
+      (bundleName) =>
+        extractTrackedRootInstructionShadowBlock({
+          content: render.rendered,
+          bundleName,
+        }),
+    );
+
+    // Then each round-trips to the fingerprint stored for that overlay
+    expect(extracted.map((block) => fingerprintShadowContent(block!))).toEqual(
+      render.overlayFingerprints,
+    );
+    expect(
+      extractTrackedRootInstructionShadowBlock({
+        content: render.rendered,
+        bundleName: "absent-bundle",
+      }),
+    ).toBeNull();
+  });
+
+  it("folds several bundles onto one committed base in overlay order", () => {
+    // Given
+    const overlays = [
+      {
+        bundleName: "repo-standards",
+        content: "Use consistent conventions.\n",
+      },
+      { bundleName: "security-standards", content: "Never commit secrets.\n" },
+    ];
+
+    // When
+    const render = renderTrackedRootInstructionShadow({
+      baseContent: "# Team rules\n",
+      overlays,
+      strategy: "append",
+    });
+
+    // Then
+    expect(render.rendered).toBe(
+      `# Team rules\n\n<!-- SKUL:INSTRUCTIONS START -->\n\n${PREAMBLE}\n\n<!-- SKUL SHADOW START bundle=repo-standards -->\nUse consistent conventions.\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL SHADOW START bundle=security-standards -->\nNever commit secrets.\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
+    );
+    expect(render.overlayFingerprints).toHaveLength(2);
+  });
+
+  it("keeps each bundle's block fingerprint independent of the bundles beside it", () => {
+    // Given
+    const soloRender = renderTrackedRootInstructionShadow({
+      baseContent: "# Team rules\n",
+      overlays: [
+        {
+          bundleName: "repo-standards",
+          content: "Use consistent conventions.",
+        },
+      ],
+      strategy: "append",
+    });
+
+    // When
+    const sharedRender = renderTrackedRootInstructionShadow({
+      baseContent: "# Team rules\n",
+      overlays: [
+        {
+          bundleName: "repo-standards",
+          content: "Use consistent conventions.",
+        },
+        { bundleName: "security-standards", content: "Never commit secrets." },
+      ],
+      strategy: "append",
+    });
+
+    // Then
+    expect(sharedRender.overlayFingerprints[0]).toBe(
+      soloRender.overlayFingerprints[0],
+    );
+    expect(sharedRender.renderedFingerprint).not.toBe(
+      soloRender.renderedFingerprint,
     );
   });
 
@@ -73,14 +177,12 @@ describe("tracked root-instruction shadow rendering", () => {
     // When
     const render = renderTrackedRootInstructionShadow({
       baseContent,
-      overlayContent: " \n\n",
-      bundleName: "personal-rules",
-      toolName: "codex",
+      overlays: [{ bundleName: "personal-rules", content: " \n\n" }],
       strategy: "append",
     });
 
     // Then
-    expect(render.overlay).toBe("");
+    expect(render.overlayFingerprints).toEqual([fingerprintShadowContent("")]);
     expect(render.rendered).toBe(baseContent);
   });
 
@@ -91,40 +193,40 @@ describe("tracked root-instruction shadow rendering", () => {
     // When
     const render = renderTrackedRootInstructionShadow({
       baseContent,
-      overlayContent: "# Personal rules\n",
-      bundleName: "personal-rules",
-      toolName: "codex",
+      overlays: [
+        { bundleName: "personal-rules", content: "# Personal rules\n" },
+      ],
       strategy: "append",
     });
 
     // Then
     expect(render.rendered).toBe(
-      `${baseContent}<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
+      `${baseContent}<!-- SKUL:INSTRUCTIONS START -->\n\n${PREAMBLE}\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
     );
   });
 
-  it("keeps overlay fingerprints stable when only the tracked base changes", () => {
+  it("keeps overlay blocks stable when only the tracked base changes", () => {
     // Given
     const initialRender = renderTrackedRootInstructionShadow({
       baseContent: "# Team rules v1\n",
-      overlayContent: "# Personal rules\n",
-      bundleName: "personal-rules",
-      toolName: "codex",
+      overlays: [
+        { bundleName: "personal-rules", content: "# Personal rules\n" },
+      ],
       strategy: "append",
     });
 
     // When
     const refreshedRender = renderTrackedRootInstructionShadow({
       baseContent: "# Team rules v2\n",
-      overlayContent: "# Personal rules\n",
-      bundleName: "personal-rules",
-      toolName: "codex",
+      overlays: [
+        { bundleName: "personal-rules", content: "# Personal rules\n" },
+      ],
       strategy: "append",
     });
 
     // Then
-    expect(refreshedRender.overlayFingerprint).toBe(
-      initialRender.overlayFingerprint,
+    expect(refreshedRender.overlayFingerprints).toEqual(
+      initialRender.overlayFingerprints,
     );
     expect(refreshedRender.renderedFingerprint).not.toBe(
       initialRender.renderedFingerprint,
@@ -135,9 +237,9 @@ describe("tracked root-instruction shadow rendering", () => {
     // Given
     const render = renderTrackedRootInstructionShadow({
       baseContent: "# Team rules\n",
-      overlayContent: "# Personal rules\n",
-      bundleName: "personal-rules",
-      toolName: "codex",
+      overlays: [
+        { bundleName: "personal-rules", content: "# Personal rules\n" },
+      ],
       strategy: "append",
     });
 
@@ -153,27 +255,44 @@ describe("tracked root-instruction shadow rendering", () => {
     expect(manualEditFingerprint).not.toBe(render.renderedFingerprint);
   });
 
-  it("guards replace rendering behind explicit confirmation", () => {
+  it("leaves the committed base out of a replace render", () => {
     // Given
-    const options = {
-      baseContent: "# Team rules\n",
-      overlayContent: "# Personal rules\n",
-      bundleName: "personal-rules",
-      toolName: "codex" as const,
-      strategy: "replace" as const,
-    };
+    const baseContent = "# Team rules\n";
 
-    // When / Then
-    expect(() => renderTrackedRootInstructionShadow(options)).toThrowError(
-      /requires explicit confirmation/i,
+    // When
+    const render = renderTrackedRootInstructionShadow({
+      baseContent,
+      overlays: [
+        { bundleName: "personal-rules", content: "# Personal rules\n" },
+      ],
+      strategy: "replace",
+    });
+
+    // Then
+    expect(render.rendered).not.toContain("# Team rules");
+    expect(render.rendered).toBe(
+      `<!-- SKUL:INSTRUCTIONS START -->\n\n${PREAMBLE}\n\n<!-- SKUL SHADOW START bundle=personal-rules -->\n# Personal rules\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
     );
-    expect(
-      renderTrackedRootInstructionShadow({
-        ...options,
-        allowReplace: true,
-      }).rendered,
-    ).toBe(
-      "<!-- SKUL:INSTRUCTIONS START -->\n\nFollow the instructions in this section; SKUL markers are metadata used to manage the content.\n\n# Personal rules\n\n<!-- SKUL:INSTRUCTIONS END -->\n",
+  });
+
+  it("drops the committed base once for several replace overlays", () => {
+    // Given
+    const overlays = [
+      { bundleName: "repo-standards", content: "Use consistent conventions." },
+      { bundleName: "security-standards", content: "Never commit secrets." },
+    ];
+
+    // When
+    const render = renderTrackedRootInstructionShadow({
+      baseContent: "# Team rules\n",
+      overlays,
+      strategy: "replace",
+    });
+
+    // Then
+    expect(render.rendered).not.toContain("# Team rules");
+    expect(render.rendered).toBe(
+      `<!-- SKUL:INSTRUCTIONS START -->\n\n${PREAMBLE}\n\n<!-- SKUL SHADOW START bundle=repo-standards -->\nUse consistent conventions.\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL SHADOW START bundle=security-standards -->\nNever commit secrets.\n<!-- SKUL SHADOW END -->\n\n<!-- SKUL:INSTRUCTIONS END -->\n`,
     );
   });
 });

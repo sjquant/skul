@@ -1,10 +1,6 @@
 import { createHash } from "node:crypto";
 
-import {
-  listGlobalToolDefinitions,
-  listToolDefinitions,
-  type ToolName,
-} from "./tool-mapping";
+import { listGlobalToolDefinitions, listToolDefinitions } from "./tool-mapping";
 
 const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set([
   ...listToolDefinitions()
@@ -17,6 +13,7 @@ const ROOT_INSTRUCTION_PATHS: ReadonlySet<string> = new Set([
 
 const SKUL_INSTRUCTIONS_START = "<!-- SKUL:INSTRUCTIONS START -->";
 const SKUL_INSTRUCTIONS_END = "<!-- SKUL:INSTRUCTIONS END -->";
+const SHADOW_BLOCK_END = "<!-- SKUL SHADOW END -->";
 const SKUL_INSTRUCTIONS_PREAMBLE =
   "Follow the instructions in this section; SKUL markers are metadata used to manage the content.";
 
@@ -30,19 +27,22 @@ export function composeRootInstructionContent(
     .join("\n\n");
 }
 
+/** One bundle's contribution to a tracked root-instruction shadow. */
+export interface TrackedRootInstructionOverlay {
+  bundleName: string;
+  content: string;
+}
+
 export interface RenderTrackedRootInstructionShadowOptions {
   baseContent?: string;
-  overlayContent: string;
-  bundleName: string;
-  toolName: ToolName;
+  overlays: TrackedRootInstructionOverlay[];
   strategy: "append" | "prepend" | "replace";
-  allowReplace?: boolean;
 }
 
 export interface RenderTrackedRootInstructionShadowResult {
-  overlay: string;
+  /** Fingerprint of the block rendered for each overlay, in the same order. */
+  overlayFingerprints: string[];
   rendered: string;
-  overlayFingerprint: string;
   renderedFingerprint: string;
 }
 
@@ -50,38 +50,63 @@ export interface RenderTrackedRootInstructionShadowResult {
  * Renders a deterministic tracked root-instruction shadow plus the
  * fingerprints later lifecycle commands use to detect stale overlays and
  * local manual edits.
+ *
+ * Every overlay keeps its own boundary markers, so a file several bundles
+ * contribute to stays readable and each contribution stays identifiable. The
+ * strategy decides where the composed blocks sit relative to the committed
+ * base — or, for `replace`, that the base is dropped entirely. Asking the user
+ * before dropping a committed base is the command layer's job, in
+ * `confirmRootInstructionReplacements`.
  */
 export function renderTrackedRootInstructionShadow(
   options: RenderTrackedRootInstructionShadowOptions,
 ): RenderTrackedRootInstructionShadowResult {
-  if (options.strategy === "replace" && options.allowReplace !== true) {
-    throw new Error(
-      `Tracked root-instruction replace strategy for ${options.toolName} requires explicit confirmation`,
-    );
-  }
-
-  const normalizedOverlayContent = normalizeRootInstructionPart(
-    options.overlayContent,
+  const blocks = options.overlays.map((overlay) =>
+    formatTrackedRootInstructionShadowBlock({
+      bundleName: overlay.bundleName,
+      content: overlay.content,
+    }),
   );
-  const overlay =
-    options.strategy === "replace"
-      ? normalizedOverlayContent
-      : formatTrackedRootInstructionShadowBlock({
-          bundleName: options.bundleName,
-          content: normalizedOverlayContent,
-        });
   const rendered = renderTrackedRootInstructionDocument({
     baseContent: options.baseContent,
-    overlay,
+    overlay: composeRootInstructionContent(blocks),
     strategy: options.strategy,
   });
 
   return {
-    overlay,
+    overlayFingerprints: blocks.map((block) => fingerprintShadowContent(block)),
     rendered,
-    overlayFingerprint: fingerprintShadowContent(overlay),
     renderedFingerprint: fingerprintShadowContent(rendered),
   };
+}
+
+/**
+ * Reads one bundle's rendered shadow block back out of a shadowed file.
+ *
+ * Status compares this against the stored overlay fingerprint, so it has to
+ * find the very markers `renderTrackedRootInstructionShadow` wrote — which is
+ * why extraction lives beside the formatter rather than restating its markers.
+ */
+export function extractTrackedRootInstructionShadowBlock(options: {
+  content: string;
+  bundleName: string;
+}): string | null {
+  const startMarker = formatShadowBlockStartMarker(options.bundleName);
+  const startIndex = options.content.indexOf(startMarker);
+
+  if (startIndex < 0) {
+    return null;
+  }
+
+  const endIndex = options.content.indexOf(SHADOW_BLOCK_END, startIndex);
+
+  if (endIndex < 0) {
+    return null;
+  }
+
+  return normalizeRootInstructionPart(
+    options.content.slice(startIndex, endIndex + SHADOW_BLOCK_END.length),
+  );
 }
 
 /** Wraps one bundle's root-instruction content with explicit boundary markers. */
@@ -135,10 +160,14 @@ function formatTrackedRootInstructionShadowBlock(options: {
   }
 
   return [
-    `<!-- SKUL SHADOW START bundle=${options.bundleName} -->`,
+    formatShadowBlockStartMarker(options.bundleName),
     normalizedContent,
-    "<!-- SKUL SHADOW END -->",
+    SHADOW_BLOCK_END,
   ].join("\n");
+}
+
+function formatShadowBlockStartMarker(bundleName: string): string {
+  return `<!-- SKUL SHADOW START bundle=${bundleName} -->`;
 }
 
 /** Returns whether a repo-relative path is a managed root-instruction file. */

@@ -738,10 +738,10 @@ describe("run", () => {
         .files,
     ).toEqual([]);
     expect(linkedEntry.shadowed_files["AGENTS.md"]).toMatchObject({
-      tool: "codex",
-      bundle: "repo-standards",
-      strategy: "append",
       base_blob: runGit(linkedWorktree, ["rev-parse", "HEAD:AGENTS.md"]),
+      overlays: [
+        { tool: "codex", bundle: "repo-standards", strategy: "append" },
+      ],
       skip_worktree: true,
     });
   });
@@ -795,12 +795,16 @@ describe("run", () => {
     const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
     const linkedShadowState = {
       "AGENTS.md": {
-        tool: "codex" as const,
-        bundle: "personal-rules",
-        strategy: "append" as const,
         base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
-        overlay: "# Shadowed content\n",
-        overlay_fingerprint: renderedFingerprint,
+        overlays: [
+          {
+            tool: "codex" as const,
+            bundle: "personal-rules",
+            strategy: "append" as const,
+            overlay: "# Shadowed content\n",
+            overlay_fingerprint: renderedFingerprint,
+          },
+        ],
         rendered_fingerprint: renderedFingerprint,
         skip_worktree: true,
       },
