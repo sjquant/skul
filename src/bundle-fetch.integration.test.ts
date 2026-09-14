@@ -61,6 +61,39 @@ afterEach(async () => {
 });
 
 describe("updateCachedRemoteSource integration", () => {
+  it("keeps the source fetch progress active while a clone is running", async () => {
+    // Given
+    const libraryDir = createLibraryDir();
+    const source = "github.com/user/react-bundle";
+    installSuccessfulCloneGit(libraryDir, 100);
+    const events: string[] = [];
+    const progress = {
+      start: (message: string) => events.push(`start:${message}`),
+      message: (message: string) => events.push(`message:${message}`),
+      stop: (message: string) => events.push(`stop:${message}`),
+    };
+    let settled = false;
+
+    // When
+    const fetchPromise = fetchRemoteSource({
+      source,
+      libraryDir,
+      progress,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Then
+    expect(settled).toBe(false);
+    await fetchPromise;
+    expect(events).toEqual([
+      "start:Fetching github.com/user/react-bundle",
+      "stop:Fetched github.com/user/react-bundle",
+    ]);
+  });
+
   it("normalizes SSH authentication failures raised while resolving the requested remote ref", async () => {
     // Given
     const libraryDir = createLibraryDir();
@@ -905,7 +938,7 @@ process.exit(128);
   return argsFile;
 }
 
-function installSuccessfulCloneGit(libraryDir: string): string {
+function installSuccessfulCloneGit(libraryDir: string, delayMs = 0): string {
   const fakeGitPath = path.join(libraryDir, "git");
   const argsFile = path.join(libraryDir, "git-args.log");
   fs.writeFileSync(
@@ -914,14 +947,19 @@ function installSuccessfulCloneGit(libraryDir: string): string {
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
+const delayMs = ${delayMs};
 fs.appendFileSync(${JSON.stringify(argsFile)}, args.join(" ") + "\\n");
 if (args[0] !== "clone") {
   console.error("unexpected git command: " + args.join(" "));
   process.exit(1);
 }
 const targetDir = args[args.length - 1];
-fs.mkdirSync(path.join(targetDir, ".git"), { recursive: true });
-fs.writeFileSync(path.join(targetDir, "README.md"), "# ssh clone\\n");
+const complete = () => {
+  fs.mkdirSync(path.join(targetDir, ".git"), { recursive: true });
+  fs.writeFileSync(path.join(targetDir, "README.md"), "# ssh clone\\n");
+};
+if (delayMs > 0) setTimeout(complete, delayMs);
+else complete();
 `,
   );
   fs.chmodSync(fakeGitPath, 0o755);

@@ -58,6 +58,7 @@ import {
   createHeadlessPromptClient,
   createHelpText,
   createPromptClientForSelections,
+  createSourceFetchProgress,
   isHeadlessMode,
   type PromptClient,
   parseCliArgs,
@@ -132,6 +133,7 @@ import {
   restoreRootInstructionBaseContents,
   syncManagedRootInstructionFiles,
 } from "./root-instruction-state";
+import type { SourceFetchProgress } from "./source-fetch-progress";
 import { resolveBundleDataDir, resolveGlobalStateLayout } from "./state-layout";
 import {
   GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
@@ -171,6 +173,7 @@ export interface RunOptions {
   homeDir?: string;
   cwd?: string;
   prompts?: PromptClient;
+  sourceFetchProgress?: SourceFetchProgress;
 }
 
 type CommandWarningCollector = string[];
@@ -209,6 +212,9 @@ export async function run(
     return getPackageVersion();
   }
 
+  const sourceFetchProgress =
+    options.sourceFetchProgress ?? (await createSourceFetchProgress());
+
   switch (parsed.command) {
     case "add": {
       const addPrompts = parsed.options.yes
@@ -235,6 +241,7 @@ export async function run(
           global: parsed.options.global,
           disableModelInvocation: parsed.options.disableModelInvocation,
           rootInstructionMode: parsed.options.rootInstructionMode,
+          sourceFetchProgress,
         });
       }
 
@@ -260,6 +267,7 @@ export async function run(
           inferredBundleFromSource: parsed.options.inferredBundleFromSource,
           disableModelInvocation: parsed.options.disableModelInvocation,
           rootInstructionMode: parsed.options.rootInstructionMode,
+          sourceFetchProgress,
         });
       }
       return applyBundle({
@@ -278,6 +286,7 @@ export async function run(
         inferredBundleFromSource: parsed.options.inferredBundleFromSource,
         disableModelInvocation: parsed.options.disableModelInvocation,
         rootInstructionMode: parsed.options.rootInstructionMode,
+        sourceFetchProgress,
       });
     }
     case "list":
@@ -314,6 +323,7 @@ export async function run(
         libraryDir: stateLayout.libraryDir,
         bundle: parsed.options.bundle,
         dryRun: parsed.options.dryRun,
+        sourceFetchProgress,
       });
     case "shadow":
       return shadowWorktree({
@@ -444,6 +454,7 @@ export async function run(
           registryFile: stateLayout.registryFile,
           libraryDir: stateLayout.libraryDir,
           dryRun: parsed.options.dryRun,
+          sourceFetchProgress,
         });
       }
       return applyWorktree({
@@ -452,6 +463,7 @@ export async function run(
         registryFile: stateLayout.registryFile,
         libraryDir: stateLayout.libraryDir,
         dryRun: parsed.options.dryRun,
+        sourceFetchProgress,
       });
     default:
       return assertUnreachable(parsed);
@@ -531,6 +543,7 @@ async function applyAllBundles(options: {
   global: boolean;
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   if (options.dryRun) {
     const { cached } = readCachedSourceRevision({
@@ -561,6 +574,7 @@ async function applyAllBundles(options: {
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
+      sourceFetchProgress: options.sourceFetchProgress,
     },
     refreshedSources,
     refreshedSourceUpdates,
@@ -616,6 +630,7 @@ async function applyAllBundles(options: {
             refreshedSourceUpdates,
             disableModelInvocation: options.disableModelInvocation,
             rootInstructionMode: options.rootInstructionMode,
+            sourceFetchProgress: options.sourceFetchProgress,
           })
         : await applyBundle({
             cwd: options.cwd,
@@ -634,6 +649,7 @@ async function applyAllBundles(options: {
             refreshedSourceUpdates,
             disableModelInvocation: options.disableModelInvocation,
             rootInstructionMode: options.rootInstructionMode,
+            sourceFetchProgress: options.sourceFetchProgress,
           }),
     );
   }
@@ -2603,6 +2619,7 @@ async function updateBundles(options: {
   libraryDir: string;
   bundle?: string;
   dryRun: boolean;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "update");
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -2632,6 +2649,7 @@ async function updateBundles(options: {
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
       ref: entry.ref,
+      progress: options.sourceFetchProgress,
     });
     const currentCommit = entry.resolved_commit ?? remoteStatus.currentCommit;
 
@@ -2711,6 +2729,7 @@ async function updateBundles(options: {
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
         ref: entry.ref,
+        progress: options.sourceFetchProgress,
         includeRootInstructions: entry.items?.includes("root-instruction"),
       });
       const cachedBundle = findCachedBundleWithGuidance({
@@ -2725,6 +2744,7 @@ async function updateBundles(options: {
         itemSelectors: entry.items,
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
+        sourceFetchProgress: options.sourceFetchProgress,
       });
 
       const materializationScope: BundleMaterializationScope = {
@@ -3032,6 +3052,7 @@ async function applyBundle(options: {
   refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -3075,6 +3096,7 @@ async function applyBundle(options: {
         registryBeforePrepare.repos[gitContext.repoFingerprint]
           ?.desired_state ?? [],
       disableModelInvocation: options.disableModelInvocation,
+      sourceFetchProgress: options.sourceFetchProgress,
     });
   }
 
@@ -3095,6 +3117,7 @@ async function applyBundle(options: {
       [],
     refreshedSources: options.refreshedSources,
     refreshedSourceUpdates: options.refreshedSourceUpdates,
+    sourceFetchProgress: options.sourceFetchProgress,
   });
 
   if (options.dryRun) {
@@ -3139,6 +3162,7 @@ async function applyBundle(options: {
     itemSelectors: preparedBundle.selectedItems,
     libraryDir: options.libraryDir,
     protocol: options.protocol,
+    sourceFetchProgress: options.sourceFetchProgress,
   });
   const materializationScope: BundleMaterializationScope = {
     repoRoot: gitContext.worktreeRoot,
@@ -3460,6 +3484,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
   ref?: string;
   existingDesiredState: DesiredBundleEntry[];
   disableModelInvocation?: boolean;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
@@ -3470,6 +3495,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
       protocol: options.protocol,
       ref: options.ref,
       requestedItems: options.includeItems,
+      sourceFetchProgress: options.sourceFetchProgress,
     },
     refreshedSources,
     refreshedSourceUpdates,
@@ -3523,6 +3549,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
         refreshedSources,
         refreshedSourceUpdates,
         disableModelInvocation: options.disableModelInvocation,
+        sourceFetchProgress: options.sourceFetchProgress,
       }),
     );
   }
@@ -3928,6 +3955,7 @@ async function prepareApplyBundle(options: {
   preBundlePrompts?: PromptClient;
   refreshedSources?: Set<string>;
   refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<{
   cloneLines: string[];
   cachedBundle: CachedBundle;
@@ -4205,6 +4233,7 @@ async function refreshBundleSourceForApply(
     libraryDir: string;
     ref?: string;
     requestedItems?: BundleItemSelector[];
+    sourceFetchProgress?: SourceFetchProgress;
   },
   refreshedSources: Set<string>,
   refreshedSourceUpdates: Map<string, RefreshedSourceUpdate>,
@@ -4245,6 +4274,7 @@ async function refreshBundleSourceForApply(
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
+      progress: options.sourceFetchProgress,
       includeRootInstructions:
         options.requestedItems?.includes("root-instruction"),
     });
@@ -4263,6 +4293,7 @@ async function refreshBundleSourceForApply(
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
+      progress: options.sourceFetchProgress,
       includeRootInstructions:
         options.requestedItems?.includes("root-instruction"),
     });
@@ -5779,6 +5810,7 @@ async function applyWorktree(options: {
   libraryDir: string;
   dryRun: boolean;
   warnings?: CommandWarningCollector;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "apply");
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -5835,6 +5867,7 @@ async function applyWorktree(options: {
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
         ref: entry.ref ?? entry.resolved_commit,
+        progress: options.sourceFetchProgress,
         includeRootInstructions: entry.items?.includes("root-instruction"),
       });
       if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
@@ -5931,6 +5964,7 @@ async function applyWorktree(options: {
       itemSelectors: entry.items,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
+      sourceFetchProgress: options.sourceFetchProgress,
     });
     const materializationScope: BundleMaterializationScope = {
       repoRoot: gitContext.worktreeRoot,
@@ -7890,6 +7924,7 @@ async function applyBundleGlobal(options: {
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
   warnings?: CommandWarningCollector;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
 
@@ -7929,6 +7964,7 @@ async function applyBundleGlobal(options: {
       ref: options.ref,
       existingDesiredState: existingGlobal?.desired_state ?? [],
       disableModelInvocation: options.disableModelInvocation,
+      sourceFetchProgress: options.sourceFetchProgress,
     });
   }
 
@@ -7981,6 +8017,7 @@ async function applyBundleGlobal(options: {
     inferredBundleFromSource: options.inferredBundleFromSource,
     refreshedSources: options.refreshedSources,
     refreshedSourceUpdates: options.refreshedSourceUpdates,
+    sourceFetchProgress: options.sourceFetchProgress,
   });
 
   const availableGlobalTools = preparedBundle.nextToolNames.filter((t) =>
@@ -8043,6 +8080,7 @@ async function applyBundleGlobal(options: {
     itemSelectors: preparedBundle.selectedItems,
     libraryDir: options.libraryDir,
     protocol: options.protocol,
+    sourceFetchProgress: options.sourceFetchProgress,
   });
   const materializationScope: BundleMaterializationScope = {
     repoRoot: options.homeDir,
@@ -8343,6 +8381,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
   ref?: string;
   existingDesiredState: DesiredBundleEntry[];
   disableModelInvocation?: boolean;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
@@ -8352,6 +8391,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
+      sourceFetchProgress: options.sourceFetchProgress,
     },
     refreshedSources,
     refreshedSourceUpdates,
@@ -8406,6 +8446,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
         refreshedSources,
         refreshedSourceUpdates,
         disableModelInvocation: options.disableModelInvocation,
+        sourceFetchProgress: options.sourceFetchProgress,
       }),
     );
   }
@@ -9266,6 +9307,7 @@ async function applyGlobal(options: {
   libraryDir: string;
   dryRun: boolean;
   warnings?: CommandWarningCollector;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
@@ -9325,6 +9367,7 @@ async function applyGlobal(options: {
         dryRun: false,
         ref: entry.ref,
         warnings: options.warnings,
+        sourceFetchProgress: options.sourceFetchProgress,
       });
       outputLines.push(result);
     } catch (err) {

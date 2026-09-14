@@ -8,6 +8,7 @@ import {
   normalizeBundleItemSelector,
 } from "./bundle-items";
 import type { RootInstructionMode } from "./registry";
+import type { SourceFetchProgress } from "./source-fetch-progress";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
 import { getPackageVersion } from "./version";
 
@@ -219,6 +220,40 @@ export function isHeadlessMode(): boolean {
   return (
     process.env["SKUL_NO_TUI"] === "1" || process.env["SKUL_NO_TUI"] === "true"
   );
+}
+
+/** Creates the terminal progress reporter used while fetching remote sources. */
+export async function createSourceFetchProgress(): Promise<
+  SourceFetchProgress | undefined
+> {
+  if (isHeadlessMode() || process.stderr.isTTY !== true) {
+    return undefined;
+  }
+
+  const { spinner } = await loadClackPromptsModule();
+  const sourceSpinner = spinner({
+    indicator: "dots",
+    output: process.stderr,
+  });
+  let activeFetches = 0;
+
+  return {
+    start: (message) => {
+      if (activeFetches === 0) {
+        sourceSpinner.start(message);
+      } else {
+        sourceSpinner.message(message);
+      }
+      activeFetches += 1;
+    },
+    message: (message) => sourceSpinner.message(message),
+    stop: (message) => {
+      activeFetches = Math.max(0, activeFetches - 1);
+      if (activeFetches === 0) {
+        sourceSpinner.stop(message);
+      }
+    },
+  };
 }
 
 /**

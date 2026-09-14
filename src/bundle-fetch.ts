@@ -1,10 +1,11 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import { escapeRegExp } from "./fs-utils";
+import type { SourceFetchProgress } from "./source-fetch-progress";
 
 export interface FetchRemoteSourceOptions {
   /** Normalized source identifier, e.g. "github.com/owner/repo" */
@@ -16,6 +17,8 @@ export interface FetchRemoteSourceOptions {
   ref?: string;
   /** Keep repository-root AGENTS.md and CLAUDE.md files in the fetched source. */
   includeRootInstructions?: boolean;
+  /** Reports progress and enables non-blocking Git commands for interactive CLI use. */
+  progress?: SourceFetchProgress;
 }
 
 export interface FetchRemoteSourceResult {
@@ -101,40 +104,60 @@ export async function fetchRemoteSource(
   const cloneUrl = getCloneUrl(options.source, options.protocol);
 
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
-
-  if (shouldUseGithubArchiveFirst(options)) {
-    await fetchGithubArchiveSource(options, targetDir);
-    return { cloned: true, targetDir };
-  }
+  const progress = options.progress;
+  progress?.start(`Fetching ${options.source}`);
+  let completed = false;
 
   try {
-    runGit(["clone", "--depth=1", cloneUrl, targetDir]);
-    if (options.ref) {
-      checkoutGitRemoteRef(targetDir, cloneUrl, options.ref);
+    if (shouldUseGithubArchiveFirst(options)) {
+      await fetchGithubArchiveSource(options, targetDir);
+      completed = true;
+      return { cloned: true, targetDir };
     }
-    stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
-  } catch (error) {
-    fs.rmSync(targetDir, { recursive: true, force: true });
 
-    if (shouldFallbackToGithubArchive(options, error)) {
-      try {
-        await fetchGithubArchiveSource(options, targetDir);
-        return { cloned: true, targetDir };
-      } catch (archiveError) {
-        throw combineGitAndArchiveErrors(error, archiveError, cloneUrl, {
-          source: options.source,
-          protocol: options.protocol,
-        });
+    try {
+      await runGitWithProgress(
+        ["clone", "--depth=1", cloneUrl, targetDir],
+        progress,
+      );
+      if (options.ref) {
+        await checkoutGitRemoteRef(targetDir, cloneUrl, options.ref, progress);
       }
+      stripRepositoryRootInstructions(
+        targetDir,
+        options.includeRootInstructions,
+      );
+    } catch (error) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+
+      if (shouldFallbackToGithubArchive(options, error)) {
+        try {
+          await fetchGithubArchiveSource(options, targetDir);
+          completed = true;
+          return { cloned: true, targetDir };
+        } catch (archiveError) {
+          throw combineGitAndArchiveErrors(error, archiveError, cloneUrl, {
+            source: options.source,
+            protocol: options.protocol,
+          });
+        }
+      }
+
+      throw normalizeGitError(error, `Failed to clone ${cloneUrl}`, {
+        source: options.source,
+        protocol: options.protocol,
+      });
     }
 
-    throw normalizeGitError(error, `Failed to clone ${cloneUrl}`, {
-      source: options.source,
-      protocol: options.protocol,
-    });
+    completed = true;
+    return { cloned: true, targetDir };
+  } finally {
+    progress?.stop(
+      completed
+        ? `Fetched ${options.source}`
+        : `Failed to fetch ${options.source}`,
+    );
   }
-
-  return { cloned: true, targetDir };
 }
 
 /** Reads the currently cached commit, ref, and remote URL for one source. */
@@ -181,6 +204,18 @@ export function readCachedSourceRevision(
 export async function inspectRemoteSource(
   options: FetchRemoteSourceOptions,
 ): Promise<RemoteSourceStatus> {
+  return withSourceFetchProgress(
+    options,
+    `Checking ${options.source}`,
+    () => inspectRemoteSourceImpl(options),
+    `Checked ${options.source}`,
+    `Failed to check ${options.source}`,
+  );
+}
+
+async function inspectRemoteSourceImpl(
+  options: FetchRemoteSourceOptions,
+): Promise<RemoteSourceStatus> {
   const cached = readCachedSourceRevision(options);
   const metadata = readGithubArchiveMetadata(cached.targetDir, options.source);
 
@@ -217,10 +252,11 @@ export async function inspectRemoteSource(
   };
 
   try {
-    resolvedRemote = resolveRemoteRef(
+    resolvedRemote = await resolveRemoteRef(
       remoteUrl,
       options.ref,
       cached.cached ? cached.targetDir : undefined,
+      options.progress,
     );
   } catch (error) {
     throw normalizeGitError(error, `Failed to inspect ${options.source}`, {
@@ -242,6 +278,18 @@ export async function inspectRemoteSource(
 
 /** Updates a cached remote source to the latest commit for its selected ref. */
 export async function updateCachedRemoteSource(
+  options: FetchRemoteSourceOptions,
+): Promise<UpdateCachedRemoteSourceResult> {
+  return withSourceFetchProgress(
+    options,
+    `Refreshing ${options.source}`,
+    () => updateCachedRemoteSourceImpl(options),
+    `Refreshed ${options.source}`,
+    `Failed to refresh ${options.source}`,
+  );
+}
+
+async function updateCachedRemoteSourceImpl(
   options: FetchRemoteSourceOptions,
 ): Promise<UpdateCachedRemoteSourceResult> {
   const initialRevision = readCachedSourceRevision(options);
@@ -289,11 +337,15 @@ export async function updateCachedRemoteSource(
   }
 
   try {
-    checkoutResolvedRemoteRef(targetDir, {
-      kind: status.refKind,
-      resolvedRef: status.resolvedRef,
-      commit: status.remoteCommit,
-    });
+    await checkoutResolvedRemoteRef(
+      targetDir,
+      {
+        kind: status.refKind,
+        resolvedRef: status.resolvedRef,
+        commit: status.remoteCommit,
+      },
+      options.progress,
+    );
     stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
   } catch (error) {
     throw normalizeGitError(error, `Failed to update ${options.source}`, {
@@ -398,6 +450,18 @@ export function removeCachedRemoteSource(
 export async function clearAndRefetchCachedRemoteSource(
   options: FetchRemoteSourceOptions,
 ): Promise<void> {
+  return withSourceFetchProgress(
+    options,
+    `Refreshing ${options.source}`,
+    () => clearAndRefetchCachedRemoteSourceImpl(options),
+    `Refreshed ${options.source}`,
+    `Failed to refresh ${options.source}`,
+  );
+}
+
+async function clearAndRefetchCachedRemoteSourceImpl(
+  options: FetchRemoteSourceOptions,
+): Promise<void> {
   const targetDir = getTargetDir(options);
   const revision = readCachedSourceRevision(options);
 
@@ -422,7 +486,10 @@ export async function clearAndRefetchCachedRemoteSource(
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   try {
-    runGit(["clone", "--depth=1", cloneUrl, tempDir]);
+    await runGitWithProgress(
+      ["clone", "--depth=1", cloneUrl, tempDir],
+      options.progress,
+    );
     stripRepositoryRootInstructions(tempDir, options.includeRootInstructions);
     fs.rmSync(targetDir, { recursive: true, force: true });
     fs.renameSync(tempDir, targetDir);
@@ -465,18 +532,26 @@ function getCloneUrl(
     : `https://${source}`;
 }
 
-function resolveRemoteRef(
+async function resolveRemoteRef(
   remoteUrl: string,
   requestedRef?: string,
   targetDir?: string,
-): { kind: "branch" | "tag" | "commit"; resolvedRef?: string; commit: string } {
+  progress?: SourceFetchProgress,
+): Promise<{
+  kind: "branch" | "tag" | "commit";
+  resolvedRef?: string;
+  commit: string;
+}> {
   if (requestedRef && requestedRef.length === 40 && isCommitSha(requestedRef)) {
     return { kind: "commit", commit: requestedRef };
   }
 
   if (requestedRef) {
     const branchCommit = parseFirstSha(
-      runGit(["ls-remote", remoteUrl, `refs/heads/${requestedRef}`]),
+      await runGitWithProgress(
+        ["ls-remote", remoteUrl, `refs/heads/${requestedRef}`],
+        progress,
+      ),
     );
 
     if (branchCommit) {
@@ -487,12 +562,15 @@ function resolveRemoteRef(
       };
     }
 
-    const tagOutput = runGit([
-      "ls-remote",
-      remoteUrl,
-      `refs/tags/${requestedRef}`,
-      `refs/tags/${requestedRef}^{}`,
-    ]);
+    const tagOutput = await runGitWithProgress(
+      [
+        "ls-remote",
+        remoteUrl,
+        `refs/tags/${requestedRef}`,
+        `refs/tags/${requestedRef}^{}`,
+      ],
+      progress,
+    );
     const tagCommit = parsePreferredTagSha(tagOutput, requestedRef);
 
     if (tagCommit) {
@@ -501,7 +579,7 @@ function resolveRemoteRef(
 
     if (isCommitSha(requestedRef)) {
       const commit = parseUniqueShaPrefix(
-        runGit(["ls-remote", remoteUrl]),
+        await runGitWithProgress(["ls-remote", remoteUrl], progress),
         requestedRef,
       );
 
@@ -530,18 +608,21 @@ function resolveRemoteRef(
           fetchArgs.splice(3, 0, "--unshallow");
         }
 
-        runGit(fetchArgs);
+        await runGitWithProgress(fetchArgs, progress);
 
         try {
           return {
             kind: "commit",
-            commit: runGit([
-              "-C",
-              targetDir,
-              "rev-parse",
-              "--verify",
-              `${requestedRef}^{commit}`,
-            ]),
+            commit: await runGitWithProgress(
+              [
+                "-C",
+                targetDir,
+                "rev-parse",
+                "--verify",
+                `${requestedRef}^{commit}`,
+              ],
+              progress,
+            ),
           };
         } catch {
           throw new Error(`Remote ref not found: ${requestedRef}`);
@@ -552,7 +633,10 @@ function resolveRemoteRef(
     throw new Error(`Remote ref not found: ${requestedRef}`);
   }
 
-  const headOutput = runGit(["ls-remote", "--symref", remoteUrl, "HEAD"]);
+  const headOutput = await runGitWithProgress(
+    ["ls-remote", "--symref", remoteUrl, "HEAD"],
+    progress,
+  );
   const headRef = parseHeadRef(headOutput);
   const headCommit = parseHeadCommit(headOutput);
 
@@ -563,59 +647,73 @@ function resolveRemoteRef(
   return { kind: "branch", resolvedRef: headRef, commit: headCommit };
 }
 
-function checkoutGitRemoteRef(
+async function checkoutGitRemoteRef(
   targetDir: string,
   remoteUrl: string,
   requestedRef: string,
-): void {
-  const resolved = resolveRemoteRef(remoteUrl, requestedRef, targetDir);
+  progress?: SourceFetchProgress,
+): Promise<void> {
+  const resolved = await resolveRemoteRef(
+    remoteUrl,
+    requestedRef,
+    targetDir,
+    progress,
+  );
 
-  checkoutResolvedRemoteRef(targetDir, resolved);
+  await checkoutResolvedRemoteRef(targetDir, resolved, progress);
 }
 
-function checkoutResolvedRemoteRef(
+async function checkoutResolvedRemoteRef(
   targetDir: string,
   resolved: {
     kind: "branch" | "tag" | "commit";
     resolvedRef?: string;
     commit: string;
   },
-): void {
+  progress?: SourceFetchProgress,
+): Promise<void> {
   if (resolved.kind === "branch") {
     const branch = requireResolvedRemoteRef(resolved);
-    runGit([
-      "-C",
-      targetDir,
-      "fetch",
-      "--depth=1",
-      "origin",
-      `refs/heads/${branch}`,
-    ]);
-    runGit(["-C", targetDir, "checkout", "-B", branch, "FETCH_HEAD"]);
+    await runGitWithProgress(
+      ["-C", targetDir, "fetch", "--depth=1", "origin", `refs/heads/${branch}`],
+      progress,
+    );
+    await runGitWithProgress(
+      ["-C", targetDir, "checkout", "-B", branch, "FETCH_HEAD"],
+      progress,
+    );
     return;
   }
 
   if (resolved.kind === "tag") {
     const tag = requireResolvedRemoteRef(resolved);
-    runGit([
-      "-C",
-      targetDir,
-      "fetch",
-      "--depth=1",
-      "origin",
-      `refs/tags/${tag}`,
-    ]);
-    runGit(["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"]);
+    await runGitWithProgress(
+      ["-C", targetDir, "fetch", "--depth=1", "origin", `refs/tags/${tag}`],
+      progress,
+    );
+    await runGitWithProgress(
+      ["-C", targetDir, "checkout", "--detach", "FETCH_HEAD"],
+      progress,
+    );
     return;
   }
 
   try {
-    runGit(["-C", targetDir, "cat-file", "-e", `${resolved.commit}^{commit}`]);
+    await runGitWithProgress(
+      ["-C", targetDir, "cat-file", "-e", `${resolved.commit}^{commit}`],
+      progress,
+    );
   } catch {
-    runGit(["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit]);
+    await runGitWithProgress(
+      ["-C", targetDir, "fetch", "--depth=1", "origin", resolved.commit],
+      progress,
+    );
   }
 
-  runGit(["-C", targetDir, "checkout", "--detach", resolved.commit]);
+  await runGitWithProgress(
+    ["-C", targetDir, "checkout", "--detach", resolved.commit],
+    progress,
+  );
 }
 
 function requireResolvedRemoteRef(resolved: {
@@ -738,27 +836,104 @@ function stripRepositoryRootInstructions(
   }
 }
 
-function runGit(args: string[]): string {
+async function withSourceFetchProgress<T>(
+  options: FetchRemoteSourceOptions,
+  message: string,
+  action: () => Promise<T>,
+  successMessage: string = `Fetched ${options.source}`,
+  failureMessage: string = `Failed to fetch ${options.source}`,
+): Promise<T> {
+  options.progress?.start(message);
+  let completed = false;
+
   try {
-    return String(
-      execFileSync("git", args, {
-        encoding: "utf8",
+    const result = await action();
+    completed = true;
+    return result;
+  } finally {
+    options.progress?.stop(completed ? successMessage : failureMessage);
+  }
+}
+
+async function runGitWithProgress(
+  args: string[],
+  progress?: SourceFetchProgress,
+): Promise<string> {
+  if (!progress) {
+    return runGit(args);
+  }
+
+  return runGitAsync(args);
+}
+
+function runGitAsync(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let child: ReturnType<typeof spawn>;
+
+    try {
+      child = spawn("git", args, {
         stdio: ["ignore", "pipe", "pipe"],
-      }),
-    ).trim();
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      (error as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
-      throw new Error(
-        "git is not installed or not on PATH. Install git to fetch remote bundles.",
-      );
+      });
+    } catch (error) {
+      reject(error);
+      return;
     }
 
-    throw error;
-  }
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", (error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        reject(
+          new Error(
+            "git is not installed or not on PATH. Install git to fetch remote bundles.",
+          ),
+        );
+        return;
+      }
+
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      if (code === 0) {
+        resolve(stdout.trim());
+        return;
+      }
+
+      reject(
+        Object.assign(
+          new Error(
+            `git ${args.join(" ")} exited with ${
+              signal ? `signal ${signal}` : `code ${code ?? "unknown"}`
+            }`,
+          ),
+          { stderr, stdout, status: code ?? undefined, signal },
+        ),
+      );
+    });
+  });
 }
 
 function shouldUseGithubArchiveFirst(
@@ -1388,6 +1563,29 @@ function tryRunGit(args: string[]): string | undefined {
     return result === "" ? undefined : result;
   } catch {
     return undefined;
+  }
+}
+
+function runGit(args: string[]): string {
+  try {
+    return String(
+      execFileSync("git", args, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    ).trim();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      throw new Error(
+        "git is not installed or not on PATH. Install git to fetch remote bundles.",
+      );
+    }
+
+    throw error;
   }
 }
 
