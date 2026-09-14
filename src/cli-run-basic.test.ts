@@ -458,6 +458,132 @@ describe("run", () => {
     );
   });
 
+  it("refreshes a cached remote bundle when re-added by name without --ref", async () => {
+    // Given: a cached remote bundle whose default branch has gained a skill
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# react v1\n",
+      },
+    });
+    await run(["add", remoteSource.source, remoteSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const updatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# react v2\n",
+        ".claude/skills/review/SKILL.md": "# review\n",
+      },
+    );
+
+    // When: the cached bundle is added again by name
+    await expect(
+      run(["add", remoteSource.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code (Updated)");
+
+    // Then: the latest default-branch content and revision are materialized
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react v2\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "review", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# review\n");
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoEntry =
+      registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+    expect(repoEntry.desired_state[0]).toMatchObject({
+      resolved_ref: "main",
+      resolved_commit: updatedCommit,
+    });
+  });
+
+  it("keeps a registry-pinned ref when a cached remote bundle is re-added by name", async () => {
+    // Given: a bundle pinned to stable while the default branch diverges
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "react-expert",
+      manifest: {
+        name: "react-expert",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/react/SKILL.md": "# initial\n",
+      },
+    });
+    runGit(remoteSource.remoteRepoPath, ["checkout", "-b", "stable"]);
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".claude/skills/react/SKILL.md": "# stable v1\n",
+    });
+    runGit(remoteSource.remoteRepoPath, ["checkout", "main"]);
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".claude/skills/react/SKILL.md": "# main v2\n",
+    });
+    await run(
+      ["add", remoteSource.source, remoteSource.bundle, "--ref", "stable"],
+      { homeDir, cwd: repoRoot, prompts: createPromptClientStub() },
+    );
+    runGit(remoteSource.remoteRepoPath, ["checkout", "stable"]);
+    const stableUpdatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".claude/skills/react/SKILL.md": "# stable v2\n",
+      },
+    );
+    runGit(remoteSource.remoteRepoPath, ["checkout", "main"]);
+
+    // When: the pinned bundle is added again without an explicit ref
+    await expect(
+      run(["add", remoteSource.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).resolves.toBe("Applied react-expert for claude-code (Updated)");
+
+    // Then: stable is refreshed and remains recorded as the selected ref
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# stable v2\n");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoEntry =
+      registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+    expect(repoEntry.desired_state[0]).toMatchObject({
+      ref: "stable",
+      resolved_ref: "stable",
+      resolved_commit: stableUpdatedCommit,
+    });
+  });
+
   it("reports a specific message when all bundles are local-only during update", async () => {
     // Given — desired state contains a source-less bundle entry
     const homeDir = createHomeDir();

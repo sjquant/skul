@@ -832,7 +832,7 @@ describe("run", () => {
         source: remoteSource.source,
         protocol: "https",
         ref: "stable",
-        resolved_ref: "main",
+        resolved_ref: "stable",
         resolved_commit: remoteSource.initialCommit,
       },
     ]);
