@@ -505,6 +505,146 @@ describe("run", () => {
     ).toBe("# extras\n");
   });
 
+  it("reconciles a removed source bundle through the removal safety lifecycle", async () => {
+    // Given: two bundles from one source and one bundle from another source
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const source = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/ai-vault",
+      bundle: "core",
+      manifest: {
+        name: "core",
+        tools: { codex: { skills: { path: ".agents/skills" } } },
+      },
+      files: {
+        ".agents/skills/core/SKILL.md": "# core\n",
+      },
+    });
+    updateRemoteBundleSource(source.remoteRepoPath, "extras", {
+      "manifest.json": `${JSON.stringify(
+        {
+          name: "extras",
+          tools: { codex: { skills: { path: ".agents/skills" } } },
+        },
+        null,
+        2,
+      )}\n`,
+      ".agents/skills/extras/SKILL.md": "# extras\n",
+    });
+    const otherSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/other/ai-vault",
+      bundle: "other",
+      manifest: {
+        name: "other",
+        tools: { codex: { skills: { path: ".agents/skills" } } },
+      },
+      files: {
+        ".agents/skills/other/SKILL.md": "# other\n",
+      },
+    });
+
+    await run(["add", source.source, "--all"], { homeDir, cwd: repoRoot });
+    await run(["add", otherSource.source, otherSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
+    });
+
+    const removedBundleFile = path.join(
+      repoRoot,
+      ".agents",
+      "skills",
+      "extras",
+      "SKILL.md",
+    );
+    fs.writeFileSync(removedBundleFile, "# locally modified extras\n");
+    fs.rmSync(path.join(source.remoteRepoPath, "extras"), {
+      recursive: true,
+      force: true,
+    });
+    runGit(source.remoteRepoPath, ["add", "-A"]);
+    runGit(source.remoteRepoPath, ["commit", "-m", "Remove extras bundle"]);
+
+    // When: the refreshed source would remove a locally modified managed file
+    const declineRemoval = vi.fn(async () => false);
+    await expect(
+      run(["add", source.source, "--all"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: declineRemoval,
+        }),
+      }),
+    ).rejects.toThrowError(
+      /Removal aborted because a modified managed file was kept/,
+    );
+
+    // Then: declining leaves the stale bundle and its local edit untouched
+    expect(declineRemoval).toHaveBeenCalledWith(
+      ".agents/skills/extras/SKILL.md",
+      "remove",
+    );
+    expect(fs.readFileSync(removedBundleFile, "utf8")).toBe(
+      "# locally modified extras\n",
+    );
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
+        detectGitContext({ cwd: repoRoot })!.repoFingerprint
+      ]?.desired_state,
+    ).toContainEqual(
+      expect.objectContaining({
+        bundle: "extras",
+        source: source.source,
+      }),
+    );
+
+    // When: the user accepts the managed-file removal on the next refresh
+    await expect(
+      run(["add", source.source, "--all"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => true,
+        }),
+      }),
+    ).resolves.toMatch(/Removed extras[\s\S]*Applied core/);
+
+    // Then: the disappeared bundle is gone, while current and other-source bundles remain
+    expect(pathExists(removedBundleFile)).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "core", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# core\n");
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "other", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# other\n");
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const gitContext = detectGitContext({ cwd: repoRoot })!;
+    expect(
+      registry.repos[gitContext.repoFingerprint]?.desired_state.map(
+        ({ bundle, source: bundleSource }) => ({
+          bundle,
+          source: bundleSource,
+        }),
+      ),
+    ).toEqual([
+      { bundle: "core", source: source.source },
+      { bundle: "other", source: otherSource.source },
+    ]);
+    expect(
+      Object.keys(
+        registry.worktrees[gitContext.worktreeId]!.materialized_state.bundles,
+      ).sort(),
+    ).toEqual(["core", "other"]);
+  });
+
   it("dry-runs all bundles from an uncached source without creating local state", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -620,6 +760,141 @@ describe("run", () => {
         "utf8",
       ),
     ).toBe("# extras\n");
+  });
+
+  it("reconciles a removed global source bundle through the removal safety lifecycle", async () => {
+    // Given: two bundles from one source and one globally installed bundle from another source
+    const homeDir = createHomeDir();
+    const source = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/global-ai-vault",
+      bundle: "core",
+      manifest: {
+        name: "core",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/core/SKILL.md": "# core\n",
+      },
+    });
+    updateRemoteBundleSource(source.remoteRepoPath, "extras", {
+      "manifest.json": `${JSON.stringify(
+        {
+          name: "extras",
+          tools: {
+            "claude-code": { skills: { path: ".claude/skills" } },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      ".claude/skills/extras/SKILL.md": "# extras\n",
+    });
+    const otherSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/other/global-ai-vault",
+      bundle: "other",
+      manifest: {
+        name: "other",
+        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+      },
+      files: {
+        ".claude/skills/other/SKILL.md": "# other\n",
+      },
+    });
+
+    await run(["add", "--global", source.source, "--all"], { homeDir });
+    await run(["add", "--global", otherSource.source, otherSource.bundle], {
+      homeDir,
+    });
+
+    const removedBundleFile = path.join(
+      homeDir,
+      ".claude",
+      "skills",
+      "extras",
+      "SKILL.md",
+    );
+    fs.writeFileSync(removedBundleFile, "# locally modified extras\n");
+    fs.rmSync(path.join(source.remoteRepoPath, "extras"), {
+      recursive: true,
+      force: true,
+    });
+    runGit(source.remoteRepoPath, ["add", "-A"]);
+    runGit(source.remoteRepoPath, ["commit", "-m", "Remove extras bundle"]);
+
+    // When: the refreshed source would remove a locally modified managed file
+    const declineRemoval = vi.fn(async () => false);
+    await expect(
+      run(["add", "--global", source.source, "--all"], {
+        homeDir,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: declineRemoval,
+        }),
+      }),
+    ).rejects.toThrowError(
+      /Removal aborted because a modified managed file was kept/,
+    );
+
+    // Then: declining leaves the stale global bundle and its local edit untouched
+    expect(declineRemoval).toHaveBeenCalledWith(
+      ".claude/skills/extras/SKILL.md",
+      "remove",
+    );
+    expect(fs.readFileSync(removedBundleFile, "utf8")).toBe(
+      "# locally modified extras\n",
+    );
+    expect(
+      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).global,
+    ).toMatchObject({
+      desired_state: expect.arrayContaining([
+        expect.objectContaining({
+          bundle: "extras",
+          source: source.source,
+        }),
+      ]),
+    });
+
+    // When: the user accepts the managed-file removal on the next refresh
+    await expect(
+      run(["add", "--global", source.source, "--all"], {
+        homeDir,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => true,
+        }),
+      }),
+    ).resolves.toMatch(/Removed global extras[\s\S]*Applied core globally/);
+
+    // Then: the disappeared bundle is gone, while current and other-source bundles remain
+    expect(pathExists(removedBundleFile)).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".claude", "skills", "core", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# core\n");
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".claude", "skills", "other", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# other\n");
+
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    expect(
+      registry.global?.desired_state.map(
+        ({ bundle, source: bundleSource }) => ({
+          bundle,
+          source: bundleSource,
+        }),
+      ),
+    ).toEqual([
+      { bundle: "core", source: source.source },
+      { bundle: "other", source: otherSource.source },
+    ]);
+    expect(
+      Object.keys(registry.global!.materialized_state.bundles).sort(),
+    ).toEqual(["core", "other"]);
   });
 
   it("installs all available agents without prompting when add uses yes", async () => {

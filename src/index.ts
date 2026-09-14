@@ -58,6 +58,7 @@ import {
   createHeadlessPromptClient,
   createHelpText,
   createPromptClientForSelections,
+  createSourceFetchProgress,
   isHeadlessMode,
   type PromptClient,
   parseCliArgs,
@@ -132,6 +133,7 @@ import {
   restoreRootInstructionBaseContents,
   syncManagedRootInstructionFiles,
 } from "./root-instruction-state";
+import type { SourceFetchProgress } from "./source-fetch-progress";
 import { resolveBundleDataDir, resolveGlobalStateLayout } from "./state-layout";
 import {
   GLOBAL_TOOL_MATERIALIZATION_LAYOUT,
@@ -171,6 +173,7 @@ export interface RunOptions {
   homeDir?: string;
   cwd?: string;
   prompts?: PromptClient;
+  sourceFetchProgress?: SourceFetchProgress;
 }
 
 type CommandWarningCollector = string[];
@@ -209,6 +212,9 @@ export async function run(
     return getPackageVersion();
   }
 
+  const sourceFetchProgress =
+    options.sourceFetchProgress ?? (await createSourceFetchProgress());
+
   switch (parsed.command) {
     case "add": {
       const addPrompts = parsed.options.yes
@@ -235,6 +241,7 @@ export async function run(
           global: parsed.options.global,
           disableModelInvocation: parsed.options.disableModelInvocation,
           rootInstructionMode: parsed.options.rootInstructionMode,
+          sourceFetchProgress,
         });
       }
 
@@ -260,6 +267,7 @@ export async function run(
           inferredBundleFromSource: parsed.options.inferredBundleFromSource,
           disableModelInvocation: parsed.options.disableModelInvocation,
           rootInstructionMode: parsed.options.rootInstructionMode,
+          sourceFetchProgress,
         });
       }
       return applyBundle({
@@ -278,6 +286,7 @@ export async function run(
         inferredBundleFromSource: parsed.options.inferredBundleFromSource,
         disableModelInvocation: parsed.options.disableModelInvocation,
         rootInstructionMode: parsed.options.rootInstructionMode,
+        sourceFetchProgress,
       });
     }
     case "list":
@@ -314,6 +323,7 @@ export async function run(
         libraryDir: stateLayout.libraryDir,
         bundle: parsed.options.bundle,
         dryRun: parsed.options.dryRun,
+        sourceFetchProgress,
       });
     case "shadow":
       return shadowWorktree({
@@ -444,6 +454,7 @@ export async function run(
           registryFile: stateLayout.registryFile,
           libraryDir: stateLayout.libraryDir,
           dryRun: parsed.options.dryRun,
+          sourceFetchProgress,
         });
       }
       return applyWorktree({
@@ -452,6 +463,7 @@ export async function run(
         registryFile: stateLayout.registryFile,
         libraryDir: stateLayout.libraryDir,
         dryRun: parsed.options.dryRun,
+        sourceFetchProgress,
       });
     default:
       return assertUnreachable(parsed);
@@ -531,6 +543,7 @@ async function applyAllBundles(options: {
   global: boolean;
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   if (options.dryRun) {
     const { cached } = readCachedSourceRevision({
@@ -561,14 +574,30 @@ async function applyAllBundles(options: {
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
+      sourceFetchProgress: options.sourceFetchProgress,
     },
     refreshedSources,
     refreshedSourceUpdates,
   );
+  const availableSourceBundles = listCachedBundles({
+    libraryDir: options.libraryDir,
+  }).filter((bundle) => bundle.source === options.source);
   const bundles = listAllApplyBundles({
     libraryDir: options.libraryDir,
     source: options.source,
     agents: options.agents,
+    global: options.global,
+  });
+  const reconciliationOutput = await reconcileRemovedSourceBundles({
+    cwd: options.cwd,
+    homeDir: options.homeDir,
+    prompts: options.prompts,
+    registryFile: options.registryFile,
+    libraryDir: options.libraryDir,
+    source: options.source,
+    availableBundleNames: new Set(
+      availableSourceBundles.map((bundle) => bundle.bundle),
+    ),
     global: options.global,
   });
 
@@ -601,6 +630,7 @@ async function applyAllBundles(options: {
             refreshedSourceUpdates,
             disableModelInvocation: options.disableModelInvocation,
             rootInstructionMode: options.rootInstructionMode,
+            sourceFetchProgress: options.sourceFetchProgress,
           })
         : await applyBundle({
             cwd: options.cwd,
@@ -619,11 +649,108 @@ async function applyAllBundles(options: {
             refreshedSourceUpdates,
             disableModelInvocation: options.disableModelInvocation,
             rootInstructionMode: options.rootInstructionMode,
+            sourceFetchProgress: options.sourceFetchProgress,
           }),
     );
   }
 
-  return [...cloneLines, ...outputLines].filter(Boolean).join("\n");
+  return [cloneLines, reconciliationOutput, outputLines]
+    .flat()
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function reconcileRemovedSourceBundles(options: {
+  cwd: string;
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  source: string;
+  availableBundleNames: ReadonlySet<string>;
+  global: boolean;
+}): Promise<string> {
+  const registry = readRegistryWithGuidance(options.registryFile);
+  const gitContext = options.global
+    ? undefined
+    : detectGitContext({ cwd: options.cwd });
+  const desiredState = options.global
+    ? registry.global?.desired_state
+    : gitContext
+      ? registry.repos[gitContext.repoFingerprint]?.desired_state
+      : undefined;
+  const materializedBundles = options.global
+    ? registry.global?.materialized_state.bundles
+    : gitContext
+      ? registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles
+      : undefined;
+  const selections = listRemovedSourceBundleSelections({
+    source: options.source,
+    availableBundleNames: options.availableBundleNames,
+    desiredState,
+    materializedBundles,
+  });
+
+  if (selections.length === 0) {
+    return "";
+  }
+
+  return options.global
+    ? removeAllGlobalBundles({
+        homeDir: options.homeDir,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        selections,
+        dryRun: false,
+      })
+    : removeAllWorktreeBundles({
+        cwd: options.cwd,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        selections,
+        dryRun: false,
+      });
+}
+
+function listRemovedSourceBundleSelections(options: {
+  source: string;
+  availableBundleNames: ReadonlySet<string>;
+  desiredState?: readonly DesiredBundleEntry[];
+  materializedBundles?: Readonly<Record<string, MaterializedBundleState>>;
+}): BundleSelection[] {
+  const selections: BundleSelection[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of options.desiredState ?? []) {
+    if (
+      entry.source === options.source &&
+      !options.availableBundleNames.has(entry.bundle)
+    ) {
+      addActiveRemoveBundleSelection(selections, seen, {
+        bundle: entry.bundle,
+        source: entry.source,
+        protocol: entry.protocol,
+      });
+    }
+  }
+
+  for (const [bundle, state] of Object.entries(
+    options.materializedBundles ?? {},
+  )) {
+    if (
+      state.source === options.source &&
+      !options.availableBundleNames.has(bundle)
+    ) {
+      addActiveRemoveBundleSelection(selections, seen, {
+        bundle,
+        source: state.source,
+      });
+    }
+  }
+
+  return selections.sort(compareBundleSelections);
 }
 
 function renderAllApplyDryRun(options: {
@@ -729,17 +856,20 @@ async function removeAllWorktreeBundles(options: {
   registryFile: string;
   libraryDir: string;
   source?: string;
+  selections?: BundleSelection[];
   dryRun: boolean;
   warnings?: CommandWarningCollector;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "remove");
   let registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
-  const selections = listActiveRemoveBundleSelections({
-    repoState,
-    worktreeState: registry.worktrees[gitContext.worktreeId],
-    source: options.source,
-  });
+  const selections =
+    options.selections ??
+    listActiveRemoveBundleSelections({
+      repoState,
+      worktreeState: registry.worktrees[gitContext.worktreeId],
+      source: options.source,
+    });
 
   if (selections.length === 0) {
     throw new Error(
@@ -774,7 +904,7 @@ async function removeAllWorktreeBundles(options: {
       }),
     ),
   );
-  const shadowedBundleNames = selections.map((selection) => selection.bundle);
+  const shadowedBundleNames = materializedTargets.map(([bundle]) => bundle);
   const shadowedFilePaths = shadowedBundleNames.flatMap((bundle) =>
     listShadowedPathsForBundle({
       shadowedFiles: worktreeState?.shadowed_files ?? {},
@@ -1124,14 +1254,17 @@ async function removeAllGlobalBundles(options: {
   registryFile: string;
   libraryDir: string;
   source?: string;
+  selections?: BundleSelection[];
   dryRun: boolean;
   warnings?: CommandWarningCollector;
 }): Promise<string> {
   let registry = readRegistryWithGuidance(options.registryFile);
-  const selections = listActiveGlobalRemoveBundleSelections({
-    globalState: registry.global,
-    source: options.source,
-  });
+  const selections =
+    options.selections ??
+    listActiveGlobalRemoveBundleSelections({
+      globalState: registry.global,
+      source: options.source,
+    });
 
   if (selections.length === 0) {
     throw new Error(
@@ -2486,6 +2619,7 @@ async function updateBundles(options: {
   libraryDir: string;
   bundle?: string;
   dryRun: boolean;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "update");
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -2515,6 +2649,7 @@ async function updateBundles(options: {
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
       ref: entry.ref,
+      progress: options.sourceFetchProgress,
     });
     const currentCommit = entry.resolved_commit ?? remoteStatus.currentCommit;
 
@@ -2594,6 +2729,7 @@ async function updateBundles(options: {
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
         ref: entry.ref,
+        progress: options.sourceFetchProgress,
         includeRootInstructions: entry.items?.includes("root-instruction"),
       });
       const cachedBundle = findCachedBundleWithGuidance({
@@ -2608,6 +2744,7 @@ async function updateBundles(options: {
         itemSelectors: entry.items,
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
+        sourceFetchProgress: options.sourceFetchProgress,
       });
 
       const materializationScope: BundleMaterializationScope = {
@@ -2915,6 +3052,7 @@ async function applyBundle(options: {
   refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -2958,6 +3096,7 @@ async function applyBundle(options: {
         registryBeforePrepare.repos[gitContext.repoFingerprint]
           ?.desired_state ?? [],
       disableModelInvocation: options.disableModelInvocation,
+      sourceFetchProgress: options.sourceFetchProgress,
     });
   }
 
@@ -2978,6 +3117,7 @@ async function applyBundle(options: {
       [],
     refreshedSources: options.refreshedSources,
     refreshedSourceUpdates: options.refreshedSourceUpdates,
+    sourceFetchProgress: options.sourceFetchProgress,
   });
 
   if (options.dryRun) {
@@ -3022,6 +3162,7 @@ async function applyBundle(options: {
     itemSelectors: preparedBundle.selectedItems,
     libraryDir: options.libraryDir,
     protocol: options.protocol,
+    sourceFetchProgress: options.sourceFetchProgress,
   });
   const materializationScope: BundleMaterializationScope = {
     repoRoot: gitContext.worktreeRoot,
@@ -3343,6 +3484,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
   ref?: string;
   existingDesiredState: DesiredBundleEntry[];
   disableModelInvocation?: boolean;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
@@ -3353,6 +3495,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
       protocol: options.protocol,
       ref: options.ref,
       requestedItems: options.includeItems,
+      sourceFetchProgress: options.sourceFetchProgress,
     },
     refreshedSources,
     refreshedSourceUpdates,
@@ -3406,6 +3549,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
         refreshedSources,
         refreshedSourceUpdates,
         disableModelInvocation: options.disableModelInvocation,
+        sourceFetchProgress: options.sourceFetchProgress,
       }),
     );
   }
@@ -3811,6 +3955,7 @@ async function prepareApplyBundle(options: {
   preBundlePrompts?: PromptClient;
   refreshedSources?: Set<string>;
   refreshedSourceUpdates?: Map<string, RefreshedSourceUpdate>;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<{
   cloneLines: string[];
   cachedBundle: CachedBundle;
@@ -4088,6 +4233,7 @@ async function refreshBundleSourceForApply(
     libraryDir: string;
     ref?: string;
     requestedItems?: BundleItemSelector[];
+    sourceFetchProgress?: SourceFetchProgress;
   },
   refreshedSources: Set<string>,
   refreshedSourceUpdates: Map<string, RefreshedSourceUpdate>,
@@ -4128,6 +4274,7 @@ async function refreshBundleSourceForApply(
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
+      progress: options.sourceFetchProgress,
       includeRootInstructions:
         options.requestedItems?.includes("root-instruction"),
     });
@@ -4146,6 +4293,7 @@ async function refreshBundleSourceForApply(
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
+      progress: options.sourceFetchProgress,
       includeRootInstructions:
         options.requestedItems?.includes("root-instruction"),
     });
@@ -5662,6 +5810,7 @@ async function applyWorktree(options: {
   libraryDir: string;
   dryRun: boolean;
   warnings?: CommandWarningCollector;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "apply");
   let registry = readRegistryWithGuidance(options.registryFile);
@@ -5718,6 +5867,7 @@ async function applyWorktree(options: {
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
         ref: entry.ref ?? entry.resolved_commit,
+        progress: options.sourceFetchProgress,
         includeRootInstructions: entry.items?.includes("root-instruction"),
       });
       if (cloned) cloneLines.push(pc.dim(`Cloned ${entry.source}`));
@@ -5814,6 +5964,7 @@ async function applyWorktree(options: {
       itemSelectors: entry.items,
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
+      sourceFetchProgress: options.sourceFetchProgress,
     });
     const materializationScope: BundleMaterializationScope = {
       repoRoot: gitContext.worktreeRoot,
@@ -7773,6 +7924,7 @@ async function applyBundleGlobal(options: {
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
   warnings?: CommandWarningCollector;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
 
@@ -7812,6 +7964,7 @@ async function applyBundleGlobal(options: {
       ref: options.ref,
       existingDesiredState: existingGlobal?.desired_state ?? [],
       disableModelInvocation: options.disableModelInvocation,
+      sourceFetchProgress: options.sourceFetchProgress,
     });
   }
 
@@ -7864,6 +8017,7 @@ async function applyBundleGlobal(options: {
     inferredBundleFromSource: options.inferredBundleFromSource,
     refreshedSources: options.refreshedSources,
     refreshedSourceUpdates: options.refreshedSourceUpdates,
+    sourceFetchProgress: options.sourceFetchProgress,
   });
 
   const availableGlobalTools = preparedBundle.nextToolNames.filter((t) =>
@@ -7926,6 +8080,7 @@ async function applyBundleGlobal(options: {
     itemSelectors: preparedBundle.selectedItems,
     libraryDir: options.libraryDir,
     protocol: options.protocol,
+    sourceFetchProgress: options.sourceFetchProgress,
   });
   const materializationScope: BundleMaterializationScope = {
     repoRoot: options.homeDir,
@@ -8226,6 +8381,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
   ref?: string;
   existingDesiredState: DesiredBundleEntry[];
   disableModelInvocation?: boolean;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
@@ -8235,6 +8391,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
       libraryDir: options.libraryDir,
       protocol: options.protocol,
       ref: options.ref,
+      sourceFetchProgress: options.sourceFetchProgress,
     },
     refreshedSources,
     refreshedSourceUpdates,
@@ -8289,6 +8446,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
         refreshedSources,
         refreshedSourceUpdates,
         disableModelInvocation: options.disableModelInvocation,
+        sourceFetchProgress: options.sourceFetchProgress,
       }),
     );
   }
@@ -9149,6 +9307,7 @@ async function applyGlobal(options: {
   libraryDir: string;
   dryRun: boolean;
   warnings?: CommandWarningCollector;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
   const registry = readRegistryWithGuidance(options.registryFile);
   const globalState = registry.global;
@@ -9208,6 +9367,7 @@ async function applyGlobal(options: {
         dryRun: false,
         ref: entry.ref,
         warnings: options.warnings,
+        sourceFetchProgress: options.sourceFetchProgress,
       });
       outputLines.push(result);
     } catch (err) {

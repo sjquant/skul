@@ -111,6 +111,95 @@ describe("tracked root-instruction shadow safety", () => {
     ).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("preserves a same-named tracked shadow from another source during source reconciliation", async () => {
+    // Given: a stale desired bundle and a same-named active bundle from another source
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "# Team base\n");
+    runGit(repoRoot, ["add", "AGENTS.md"]);
+    runGit(repoRoot, ["commit", "-m", "track AGENTS"]);
+    const staleSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/stale-source",
+      bundle: "core",
+      manifest: {
+        name: "core",
+        tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+      },
+      files: { "AGENTS.md": "# Stale source\n" },
+    });
+    const activeSource = createRemoteBundleSource(homeDir, {
+      source: "github.com/other/active-source",
+      bundle: "core",
+      manifest: {
+        name: "core",
+        tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+      },
+      files: { "AGENTS.md": "# Active source\n" },
+    });
+    await run(["add", activeSource.source, activeSource.bundle], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    const registry = readRegistryFile(registryFile);
+    registry.repos[repoFingerprint]!.desired_state.push({
+      bundle: staleSource.bundle,
+      source: staleSource.source,
+      protocol: "https",
+    });
+    writeRegistryFile(registryFile, registry);
+    fs.rmSync(path.join(staleSource.remoteRepoPath, "core"), {
+      recursive: true,
+      force: true,
+    });
+    runGit(staleSource.remoteRepoPath, ["add", "-A"]);
+    runGit(staleSource.remoteRepoPath, [
+      "commit",
+      "-m",
+      "Remove stale source bundle",
+    ]);
+
+    // When: the refreshed source no longer contains its desired bundle
+    await expect(
+      run(["add", staleSource.source, "--all"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrowError(
+      /No bundles found for github.com\/user\/stale-source/,
+    );
+
+    // Then: the active source's tracked shadow and registry state remain intact
+    assertAgentsDocument(
+      repoRoot,
+      "# Team base\n",
+      formatTrackedRootInstructionShadowBlock(
+        activeSource.bundle,
+        "# Active source\n",
+      ),
+    );
+    expect(readGitIndexFlag(repoRoot, "AGENTS.md")).toBe("S");
+    const reconciledRegistry = readRegistryFile(registryFile);
+    expect(reconciledRegistry.repos[repoFingerprint]?.desired_state).toEqual([
+      expect.objectContaining({
+        bundle: activeSource.bundle,
+        source: activeSource.source,
+        protocol: "https",
+      }),
+    ]);
+    expect(
+      reconciledRegistry.worktrees[
+        detectGitContext({ cwd: repoRoot })!.worktreeId
+      ]!.shadowed_files["AGENTS.md"]!.overlays,
+    ).toMatchObject([{ bundle: activeSource.bundle, tool: "codex" }]);
+  });
+
   it("creates a tracked CLAUDE.md shadow during add", async () => {
     // Given
     const homeDir = createHomeDir();

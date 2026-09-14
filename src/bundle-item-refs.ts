@@ -19,6 +19,7 @@ import {
   inferBundleManifest,
   MANIFEST_FILE_NAME,
 } from "./bundle-manifest";
+import type { SourceFetchProgress } from "./source-fetch-progress";
 import type { ToolName, ToolTargetName } from "./tool-mapping";
 
 export const BUNDLE_ITEM_REFS_FILE_NAME = "skul.refs.json";
@@ -58,6 +59,7 @@ export async function resolveBundleItemRefs(options: {
   itemSelectors?: BundleItemSelector[];
   libraryDir: string;
   protocol?: "https" | "ssh";
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<Map<string, ResolvedBundleItemRef>> {
   const resolved = new Map<string, ResolvedBundleItemRef>();
   const candidates = listBundleItemRefCandidates({
@@ -81,6 +83,7 @@ export async function resolveBundleItemRefs(options: {
       protocol,
       ref,
       includeRootInstructions: itemRef.item === "root-instruction",
+      sourceFetchProgress: options.sourceFetchProgress,
     });
 
     const cachedBundle = resolveReferencedCachedBundle({
@@ -124,13 +127,28 @@ async function ensureReferencedSourceRevision(options: {
   protocol: "https" | "ssh";
   ref?: string;
   includeRootInstructions?: boolean;
+  sourceFetchProgress?: SourceFetchProgress;
 }): Promise<void> {
   if (options.ref) {
-    await updateCachedRemoteSource(options);
+    await updateCachedRemoteSource({
+      source: options.source,
+      libraryDir: options.libraryDir,
+      protocol: options.protocol,
+      ref: options.ref,
+      includeRootInstructions: options.includeRootInstructions,
+      progress: options.sourceFetchProgress,
+    });
     return;
   }
 
-  await fetchRemoteSource(options);
+  await fetchRemoteSource({
+    source: options.source,
+    libraryDir: options.libraryDir,
+    protocol: options.protocol,
+    ref: options.ref,
+    includeRootInstructions: options.includeRootInstructions,
+    progress: options.sourceFetchProgress,
+  });
 }
 
 function listBundleItemRefCandidates(options: {
