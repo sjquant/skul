@@ -645,6 +645,66 @@ describe("run", () => {
     ).toEqual(["core", "other"]);
   });
 
+  it("refreshes a registry-pinned source before whole-source add", async () => {
+    // Given: a source pinned to stable while its default branch diverges
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const remoteSource = createRemoteBundleSource(homeDir, {
+      bundle: "core",
+      manifest: {
+        name: "core",
+        tools: { codex: { skills: { path: ".agents/skills" } } },
+      },
+      files: {
+        ".agents/skills/core/SKILL.md": "# initial\n",
+      },
+    });
+    runGit(remoteSource.remoteRepoPath, ["checkout", "-b", "stable"]);
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".agents/skills/core/SKILL.md": "# stable v1\n",
+    });
+    runGit(remoteSource.remoteRepoPath, ["checkout", "main"]);
+    updateRemoteBundleSource(remoteSource.remoteRepoPath, remoteSource.bundle, {
+      ".agents/skills/core/SKILL.md": "# main v2\n",
+    });
+    await run(["add", remoteSource.source, "--all", "--ref", "stable"], {
+      homeDir,
+      cwd: repoRoot,
+    });
+    runGit(remoteSource.remoteRepoPath, ["checkout", "stable"]);
+    const stableUpdatedCommit = updateRemoteBundleSource(
+      remoteSource.remoteRepoPath,
+      remoteSource.bundle,
+      {
+        ".agents/skills/core/SKILL.md": "# stable v2\n",
+      },
+    );
+    runGit(remoteSource.remoteRepoPath, ["checkout", "main"]);
+
+    // When: the whole source is added again without an explicit ref
+    await expect(
+      run(["add", remoteSource.source, "--all"], { homeDir, cwd: repoRoot }),
+    ).resolves.toBe("Applied core for codex (Updated)");
+
+    // Then: the pinned ref is refreshed and materialized
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".agents", "skills", "core", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# stable v2\n");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoEntry =
+      registry.repos[detectGitContext({ cwd: repoRoot })!.repoFingerprint]!;
+    expect(repoEntry.desired_state[0]).toMatchObject({
+      ref: "stable",
+      resolved_ref: "stable",
+      resolved_commit: stableUpdatedCommit,
+    });
+  });
+
   it("dry-runs all bundles from an uncached source without creating local state", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -1717,8 +1777,8 @@ describe("run", () => {
     });
   });
 
-  it("preserves cached source protocol when a cached bundle is added by name", async () => {
-    // Given
+  it("preserves a cached SSH source when refreshing a bundle added by name", async () => {
+    // Given: a cached remote bundle whose origin uses SSH
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     const remoteSource = createRemoteBundleSource(homeDir, {
@@ -1743,17 +1803,33 @@ describe("run", () => {
       "origin",
       "git@github.com:user/ai-vault.git",
     ]);
+    const sshCommandPath = path.join(homeDir, "git-ssh");
+    fs.writeFileSync(
+      sshCommandPath,
+      `#!/bin/sh\nexec git-upload-pack '${remoteSource.remoteRepoPath}'\n`,
+    );
+    fs.chmodSync(sshCommandPath, 0o755);
+    const previousGitSshCommand = process.env.GIT_SSH_COMMAND;
+    process.env.GIT_SSH_COMMAND = sshCommandPath;
 
-    // When
-    await expect(
-      run(["add", remoteSource.bundle], {
-        homeDir,
-        cwd: repoRoot,
-        prompts: createPromptClientStub(),
-      }),
-    ).resolves.toBe("Applied react-expert for claude-code");
+    // When: the cached bundle is added again without an explicit ref
+    try {
+      await expect(
+        run(["add", remoteSource.bundle], {
+          homeDir,
+          cwd: repoRoot,
+          prompts: createPromptClientStub(),
+        }),
+      ).resolves.toBe("Applied react-expert for claude-code");
+    } finally {
+      if (previousGitSshCommand === undefined) {
+        delete process.env.GIT_SSH_COMMAND;
+      } else {
+        process.env.GIT_SSH_COMMAND = previousGitSshCommand;
+      }
+    }
 
-    // Then
+    // Then: the refreshed registry keeps the cached SSH transport
     expect(
       readRegistryFile(path.join(homeDir, ".skul", "registry.json")).repos[
         detectGitContext({ cwd: repoRoot })!.repoFingerprint
@@ -1767,7 +1843,7 @@ describe("run", () => {
     });
   });
 
-  it("upgrades a legacy source-less entry to the cached source protocol on bundle-only add", async () => {
+  it("upgrades a legacy source-less entry to the refreshed source protocol on bundle-only add", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1781,18 +1857,6 @@ describe("run", () => {
         ".claude/skills/react/SKILL.md": "# react\n",
       },
     });
-    const cachedSourceDir = path.join(
-      homeDir,
-      ".skul",
-      "library",
-      ...remoteSource.source.split("/"),
-    );
-    runGit(cachedSourceDir, [
-      "remote",
-      "set-url",
-      "origin",
-      "git@github.com:user/ai-vault.git",
-    ]);
     const registryFile = path.join(homeDir, ".skul", "registry.json");
     const gitContext = detectGitContext({ cwd: repoRoot })!;
     const registry = upsertRepoState(
@@ -1822,7 +1886,7 @@ describe("run", () => {
     ).toContainEqual({
       bundle: "react-expert",
       source: remoteSource.source,
-      protocol: "ssh",
+      protocol: "https",
       resolved_ref: "main",
       resolved_commit: remoteSource.initialCommit,
     });

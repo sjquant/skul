@@ -566,6 +566,18 @@ async function applyAllBundles(options: {
     });
   }
 
+  const registry = readRegistryWithGuidance(options.registryFile);
+  const existingDesiredState = options.global
+    ? (registry.global?.desired_state ?? [])
+    : getDesiredStateForCurrentRepository({
+        cwd: options.cwd,
+        registry,
+      });
+  const sourceRef = resolveSourceRefForApply({
+    source: options.source,
+    requestedRef: options.ref,
+    existingDesiredState,
+  });
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
   const cloneLines = await refreshBundleSourceForApply(
@@ -573,7 +585,7 @@ async function applyAllBundles(options: {
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
-      ref: options.ref,
+      ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
       sourceFetchProgress: options.sourceFetchProgress,
     },
     refreshedSources,
@@ -625,7 +637,7 @@ async function applyAllBundles(options: {
             includeItems: [],
             selectItems: false,
             dryRun: options.dryRun,
-            ref: options.ref,
+            ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
             refreshedSources,
             refreshedSourceUpdates,
             disableModelInvocation: options.disableModelInvocation,
@@ -644,7 +656,7 @@ async function applyAllBundles(options: {
             includeItems: [],
             selectItems: false,
             dryRun: options.dryRun,
-            ref: options.ref,
+            ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
             refreshedSources,
             refreshedSourceUpdates,
             disableModelInvocation: options.disableModelInvocation,
@@ -789,6 +801,16 @@ function renderAllApplyDryRun(options: {
       return `${pc.yellow("DRY RUN:")} Would ${message}`;
     })
     .join("\n");
+}
+
+function getDesiredStateForCurrentRepository(options: {
+  cwd: string;
+  registry: Registry;
+}): DesiredBundleEntry[] {
+  const gitContext = detectGitContext({ cwd: options.cwd });
+  return gitContext
+    ? (options.registry.repos[gitContext.repoFingerprint]?.desired_state ?? [])
+    : [];
 }
 
 function formatAllApplyDryRunToolLabel(options: {
@@ -3486,6 +3508,11 @@ async function applySelectedItemsAcrossSourceBundles(options: {
   disableModelInvocation?: boolean;
   sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
+  const sourceRef = resolveSourceRefForApply({
+    source: options.source,
+    requestedRef: options.ref,
+    existingDesiredState: options.existingDesiredState,
+  });
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
   const cloneLines = await refreshBundleSourceForApply(
@@ -3493,7 +3520,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
-      ref: options.ref,
+      ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
       requestedItems: options.includeItems,
       sourceFetchProgress: options.sourceFetchProgress,
     },
@@ -3545,7 +3572,7 @@ async function applySelectedItemsAcrossSourceBundles(options: {
         selectItems: false,
         replaceItems: true,
         dryRun: options.dryRun,
-        ref: options.ref,
+        ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
         refreshedSources,
         refreshedSourceUpdates,
         disableModelInvocation: options.disableModelInvocation,
@@ -3972,8 +3999,15 @@ async function prepareApplyBundle(options: {
   const refreshedSources = options.refreshedSources ?? new Set<string>();
   const refreshedSourceUpdates =
     options.refreshedSourceUpdates ?? new Map<string, RefreshedSourceUpdate>();
+  const initialRef =
+    options.ref ??
+    findDesiredBundleEntry({
+      desiredState: options.existingDesiredState,
+      bundle: options.bundle,
+      source: options.source,
+    })?.ref;
   const cloneLines = await refreshBundleSourceForApply(
-    options,
+    { ...options, ref: initialRef },
     refreshedSources,
     refreshedSourceUpdates,
   );
@@ -4023,17 +4057,32 @@ async function prepareApplyBundle(options: {
     bundleSource = selection.source ?? options.source ?? cachedBundle.source;
   }
 
-  if (
-    bundleSource &&
-    (options.source !== undefined || options.ref !== undefined)
-  ) {
+  const existingDesiredEntry = bundleSource
+    ? findDesiredBundleEntry({
+        desiredState: options.existingDesiredState,
+        bundle: cachedBundle.bundle,
+        source: bundleSource,
+      })
+    : undefined;
+  const effectiveRef = options.ref ?? existingDesiredEntry?.ref;
+  const refreshProtocol =
+    options.source === undefined && bundleSource
+      ? resolveImplicitBundleRefreshProtocol({
+          source: bundleSource,
+          libraryDir: options.libraryDir,
+          requestedProtocol: options.protocol,
+          existingDesiredEntry,
+        })
+      : options.protocol;
+
+  if (bundleSource) {
     cloneLines.push(
       ...(await refreshBundleSourceForApply(
         {
           source: bundleSource,
           libraryDir: options.libraryDir,
-          protocol: options.protocol,
-          ref: options.ref,
+          protocol: refreshProtocol,
+          ...(effectiveRef !== undefined ? { ref: effectiveRef } : {}),
           requestedItems: options.requestedItems,
         },
         refreshedSources,
@@ -4072,9 +4121,6 @@ async function prepareApplyBundle(options: {
     wasExplicitlyRequested ||
     selectedRequestedTools.length < availableTools.length;
   const nextToolNames = selectedRequestedTools;
-  const existingDesiredEntry = options.existingDesiredState.find(
-    (entry) => entry.bundle === cachedBundle.bundle,
-  );
   const sourceUpdate = bundleSource
     ? getRefreshedSourceUpdate(refreshedSourceUpdates, bundleSource)
     : createEmptyRefreshedSourceUpdate();
@@ -4112,6 +4158,41 @@ async function prepareApplyBundle(options: {
     hasToolSelection,
     replacesItemSelection: options.selectItems || options.replaceItems === true,
   };
+}
+
+function findDesiredBundleEntry(options: {
+  desiredState: DesiredBundleEntry[];
+  bundle: string;
+  source?: string;
+}): DesiredBundleEntry | undefined {
+  return options.desiredState.find(
+    (entry) =>
+      entry.bundle === options.bundle &&
+      (options.source === undefined || entry.source === options.source),
+  );
+}
+
+function resolveImplicitBundleRefreshProtocol(options: {
+  source: string;
+  libraryDir: string;
+  requestedProtocol: "https" | "ssh";
+  existingDesiredEntry?: DesiredBundleEntry;
+}): "https" | "ssh" {
+  if (options.requestedProtocol === "ssh") {
+    return "ssh";
+  }
+
+  if (options.existingDesiredEntry?.protocol !== undefined) {
+    return options.existingDesiredEntry.protocol;
+  }
+
+  const cachedRevision = readCachedSourceRevision({
+    source: options.source,
+    libraryDir: options.libraryDir,
+  });
+  return cachedRevision.remoteUrl
+    ? detectSourceProtocol(cachedRevision.remoteUrl)
+    : options.requestedProtocol;
 }
 
 async function selectToolsBeforeBundle(options: {
@@ -8383,6 +8464,11 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
   disableModelInvocation?: boolean;
   sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
+  const sourceRef = resolveSourceRefForApply({
+    source: options.source,
+    requestedRef: options.ref,
+    existingDesiredState: options.existingDesiredState,
+  });
   const refreshedSources = new Set<string>();
   const refreshedSourceUpdates = new Map<string, RefreshedSourceUpdate>();
   const cloneLines = await refreshBundleSourceForApply(
@@ -8390,7 +8476,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
       source: options.source,
       libraryDir: options.libraryDir,
       protocol: options.protocol,
-      ref: options.ref,
+      ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
       sourceFetchProgress: options.sourceFetchProgress,
     },
     refreshedSources,
@@ -8442,7 +8528,7 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
         selectItems: false,
         replaceItems: true,
         dryRun: options.dryRun,
-        ref: options.ref,
+        ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
         refreshedSources,
         refreshedSourceUpdates,
         disableModelInvocation: options.disableModelInvocation,
@@ -8452,6 +8538,45 @@ async function applySelectedItemsAcrossGlobalSourceBundles(options: {
   }
 
   return [...cloneLines, ...outputLines].filter(Boolean).join("\n");
+}
+
+function resolveSourceRefForApply(options: {
+  source: string;
+  requestedRef?: string;
+  existingDesiredState: DesiredBundleEntry[];
+}): string | undefined {
+  if (options.requestedRef !== undefined) {
+    return options.requestedRef;
+  }
+
+  const sourceEntries = options.existingDesiredState.filter(
+    (entry) => entry.source === options.source,
+  );
+  const explicitRefs = Array.from(
+    new Set(
+      sourceEntries.flatMap((entry) =>
+        entry.ref === undefined ? [] : [entry.ref],
+      ),
+    ),
+  );
+  const hasDefaultBranchEntry = sourceEntries.some(
+    (entry) => entry.ref === undefined,
+  );
+
+  if (
+    explicitRefs.length > 1 ||
+    (hasDefaultBranchEntry && explicitRefs.length)
+  ) {
+    const refs = [
+      ...explicitRefs,
+      ...(hasDefaultBranchEntry ? ["default branch"] : []),
+    ];
+    throw new Error(
+      `Cannot refresh multiple bundles from ${options.source} because registry entries use different refs: ${refs.join(", ")}`,
+    );
+  }
+
+  return explicitRefs[0];
 }
 
 function renderGlobalStatus(options: {
