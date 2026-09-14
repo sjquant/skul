@@ -565,10 +565,25 @@ async function applyAllBundles(options: {
     refreshedSources,
     refreshedSourceUpdates,
   );
+  const availableSourceBundles = listCachedBundles({
+    libraryDir: options.libraryDir,
+  }).filter((bundle) => bundle.source === options.source);
   const bundles = listAllApplyBundles({
     libraryDir: options.libraryDir,
     source: options.source,
     agents: options.agents,
+    global: options.global,
+  });
+  const reconciliationOutput = await reconcileRemovedSourceBundles({
+    cwd: options.cwd,
+    homeDir: options.homeDir,
+    prompts: options.prompts,
+    registryFile: options.registryFile,
+    libraryDir: options.libraryDir,
+    source: options.source,
+    availableBundleNames: new Set(
+      availableSourceBundles.map((bundle) => bundle.bundle),
+    ),
     global: options.global,
   });
 
@@ -623,7 +638,103 @@ async function applyAllBundles(options: {
     );
   }
 
-  return [...cloneLines, ...outputLines].filter(Boolean).join("\n");
+  return [cloneLines, reconciliationOutput, outputLines]
+    .flat()
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function reconcileRemovedSourceBundles(options: {
+  cwd: string;
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  source: string;
+  availableBundleNames: ReadonlySet<string>;
+  global: boolean;
+}): Promise<string> {
+  const registry = readRegistryWithGuidance(options.registryFile);
+  const gitContext = options.global
+    ? undefined
+    : detectGitContext({ cwd: options.cwd });
+  const desiredState = options.global
+    ? registry.global?.desired_state
+    : gitContext
+      ? registry.repos[gitContext.repoFingerprint]?.desired_state
+      : undefined;
+  const materializedBundles = options.global
+    ? registry.global?.materialized_state.bundles
+    : gitContext
+      ? registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles
+      : undefined;
+  const selections = listRemovedSourceBundleSelections({
+    source: options.source,
+    availableBundleNames: options.availableBundleNames,
+    desiredState,
+    materializedBundles,
+  });
+
+  if (selections.length === 0) {
+    return "";
+  }
+
+  return options.global
+    ? removeAllGlobalBundles({
+        homeDir: options.homeDir,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        selections,
+        dryRun: false,
+      })
+    : removeAllWorktreeBundles({
+        cwd: options.cwd,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        selections,
+        dryRun: false,
+      });
+}
+
+function listRemovedSourceBundleSelections(options: {
+  source: string;
+  availableBundleNames: ReadonlySet<string>;
+  desiredState?: readonly DesiredBundleEntry[];
+  materializedBundles?: Readonly<Record<string, MaterializedBundleState>>;
+}): BundleSelection[] {
+  const selections: BundleSelection[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of options.desiredState ?? []) {
+    if (
+      entry.source === options.source &&
+      !options.availableBundleNames.has(entry.bundle)
+    ) {
+      addActiveRemoveBundleSelection(selections, seen, {
+        bundle: entry.bundle,
+        source: entry.source,
+        protocol: entry.protocol,
+      });
+    }
+  }
+
+  for (const [bundle, state] of Object.entries(
+    options.materializedBundles ?? {},
+  )) {
+    if (
+      state.source === options.source &&
+      !options.availableBundleNames.has(bundle)
+    ) {
+      addActiveRemoveBundleSelection(selections, seen, {
+        bundle,
+        source: state.source,
+      });
+    }
+  }
+
+  return selections.sort(compareBundleSelections);
 }
 
 function renderAllApplyDryRun(options: {
@@ -729,17 +840,20 @@ async function removeAllWorktreeBundles(options: {
   registryFile: string;
   libraryDir: string;
   source?: string;
+  selections?: BundleSelection[];
   dryRun: boolean;
   warnings?: CommandWarningCollector;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "remove");
   let registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
-  const selections = listActiveRemoveBundleSelections({
-    repoState,
-    worktreeState: registry.worktrees[gitContext.worktreeId],
-    source: options.source,
-  });
+  const selections =
+    options.selections ??
+    listActiveRemoveBundleSelections({
+      repoState,
+      worktreeState: registry.worktrees[gitContext.worktreeId],
+      source: options.source,
+    });
 
   if (selections.length === 0) {
     throw new Error(
@@ -774,7 +888,7 @@ async function removeAllWorktreeBundles(options: {
       }),
     ),
   );
-  const shadowedBundleNames = selections.map((selection) => selection.bundle);
+  const shadowedBundleNames = materializedTargets.map(([bundle]) => bundle);
   const shadowedFilePaths = shadowedBundleNames.flatMap((bundle) =>
     listShadowedPathsForBundle({
       shadowedFiles: worktreeState?.shadowed_files ?? {},
@@ -1124,14 +1238,17 @@ async function removeAllGlobalBundles(options: {
   registryFile: string;
   libraryDir: string;
   source?: string;
+  selections?: BundleSelection[];
   dryRun: boolean;
   warnings?: CommandWarningCollector;
 }): Promise<string> {
   let registry = readRegistryWithGuidance(options.registryFile);
-  const selections = listActiveGlobalRemoveBundleSelections({
-    globalState: registry.global,
-    source: options.source,
-  });
+  const selections =
+    options.selections ??
+    listActiveGlobalRemoveBundleSelections({
+      globalState: registry.global,
+      source: options.source,
+    });
 
   if (selections.length === 0) {
     throw new Error(
