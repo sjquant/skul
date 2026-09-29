@@ -64,12 +64,12 @@ See [docs/advanced.md](docs/advanced.md) for maintenance, recovery, and cleanup 
 skul add [options] [source] [bundle]
 ```
 
-`source` is a GitHub registry like `github.com/owner/repo`, the `owner/repo` shorthand, or a `git@github.com:owner/repo` SSH URL. `bundle` is the bundle name; omit it when the source is a single-bundle repo or when you want the interactive picker.
+`source` is a GitHub registry like `github.com/owner/repo`, the `owner/repo` shorthand, a `git@github.com:owner/repo` SSH URL, or an npm package like `npm:@scope/package` (see [npm sources](#npm-sources)). `bundle` is the bundle name; omit it when the source is a single-bundle repo or when you want the interactive picker.
 
 | Option | Description |
 |---|---|
 | `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
-| `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. Persisted in the registry and reused by `skul apply`. |
+| `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. For npm sources, a version or dist-tag instead of `latest`. Persisted in the registry and reused by `skul apply`. |
 | `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted), `mcp`. |
 | `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
 | `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
@@ -103,6 +103,26 @@ skul add git@github.com:sjquant/ai-bundles react-expert
 ```
 
 If SSH authentication fails, Skul prints a hint with the HTTPS equivalent command.
+
+### npm sources
+
+A bundle published to an npm registry is added with the `npm:` prefix. Skul downloads the package tarball, verifies it against the registry's digest, and treats the package root like a repository root, so a package with `skills/`, `commands/`, `agents/`, or bundle subdirectories works the same as a Git source. A single-bundle package is named after the package (without its scope).
+
+```bash
+# Track the latest dist-tag
+skul add npm:@sjquant/react-skills
+
+# Pin an exact version (inline or with --ref)
+skul add npm:@sjquant/react-skills@1.2.0
+skul add npm:@sjquant/react-skills --ref 1.2.0
+
+# Track another dist-tag
+skul add npm:@sjquant/react-skills --ref next
+```
+
+A dist-tag such as `latest` is followed by `skul check` and `skul update`; an exact version is pinned. Semver ranges are not supported. The package is cached under `~/.skul/library/npm/<@scope or ->/<name>`, and `npm/@scope/name` is the source identifier `skul list` and `skul remove` accept. SSH does not apply to npm sources.
+
+To use a private registry, set `SKUL_NPM_REGISTRY` (falls back to `npm_config_registry`, then `https://registry.npmjs.org/`). `SKUL_NPM_TOKEN` is sent as a bearer token to that registry's origin only.
 
 ---
 

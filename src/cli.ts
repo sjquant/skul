@@ -7,6 +7,7 @@ import {
   type BundleItemSelector,
   normalizeBundleItemSelector,
 } from "./bundle-items";
+import { parseNpmSourceSpec } from "./npm-source";
 import type { RootInstructionMode } from "./registry";
 import type { SourceFetchProgress } from "./source-fetch-progress";
 import { listToolDefinitions, type ToolName } from "./tool-mapping";
@@ -636,7 +637,10 @@ function createProgram(
     .description(
       "Add a bundle to the active set and materialize its files or root instructions",
     )
-    .argument("[source]", "Bundle source (e.g. github.com/user/repo)")
+    .argument(
+      "[source]",
+      "Bundle source (e.g. github.com/user/repo or npm:@scope/package)",
+    )
     .argument("[bundle]", "Bundle name")
     .option(
       "-a, --agent <name>",
@@ -646,7 +650,7 @@ function createProgram(
     )
     .option(
       "--ref <selector>",
-      "Track a specific branch, tag, or commit instead of remote HEAD",
+      "Track a specific branch, tag, or commit instead of remote HEAD (npm: a version or dist-tag)",
     )
     .option(
       "--include <item>",
@@ -677,7 +681,7 @@ function createProgram(
     .addHelpText("after", ADD_HELP_DETAILS)
     .action(
       async (
-        source: string | undefined,
+        sourceArgument: string | undefined,
         bundle: string | undefined,
         opts: {
           agent: ToolName[];
@@ -711,7 +715,20 @@ function createProgram(
             '--root-instruction-mode must be "append" or "replace"',
           );
         }
-        const ref = resolveRequestedRefSelector(opts);
+        const npmSourceSpec =
+          sourceArgument !== undefined
+            ? parseNpmSourceSpec(sourceArgument.trim())
+            : undefined;
+        if (npmSourceSpec?.ref !== undefined && opts.ref !== undefined) {
+          throw new Error(
+            "An npm source version and --ref cannot be used together\nHint: use either 'npm:<name>@<version>' or '--ref <version>'",
+          );
+        }
+        const source = npmSourceSpec?.source ?? sourceArgument;
+        const ref =
+          npmSourceSpec?.ref !== undefined
+            ? normalizeRefSelector(npmSourceSpec.ref)
+            : resolveRequestedRefSelector(opts);
 
         if (all) {
           if (!source) {

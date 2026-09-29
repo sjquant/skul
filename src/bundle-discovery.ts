@@ -11,6 +11,11 @@ import {
   resolveCachedBundleLayout,
 } from "./bundle-manifest";
 import { safeReaddirSync } from "./fs-utils";
+import {
+  isNpmSource,
+  normalizeNpmSource,
+  parseNpmSourceSpec,
+} from "./npm-source";
 
 export interface CachedBundle {
   source: string;
@@ -37,12 +42,31 @@ export function detectSourceProtocol(input: string): "https" | "ssh" {
   return /^git@/.test(input.trim()) ? "ssh" : "https";
 }
 
-/** Normalizes a user-supplied git source into `host/owner/repo` form. */
+/**
+ * Normalizes a user-supplied source into `host/owner/repo` form. Git sources
+ * keep their host; npm packages (`npm:<name>`) become `npm/<@scope|->/<name>`.
+ */
 export function normalizeBundleSource(input: string): string {
   const value = input.trim();
 
   if (!value) {
     throw new Error("source is required");
+  }
+
+  const npmSpec = parseNpmSourceSpec(value);
+
+  if (npmSpec) {
+    if (npmSpec.ref !== undefined) {
+      throw new Error(
+        `Unsupported npm source: ${input}\nHint: only 'skul add' accepts a version, e.g. 'skul add npm:<name>@<version>'`,
+      );
+    }
+
+    return npmSpec.source;
+  }
+
+  if (isNpmSource(value) && value.split("/").length === 3) {
+    return normalizeNpmSource(value);
   }
 
   if (/^https?:\/\//.test(value)) {

@@ -5,6 +5,15 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import { escapeRegExp } from "./fs-utils";
+import {
+  getNpmPackumentUrl,
+  isNpmSource,
+  type NpmResolvedVersion,
+  readNpmSourceMetadata,
+  replaceWithNpmSource,
+  resolveNpmSourceRef,
+  resolveNpmSourceRevision,
+} from "./npm-source";
 import type { SourceFetchProgress } from "./source-fetch-progress";
 
 export interface FetchRemoteSourceOptions {
@@ -47,7 +56,7 @@ export interface UpdateCachedRemoteSourceResult extends RemoteSourceStatus {
   updated: boolean;
 }
 
-const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
+const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/@?[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 const SSH_AUTH_FAILURE_RE =
   /permission denied|could not read from remote repository|host key verification failed/i;
 const GITHUB_HOST = "github.com";
@@ -99,6 +108,13 @@ export async function fetchRemoteSource(
   if (fs.existsSync(targetDir)) {
     stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
     return { cloned: false, targetDir };
+  }
+
+  if (isNpmSource(options.source)) {
+    await withSourceFetchProgress(options, `Fetching ${options.source}`, () =>
+      fetchNpmSource(options, targetDir),
+    );
+    return { cloned: true, targetDir };
   }
 
   const cloneUrl = getCloneUrl(options.source, options.protocol);
@@ -170,6 +186,18 @@ export function readCachedSourceRevision(
     return { cached: false, targetDir };
   }
 
+  if (isNpmSource(options.source)) {
+    const npmMetadata = readNpmSourceMetadata(targetDir, options.source);
+
+    return {
+      cached: true,
+      targetDir,
+      currentCommit: npmMetadata?.shasum,
+      currentRef: npmMetadata?.version,
+      remoteUrl: getNpmPackumentUrl(options.source),
+    };
+  }
+
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
 
   if (archiveMetadata) {
@@ -217,6 +245,11 @@ async function inspectRemoteSourceImpl(
   options: FetchRemoteSourceOptions,
 ): Promise<RemoteSourceStatus> {
   const cached = readCachedSourceRevision(options);
+
+  if (isNpmSource(options.source)) {
+    return inspectNpmSource(options, cached);
+  }
+
   const metadata = readGithubArchiveMetadata(cached.targetDir, options.source);
 
   if (metadata) {
@@ -301,6 +334,10 @@ async function updateCachedRemoteSourceImpl(
   const targetDir = getTargetDir(options);
 
   stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
+
+  if (isNpmSource(options.source)) {
+    return updateNpmSource(options, initialRevision);
+  }
 
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
 
@@ -394,6 +431,23 @@ export async function restoreCachedRemoteSourceRevision(
 ): Promise<void> {
   const targetDir = getTargetDir(options);
 
+  if (isNpmSource(options.source)) {
+    const requestedRef =
+      options.ref ??
+      readNpmSourceMetadata(targetDir, options.source)?.requested_ref ??
+      null;
+    await replaceNpmSource(
+      options,
+      targetDir,
+      await resolveNpmSourceRevision(
+        options.source,
+        options.commit,
+        requestedRef,
+      ),
+    );
+    return;
+  }
+
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
 
   if (archiveMetadata) {
@@ -463,6 +517,12 @@ async function clearAndRefetchCachedRemoteSourceImpl(
   options: FetchRemoteSourceOptions,
 ): Promise<void> {
   const targetDir = getTargetDir(options);
+
+  if (isNpmSource(options.source)) {
+    await fetchNpmSource(options, targetDir);
+    return;
+  }
+
   const revision = readCachedSourceRevision(options);
 
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
@@ -511,6 +571,112 @@ async function clearAndRefetchCachedRemoteSourceImpl(
       source: options.source,
       protocol: options.protocol,
     });
+  }
+}
+
+async function fetchNpmSource(
+  options: FetchRemoteSourceOptions,
+  targetDir: string,
+): Promise<void> {
+  await replaceNpmSource(
+    options,
+    targetDir,
+    await resolveNpmSource(options, options.ref, "fetch"),
+  );
+}
+
+async function inspectNpmSource(
+  options: FetchRemoteSourceOptions,
+  cached: CachedSourceRevision,
+): Promise<RemoteSourceStatus> {
+  const requestedRef =
+    options.ref ??
+    (cached.cached
+      ? readNpmSourceMetadata(cached.targetDir, options.source)?.requested_ref
+      : undefined);
+  const resolved = await resolveNpmSource(options, requestedRef, "inspect");
+
+  return {
+    ...cached,
+    remoteUrl: getNpmPackumentUrl(options.source),
+    remoteCommit: resolved.commit,
+    refKind: resolved.kind,
+    resolvedRef: resolved.version,
+  };
+}
+
+async function updateNpmSource(
+  options: FetchRemoteSourceOptions,
+  initialRevision: CachedSourceRevision,
+): Promise<UpdateCachedRemoteSourceResult> {
+  const cached = readCachedSourceRevision(options);
+  const metadata = readNpmSourceMetadata(cached.targetDir, options.source);
+  const resolved = await resolveNpmSource(
+    options,
+    options.ref ?? metadata?.requested_ref,
+    "update",
+  );
+  const status: RemoteSourceStatus = {
+    ...cached,
+    remoteUrl: getNpmPackumentUrl(options.source),
+    remoteCommit: resolved.commit,
+    refKind: resolved.kind,
+    resolvedRef: resolved.version,
+  };
+
+  if (metadata?.shasum === resolved.commit) {
+    return {
+      ...status,
+      previousCommit: initialRevision.currentCommit,
+      updated: false,
+    };
+  }
+
+  const refreshed = await replaceNpmSource(options, cached.targetDir, resolved);
+
+  return {
+    ...status,
+    currentCommit: refreshed.shasum,
+    currentRef: refreshed.version,
+    previousCommit: initialRevision.currentCommit,
+    updated: true,
+  };
+}
+
+async function resolveNpmSource(
+  options: FetchRemoteSourceOptions,
+  requestedRef: string | null | undefined,
+  action: "fetch" | "inspect" | "update",
+): Promise<NpmResolvedVersion> {
+  assertNpmProtocol(options);
+
+  try {
+    return await resolveNpmSourceRef(options.source, requestedRef);
+  } catch (error) {
+    throw new Error(
+      `Failed to ${action} ${options.source}: ${getErrorText(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+function replaceNpmSource(
+  options: FetchRemoteSourceOptions,
+  targetDir: string,
+  resolved: NpmResolvedVersion,
+) {
+  assertNpmProtocol(options);
+
+  return replaceWithNpmSource(options.source, targetDir, resolved, (dir) =>
+    stripRepositoryRootInstructions(dir, options.includeRootInstructions),
+  );
+}
+
+function assertNpmProtocol(options: FetchRemoteSourceOptions): void {
+  if (options.protocol === "ssh") {
+    throw new Error(
+      `npm sources cannot be fetched over SSH: ${options.source}\nHint: omit --ssh for npm sources`,
+    );
   }
 }
 
