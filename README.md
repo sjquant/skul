@@ -120,7 +120,7 @@ skul add npm:@sjquant/react-skills --ref 1.2.0
 skul add npm:@sjquant/react-skills --ref next
 ```
 
-A dist-tag such as `latest` is followed by `skul check` and `skul update`; an exact version is pinned. Semver ranges are not supported. The package is cached under `~/.skul/library/npm/<@scope or ->/<name>`, and `npm/@scope/name` is the source identifier `skul list` and `skul remove` accept. SSH does not apply to npm sources.
+A dist-tag such as `latest` is followed by `skul check` and `skul update`; an exact version is pinned. Semver ranges are not supported. The package is cached under `~/.skul/library/npm/<scope>/<name>` (`-` for unscoped packages), and `skul list` and `skul remove` accept either `npm:@scope/name` or that `npm/scope/name` identifier. SSH does not apply to npm sources.
 
 To use a private registry, set `SKUL_NPM_REGISTRY` (falls back to `npm_config_registry`, then `https://registry.npmjs.org/`). `SKUL_NPM_TOKEN` is sent as a bearer token to that registry's origin only.
 

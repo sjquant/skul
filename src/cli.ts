@@ -725,10 +725,9 @@ function createProgram(
           );
         }
         const source = npmSourceSpec?.source ?? sourceArgument;
-        const ref =
-          npmSourceSpec?.ref !== undefined
-            ? normalizeRefSelector(npmSourceSpec.ref)
-            : resolveRequestedRefSelector(opts);
+        const ref = resolveRequestedRefSelector({
+          ref: npmSourceSpec?.ref ?? opts.ref,
+        });
 
         if (all) {
           if (!source) {

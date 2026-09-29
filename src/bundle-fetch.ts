@@ -6,14 +6,19 @@ import { pipeline } from "node:stream/promises";
 
 import { escapeRegExp } from "./fs-utils";
 import {
-  getNpmPackumentUrl,
+  inspectNpmSource,
   isNpmSource,
-  type NpmResolvedVersion,
-  readNpmSourceMetadata,
-  replaceWithNpmSource,
-  resolveNpmSourceRef,
-  resolveNpmSourceRevision,
+  readNpmSourceRevision,
+  restoreNpmSource,
+  updateNpmSource,
 } from "./npm-source";
+import {
+  extractTarball,
+  getErrorText,
+  replaceSourceDirectory,
+  SOURCE_METADATA_FILE,
+  stripRepositoryRootInstructions,
+} from "./source-archive";
 import type { SourceFetchProgress } from "./source-fetch-progress";
 
 export interface FetchRemoteSourceOptions {
@@ -56,17 +61,15 @@ export interface UpdateCachedRemoteSourceResult extends RemoteSourceStatus {
   updated: boolean;
 }
 
-const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/@?[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
+const SAFE_SOURCE_RE = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 const SSH_AUTH_FAILURE_RE =
   /permission denied|could not read from remote repository|host key verification failed/i;
 const GITHUB_HOST = "github.com";
-const ARCHIVE_METADATA_FILE = ".skul-source.json";
 const GITHUB_API_VERSION = "2022-11-28";
 const GITHUB_TRANSPORT_ENV = "SKUL_GITHUB_TRANSPORT";
 const GITHUB_TRANSPORT_ARCHIVE = "archive";
 const GITHUB_API_BASE_URL_ENV = "SKUL_GITHUB_API_BASE_URL";
 const GITHUB_USER_AGENT = "skul";
-const ROOT_INSTRUCTION_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
 
 interface GithubArchiveMetadata {
   transport: "github-archive";
@@ -112,7 +115,7 @@ export async function fetchRemoteSource(
 
   if (isNpmSource(options.source)) {
     await withSourceFetchProgress(options, `Fetching ${options.source}`, () =>
-      fetchNpmSource(options, targetDir),
+      updateNpmSource(options, targetDir, "refetch"),
     );
     return { cloned: true, targetDir };
   }
@@ -187,15 +190,7 @@ export function readCachedSourceRevision(
   }
 
   if (isNpmSource(options.source)) {
-    const npmMetadata = readNpmSourceMetadata(targetDir, options.source);
-
-    return {
-      cached: true,
-      targetDir,
-      currentCommit: npmMetadata?.shasum,
-      currentRef: npmMetadata?.version,
-      remoteUrl: getNpmPackumentUrl(options.source),
-    };
+    return readNpmSourceRevision(options.source, targetDir);
   }
 
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
@@ -325,6 +320,10 @@ export async function updateCachedRemoteSource(
 async function updateCachedRemoteSourceImpl(
   options: FetchRemoteSourceOptions,
 ): Promise<UpdateCachedRemoteSourceResult> {
+  if (isNpmSource(options.source)) {
+    return updateNpmSource(options, getTargetDir(options), "update");
+  }
+
   const initialRevision = readCachedSourceRevision(options);
 
   if (!initialRevision.cached) {
@@ -334,10 +333,6 @@ async function updateCachedRemoteSourceImpl(
   const targetDir = getTargetDir(options);
 
   stripRepositoryRootInstructions(targetDir, options.includeRootInstructions);
-
-  if (isNpmSource(options.source)) {
-    return updateNpmSource(options, initialRevision);
-  }
 
   const archiveMetadata = readGithubArchiveMetadata(targetDir, options.source);
 
@@ -432,19 +427,7 @@ export async function restoreCachedRemoteSourceRevision(
   const targetDir = getTargetDir(options);
 
   if (isNpmSource(options.source)) {
-    const requestedRef =
-      options.ref ??
-      readNpmSourceMetadata(targetDir, options.source)?.requested_ref ??
-      null;
-    await replaceNpmSource(
-      options,
-      targetDir,
-      await resolveNpmSourceRevision(
-        options.source,
-        options.commit,
-        requestedRef,
-      ),
-    );
+    await restoreNpmSource(options, targetDir, options.commit);
     return;
   }
 
@@ -519,7 +502,7 @@ async function clearAndRefetchCachedRemoteSourceImpl(
   const targetDir = getTargetDir(options);
 
   if (isNpmSource(options.source)) {
-    await fetchNpmSource(options, targetDir);
+    await updateNpmSource(options, targetDir, "refetch");
     return;
   }
 
@@ -571,112 +554,6 @@ async function clearAndRefetchCachedRemoteSourceImpl(
       source: options.source,
       protocol: options.protocol,
     });
-  }
-}
-
-async function fetchNpmSource(
-  options: FetchRemoteSourceOptions,
-  targetDir: string,
-): Promise<void> {
-  await replaceNpmSource(
-    options,
-    targetDir,
-    await resolveNpmSource(options, options.ref, "fetch"),
-  );
-}
-
-async function inspectNpmSource(
-  options: FetchRemoteSourceOptions,
-  cached: CachedSourceRevision,
-): Promise<RemoteSourceStatus> {
-  const requestedRef =
-    options.ref ??
-    (cached.cached
-      ? readNpmSourceMetadata(cached.targetDir, options.source)?.requested_ref
-      : undefined);
-  const resolved = await resolveNpmSource(options, requestedRef, "inspect");
-
-  return {
-    ...cached,
-    remoteUrl: getNpmPackumentUrl(options.source),
-    remoteCommit: resolved.commit,
-    refKind: resolved.kind,
-    resolvedRef: resolved.version,
-  };
-}
-
-async function updateNpmSource(
-  options: FetchRemoteSourceOptions,
-  initialRevision: CachedSourceRevision,
-): Promise<UpdateCachedRemoteSourceResult> {
-  const cached = readCachedSourceRevision(options);
-  const metadata = readNpmSourceMetadata(cached.targetDir, options.source);
-  const resolved = await resolveNpmSource(
-    options,
-    options.ref ?? metadata?.requested_ref,
-    "update",
-  );
-  const status: RemoteSourceStatus = {
-    ...cached,
-    remoteUrl: getNpmPackumentUrl(options.source),
-    remoteCommit: resolved.commit,
-    refKind: resolved.kind,
-    resolvedRef: resolved.version,
-  };
-
-  if (metadata?.shasum === resolved.commit) {
-    return {
-      ...status,
-      previousCommit: initialRevision.currentCommit,
-      updated: false,
-    };
-  }
-
-  const refreshed = await replaceNpmSource(options, cached.targetDir, resolved);
-
-  return {
-    ...status,
-    currentCommit: refreshed.shasum,
-    currentRef: refreshed.version,
-    previousCommit: initialRevision.currentCommit,
-    updated: true,
-  };
-}
-
-async function resolveNpmSource(
-  options: FetchRemoteSourceOptions,
-  requestedRef: string | null | undefined,
-  action: "fetch" | "inspect" | "update",
-): Promise<NpmResolvedVersion> {
-  assertNpmProtocol(options);
-
-  try {
-    return await resolveNpmSourceRef(options.source, requestedRef);
-  } catch (error) {
-    throw new Error(
-      `Failed to ${action} ${options.source}: ${getErrorText(error)}`,
-      { cause: error },
-    );
-  }
-}
-
-function replaceNpmSource(
-  options: FetchRemoteSourceOptions,
-  targetDir: string,
-  resolved: NpmResolvedVersion,
-) {
-  assertNpmProtocol(options);
-
-  return replaceWithNpmSource(options.source, targetDir, resolved, (dir) =>
-    stripRepositoryRootInstructions(dir, options.includeRootInstructions),
-  );
-}
-
-function assertNpmProtocol(options: FetchRemoteSourceOptions): void {
-  if (options.protocol === "ssh") {
-    throw new Error(
-      `npm sources cannot be fetched over SSH: ${options.source}\nHint: omit --ssh for npm sources`,
-    );
   }
 }
 
@@ -989,19 +866,6 @@ function normalizeCurrentRef(value: string | undefined): string | undefined {
   return value.replace(/^heads\//, "");
 }
 
-function stripRepositoryRootInstructions(
-  sourceDir: string,
-  includeRootInstructions = false,
-): void {
-  if (includeRootInstructions) {
-    return;
-  }
-
-  for (const fileName of ROOT_INSTRUCTION_FILE_NAMES) {
-    fs.rmSync(path.join(sourceDir, fileName), { force: true });
-  }
-}
-
 async function withSourceFetchProgress<T>(
   options: FetchRemoteSourceOptions,
   message: string,
@@ -1158,46 +1022,25 @@ async function replaceWithGithubArchiveSource(
   resolved: GithubArchiveReplacement,
   includeRootInstructions = false,
 ): Promise<GithubArchiveMetadata> {
-  const parentDir = path.dirname(targetDir);
-  const tempDir = `${targetDir}.tmp-${process.pid}-${Date.now()}`;
-  const archiveFile = `${tempDir}.tar.gz`;
-  const backupDir = `${targetDir}.backup-${process.pid}-${Date.now()}`;
-
-  fs.rmSync(tempDir, { recursive: true, force: true });
-  fs.rmSync(archiveFile, { force: true });
-  fs.rmSync(backupDir, { recursive: true, force: true });
-  fs.mkdirSync(parentDir, { recursive: true });
-
   try {
-    await downloadGithubArchive(source, resolved.commit, archiveFile);
-    extractGithubArchive(archiveFile, tempDir);
-    stripRepositoryRootInstructions(tempDir, includeRootInstructions);
-    writeGithubArchiveMetadata(tempDir, {
-      transport: "github-archive",
-      source,
-      requested_ref: resolved.requestedRef,
-      resolved_commit: resolved.commit,
-      resolved_ref: resolved.resolvedRef,
-      fetched_at: new Date().toISOString(),
+    await replaceSourceDirectory(targetDir, async (tempDir, archiveFile) => {
+      await downloadGithubArchive(source, resolved.commit, archiveFile);
+      extractTarball(archiveFile, tempDir, "GitHub archive");
+      stripRepositoryRootInstructions(tempDir, includeRootInstructions);
+      writeGithubArchiveMetadata(tempDir, {
+        transport: "github-archive",
+        source,
+        requested_ref: resolved.requestedRef,
+        resolved_commit: resolved.commit,
+        resolved_ref: resolved.resolvedRef,
+        fetched_at: new Date().toISOString(),
+      });
     });
-    if (fs.existsSync(targetDir)) {
-      fs.renameSync(targetDir, backupDir);
-    }
-    fs.renameSync(tempDir, targetDir);
-    fs.rmSync(backupDir, { recursive: true, force: true });
-
-    return readRequiredGithubArchiveMetadata(targetDir, source);
   } catch (error) {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    if (fs.existsSync(backupDir)) {
-      fs.rmSync(targetDir, { recursive: true, force: true });
-      fs.renameSync(backupDir, targetDir);
-    }
     throw normalizeGithubArchiveError(error, `Failed to fetch ${source}`);
-  } finally {
-    fs.rmSync(archiveFile, { force: true });
-    fs.rmSync(backupDir, { recursive: true, force: true });
   }
+
+  return readRequiredGithubArchiveMetadata(targetDir, source);
 }
 
 async function updateGithubArchiveSource(
@@ -1459,40 +1302,6 @@ function formatGithubApiResponseFailure(
   });
 }
 
-function extractGithubArchive(archiveFile: string, targetDir: string): void {
-  const extractDir = `${targetDir}.extract`;
-  fs.rmSync(extractDir, { recursive: true, force: true });
-  fs.mkdirSync(extractDir, { recursive: true });
-
-  try {
-    execFileSync("tar", ["-xzf", archiveFile, "-C", extractDir], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const wrapperDir = getArchiveWrapperDir(extractDir);
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    for (const entry of fs.readdirSync(wrapperDir)) {
-      fs.renameSync(path.join(wrapperDir, entry), path.join(targetDir, entry));
-    }
-  } catch (error) {
-    throw new Error(`Failed to extract GitHub archive: ${getErrorText(error)}`);
-  } finally {
-    fs.rmSync(extractDir, { recursive: true, force: true });
-  }
-}
-
-function getArchiveWrapperDir(extractDir: string): string {
-  const entries = fs
-    .readdirSync(extractDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory());
-
-  if (entries.length !== 1) {
-    throw new Error("GitHub archive did not contain one wrapper directory");
-  }
-
-  return path.join(extractDir, entries[0]!.name);
-}
-
 function writeGithubArchiveMetadata(
   targetDir: string,
   metadata: GithubArchiveMetadata,
@@ -1557,7 +1366,7 @@ function readRequiredGithubArchiveMetadata(
 }
 
 function getGithubArchiveMetadataPath(targetDir: string): string {
-  return path.join(targetDir, ARCHIVE_METADATA_FILE);
+  return path.join(targetDir, SOURCE_METADATA_FILE);
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -1713,14 +1522,6 @@ function sanitizeGithubErrorMessage(message: string): string {
   const token = getGithubToken(process.env);
 
   return token ? message.split(token).join("[redacted]") : message;
-}
-
-function getErrorText(error: unknown): string {
-  if (error instanceof Error && "stderr" in error) {
-    return String((error as { stderr: Buffer | string }).stderr).trim();
-  }
-
-  return error instanceof Error ? error.message : String(error);
 }
 
 function tryRunGit(args: string[]): string | undefined {

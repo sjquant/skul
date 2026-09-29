@@ -39,9 +39,9 @@ describe("normalizeBundleSource", () => {
     ["user/ai-vault.git", "github.com/user/ai-vault"],
     ["https://github.com/user/ai-vault.git", "github.com/user/ai-vault"],
     ["git@github.com:user/ai-vault.git", "github.com/user/ai-vault"],
-    ["npm:@acme/react-skills", "npm/@acme/react-skills"],
+    ["npm:@acme/react-skills", "npm/acme/react-skills"],
     ["npm:react-skills", "npm/-/react-skills"],
-    ["npm/@acme/react-skills", "npm/@acme/react-skills"],
+    ["npm/acme/react-skills", "npm/acme/react-skills"],
     ["npm/-/react-skills", "npm/-/react-skills"],
     ["npm/cli", "github.com/npm/cli"],
   ])("normalizes %s", (input, expected) => {

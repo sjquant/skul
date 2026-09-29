@@ -11,11 +11,7 @@ import {
   resolveCachedBundleLayout,
 } from "./bundle-manifest";
 import { safeReaddirSync } from "./fs-utils";
-import {
-  isNpmSource,
-  normalizeNpmSource,
-  parseNpmSourceSpec,
-} from "./npm-source";
+import { parseNpmSourceSpec } from "./npm-source";
 
 export interface CachedBundle {
   source: string;
@@ -63,10 +59,6 @@ export function normalizeBundleSource(input: string): string {
     }
 
     return npmSpec.source;
-  }
-
-  if (isNpmSource(value) && value.split("/").length === 3) {
-    return normalizeNpmSource(value);
   }
 
   if (/^https?:\/\//.test(value)) {

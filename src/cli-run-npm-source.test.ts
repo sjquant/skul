@@ -5,23 +5,18 @@ import http, { type Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createHomeDir,
   createPromptClientStub,
   createRepository,
+  pathExists,
   tempDirs,
 } from "./cli.test-support";
 import { run } from "./index";
 
-const MUTATED_ENV_NAMES = [
-  "SKUL_NPM_REGISTRY",
-  "SKUL_NPM_TOKEN",
-  "npm_config_registry",
-] as const;
 const servers: Server[] = [];
-let previousEnv: Partial<Record<(typeof MUTATED_ENV_NAMES)[number], string>>;
 
 interface FakeNpmRegistry {
   packageName: string;
@@ -33,11 +28,12 @@ interface FakeNpmRegistry {
 }
 
 beforeEach(() => {
-  previousEnv = Object.fromEntries(
-    MUTATED_ENV_NAMES.map((name) => [name, process.env[name]]),
-  );
-  for (const name of MUTATED_ENV_NAMES) {
-    delete process.env[name];
+  for (const name of [
+    "SKUL_NPM_REGISTRY",
+    "SKUL_NPM_TOKEN",
+    "npm_config_registry",
+  ]) {
+    vi.stubEnv(name, undefined);
   }
 });
 
@@ -50,13 +46,7 @@ afterEach(async () => {
           new Promise<void>((resolve) => server.close(() => resolve())),
       ),
   );
-  for (const name of MUTATED_ENV_NAMES) {
-    if (previousEnv[name] === undefined) {
-      delete process.env[name];
-    } else {
-      process.env[name] = previousEnv[name];
-    }
-  }
+  vi.unstubAllEnvs();
 });
 
 describe("npm bundle sources", () => {
@@ -84,7 +74,7 @@ describe("npm bundle sources", () => {
           ".skul",
           "library",
           "npm",
-          "@acme",
+          "acme",
           "react-skills",
           "skills",
           "react",
@@ -159,7 +149,7 @@ describe("npm bundle sources", () => {
     const registry = await startFakeNpmRegistry("react-skills", {
       "1.0.0": { "skills/react/SKILL.md": skill("v1") },
     });
-    process.env.SKUL_NPM_TOKEN = "secret-token";
+    vi.stubEnv("SKUL_NPM_TOKEN", "secret-token");
 
     // When
     await run(["add", "npm:react-skills", "-a", "claude-code", "-y"], {
@@ -184,7 +174,7 @@ describe("npm bundle sources", () => {
       { "1.0.0": { "skills/react/SKILL.md": skill("v1") } },
       { separateTarballOrigin: true },
     );
-    process.env.SKUL_NPM_TOKEN = "secret-token";
+    vi.stubEnv("SKUL_NPM_TOKEN", "secret-token");
 
     // When
     await run(["add", "npm:react-skills", "-a", "claude-code", "-y"], {
@@ -209,12 +199,7 @@ describe("npm bundle sources", () => {
     const registry = await startFakeNpmRegistry("react-skills", {
       "1.0.0": { "skills/react/SKILL.md": skill("v1") },
     });
-    registry.versions["1.0.0"] = createPackageTarball({
-      "skills/react/SKILL.md": skill("tampered"),
-    });
-    registry.shasumOverride = createPackageShasum(
-      createPackageTarball({ "skills/react/SKILL.md": skill("v1") }),
-    );
+    registry.shasumOverride = "0".repeat(40);
 
     // When / Then
     await expect(
@@ -276,10 +261,6 @@ function readSkill(repoRoot: string): string {
   );
 }
 
-function pathExists(targetPath: string): boolean {
-  return fs.existsSync(targetPath);
-}
-
 async function startFakeNpmRegistry(
   packageName: string,
   versions: Record<string, Record<string, string>>,
@@ -313,7 +294,7 @@ async function startFakeNpmRegistry(
         serveTarball(registry, request, response);
       })
     : registryBaseUrl;
-  process.env.SKUL_NPM_REGISTRY = registryBaseUrl;
+  vi.stubEnv("SKUL_NPM_REGISTRY", registryBaseUrl);
 
   return registry;
 }

@@ -1,25 +1,30 @@
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-/** Source host segment that marks a cached source as an npm package. */
-export const NPM_SOURCE_HOST = "npm";
+import type {
+  CachedSourceRevision,
+  FetchRemoteSourceOptions,
+  RemoteSourceStatus,
+  UpdateCachedRemoteSourceResult,
+} from "./bundle-fetch";
+import {
+  extractTarball,
+  getErrorText,
+  replaceSourceDirectory,
+  SOURCE_METADATA_FILE,
+  stripRepositoryRootInstructions,
+} from "./source-archive";
 
 const NPM_SOURCE_PREFIX = "npm:";
-const UNSCOPED_NPM_SOURCE_OWNER = "-";
-const NPM_NAME_SEGMENT_RE = /^[a-zA-Z0-9-][a-zA-Z0-9._-]*$/;
+// Scoped packages cache under `npm/<scope>/<name>`; `-` cannot be a scope, so
+// unscoped packages use it as their owner segment.
+const UNSCOPED_OWNER = "-";
+const NPM_NAME_RE =
+  /^(?:@([a-zA-Z0-9][a-zA-Z0-9._-]*)\/)?([a-zA-Z0-9][a-zA-Z0-9._-]*)$/;
 const DEFAULT_NPM_REGISTRY = "https://registry.npmjs.org/";
-const NPM_REGISTRY_ENV = "SKUL_NPM_REGISTRY";
-const NPM_CONFIG_REGISTRY_ENV = "npm_config_registry";
-const NPM_TOKEN_ENV = "SKUL_NPM_TOKEN";
-const NPM_DEFAULT_DIST_TAG = "latest";
-const NPM_METADATA_FILE = ".skul-source.json";
-const NPM_USER_AGENT = "skul";
-const NPM_ABBREVIATED_METADATA_ACCEPT =
-  "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8";
 
-export interface NpmResolvedVersion {
+interface NpmResolvedVersion {
   /** Tarball SHA-1 digest, used as the source revision identifier. */
   commit: string;
   /** "branch" for a moving dist-tag, "commit" for an exact version. */
@@ -30,7 +35,7 @@ export interface NpmResolvedVersion {
   integrity?: string;
 }
 
-export interface NpmSourceMetadata {
+interface NpmSourceMetadata {
   transport: "npm-tarball";
   source: string;
   requested_ref: string | null;
@@ -50,7 +55,7 @@ interface NpmPackageVersion {
 
 /** Returns true when a normalized source identifier names an npm package. */
 export function isNpmSource(source: string): boolean {
-  return source.startsWith(`${NPM_SOURCE_HOST}/`);
+  return source.startsWith("npm/");
 }
 
 /**
@@ -68,111 +73,169 @@ export function parseNpmSourceSpec(
   const refSeparator = spec.indexOf("@", spec.startsWith("@") ? 1 : 0);
   const name = refSeparator === -1 ? spec : spec.slice(0, refSeparator);
   const ref = refSeparator === -1 ? undefined : spec.slice(refSeparator + 1);
+  const nameMatch = name.match(NPM_NAME_RE);
 
-  if (ref === "") {
+  if (!nameMatch || ref === "") {
     throw new Error(`Unsupported npm source: ${input}`);
   }
 
   return {
-    source: npmPackageNameToSource(name, input),
+    source: `npm/${nameMatch[1] ?? UNSCOPED_OWNER}/${nameMatch[2]}`,
     ...(ref !== undefined ? { ref } : {}),
   };
 }
 
-/** Validates an already-normalized `npm/<scope|->/<name>` source identifier. */
-export function normalizeNpmSource(source: string): string {
-  return npmPackageNameToSource(getNpmPackageName(source), source);
+function getNpmPackageName(source: string): string {
+  const [, owner, name] = source.split("/");
+
+  return owner === UNSCOPED_OWNER ? name! : `@${owner}/${name}`;
 }
 
-function npmPackageNameToSource(name: string, input: string): string {
-  const [first, second, ...rest] = name.split("/");
-  const scoped = first?.startsWith("@") ?? false;
-  const scope = scoped ? first!.slice(1) : undefined;
-  const packageName = scoped ? second : first;
+/** Resolves the cached revision of one npm source from its fetch metadata. */
+export function readNpmSourceRevision(
+  source: string,
+  targetDir: string,
+): CachedSourceRevision {
+  const metadata = readNpmSourceMetadata(targetDir, source);
 
-  if (
-    rest.length > 0 ||
-    (!scoped && second !== undefined) ||
-    (scope !== undefined && !NPM_NAME_SEGMENT_RE.test(scope)) ||
-    !packageName ||
-    !NPM_NAME_SEGMENT_RE.test(packageName)
-  ) {
-    throw new Error(`Unsupported npm source: ${input}`);
+  return {
+    cached: true,
+    targetDir,
+    currentCommit: metadata?.shasum,
+    currentRef: metadata?.version,
+    remoteUrl: getNpmPackumentUrl(source),
+  };
+}
+
+/** Resolves the version the source's ref selector (or stored one) points at. */
+export async function inspectNpmSource(
+  options: FetchRemoteSourceOptions,
+  cached: CachedSourceRevision,
+): Promise<RemoteSourceStatus> {
+  const requestedRef =
+    options.ref ??
+    readNpmSourceMetadata(cached.targetDir, options.source)?.requested_ref;
+
+  return toRemoteStatus(
+    options.source,
+    cached,
+    await resolveNpmVersion(options, requestedRef ?? null),
+  );
+}
+
+/**
+ * Moves the cache to the version the ref selector resolves to. An update
+ * follows the ref recorded at the last fetch and skips an unchanged tarball; a
+ * refetch falls back to `latest` and always downloads, restoring any root
+ * instructions an earlier fetch stripped.
+ */
+export async function updateNpmSource(
+  options: FetchRemoteSourceOptions,
+  targetDir: string,
+  mode: "update" | "refetch",
+): Promise<UpdateCachedRemoteSourceResult> {
+  const metadata = readNpmSourceMetadata(targetDir, options.source);
+  const cached: CachedSourceRevision = metadata
+    ? readNpmSourceRevision(options.source, targetDir)
+    : { cached: fs.existsSync(targetDir), targetDir };
+  const requestedRef =
+    options.ref ?? (mode === "update" ? metadata?.requested_ref : null) ?? null;
+  const resolved = await resolveNpmVersion(options, requestedRef);
+  const status = toRemoteStatus(options.source, cached, resolved);
+
+  if (mode === "update" && metadata?.shasum === resolved.commit) {
+    return { ...status, previousCommit: metadata.shasum, updated: false };
   }
 
-  return `${NPM_SOURCE_HOST}/${scope !== undefined ? `@${scope}` : UNSCOPED_NPM_SOURCE_OWNER}/${packageName}`;
+  await replaceNpmSource(options, targetDir, resolved);
+
+  return {
+    ...status,
+    cached: true,
+    currentCommit: resolved.commit,
+    currentRef: resolved.version,
+    previousCommit: metadata?.shasum,
+    updated: true,
+  };
 }
 
-/** Returns the npm package name (e.g. `@scope/name`) for an npm source identifier. */
-export function getNpmPackageName(source: string): string {
-  const [host, owner, name, ...rest] = source.split("/");
+/** Moves the cache back to the published version with a recorded tarball digest. */
+export async function restoreNpmSource(
+  options: FetchRemoteSourceOptions,
+  targetDir: string,
+  commit: string,
+): Promise<void> {
+  const metadata = readNpmSourceMetadata(targetDir, options.source);
 
-  if (host !== NPM_SOURCE_HOST || !owner || !name || rest.length > 0) {
-    throw new Error(`Invalid npm source: ${source}`);
+  if (metadata?.shasum === commit) {
+    return;
   }
 
-  return owner === UNSCOPED_NPM_SOURCE_OWNER ? name : `${owner}/${name}`;
+  const packument = await fetchNpmPackument(options.source);
+  const match = Object.entries(packument.versions ?? {}).find(
+    ([, manifest]) => manifest.dist?.shasum?.toLowerCase() === commit,
+  );
+
+  if (!match) {
+    throw new Error(
+      `npm version not found for ${getNpmPackageName(options.source)} with shasum ${commit}`,
+    );
+  }
+
+  await replaceNpmSource(options, targetDir, {
+    ...requireNpmDist(options.source, match[0], match[1].dist!),
+    kind: "commit",
+    requestedRef: options.ref ?? metadata?.requested_ref ?? null,
+    version: match[0],
+  });
 }
 
-/** Returns the registry metadata URL used as the remote URL of an npm source. */
-export function getNpmPackumentUrl(source: string): string {
-  return new URL(
-    getNpmPackageName(source).replace("/", "%2f"),
-    getNpmRegistryBaseUrl(),
-  ).href;
+function toRemoteStatus(
+  source: string,
+  cached: CachedSourceRevision,
+  resolved: NpmResolvedVersion,
+): RemoteSourceStatus {
+  return {
+    ...cached,
+    remoteUrl: getNpmPackumentUrl(source),
+    remoteCommit: resolved.commit,
+    refKind: resolved.kind,
+    resolvedRef: resolved.version,
+  };
 }
 
 /**
  * Resolves a dist-tag (default `latest`) or an exact version to one published
  * package version. Dist-tags move like branches; exact versions are immutable.
  */
-export async function resolveNpmSourceRef(
-  source: string,
-  requestedRef?: string | null,
+async function resolveNpmVersion(
+  options: FetchRemoteSourceOptions,
+  requestedRef: string | null,
 ): Promise<NpmResolvedVersion> {
-  const packument = await fetchNpmPackument(source);
-  const selector = requestedRef ?? NPM_DEFAULT_DIST_TAG;
+  if (options.protocol === "ssh") {
+    throw new Error(
+      `npm sources cannot be fetched over SSH: ${options.source}\nHint: omit --ssh for npm sources`,
+    );
+  }
+
+  const packument = await fetchNpmPackument(options.source);
+  const selector = requestedRef ?? "latest";
   const taggedVersion = packument["dist-tags"]?.[selector];
   const version = taggedVersion ?? selector;
   const dist = packument.versions?.[version]?.dist;
 
   if (!dist) {
     throw new Error(
-      `npm version or dist-tag not found for ${getNpmPackageName(source)}: ${selector}`,
+      `npm version or dist-tag not found for ${getNpmPackageName(options.source)}: ${selector}`,
     );
   }
 
   return {
-    ...requireNpmDist(source, version, dist),
+    ...requireNpmDist(options.source, version, dist),
     kind: taggedVersion !== undefined ? "branch" : "commit",
-    requestedRef: requestedRef ?? null,
+    requestedRef,
     version,
   };
-}
-
-/** Finds the published version whose tarball digest matches a recorded revision. */
-export async function resolveNpmSourceRevision(
-  source: string,
-  commit: string,
-  requestedRef: string | null,
-): Promise<NpmResolvedVersion> {
-  const packument = await fetchNpmPackument(source);
-  const normalizedCommit = commit.toLowerCase();
-
-  for (const [version, manifest] of Object.entries(packument.versions ?? {})) {
-    if (manifest.dist?.shasum?.toLowerCase().startsWith(normalizedCommit)) {
-      return {
-        ...requireNpmDist(source, version, manifest.dist),
-        kind: "commit",
-        requestedRef,
-        version,
-      };
-    }
-  }
-
-  throw new Error(
-    `npm version not found for ${getNpmPackageName(source)} with shasum ${commit}`,
-  );
 }
 
 function requireNpmDist(
@@ -180,90 +243,75 @@ function requireNpmDist(
   version: string,
   dist: NonNullable<NpmPackageVersion["dist"]>,
 ): Pick<NpmResolvedVersion, "commit" | "tarball" | "integrity"> {
-  if (!dist.shasum || !/^[0-9a-f]{40}$/i.test(dist.shasum) || !dist.tarball) {
+  const shasum = dist.shasum?.toLowerCase();
+
+  if (!shasum || !isSha1Hex(shasum) || !dist.tarball) {
     throw new Error(
       `npm registry returned incomplete metadata for ${getNpmPackageName(source)}@${version}`,
     );
   }
 
   return {
-    commit: dist.shasum.toLowerCase(),
+    commit: shasum,
     tarball: dist.tarball,
     ...(dist.integrity !== undefined ? { integrity: dist.integrity } : {}),
   };
 }
 
 async function fetchNpmPackument(source: string): Promise<NpmPackument> {
-  const response = await fetchNpmRegistry(
+  const body = await fetchNpmBuffer(
     getNpmPackumentUrl(source),
-    NPM_ABBREVIATED_METADATA_ACCEPT,
+    "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8",
   );
 
-  return JSON.parse(
-    (await readNpmResponse(response)).toString("utf8"),
-  ) as NpmPackument;
+  return JSON.parse(body.toString("utf8")) as NpmPackument;
 }
 
-/**
- * Downloads, verifies, and extracts one package tarball, then swaps it into
- * `targetDir`. The previous cache survives any failure.
- */
-export async function replaceWithNpmSource(
-  source: string,
+function getNpmPackumentUrl(source: string): string {
+  return new URL(
+    getNpmPackageName(source).replace("/", "%2f"),
+    getNpmRegistryBaseUrl(),
+  ).href;
+}
+
+async function replaceNpmSource(
+  options: FetchRemoteSourceOptions,
   targetDir: string,
   resolved: NpmResolvedVersion,
-  prepareSourceDir: (sourceDir: string) => void,
-): Promise<NpmSourceMetadata> {
-  const suffix = `${process.pid}-${Date.now()}`;
-  const tempDir = `${targetDir}.tmp-${suffix}`;
-  const archiveFile = `${tempDir}.tgz`;
-  const backupDir = `${targetDir}.backup-${suffix}`;
+): Promise<void> {
   const metadata: NpmSourceMetadata = {
     transport: "npm-tarball",
-    source,
+    source: options.source,
     requested_ref: resolved.requestedRef,
     version: resolved.version,
     shasum: resolved.commit,
     fetched_at: new Date().toISOString(),
   };
 
-  fs.mkdirSync(path.dirname(targetDir), { recursive: true });
-
   try {
-    const tarball = await downloadNpmTarball(resolved);
-    fs.writeFileSync(archiveFile, tarball);
-    extractNpmTarball(archiveFile, tempDir);
-    prepareSourceDir(tempDir);
-    fs.writeFileSync(
-      path.join(tempDir, NPM_METADATA_FILE),
-      `${JSON.stringify(metadata, null, 2)}\n`,
-    );
-    if (fs.existsSync(targetDir)) {
-      fs.renameSync(targetDir, backupDir);
-    }
-    fs.renameSync(tempDir, targetDir);
-
-    return metadata;
-  } catch (error) {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    if (fs.existsSync(backupDir)) {
-      fs.rmSync(targetDir, { recursive: true, force: true });
-      fs.renameSync(backupDir, targetDir);
-    }
-    throw new Error(`Failed to fetch ${source}: ${getErrorText(error)}`, {
-      cause: error,
+    await replaceSourceDirectory(targetDir, async (tempDir, archiveFile) => {
+      fs.writeFileSync(archiveFile, await downloadNpmTarball(resolved));
+      extractTarball(archiveFile, tempDir, "npm tarball");
+      stripRepositoryRootInstructions(tempDir, options.includeRootInstructions);
+      fs.writeFileSync(
+        path.join(tempDir, SOURCE_METADATA_FILE),
+        `${JSON.stringify(metadata, null, 2)}\n`,
+      );
     });
-  } finally {
-    fs.rmSync(archiveFile, { force: true });
-    fs.rmSync(backupDir, { recursive: true, force: true });
+  } catch (error) {
+    throw new Error(
+      `Failed to fetch ${options.source}: ${getErrorText(error)}`,
+      { cause: error },
+    );
   }
 }
 
 async function downloadNpmTarball(
   resolved: NpmResolvedVersion,
 ): Promise<Buffer> {
-  const tarball = await readNpmResponse(
-    await fetchNpmRegistry(resolved.tarball, "application/octet-stream"),
+  const tarball = await fetchNpmBuffer(
+    resolved.tarball,
+    "application/octet-stream",
   );
   const shasum = createHash("sha1").update(tarball).digest("hex");
 
@@ -287,38 +335,11 @@ async function downloadNpmTarball(
   return tarball;
 }
 
-function extractNpmTarball(archiveFile: string, targetDir: string): void {
-  const extractDir = `${targetDir}.extract`;
-  fs.rmSync(extractDir, { recursive: true, force: true });
-  fs.mkdirSync(extractDir, { recursive: true });
-
-  try {
-    execFileSync("tar", ["-xzf", archiveFile, "-C", extractDir], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    // npm tarballs wrap their contents in one directory, usually `package/`.
-    const wrapperDirs = fs
-      .readdirSync(extractDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory());
-
-    if (wrapperDirs.length !== 1) {
-      throw new Error("npm tarball did not contain one wrapper directory");
-    }
-
-    fs.renameSync(path.join(extractDir, wrapperDirs[0]!.name), targetDir);
-  } catch (error) {
-    throw new Error(`Failed to extract npm tarball: ${getErrorText(error)}`);
-  } finally {
-    fs.rmSync(extractDir, { recursive: true, force: true });
-  }
-}
-
-/** Reads the npm fetch metadata recorded in a cached source, if any. */
-export function readNpmSourceMetadata(
+function readNpmSourceMetadata(
   targetDir: string,
   expectedSource: string,
 ): NpmSourceMetadata | undefined {
-  const metadataPath = path.join(targetDir, NPM_METADATA_FILE);
+  const metadataPath = path.join(targetDir, SOURCE_METADATA_FILE);
 
   if (!fs.existsSync(metadataPath)) {
     return undefined;
@@ -339,7 +360,7 @@ export function readNpmSourceMetadata(
     typeof parsed.version !== "string" ||
     typeof parsed.fetched_at !== "string" ||
     typeof parsed.shasum !== "string" ||
-    !/^[0-9a-f]{40}$/.test(parsed.shasum) ||
+    !isSha1Hex(parsed.shasum) ||
     (parsed.requested_ref !== null && typeof parsed.requested_ref !== "string")
   ) {
     throw new Error(`Invalid npm source metadata in ${targetDir}`);
@@ -348,33 +369,28 @@ export function readNpmSourceMetadata(
   return parsed;
 }
 
-async function fetchNpmRegistry(
-  url: string,
-  accept: string,
-): Promise<Response> {
-  const token = process.env[NPM_TOKEN_ENV];
-  const registryOrigin = new URL(getNpmRegistryBaseUrl()).origin;
+function isSha1Hex(value: string): boolean {
+  return /^[0-9a-f]{40}$/.test(value);
+}
+
+async function fetchNpmBuffer(url: string, accept: string): Promise<Buffer> {
+  const token = process.env.SKUL_NPM_TOKEN;
   // Only send credentials to the configured registry, never to a tarball host
   // that the registry metadata points elsewhere.
   const authorization =
-    token && new URL(url).origin === registryOrigin
+    token && new URL(url).origin === new URL(getNpmRegistryBaseUrl()).origin
       ? { Authorization: `Bearer ${token}` }
       : {};
+  let response: Response;
 
   try {
-    return await fetch(url, {
-      headers: {
-        Accept: accept,
-        "User-Agent": NPM_USER_AGENT,
-        ...authorization,
-      },
+    response = await fetch(url, {
+      headers: { Accept: accept, "User-Agent": "skul", ...authorization },
     });
   } catch (error) {
     throw new Error(`npm registry request failed: ${getErrorText(error)}`);
   }
-}
 
-async function readNpmResponse(response: Response): Promise<Buffer> {
   const body = Buffer.from(await response.arrayBuffer());
 
   if (!response.ok) {
@@ -390,13 +406,9 @@ async function readNpmResponse(response: Response): Promise<Buffer> {
 
 function getNpmRegistryBaseUrl(): string {
   const configured =
-    process.env[NPM_REGISTRY_ENV]?.trim() ||
-    process.env[NPM_CONFIG_REGISTRY_ENV]?.trim() ||
+    process.env.SKUL_NPM_REGISTRY?.trim() ||
+    process.env.npm_config_registry?.trim() ||
     DEFAULT_NPM_REGISTRY;
 
   return configured.endsWith("/") ? configured : `${configured}/`;
-}
-
-function getErrorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
