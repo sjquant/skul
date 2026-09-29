@@ -39,6 +39,11 @@ describe("normalizeBundleSource", () => {
     ["user/ai-vault.git", "github.com/user/ai-vault"],
     ["https://github.com/user/ai-vault.git", "github.com/user/ai-vault"],
     ["git@github.com:user/ai-vault.git", "github.com/user/ai-vault"],
+    ["npm:@acme/react-skills", "npm/acme/react-skills"],
+    ["npm:react-skills", "npm/-/react-skills"],
+    ["npm/acme/react-skills", "npm/acme/react-skills"],
+    ["npm/-/react-skills", "npm/-/react-skills"],
+    ["npm/cli", "github.com/npm/cli"],
   ])("normalizes %s", (input, expected) => {
     // Given
     const source = input;
@@ -71,6 +76,22 @@ describe("normalizeBundleSource", () => {
       "owner/repo shorthand with colon in owner (SSH-style)",
       "acme:user/repo",
       /unsupported git source/i,
+    ],
+    [
+      "npm scope without a package name",
+      "npm:@acme",
+      /unsupported npm source/i,
+    ],
+    ["npm package with a nested path", "npm:a/b", /unsupported npm source/i],
+    [
+      "npm source with an empty version",
+      "npm:react@",
+      /unsupported npm source/i,
+    ],
+    [
+      "npm source with a version outside skul add",
+      "npm:react-skills@1.0.0",
+      /only 'skul add' accepts a version/i,
     ],
   ])("rejects %s", (_label, input, expectedMessage) => {
     // Given

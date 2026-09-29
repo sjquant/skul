@@ -48,7 +48,7 @@ skul add [options] [source] [bundle]
 | Option | Description |
 | --- | --- |
 | `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
-| `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. Persisted in the registry and reused by `skul apply`. |
+| `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. For npm sources, a version or dist-tag instead of `latest`. Persisted in the registry and reused by `skul apply`. |
 | `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
 | `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
 | `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
@@ -67,6 +67,12 @@ skul add [options] [source] [bundle]
 ## Protocol behavior
 
 Bare `owner/repo` references default to `github.com/owner/repo`. If you pass `--ssh` or use a `git@host:owner/repo` URL, `skul` persists that protocol choice and reuses it later during `apply`.
+
+## npm sources
+
+`skul add npm:@scope/package` installs a bundle published to an npm registry. Skul downloads the package tarball, verifies it against the registry's digest, and treats the package root like a repository root. Pin a version with `npm:@scope/package@1.2.0` or `--ref 1.2.0`, or follow another dist-tag with `--ref next`; without either, Skul follows `latest`. Dist-tags are followed by `skul check` and `skul update`, exact versions are pinned, and semver ranges are not supported.
+
+Set `SKUL_NPM_REGISTRY` to use a private registry (falls back to `npm_config_registry`, then `https://registry.npmjs.org/`). `SKUL_NPM_TOKEN` is sent as a bearer token to that registry's origin only.
 
 ## Root-instruction safety
 
