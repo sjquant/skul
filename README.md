@@ -273,6 +273,7 @@ Instead of copying an item from another repository into your bundle, you can ref
 | `name` | for `skills`, `agents`, `commands` | Local item name materialized from this ref. |
 | `path` | no | Root instruction refs only. Optional local root instruction path, such as `AGENTS.md`. |
 | `source` | yes | The referenced repo, in any form `skul add` accepts. |
+| `sourcePath` | no | Repository-relative directory containing a nested Claude marketplace or the referenced bundle itself. Omit for existing top-level discovery. |
 | `bundle` | when ambiguous | The bundle name inside `source`. When omitted, Skul selects the only bundle containing the referenced item; set it when multiple bundles contain that item. |
 | `item` | no | The external item selector, e.g. `skills/other-name`, `agents/reviewer`, `commands/review`, or `root-instruction`. Defaults from local `target` / `name`, or to `root-instruction`. |
 | `description` | no | Override the materialized description for referenced skills, commands, and agents. Ignored for root-instruction refs. Must be a single line. |
@@ -282,6 +283,29 @@ Instead of copying an item from another repository into your bundle, you can ref
 Skul fetches the referenced source into `~/.skul/library/` (same cache used for regular bundles) and materializes the referenced item as if it were local. When `ref` is set, Skul aligns the referenced source cache to that branch, tag, or commit before materializing the item; without `ref`, the referenced source follows its cached default-branch checkout.
 
 Repositories with a `.claude-plugin/marketplace.json` can expose local plugin sources as bundles. Skul resolves items from the canonical plugin source instead of tool-specific symlink facades. If multiple plugins expose the same referenced item, use the plugin's declared `name` as the `bundle` value.
+
+For a marketplace nested inside a monorepo, set `sourcePath` to the directory containing `.claude-plugin/marketplace.json`:
+
+```json
+{
+  "refs": [
+    {
+      "target": "skills",
+      "name": "sentry-cli",
+      "source": "getsentry/cli",
+      "sourcePath": "packages/cli",
+      "bundle": "sentry-cli",
+      "item": "skills/sentry-cli"
+    }
+  ]
+}
+```
+
+Here a marketplace plugin source of `./plugins/sentry-cli` resolves to `packages/cli/plugins/sentry-cli`. Skul copies the whole selected skill, including `references/` and other supporting files. `bundle` is the marketplace plugin's declared name, not a filesystem path; omit it when only one plugin contains the item. Remote/object plugin sources are not resolved by this selector.
+
+Alternatively, set `sourcePath` directly to `packages/cli/plugins/sentry-cli` and omit `bundle`. Without a marketplace at that directory, Skul loads it as a single bundle (named after the directory's final segment). Discovery stays inside the selected directory and does not fall back to repository-root items or recursively search the repository.
+
+`sourcePath` must use non-empty, slash-separated directory names, without absolute paths, `.` or `..` segments, or backslashes. Marketplace plugin sources are relative to the selected marketplace directory; `..` is allowed there only while staying inside the fetched repository. Selected paths, metadata, and item ancestors must not contain symlinks, and supporting files retain Skul's existing symlink rejection. Invalid paths and duplicate plugin names fail with an error; select a direct plugin directory to bypass an ambiguous marketplace name. The `ref` and source cache behavior above are unchanged. The `path` field still only sets the local destination for root-instruction refs.
 
 ### Root Instruction Targets
 

@@ -256,20 +256,114 @@ export function listCachedBundles(options: {
   );
 }
 
+/** Discovers only the explicitly selected marketplace or bundle directory. */
+export function listCachedBundlesAtPath(options: {
+  libraryDir: string;
+  source: string;
+  sourcePath: string;
+  bundle?: string;
+}): CachedBundle[] {
+  const repositoryDir = path.join(
+    options.libraryDir,
+    ...options.source.split("/"),
+  );
+  const sourceDir = path.resolve(repositoryDir, options.sourcePath);
+  assertSafeRepositoryPath(repositoryDir, sourceDir);
+  if (!fs.existsSync(sourceDir) || !fs.lstatSync(sourceDir).isDirectory()) {
+    throw new Error(
+      `Referenced sourcePath must be an existing directory: ${options.sourcePath}`,
+    );
+  }
+
+  const marketplaceFile = path.join(sourceDir, CLAUDE_MARKETPLACE_FILE);
+  assertSafeRepositoryPath(repositoryDir, marketplaceFile);
+  if (fs.existsSync(marketplaceFile)) {
+    return inferClaudeMarketplaceBundles(
+      sourceDir,
+      new Set(),
+      { tools: {} },
+      {
+        source: options.source,
+        repositoryDir,
+        bundle: options.bundle,
+      },
+    );
+  }
+
+  const bundle = path.basename(sourceDir);
+  if (options.bundle && options.bundle !== bundle) return [];
+  const manifest = loadBundleManifest(sourceDir, undefined, repositoryDir);
+  return Object.keys(manifest.tools).length === 0
+    ? []
+    : [
+        {
+          source: options.source,
+          bundle,
+          manifestFile: path.join(sourceDir, MANIFEST_FILE_NAME),
+          manifest,
+        },
+      ];
+}
+
+/** Rejects traversal and symlinks anywhere along a repository-relative path. */
+export function assertSafeRepositoryPath(
+  repositoryDir: string,
+  targetPath: string,
+): void {
+  const relativePath = path.relative(repositoryDir, targetPath);
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    throw new Error(
+      `Referenced path must stay within the fetched repository: ${targetPath}`,
+    );
+  }
+  let currentPath = repositoryDir;
+  for (const segment of relativePath.split(path.sep).filter(Boolean)) {
+    currentPath = path.join(currentPath, segment);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(currentPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(
+        `Referenced path must not contain a symlink: ${currentPath}`,
+      );
+    }
+  }
+}
+
 function inferClaudeMarketplaceBundles(
   sourceDir: string,
   excludedBundleKeys: Set<string>,
   repositoryManifest: BundleManifest = { tools: {} },
+  nestedSource?: { source: string; repositoryDir: string; bundle?: string },
 ): CachedBundle[] {
   const marketplaceFile = path.join(sourceDir, CLAUDE_MARKETPLACE_FILE);
-  const source = path.normalize(sourceDir).split(path.sep).slice(-3).join("/");
+  const source =
+    nestedSource?.source ??
+    path.normalize(sourceDir).split(path.sep).slice(-3).join("/");
   const bundleKeys = new Set(excludedBundleKeys);
+  const invalidMarketplace = (message: string): [] => {
+    if (nestedSource)
+      throw new Error(
+        `Invalid Claude marketplace ${marketplaceFile}: ${message}`,
+      );
+    return [];
+  };
   let marketplace: unknown;
 
   try {
     marketplace = JSON.parse(fs.readFileSync(marketplaceFile, "utf8"));
-  } catch {
-    return [];
+  } catch (error) {
+    return invalidMarketplace(
+      error instanceof Error ? error.message : String(error),
+    );
   }
 
   if (
@@ -277,45 +371,64 @@ function inferClaudeMarketplaceBundles(
     typeof marketplace !== "object" ||
     Array.isArray(marketplace)
   ) {
-    return [];
+    return invalidMarketplace("expected an object with a plugins array");
   }
 
   const plugins = (marketplace as Record<string, unknown>).plugins;
   if (!Array.isArray(plugins)) {
-    return [];
+    return invalidMarketplace("expected a plugins array");
   }
 
   return plugins.flatMap((plugin) => {
     if (!plugin || typeof plugin !== "object" || Array.isArray(plugin)) {
-      return [];
+      return invalidMarketplace("each plugin must be an object");
     }
 
     const { name, source: pluginSource } = plugin as Record<string, unknown>;
     const bundle = typeof name === "string" ? name.trim() : "";
+    if (nestedSource?.bundle && nestedSource.bundle !== bundle) return [];
+    // Remote/object plugin sources are not bundles in this fetched repository.
+    if (typeof pluginSource !== "string") return [];
     if (
       !bundle ||
       bundle.includes("/") ||
+      bundle.includes("\\") ||
       bundle === "." ||
-      bundle === ".." ||
-      typeof pluginSource !== "string"
+      bundle === ".."
     ) {
-      return [];
+      return invalidMarketplace(
+        "each local plugin needs a name and a string source",
+      );
     }
 
     const bundleKey = `${source}::${bundle}`;
     if (bundleKeys.has(bundleKey)) {
-      return [];
+      return invalidMarketplace(
+        `ambiguous plugin name "${bundle}"; give plugins unique names or select a plugin directory with "sourcePath"`,
+      );
     }
+    if (nestedSource) bundleKeys.add(bundleKey);
 
-    const bundleDir = resolveLocalMarketplaceSource(sourceDir, pluginSource);
+    const bundleDir = nestedSource
+      ? resolveNestedMarketplaceSource(
+          sourceDir,
+          pluginSource,
+          nestedSource.repositoryDir,
+        )
+      : resolveLocalMarketplaceSource(sourceDir, pluginSource);
     if (!bundleDir) {
       return [];
     }
 
     let manifest: BundleManifest;
     try {
-      manifest = loadBundleManifest(bundleDir, repositoryManifest);
-    } catch {
+      manifest = loadBundleManifest(
+        bundleDir,
+        repositoryManifest,
+        nestedSource?.repositoryDir,
+      );
+    } catch (error) {
+      if (nestedSource) throw error;
       manifest = mergeBundleManifestDefaults(
         inferBundleManifest(bundleDir),
         repositoryManifest,
@@ -335,6 +448,34 @@ function inferClaudeMarketplaceBundles(
       },
     ];
   });
+}
+
+function resolveNestedMarketplaceSource(
+  sourceDir: string,
+  pluginSource: string,
+  repositoryDir: string,
+): string {
+  const value = pluginSource.trim();
+  if (
+    !value ||
+    path.posix.isAbsolute(value) ||
+    path.win32.isAbsolute(value) ||
+    value.includes("\\") ||
+    value.includes(":") ||
+    value.includes("\0")
+  ) {
+    throw new Error(
+      `Marketplace plugin source must be a local repository-relative directory: ${pluginSource}`,
+    );
+  }
+  const bundleDir = path.resolve(sourceDir, value);
+  assertSafeRepositoryPath(repositoryDir, bundleDir);
+  if (!fs.existsSync(bundleDir) || !fs.lstatSync(bundleDir).isDirectory()) {
+    throw new Error(
+      `Marketplace plugin source must be an existing directory: ${pluginSource} in ${sourceDir}`,
+    );
+  }
+  return bundleDir;
 }
 
 function resolveLocalMarketplaceSource(
@@ -576,7 +717,18 @@ function inferSubdirectoryBundles(
 function loadBundleManifest(
   bundleDir: string,
   repositoryManifest?: BundleManifest,
+  repositoryDir?: string,
 ): BundleManifest {
+  if (repositoryDir) {
+    assertSafeRepositoryPath(
+      repositoryDir,
+      path.join(bundleDir, MANIFEST_FILE_NAME),
+    );
+    assertSafeRepositoryPath(
+      repositoryDir,
+      path.join(bundleDir, "skul.refs.json"),
+    );
+  }
   const inferred = mergeBundleManifestDefaults(
     inferBundleManifest(bundleDir),
     repositoryManifest ?? { tools: {} },
@@ -587,9 +739,18 @@ function loadBundleManifest(
     return inferred;
   }
 
-  const explicit = parseBundleManifest(
-    JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
-  );
+  let explicit: BundleManifest;
+  try {
+    explicit = parseBundleManifest(
+      JSON.parse(fs.readFileSync(manifestFile, "utf8")) as unknown,
+    );
+  } catch (error) {
+    if (!repositoryDir) throw error;
+    throw new Error(
+      `Invalid bundle manifest ${manifestFile}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
   return mergeBundleManifests(inferred, explicit);
 }
 
