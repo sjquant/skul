@@ -13,6 +13,7 @@ import {
   writeManifest,
 } from "./cli.test-support";
 import { run } from "./index";
+import * as mcpConfig from "./mcp-config";
 import { readRegistryFile } from "./registry";
 import { listToolDefinitions } from "./tool-mapping";
 
@@ -2123,6 +2124,531 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(pathExists(path.join(cwd, ".cursor"))).toBe(false);
     expect(pathExists(path.join(cwd, ".codex"))).toBe(false);
     expect(pathExists(path.join(cwd, "opencode.json"))).toBe(false);
+  });
+
+  describe.each([
+    { scope: "project", flags: [] as string[], config: ".mcp.json" },
+    { scope: "global", flags: ["--global"], config: ".claude.json" },
+  ])("pending MCP cleanup ($scope)", ({ flags, config }) => {
+    it("keeps failed partial-removal ownership until a later retry", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundleWithSkill(homeDir);
+      await run(
+        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      fs.writeFileSync(path.join(root, config), "{ broken");
+
+      await runWithoutConsoleWarnings(() =>
+        run(["remove", BUNDLE, ...flags, "--include", "mcp", "-y"], context),
+      );
+      const registry = readRegistryFile(
+        path.join(homeDir, ".skul", "registry.json"),
+      );
+      const materialized = flags.length
+        ? registry.global!.materialized_state
+        : Object.values(registry.worktrees)[0]!.materialized_state;
+      expect(materialized.bundles[BUNDLE]!.tools["claude-code"]).toMatchObject({
+        mcp_servers: { [config]: ["docs", "remote"] },
+        pending_mcp_cleanup: [config],
+      });
+      expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
+        true,
+      );
+
+      fs.writeFileSync(
+        path.join(root, config),
+        JSON.stringify({
+          mcpServers: { docs: { command: "docs" }, mine: { command: "mine" } },
+        }),
+      );
+      await run(["remove", BUNDLE, ...flags, "-y"], context);
+      expect(readMcpServers(path.join(root, config))).toEqual({
+        mine: { command: "mine" },
+      });
+    });
+
+    it("reports removed bundles as pending cleanup, including paths and server names", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundleWithSkill(homeDir);
+      await run(
+        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      fs.writeFileSync(path.join(root, config), "{ broken");
+      const removed = await runWithoutConsoleWarnings(() =>
+        run(["remove", BUNDLE, ...flags, "-y"], context),
+      );
+      expect(removed).toContain("retry");
+
+      const output = await run(["status", ...flags], context);
+      expect(output).toContain("Materialized: no");
+      expect(output).toContain("Pending MCP cleanup");
+      expect(output).toContain(config);
+      expect(output).toContain("docs");
+      const status = JSON.parse(
+        await run(["status", ...flags, "--json"], context),
+      );
+      const state = flags.length ? status.materialized : status.worktree;
+      expect(state.bundles).toEqual({});
+      expect(state.pending_mcp_cleanup).toEqual({
+        [BUNDLE]: { "claude-code": { [config]: ["docs", "remote"] } },
+      });
+    });
+
+    it.each([
+      "constructor",
+      "toString",
+      "__proto__",
+    ])("reports bundle %s without inherited properties", async (bundleName) => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeManifest(homeDir, SOURCE, bundleName, {
+        name: bundleName,
+        tools: {
+          "claude-code": {
+            skills: { path: ".claude/skills" },
+            mcp: { path: "mcp.json" },
+          },
+        },
+      });
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundleName,
+        "mcp.json",
+        JSON.stringify(MCP_CONFIG),
+      );
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundleName,
+        ".claude/skills/guide/SKILL.md",
+        "# guide\n",
+      );
+      await run(
+        ["add", SOURCE, bundleName, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      const inheritedTargets = [
+        Object,
+        Object.prototype,
+        Object.prototype.toString,
+      ];
+      const before = inheritedTargets.map((target) =>
+        Object.getOwnPropertyDescriptor(target, "claude-code"),
+      );
+      try {
+        const initial = JSON.parse(
+          await run(["status", ...flags, "--json"], context),
+        );
+        const initialState = flags.length
+          ? initial.materialized
+          : initial.worktree;
+        expect(Object.keys(initialState.bundles)).toEqual([bundleName]);
+        expect(initialState.pending_mcp_cleanup).toBeUndefined();
+        expect(await run(["status", ...flags], context)).toContain(
+          "Materialized: yes",
+        );
+        fs.writeFileSync(path.join(root, config), "{ broken");
+        for (const cleanupOnly of [false, true]) {
+          await runWithoutConsoleWarnings(() =>
+            run(
+              [
+                "remove",
+                bundleName,
+                ...flags,
+                ...(cleanupOnly ? [] : ["--include", "mcp"]),
+                "-y",
+              ],
+              context,
+            ),
+          );
+          const status = JSON.parse(
+            await run(["status", ...flags, "--json"], context),
+          );
+          const state = flags.length ? status.materialized : status.worktree;
+          expect(Object.keys(state.bundles)).toEqual(
+            cleanupOnly ? [] : [bundleName],
+          );
+          expect(state.pending_mcp_cleanup).toEqual({
+            [bundleName]: { "claude-code": { [config]: ["docs", "remote"] } },
+          });
+          if (!flags.length) expect(state.materialized).toBe(!cleanupOnly);
+          const output = await run(["status", ...flags], context);
+          expect(output).toContain(
+            cleanupOnly ? "Materialized: no" : "Materialized: yes",
+          );
+          expect(output).toContain(`${bundleName} (claude-code): ${config}`);
+          expect(output).toContain("docs, remote");
+        }
+        expect(
+          inheritedTargets.map((target) =>
+            Object.getOwnPropertyDescriptor(target, "claude-code"),
+          ),
+        ).toEqual(before);
+      } finally {
+        for (const [index, target] of inheritedTargets.entries()) {
+          const descriptor = before[index];
+          if (descriptor)
+            Object.defineProperty(target, "claude-code", descriptor);
+          else Reflect.deleteProperty(target, "claude-code");
+        }
+      }
+    });
+
+    it("reapplies a reset bundle after its configuration is repaired", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundleWithSkill(homeDir);
+      await run(
+        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      fs.writeFileSync(path.join(root, config), "{ broken");
+      await runWithoutConsoleWarnings(() =>
+        run(["reset", ...flags, "-y"], context),
+      );
+      expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
+        false,
+      );
+      fs.writeFileSync(
+        path.join(root, config),
+        JSON.stringify({ mcpServers: { docs: { command: "docs" } } }),
+      );
+
+      const output = await run(["apply", ...flags, "-y"], context);
+      expect(output).not.toContain("already materialized");
+      expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
+        true,
+      );
+      expect(readMcpServers(path.join(root, config))).toHaveProperty("remote");
+      const status = JSON.parse(
+        await run(["status", ...flags, "--json"], context),
+      );
+      expect(
+        (flags.length ? status.materialized : status.worktree)
+          .pending_mcp_cleanup,
+      ).toBeUndefined();
+    });
+
+    it("retries pending partial cleanup on apply without losing active items", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundleWithSkill(homeDir);
+      await run(
+        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      fs.writeFileSync(path.join(root, config), "{ broken");
+      await runWithoutConsoleWarnings(() =>
+        run(["remove", BUNDLE, ...flags, "--include", "mcp", "-y"], context),
+      );
+      await run(["apply", ...flags, "-y"], context);
+      expect(await run(["status", ...flags], context)).toContain(
+        "Materialized: yes",
+      );
+      fs.writeFileSync(
+        path.join(root, config),
+        JSON.stringify({
+          mcpServers: { docs: { command: "docs" }, mine: { command: "mine" } },
+        }),
+      );
+
+      await run(["apply", ...flags, "-y"], context);
+      expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
+        true,
+      );
+      expect(readMcpServers(path.join(root, config))).toEqual({
+        mine: { command: "mine" },
+      });
+      expect(await run(["status", ...flags], context)).not.toContain(
+        "Pending MCP cleanup",
+      );
+    });
+
+    it("retries a cleanup-only reset and removes its created configuration", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundle(homeDir);
+      await run(
+        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      fs.writeFileSync(path.join(root, config), "{ broken");
+      await runWithoutConsoleWarnings(() =>
+        run(["reset", ...flags, "-y"], context),
+      );
+      fs.writeFileSync(
+        path.join(root, config),
+        JSON.stringify({ mcpServers: { docs: { command: "docs" } } }),
+      );
+
+      await run(["reset", ...flags, "-y"], context);
+      expect(pathExists(path.join(root, config))).toBe(false);
+      const status = JSON.parse(
+        await run(["status", ...flags, "--json"], context),
+      );
+      expect(
+        (flags.length ? status.materialized : status.worktree)
+          .pending_mcp_cleanup,
+      ).toBeUndefined();
+      if (!flags.length)
+        expect(status.worktree.git_exclude_configured).toBe(false);
+    });
+
+    it("reapplies cleanup-only ownership even if an older client drops the marker", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundleWithSkill(homeDir);
+      await run(
+        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      fs.writeFileSync(path.join(root, config), "{ broken");
+      await runWithoutConsoleWarnings(() =>
+        run(["reset", ...flags, "-y"], context),
+      );
+      const registryFile = path.join(homeDir, ".skul", "registry.json");
+      const registry = readRegistryFile(registryFile);
+      const materialized = flags.length
+        ? registry.global!.materialized_state
+        : Object.values(registry.worktrees)[0]!.materialized_state;
+      delete materialized.bundles[BUNDLE]!.tools["claude-code"]!
+        .pending_mcp_cleanup;
+      fs.writeFileSync(registryFile, JSON.stringify(registry));
+      fs.writeFileSync(
+        path.join(root, config),
+        JSON.stringify({ mcpServers: { docs: { command: "docs" } } }),
+      );
+
+      await run(["apply", ...flags, "-y"], context);
+      expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
+        true,
+      );
+    });
+
+    it("retains failed ownership for a tool removed from the manifest, then retries on apply", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundleWithSkill(homeDir);
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        BUNDLE,
+        ".claude/skills/guide/SKILL.md",
+        "---\nname: guide\ndescription: Guide\n---\n# guide\n",
+      );
+      writeManifest(homeDir, SOURCE, BUNDLE, {
+        name: BUNDLE,
+        tools: {
+          "claude-code": { mcp: { path: "mcp.json" } },
+          codex: { skills: { path: ".claude/skills" } },
+        },
+      });
+      await run(["add", SOURCE, BUNDLE, ...flags, "-y"], context);
+      fs.writeFileSync(path.join(root, config), "{ broken");
+      writeManifest(homeDir, SOURCE, BUNDLE, {
+        name: BUNDLE,
+        tools: {
+          codex: { skills: { path: ".claude/skills" } },
+        },
+      });
+
+      await run(["add", SOURCE, BUNDLE, ...flags, "-y"], context);
+      const status = JSON.parse(
+        await run(["status", ...flags, "--json"], context),
+      );
+      const state = flags.length ? status.materialized : status.worktree;
+      expect(Object.keys(state.bundles[BUNDLE].tools)).toEqual(["codex"]);
+      expect(state.bundles[BUNDLE].tools.codex.files.length).toBeGreaterThan(0);
+      expect(state.pending_mcp_cleanup[BUNDLE]["claude-code"][config]).toEqual([
+        "docs",
+        "remote",
+      ]);
+      fs.writeFileSync(
+        path.join(root, config),
+        JSON.stringify({ mcpServers: { docs: { command: "docs" } } }),
+      );
+
+      await run(["apply", ...flags, "-y"], context);
+      expect(pathExists(path.join(root, config))).toBe(false);
+      expect(await run(["status", ...flags], context)).not.toContain(
+        "Pending MCP cleanup",
+      );
+    });
+
+    it("retains old server names when a failed subtraction is followed by successful materialization", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundle(homeDir);
+      await run(
+        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      writeMcpBundle(homeDir, {
+        mcpServers: { fresh: { type: "stdio", command: "fresh" } },
+      });
+      const subtract = vi
+        .spyOn(mcpConfig, "subtractMcpConfigServers")
+        .mockImplementationOnce(() => {
+          throw new Error("temporary read failure");
+        });
+      try {
+        await run(
+          ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+          context,
+        );
+      } finally {
+        subtract.mockRestore();
+      }
+      const registry = readRegistryFile(
+        path.join(homeDir, ".skul", "registry.json"),
+      );
+      const state = flags.length
+        ? registry.global!.materialized_state
+        : Object.values(registry.worktrees)[0]!.materialized_state;
+      expect(
+        state.bundles[BUNDLE]!.tools["claude-code"]!.mcp_servers![config],
+      ).toEqual(["docs", "remote", "fresh"]);
+      expect(await run(["status", ...flags], context)).toContain(
+        "Materialized: yes",
+      );
+
+      await run(["apply", ...flags, "-y"], context);
+      expect(Object.keys(readMcpServers(path.join(root, config)))).toEqual([
+        "fresh",
+      ]);
+      expect(await run(["status", ...flags], context)).not.toContain(
+        "Pending MCP cleanup",
+      );
+    });
+
+    it("keeps another bundle and user servers when retrying partial cleanup", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundleWithSkill(homeDir);
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        "second",
+        "mcp.json",
+        JSON.stringify({
+          mcpServers: { second: { type: "stdio", command: "second" } },
+        }),
+      );
+      for (const bundle of [BUNDLE, "second"])
+        await run(
+          ["add", SOURCE, bundle, ...flags, "--agent", "claude-code", "-y"],
+          context,
+        );
+      fs.writeFileSync(path.join(root, config), "{ broken");
+      await runWithoutConsoleWarnings(() =>
+        run(["remove", BUNDLE, ...flags, "--include", "mcp", "-y"], context),
+      );
+      fs.writeFileSync(
+        path.join(root, config),
+        JSON.stringify({
+          mcpServers: {
+            docs: { command: "docs" },
+            remote: { command: "remote" },
+            second: { command: "second" },
+            mine: { command: "mine" },
+          },
+        }),
+      );
+
+      await run(["apply", ...flags, "-y"], context);
+      expect(readMcpServers(path.join(root, config))).toEqual({
+        second: { command: "second" },
+        mine: { command: "mine" },
+      });
+    });
+
+    it("keeps an ordinary MCP-only install into an existing file materialized", async () => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeMcpBundle(homeDir);
+      fs.writeFileSync(path.join(root, config), "{}");
+      await run(
+        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+
+      const status = await run(["status", ...flags], context);
+      expect(status).toContain("Materialized: yes");
+      expect(status).not.toContain("Pending MCP cleanup");
+      expect(await run(["apply", ...flags, "-y"], context)).toContain(
+        "already materialized",
+      );
+    });
+  });
+
+  it("keeps tracked instruction overlays active while their MCP cleanup is pending", async () => {
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    const context = { homeDir, cwd, prompts: createPromptClientStub() };
+    writeManifest(homeDir, SOURCE, BUNDLE, {
+      name: BUNDLE,
+      tools: {
+        "claude-code": {
+          root_instruction: { path: "CLAUDE.md" },
+          mcp: { path: "mcp.json" },
+        },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      BUNDLE,
+      "CLAUDE.md",
+      "# Bundle instructions\n",
+    );
+    writeMcpBundle(homeDir);
+    fs.writeFileSync(path.join(cwd, "CLAUDE.md"), "# Project instructions\n");
+    runGit(cwd, ["add", "CLAUDE.md"]);
+    runGit(cwd, ["commit", "-m", "track instructions"]);
+    await run(["add", SOURCE, BUNDLE, "--agent", "claude-code", "-y"], context);
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ broken");
+
+    await runWithoutConsoleWarnings(() =>
+      run(["remove", BUNDLE, "--include", "mcp", "-y"], context),
+    );
+    const status = JSON.parse(await run(["status", "--json"], context));
+    expect(status.worktree.materialized).toBe(true);
+    expect(status.worktree.bundles[BUNDLE].tools["claude-code"].files).toEqual(
+      [],
+    );
+    expect(
+      status.worktree.pending_mcp_cleanup[BUNDLE]["claude-code"][".mcp.json"],
+    ).toEqual(["docs", "remote"]);
+    expect(fs.readFileSync(path.join(cwd, "CLAUDE.md"), "utf8")).toContain(
+      "Bundle instructions",
+    );
   });
 
   it("finishes removing a bundle whose shared configuration no longer parses", async () => {
