@@ -2234,17 +2234,17 @@ function renderBundleList(options: {
 
 /** Separates active materialization from retryable MCP-only ownership for display. */
 function collectMaterializationStatus(bundles: MaterializedState["bundles"]) {
-  const activeBundles: MaterializedState["bundles"] = {};
+  const activeBundles: MaterializedState["bundles"] = Object.create(null);
   const pendingCleanup: Record<
     string,
     Record<string, Record<string, string[]>>
-  > = {};
+  > = Object.create(null);
   for (const [bundleName, bundleState] of Object.entries(bundles)) {
-    const activeTools: MaterializedBundleState["tools"] = {};
+    const activeTools: MaterializedBundleState["tools"] = Object.create(null);
     for (const [toolName, toolState] of Object.entries(bundleState.tools)) {
       const pendingPaths = toolState.pending_mcp_cleanup ?? [];
       if (pendingPaths.length > 0) {
-        pendingCleanup[bundleName] ??= {};
+        pendingCleanup[bundleName] ??= Object.create(null);
         pendingCleanup[bundleName]![toolName] = Object.fromEntries(
           pendingPaths.map((filePath) => [
             filePath,

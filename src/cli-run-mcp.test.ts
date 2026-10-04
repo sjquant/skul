@@ -2202,6 +2202,109 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       });
     });
 
+    it.each([
+      "constructor",
+      "toString",
+      "__proto__",
+    ])("reports bundle %s without inherited properties", async (bundleName) => {
+      const homeDir = createHomeDir();
+      const cwd = createRepository();
+      const root = flags.length ? homeDir : cwd;
+      const context = { homeDir, cwd, prompts: createPromptClientStub() };
+      writeManifest(homeDir, SOURCE, bundleName, {
+        name: bundleName,
+        tools: {
+          "claude-code": {
+            skills: { path: ".claude/skills" },
+            mcp: { path: "mcp.json" },
+          },
+        },
+      });
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundleName,
+        "mcp.json",
+        JSON.stringify(MCP_CONFIG),
+      );
+      writeBundleFile(
+        homeDir,
+        SOURCE,
+        bundleName,
+        ".claude/skills/guide/SKILL.md",
+        "# guide\n",
+      );
+      await run(
+        ["add", SOURCE, bundleName, ...flags, "--agent", "claude-code", "-y"],
+        context,
+      );
+      const inheritedTargets = [
+        Object,
+        Object.prototype,
+        Object.prototype.toString,
+      ];
+      const before = inheritedTargets.map((target) =>
+        Object.getOwnPropertyDescriptor(target, "claude-code"),
+      );
+      try {
+        const initial = JSON.parse(
+          await run(["status", ...flags, "--json"], context),
+        );
+        const initialState = flags.length
+          ? initial.materialized
+          : initial.worktree;
+        expect(Object.keys(initialState.bundles)).toEqual([bundleName]);
+        expect(initialState.pending_mcp_cleanup).toBeUndefined();
+        expect(await run(["status", ...flags], context)).toContain(
+          "Materialized: yes",
+        );
+        fs.writeFileSync(path.join(root, config), "{ broken");
+        for (const cleanupOnly of [false, true]) {
+          await runWithoutConsoleWarnings(() =>
+            run(
+              [
+                "remove",
+                bundleName,
+                ...flags,
+                ...(cleanupOnly ? [] : ["--include", "mcp"]),
+                "-y",
+              ],
+              context,
+            ),
+          );
+          const status = JSON.parse(
+            await run(["status", ...flags, "--json"], context),
+          );
+          const state = flags.length ? status.materialized : status.worktree;
+          expect(Object.keys(state.bundles)).toEqual(
+            cleanupOnly ? [] : [bundleName],
+          );
+          expect(state.pending_mcp_cleanup).toEqual({
+            [bundleName]: { "claude-code": { [config]: ["docs", "remote"] } },
+          });
+          if (!flags.length) expect(state.materialized).toBe(!cleanupOnly);
+          const output = await run(["status", ...flags], context);
+          expect(output).toContain(
+            cleanupOnly ? "Materialized: no" : "Materialized: yes",
+          );
+          expect(output).toContain(`${bundleName} (claude-code): ${config}`);
+          expect(output).toContain("docs, remote");
+        }
+        expect(
+          inheritedTargets.map((target) =>
+            Object.getOwnPropertyDescriptor(target, "claude-code"),
+          ),
+        ).toEqual(before);
+      } finally {
+        for (const [index, target] of inheritedTargets.entries()) {
+          const descriptor = before[index];
+          if (descriptor)
+            Object.defineProperty(target, "claude-code", descriptor);
+          else Reflect.deleteProperty(target, "claude-code");
+        }
+      }
+    });
+
     it("reapplies a reset bundle after its configuration is repaired", async () => {
       const homeDir = createHomeDir();
       const cwd = createRepository();
