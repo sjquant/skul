@@ -54,6 +54,8 @@ export interface MaterializedToolState {
    * outright, so removal subtracts these names instead of deleting the file.
    */
   mcp_servers?: Record<string, string[]>;
+  /** Owned MCP paths awaiting cleanup; server names remain in mcp_servers. */
+  pending_mcp_cleanup?: string[];
 }
 
 export interface MaterializedBundleState {
@@ -574,8 +576,30 @@ function parseMaterializedToolState(
       ? undefined
       : parseMcpServerOwnership(toolState.mcp_servers, `${label}.mcp_servers`);
 
+  const pendingMcpCleanup =
+    toolState.pending_mcp_cleanup === undefined
+      ? undefined
+      : expectArray(
+          toolState.pending_mcp_cleanup,
+          `${label}.pending_mcp_cleanup`,
+        ).map((value, index) => {
+          const filePath = expectRelativePath(
+            value,
+            `${label}.pending_mcp_cleanup[${index}]`,
+          );
+          if (!Object.hasOwn(mcpServers ?? {}, filePath)) {
+            throw new Error(
+              `${label}.pending_mcp_cleanup must reference an owned MCP path: ${filePath}`,
+            );
+          }
+          return filePath;
+        });
+
   return {
     files,
+    ...(pendingMcpCleanup?.length
+      ? { pending_mcp_cleanup: pendingMcpCleanup }
+      : {}),
     ...(fileFingerprints === undefined
       ? {}
       : { file_fingerprints: fileFingerprints }),
@@ -992,6 +1016,9 @@ function cloneMaterializedBundleState(
             : {}),
           ...(toolState.mcp_servers !== undefined
             ? { mcp_servers: { ...toolState.mcp_servers } }
+            : {}),
+          ...(toolState.pending_mcp_cleanup !== undefined
+            ? { pending_mcp_cleanup: [...toolState.pending_mcp_cleanup] }
             : {}),
         },
       ]),

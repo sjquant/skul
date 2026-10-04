@@ -1238,3 +1238,66 @@ describe("ownership helpers", () => {
     });
   });
 });
+
+describe("pending MCP cleanup compatibility", () => {
+  function registryWithTool(tool: object) {
+    return makeRegistry({
+      worktrees: {
+        [WORKTREE_ID]: makeWorktreeEntry({
+          materialized_state: {
+            bundles: { "react-expert": { tools: { "claude-code": tool } } },
+            exclude_configured: true,
+          },
+        }),
+      },
+    });
+  }
+
+  it("preserves cleanup ownership and markers through clone, write and read", () => {
+    const tool = {
+      files: [],
+      items: [],
+      mcp_servers: { ".mcp.json": ["docs"] },
+      pending_mcp_cleanup: [".mcp.json"],
+    };
+    const parsed = parseRegistry(registryWithTool(tool));
+    const cloned = upsertRepoState(
+      parsed,
+      REPO_FINGERPRINT,
+      parsed.repos[REPO_FINGERPRINT]!,
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
+    const file = path.join(homeDir, "registry.json");
+    writeRegistryFile(file, cloned);
+    expect(
+      readRegistryFile(file).worktrees[WORKTREE_ID]!.materialized_state.bundles[
+        "react-expert"
+      ]!.tools["claude-code"],
+    ).toEqual(tool);
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it("keeps legacy MCP-only ownership without inferring pending cleanup", () => {
+    const tool = { files: [], mcp_servers: { ".mcp.json": ["docs"] } };
+    expect(
+      parseRegistry(registryWithTool(tool)).worktrees[WORKTREE_ID]!
+        .materialized_state.bundles["react-expert"]!.tools["claude-code"],
+    ).toEqual(tool);
+  });
+
+  it.each([
+    "/outside.json",
+    "../outside.json",
+    ".unknown.json",
+  ])("rejects an invalid pending path %s", (filePath) => {
+    expect(() =>
+      parseRegistry(
+        registryWithTool({
+          files: [],
+          mcp_servers: { ".mcp.json": ["docs"] },
+          pending_mcp_cleanup: [filePath],
+        }),
+      ),
+    ).toThrowError(/pending_mcp_cleanup/);
+  });
+});
