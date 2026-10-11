@@ -1254,12 +1254,14 @@ describe("pending MCP cleanup compatibility", () => {
   }
 
   it("preserves cleanup ownership and markers through clone, write and read", () => {
+    // Given a cleanup-only tool state
     const tool = {
       files: [],
       items: [],
       mcp_servers: { ".mcp.json": ["docs"] },
       pending_mcp_cleanup: [".mcp.json"],
     };
+    // When the registry is parsed, cloned, written and read back
     const parsed = parseRegistry(registryWithTool(tool));
     const cloned = upsertRepoState(
       parsed,
@@ -1269,6 +1271,7 @@ describe("pending MCP cleanup compatibility", () => {
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
     const file = path.join(homeDir, "registry.json");
     writeRegistryFile(file, cloned);
+    // Then the tool state is unchanged
     expect(
       readRegistryFile(file).worktrees[WORKTREE_ID]!.materialized_state.bundles[
         "react-expert"
@@ -1278,7 +1281,10 @@ describe("pending MCP cleanup compatibility", () => {
   });
 
   it("keeps legacy MCP-only ownership without inferring pending cleanup", () => {
+    // Given MCP-only ownership without a pending marker
     const tool = { files: [], mcp_servers: { ".mcp.json": ["docs"] } };
+    // When it is parsed
+    // Then it is read back unchanged
     expect(
       parseRegistry(registryWithTool(tool)).worktrees[WORKTREE_ID]!
         .materialized_state.bundles["react-expert"]!.tools["claude-code"],
@@ -1290,6 +1296,9 @@ describe("pending MCP cleanup compatibility", () => {
     "../outside.json",
     ".unknown.json",
   ])("rejects an invalid pending path %s", (filePath) => {
+    // Given a pending path that is not an owned MCP path
+    // When the registry is parsed
+    // Then parsing fails
     expect(() =>
       parseRegistry(
         registryWithTool({
