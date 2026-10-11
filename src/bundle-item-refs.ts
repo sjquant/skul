@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   assertSafeRepositoryPath,
   type CachedBundle,
+  cachedSourceDir,
   detectSourceProtocol,
   findCachedBundle,
   listCachedBundles,
@@ -104,12 +105,10 @@ export async function resolveBundleItemRefs(options: {
       source,
       refFilePath: refsFilePath(options.bundleDir),
     });
-    if (itemRef.sourcePath) {
-      assertSafeRepositoryPath(
-        path.join(options.libraryDir, ...source.split("/")),
-        resolvedPath,
-      );
-    }
+    assertSafeRepositoryPath(
+      cachedSourceDir(options.libraryDir, source),
+      resolvedPath,
+    );
 
     resolved.set(itemRef.localSelector, {
       path: resolvedPath,
@@ -716,7 +715,7 @@ function resolveReferencedCachedBundle(options: {
     }
 
     throw new Error(
-      `Referenced bundle item "${options.item}" not found in ${options.source}: ${options.refFilePath}`,
+      `Referenced bundle item "${options.item}" not found in ${options.source}${options.sourcePath ? ` at sourcePath "${options.sourcePath}"` : ""}: ${options.refFilePath}`,
     );
   }
 
@@ -730,10 +729,7 @@ function findReferencedRepoRootBundle(options: {
   source: string;
   item: BundleItemSelector;
 }): CachedBundle | undefined {
-  const cachedBundleDir = path.join(
-    options.libraryDir,
-    ...options.source.split("/"),
-  );
+  const cachedBundleDir = cachedSourceDir(options.libraryDir, options.source);
 
   try {
     const manifest = inferBundleManifest(cachedBundleDir);

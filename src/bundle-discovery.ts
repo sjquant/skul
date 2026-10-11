@@ -263,10 +263,7 @@ export function listCachedBundlesAtPath(options: {
   sourcePath: string;
   bundle?: string;
 }): CachedBundle[] {
-  const repositoryDir = path.join(
-    options.libraryDir,
-    ...options.source.split("/"),
-  );
+  const repositoryDir = cachedSourceDir(options.libraryDir, options.source);
   const sourceDir = path.resolve(repositoryDir, options.sourcePath);
   assertSafeRepositoryPath(repositoryDir, sourceDir);
   if (!fs.existsSync(sourceDir) || !fs.lstatSync(sourceDir).isDirectory()) {
@@ -305,6 +302,11 @@ export function listCachedBundlesAtPath(options: {
       ];
 }
 
+/** Returns the cache directory that holds a fetched source repository. */
+export function cachedSourceDir(libraryDir: string, source: string): string {
+  return path.join(libraryDir, ...source.split("/"));
+}
+
 /** Rejects traversal and symlinks anywhere along a repository-relative path. */
 export function assertSafeRepositoryPath(
   repositoryDir: string,
@@ -327,7 +329,10 @@ export function assertSafeRepositoryPath(
     try {
       stat = fs.lstatSync(currentPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      // A missing segment (or a file used as a directory) is reported by the
+      // caller's existence check with a more specific message.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") return;
       throw error;
     }
     if (stat.isSymbolicLink()) {
@@ -381,6 +386,8 @@ function inferClaudeMarketplaceBundles(
 
   return plugins.flatMap((plugin) => {
     if (!plugin || typeof plugin !== "object" || Array.isArray(plugin)) {
+      // An explicit bundle selection only validates the selected plugin.
+      if (nestedSource?.bundle) return [];
       return invalidMarketplace("each plugin must be an object");
     }
 
@@ -437,7 +444,7 @@ function inferClaudeMarketplaceBundles(
     if (Object.keys(manifest.tools).length === 0) {
       return [];
     }
-    bundleKeys.add(bundleKey);
+    if (!nestedSource) bundleKeys.add(bundleKey);
 
     return [
       {

@@ -84,6 +84,7 @@ function expectMaterialized(repoRoot: string) {
 
 describe("nested marketplace item refs", () => {
   it("fetches the current nested layout into a cold cache and reuses it", async () => {
+    // Given: an empty cache and a remote reachable through a git URL rewrite
     const { homeDir, repoRoot, remote, cachedSourceDir } = setup();
     fs.rmSync(cachedSourceDir, { recursive: true, force: true });
     const gitConfigFile = path.join(homeDir, "gitconfig");
@@ -93,17 +94,21 @@ describe("nested marketplace item refs", () => {
     );
     vi.stubEnv("GIT_CONFIG_GLOBAL", gitConfigFile);
 
+    // When
     await run(["add", "ghosts"], {
       homeDir,
       cwd: repoRoot,
       prompts: createPromptClientStub(),
     });
 
+    // Then
     expectMaterialized(repoRoot);
     expect(runGit(cachedSourceDir, ["rev-parse", "HEAD"])).toBe(
       remote.initialCommit,
     );
-    // No remote access is needed for a second unpinned install.
+
+    // When: the remote becomes unreachable, a second unpinned install
+    // must be served from the cache
     runGit(cachedSourceDir, [
       "remote",
       "set-url",
@@ -116,10 +121,13 @@ describe("nested marketplace item refs", () => {
       cwd: secondRepo,
       prompts: createPromptClientStub(),
     });
+
+    // Then
     expectMaterialized(secondRepo);
   });
 
   it("aligns a nested ref to its pinned commit before copying supporting files", async () => {
+    // Given: the cache is checked out at a newer commit than the ref pins
     const { homeDir, repoRoot, remote, cachedSourceDir, writeRef } = setup();
     const latestCommit = updateRemoteBundleSource(
       remote.remoteRepoPath,
@@ -133,12 +141,14 @@ describe("nested marketplace item refs", () => {
     runGit(cachedSourceDir, ["checkout", latestCommit]);
     writeRef(remote.initialCommit.slice(0, 7));
 
+    // When
     await run(["add", "ghosts"], {
       homeDir,
       cwd: repoRoot,
       prompts: createPromptClientStub(),
     });
 
+    // Then
     expectMaterialized(repoRoot);
     expect(runGit(cachedSourceDir, ["rev-parse", "HEAD"])).toBe(
       remote.initialCommit,
@@ -146,6 +156,7 @@ describe("nested marketplace item refs", () => {
   });
 
   it("rejects symlinked supporting content without leaving materialized files", async () => {
+    // Given: a supporting file in the referenced skill links outside the cache
     const { homeDir, repoRoot, cachedSourceDir } = setup();
     const references = path.join(
       cachedSourceDir,
@@ -158,13 +169,15 @@ describe("nested marketplace item refs", () => {
       path.join(references, "external.md"),
     );
 
-    await expect(
-      run(["add", "ghosts"], {
-        homeDir,
-        cwd: repoRoot,
-        prompts: createPromptClientStub(),
-      }),
-    ).rejects.toThrow(/symlink/i);
+    // When
+    const adding = run(["add", "ghosts"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then
+    await expect(adding).rejects.toThrow(/symlink/i);
     expect(
       fs.existsSync(
         path.join(repoRoot, ".claude", "skills", "sentry", "SKILL.md"),
