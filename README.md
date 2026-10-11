@@ -138,7 +138,7 @@ To use a private registry, set `SKUL_NPM_REGISTRY` (falls back to `npm_config_re
 | **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
 | **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
 
-Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
+Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools. Tool names match the lowercase names used in `manifest.json` (`claude-code`, `cursor`, `opencode`, `codex`, `copilot`, `kiro`, `antigravity`); `claude` is accepted as an alias for `claude-code` in both places.
 
 For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`. Copilot keeps all of its user-scope configuration in one place, so a global install writes `~/.copilot/skills`, `~/.copilot/agents`, `~/.copilot/copilot-instructions.md`, and `~/.copilot/mcp-config.json`. Globally, MCP servers go to each tool's own user-scope configuration: `~/.claude.json`, `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.codex/config.toml`, `~/.kiro/settings/mcp.json`, `~/.gemini/config/mcp_config.json`, and `~/.copilot/mcp-config.json`.
 

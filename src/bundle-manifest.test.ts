@@ -78,6 +78,21 @@ describe("parseBundleManifest", () => {
     });
   });
 
+  it("resolves the claude tool key to claude-code", () => {
+    // Given
+    const manifest = {
+      tools: { claude: { skills: { path: "skills" } } },
+    };
+
+    // When
+    const parsed = parseBundleManifest(manifest);
+
+    // Then
+    expect(parsed).toEqual({
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+  });
+
   it("accepts a multi-tool bundle manifest", () => {
     // Given
     const manifest = {
@@ -209,6 +224,16 @@ describe("parseBundleManifest", () => {
         },
       },
       /tools\.windsurf must be one of/i,
+    ],
+    [
+      "tool declared under both its name and an alias",
+      {
+        tools: {
+          "claude-code": { skills: { path: "skills" } },
+          claude: { commands: { path: "commands" } },
+        },
+      },
+      /tools\.claude and tools\.claude-code both name tool claude-code/i,
     ],
     [
       "unsupported target for the selected tool",
