@@ -10,12 +10,12 @@ import {
 import { parseNpmSourceSpec } from "./npm-source";
 import type { RootInstructionMode } from "./registry";
 import type { SourceFetchProgress } from "./source-fetch-progress";
-import { listToolDefinitions, type ToolName } from "./tool-mapping";
+import {
+  listAcceptedToolNames,
+  resolveToolName,
+  type ToolName,
+} from "./tool-mapping";
 import { getPackageVersion } from "./version";
-
-const VALID_TOOL_NAMES = new Set<string>(
-  listToolDefinitions().map((t) => t.name),
-);
 
 export type CommandName =
   | "add"
@@ -566,17 +566,18 @@ export async function parseCliArgs(
 }
 
 function collectToolOption(value: string, previous: ToolName[]): ToolName[] {
-  if (!VALID_TOOL_NAMES.has(value)) {
+  const toolName = resolveToolName(value);
+  if (!toolName) {
     throw new Error(
-      `Unknown tool: ${value}\nValid tools: ${Array.from(VALID_TOOL_NAMES).sort().join(", ")}`,
+      `Unknown tool: ${value}\nValid tools: ${listAcceptedToolNames().sort().join(", ")}`,
     );
   }
 
-  if (previous.includes(value as ToolName)) {
+  if (previous.includes(toolName)) {
     return previous;
   }
 
-  return [...previous, value as ToolName];
+  return [...previous, toolName];
 }
 
 function collectBundleItemOption(

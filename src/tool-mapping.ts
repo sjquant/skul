@@ -194,6 +194,30 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
+// Alternate spellings accepted wherever a user names a tool. Each resolves to
+// one canonical name, which is the only form stored or written anywhere.
+const TOOL_NAME_ALIASES: Readonly<Record<string, ToolName>> = {
+  claude: "claude-code",
+};
+
+/** Resolves a user-supplied tool name or alias to its canonical name, or null if unknown. */
+export function resolveToolName(name: string): ToolName | null {
+  const alias = TOOL_NAME_ALIASES[name];
+  if (alias) return alias;
+
+  return TOOL_DEFINITIONS.some((definition) => definition.name === name)
+    ? (name as ToolName)
+    : null;
+}
+
+/** Returns every name a user may type for a tool: canonical names plus aliases. */
+export function listAcceptedToolNames(): string[] {
+  return [
+    ...TOOL_DEFINITIONS.map((definition) => definition.name),
+    ...Object.keys(TOOL_NAME_ALIASES),
+  ];
+}
+
 /** Returns a defensive copy of all supported tool definitions. */
 export function listToolDefinitions(): ToolDefinition[] {
   return TOOL_DEFINITIONS.map(cloneToolDefinition);

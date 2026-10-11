@@ -363,6 +363,30 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("resolves the claude alias to claude-code and deduplicates it", async () => {
+    // Given / When / Then
+    await expect(
+      parseCliArgs([
+        "add",
+        "react-expert",
+        "--agent",
+        "claude",
+        "--agent",
+        "claude-code",
+      ]),
+    ).resolves.toEqual({
+      kind: "command",
+      command: "add",
+      options: {
+        bundle: "react-expert",
+        protocol: "https",
+        agents: ["claude-code"],
+        dryRun: false,
+        global: false,
+      },
+    });
+  });
+
   it("accepts -a as shorthand for --agent", async () => {
     // Given / When / Then
     await expect(

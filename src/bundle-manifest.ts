@@ -3,7 +3,10 @@ import path from "node:path";
 
 import { MCP_CONFIG_FILE_NAME } from "./mcp-config";
 import {
+  getToolDefinition,
+  listAcceptedToolNames,
   listToolDefinitions,
+  resolveToolName,
   type ToolDefinition,
   type ToolName,
   type ToolTargetName,
@@ -43,9 +46,17 @@ export function parseBundleManifest(input: unknown): BundleManifest {
       ? undefined
       : expectRecord(manifest.tools, "tools");
 
+  const seenToolNames = new Map<ToolName, string>();
   const tools = Object.fromEntries(
     Object.entries(toolsInput ?? {}).map(([toolName, targetsInput]) => {
       const toolDef = parseToolDefinition(toolName, `tools.${toolName}`);
+      const previousKey = seenToolNames.get(toolDef.name);
+      if (previousKey !== undefined) {
+        throw new Error(
+          `tools.${toolName} and tools.${previousKey} both name tool ${toolDef.name}`,
+        );
+      }
+      seenToolNames.set(toolDef.name, toolName);
       const toolTargetsInput = expectRecord(targetsInput, `tools.${toolName}`);
 
       if (Object.keys(toolTargetsInput).length === 0) {
@@ -452,15 +463,15 @@ function parseBundleManifestTarget(
 
 function parseToolDefinition(input: unknown, label: string): ToolDefinition {
   const value = expectNonEmptyString(input, label);
-  const tools = listToolDefinitions();
-  const toolDef = tools.find((t) => t.name === value);
+  const toolName = resolveToolName(value);
+  const toolDef = toolName ? getToolDefinition(toolName) : null;
 
   if (toolDef) {
     return toolDef;
   }
 
   throw new Error(
-    `${label} must be one of: ${tools.map((t) => t.name).join(", ")}`,
+    `${label} must be one of: ${listAcceptedToolNames().join(", ")}`,
   );
 }
 
