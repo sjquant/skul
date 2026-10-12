@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createHomeDir,
@@ -15,6 +15,12 @@ import {
   writeManifest,
 } from "./cli.test-support";
 import { run } from "./index";
+
+const nestedSource = "github.com/getsentry/cli";
+const nestedSourcePath = "packages/cli";
+const nestedSkillPath = "plugins/sentry-cli/skills/sentry-cli";
+const nestedInitialSkill =
+  "---\nname: sentry-cli\ndescription: Sentry CLI\n---\nInitial instructions.\n";
 
 function writeCanonicalSkill(options: {
   homeDir: string;
@@ -993,3 +999,172 @@ describe("run add — cross-repo bundle item references", () => {
     );
   });
 });
+
+describe("run add — nested marketplace item references", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("fetches the current nested layout into a cold cache and reuses it", async () => {
+    // Given: an empty cache and a remote reachable through a git URL rewrite
+    const { homeDir, repoRoot, remote, cachedSourceDir } = setupNestedRefs();
+    fs.rmSync(cachedSourceDir, { recursive: true, force: true });
+    const gitConfigFile = path.join(homeDir, "gitconfig");
+    fs.writeFileSync(
+      gitConfigFile,
+      `[url "${remote.remoteRepoPath}"]\n\tinsteadOf = https://${nestedSource}\n`,
+    );
+    vi.stubEnv("GIT_CONFIG_GLOBAL", gitConfigFile);
+
+    // When
+    await run(["add", "ghosts"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then
+    expectNestedMaterialized(repoRoot);
+    expect(runGit(cachedSourceDir, ["rev-parse", "HEAD"])).toBe(
+      remote.initialCommit,
+    );
+
+    // When: the remote becomes unreachable, a second unpinned install
+    // must be served from the cache
+    runGit(cachedSourceDir, [
+      "remote",
+      "set-url",
+      "origin",
+      path.join(homeDir, "missing-remote"),
+    ]);
+    const secondRepo = createRepository();
+    await run(["add", "ghosts"], {
+      homeDir,
+      cwd: secondRepo,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then
+    expectNestedMaterialized(secondRepo);
+  });
+
+  it("aligns a nested ref to its pinned commit before copying supporting files", async () => {
+    // Given: the cache is checked out at a newer commit than the ref pins
+    const { homeDir, repoRoot, remote, cachedSourceDir, writeRef } =
+      setupNestedRefs();
+    const latestCommit = updateRemoteBundleSource(
+      remote.remoteRepoPath,
+      nestedSourcePath,
+      {
+        [`${nestedSkillPath}/SKILL.md`]: nestedInitialSkill.replace(
+          "Initial",
+          "Latest",
+        ),
+        [`${nestedSkillPath}/references/issues.md`]: "Changed reference.\n",
+      },
+    );
+    runGit(cachedSourceDir, ["fetch", "origin", "main"]);
+    runGit(cachedSourceDir, ["checkout", latestCommit]);
+    writeRef(remote.initialCommit.slice(0, 7));
+
+    // When
+    await run(["add", "ghosts"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then
+    expectNestedMaterialized(repoRoot);
+    expect(runGit(cachedSourceDir, ["rev-parse", "HEAD"])).toBe(
+      remote.initialCommit,
+    );
+  });
+
+  it("rejects symlinked supporting content without leaving materialized files", async () => {
+    // Given: a supporting file in the referenced skill links outside the cache
+    const { homeDir, repoRoot, cachedSourceDir } = setupNestedRefs();
+    const references = path.join(
+      cachedSourceDir,
+      nestedSourcePath,
+      nestedSkillPath,
+      "references",
+    );
+    fs.symlinkSync(
+      path.join(repoRoot, "README.md"),
+      path.join(references, "external.md"),
+    );
+
+    // When
+    const adding = run(["add", "ghosts"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then
+    await expect(adding).rejects.toThrow(/symlink/i);
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, ".claude", "skills", "sentry", "SKILL.md"),
+      ),
+    ).toBe(false);
+  });
+});
+
+function setupNestedRefs(ref?: string) {
+  const homeDir = createHomeDir();
+  const repoRoot = createRepository();
+  const remote = createRemoteBundleSource(homeDir, {
+    source: nestedSource,
+    bundle: nestedSourcePath,
+    manifest: { tools: {} },
+    files: {
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        plugins: [{ name: "sentry-cli", source: "./plugins/sentry-cli" }],
+      }),
+      [`${nestedSkillPath}/SKILL.md`]: nestedInitialSkill,
+      [`${nestedSkillPath}/references/issues.md`]:
+        "# Issues\nRead the issue details.\n",
+    },
+  });
+  const cachedSourceDir = path.join(
+    homeDir,
+    ".skul",
+    "library",
+    ...nestedSource.split("/"),
+  );
+  writeManifest(homeDir, "github.com/user/ai-vault", "ghosts", {
+    tools: { "claude-code": { skills: { path: "skills" } } },
+  });
+  const writeRef = (revision?: string) =>
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "ghosts",
+      "skul.refs.json",
+      JSON.stringify({
+        refs: [
+          {
+            target: "skills",
+            name: "sentry",
+            source: "getsentry/cli",
+            sourcePath: nestedSourcePath,
+            bundle: "sentry-cli",
+            item: "skills/sentry-cli",
+            ...(revision ? { ref: revision } : {}),
+          },
+        ],
+      }),
+    );
+  writeRef(ref);
+  return { homeDir, repoRoot, remote, cachedSourceDir, writeRef };
+}
+
+function expectNestedMaterialized(repoRoot: string) {
+  const skillDir = path.join(repoRoot, ".claude", "skills", "sentry");
+  const skill = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8");
+  expect(skill).toContain("name: sentry");
+  expect(skill).toContain("Initial instructions.");
+  expect(
+    fs.readFileSync(path.join(skillDir, "references", "issues.md"), "utf8"),
+  ).toBe("# Issues\nRead the issue details.\n");
+}
