@@ -1127,7 +1127,7 @@ describe("run", () => {
     );
   });
 
-  it("drops a preserved ref when the bundle is re-added from a different source", async () => {
+  it("replaces a bundle installed from another source after confirmation and drops its preserved ref", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1176,15 +1176,21 @@ describe("run", () => {
     );
 
     // When
+    const confirmBundleSourceReplacement = vi.fn(async () => true);
     await expect(
       run(["add", remoteSourceB.source, remoteSourceB.bundle], {
         homeDir,
         cwd: repoRoot,
-        prompts: createPromptClientStub(),
+        prompts: createPromptClientStub({ confirmBundleSourceReplacement }),
       }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
     // Then
+    expect(confirmBundleSourceReplacement).toHaveBeenCalledWith(
+      "react-expert",
+      remoteSourceA.source,
+      remoteSourceB.source,
+    );
     const registry = readRegistryFile(registryFile);
     const repoEntry = registry.repos[repoFingerprint]!;
 
@@ -1197,5 +1203,61 @@ describe("run", () => {
         resolved_commit: remoteSourceB.initialCommit,
       },
     ]);
+  });
+
+  it("keeps the installed bundle when replacement by another source is declined", async () => {
+    // Given: react-expert installed from one source, and a same-named bundle in another
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const manifest = {
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    };
+    const remoteSourceA = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/ai-vault-a",
+      bundle: "react-expert",
+      manifest,
+      files: { ".claude/skills/react/SKILL.md": "# react a\n" },
+    });
+    const remoteSourceB = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/ai-vault-b",
+      bundle: "react-expert",
+      manifest,
+      files: { ".claude/skills/react/SKILL.md": "# react b\n" },
+    });
+    await run(["add", remoteSourceA.source, remoteSourceA.bundle], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // When: the user declines the replacement
+    await expect(
+      run(["add", remoteSourceB.source, remoteSourceB.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub({
+          confirmBundleSourceReplacement: async () => false,
+        }),
+      }),
+    ).rejects.toThrow(
+      `Replacement aborted: react-expert stays installed from ${remoteSourceA.source}`,
+    );
+
+    // Then: the first source's skill and registry entry are untouched
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# react a\n");
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(
+      registry.repos[repoFingerprint]!.desired_state.map((e) => e.source),
+    ).toEqual([remoteSourceA.source]);
   });
 });
