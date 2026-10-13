@@ -96,9 +96,12 @@ import {
 } from "./mcp-materialization-state";
 import {
   assertSingleShadowStrategy,
+  type BundleKey,
+  bundleKey,
   type DesiredBundleEntry,
   type GlobalState,
   listManagedPathsForRemoval,
+  listMaterializedBundles,
   type MaterializedBundleState,
   type MaterializedState,
   type MaterializedToolState,
@@ -730,7 +733,7 @@ function listRemovedSourceBundleSelections(options: {
   source: string;
   availableBundleNames: ReadonlySet<string>;
   desiredState?: readonly DesiredBundleEntry[];
-  materializedBundles?: Readonly<Record<string, MaterializedBundleState>>;
+  materializedBundles?: Readonly<Record<BundleKey, MaterializedBundleState>>;
 }): BundleSelection[] {
   const selections: BundleSelection[] = [];
   const seen = new Set<string>();
@@ -748,15 +751,13 @@ function listRemovedSourceBundleSelections(options: {
     }
   }
 
-  for (const [bundle, state] of Object.entries(
-    options.materializedBundles ?? {},
-  )) {
+  for (const state of Object.values(options.materializedBundles ?? {})) {
     if (
       state.source === options.source &&
-      !options.availableBundleNames.has(bundle)
+      !options.availableBundleNames.has(state.bundle)
     ) {
       addActiveRemoveBundleSelection(selections, seen, {
-        bundle,
+        bundle: state.bundle,
         source: state.source,
       });
     }
@@ -914,20 +915,13 @@ async function removeAllWorktreeBundles(options: {
 
   const worktreeState = registry.worktrees[gitContext.worktreeId];
   const selectionKeys = new Set(selections.map(encodeBundleIdentity));
-  const materializedTargets = Object.entries(
+  const materializedTargets = listMaterializedBundles(
     worktreeState?.materialized_state.bundles ?? {},
-  ).filter(([bundle, bundleState]) =>
-    selectionKeys.has(
-      encodeBundleIdentity({
-        bundle,
-        ...(bundleState.source !== undefined
-          ? { source: bundleState.source }
-          : {}),
-      }),
-    ),
+  ).filter(([, bundleState]) =>
+    selectionKeys.has(encodeBundleIdentity(bundleState)),
   );
-  const shadowedBundleNames = materializedTargets.map(([bundle]) => bundle);
-  const shadowedFilePaths = shadowedBundleNames.flatMap((bundle) =>
+  const shadowedBundleKeys = materializedTargets.map(([key]) => key);
+  const shadowedFilePaths = shadowedBundleKeys.flatMap((bundle) =>
     listShadowedPathsForBundle({
       shadowedFiles: worktreeState?.shadowed_files ?? {},
       bundle,
@@ -991,7 +985,7 @@ async function removeAllWorktreeBundles(options: {
   currentShadowedFiles = retireTrackedShadowsForBundles({
     repoRoot: gitContext.worktreeRoot,
     shadowedFiles: currentShadowedFiles,
-    bundleNames: shadowedBundleNames,
+    bundleKeys: shadowedBundleKeys,
   });
 
   if (Object.keys(remainingBundles).length > 0) {
@@ -1153,13 +1147,13 @@ function renderWorktreeRemoveDryRun(options: {
   worktreeState?: WorktreeState;
 }): string {
   const bundleMaterializedState = findMaterializedBundleState({
-    worktreeState: options.worktreeState,
+    bundles: options.worktreeState?.materialized_state.bundles,
     bundle: options.selection.bundle,
     source: options.selection.source,
   });
   const shadowedFilesForBundle = listShadowedPathsForBundle({
     shadowedFiles: options.worktreeState?.shadowed_files ?? {},
-    bundle: options.selection.bundle,
+    bundle: bundleKey(options.selection),
   });
 
   return renderRemoveDryRun({
@@ -1180,7 +1174,7 @@ function renderWorktreeRemoveDryRun(options: {
  */
 function listShadowedPathsForBundle(options: {
   shadowedFiles: Record<string, ShadowedFileState>;
-  bundle: string;
+  bundle: BundleKey;
 }): { restored: string[]; rewritten: string[] } {
   const restored: string[] = [];
   const rewritten: string[] = [];
@@ -1189,7 +1183,7 @@ function listShadowedPathsForBundle(options: {
     options.shadowedFiles,
   )) {
     const remainingOverlays = shadowedFile.overlays.filter(
-      (overlay) => overlay.bundle !== options.bundle,
+      (overlay) => bundleKey(overlay) !== options.bundle,
     );
 
     if (remainingOverlays.length === shadowedFile.overlays.length) {
@@ -1309,17 +1303,10 @@ async function removeAllGlobalBundles(options: {
 
   const globalState = registry.global;
   const selectionKeys = new Set(selections.map(encodeBundleIdentity));
-  const materializedTargets = Object.entries(
+  const materializedTargets = listMaterializedBundles(
     globalState?.materialized_state.bundles ?? {},
-  ).filter(([bundle, bundleState]) =>
-    selectionKeys.has(
-      encodeBundleIdentity({
-        bundle,
-        ...(bundleState.source !== undefined
-          ? { source: bundleState.source }
-          : {}),
-      }),
-    ),
+  ).filter(([, bundleState]) =>
+    selectionKeys.has(encodeBundleIdentity(bundleState)),
   );
   const removedBundlePaths = mergeManagedRemovalPaths(
     materializedTargets.map(([, bundleState]) =>
@@ -1942,21 +1929,24 @@ function assertDistinctMcpOverlayServers(
   overlays: ShadowOverlay[],
   label: string,
 ): void {
-  const declaringBundles = new Map<string, string>();
+  const declaringBundles = new Map<string, ShadowOverlay>();
 
   for (const overlay of overlays) {
     const renderedServers = JSON.parse(overlay.overlay) as RenderedMcpServers;
 
     for (const serverName of Object.keys(renderedServers)) {
-      const declaringBundle = declaringBundles.get(serverName);
+      const declaringOverlay = declaringBundles.get(serverName);
 
-      if (declaringBundle && declaringBundle !== overlay.bundle) {
+      if (
+        declaringOverlay &&
+        bundleKey(declaringOverlay) !== bundleKey(overlay)
+      ) {
         throw new Error(
-          `MCP server "${serverName}" is declared by both ${declaringBundle} and ${overlay.bundle} in ${label}.\nSkul will not let one bundle replace another's server: rename or remove one of those entries.`,
+          `MCP server "${serverName}" is declared by both ${declaringOverlay.bundle} and ${overlay.bundle} in ${label}.\nSkul will not let one bundle replace another's server: rename or remove one of those entries.`,
         );
       }
 
-      declaringBundles.set(serverName, overlay.bundle);
+      declaringBundles.set(serverName, overlay);
     }
   }
 }
@@ -2258,9 +2248,13 @@ function renderStatus(options: {
           materialized: hasMaterializedBundles,
           bundles: Object.fromEntries(
             Object.entries(worktreeState.materialized_state.bundles).map(
-              ([bundleName, bundleState]) => [
-                bundleName,
+              ([bundleKeyName, bundleState]) => [
+                bundleKeyName,
                 {
+                  bundle: bundleState.bundle,
+                  ...(bundleState.source !== undefined
+                    ? { source: bundleState.source }
+                    : {}),
                   tools: Object.fromEntries(
                     Object.entries(bundleState.tools).map(
                       ([toolName, toolState]) => [
@@ -2311,7 +2305,9 @@ function renderStatus(options: {
   if (repoState && repoState.desired_state.length > 0) {
     for (const entry of repoState.desired_state) {
       const toolSuffix = entry.tools ? ` (${entry.tools.join(", ")})` : "";
-      lines.push(`Bundle: ${pc.cyan(entry.bundle)}${toolSuffix}`);
+      lines.push(
+        `Bundle: ${pc.cyan(formatBundleLabel(entry, repoState.desired_state))}${toolSuffix}`,
+      );
     }
   } else {
     lines.push(pc.dim("Configured: no"));
@@ -2338,10 +2334,10 @@ function renderStatus(options: {
 
   lines.push(pc.green("Materialized: yes"), "", "Files:");
 
-  for (const [bundleName, bundleState] of Object.entries(
+  for (const [bundleLabel, bundleState] of labelMaterializedBundles(
     worktreeState.materialized_state.bundles,
   )) {
-    lines.push(`  Bundle: ${pc.cyan(bundleName)}`);
+    lines.push(`  Bundle: ${pc.cyan(bundleLabel)}`);
     for (const [toolName, toolState] of Object.entries(bundleState.tools)) {
       lines.push(`    Tool: ${toolName}`);
       for (const file of toolState.files) {
@@ -2559,10 +2555,18 @@ async function renderUpdateCheck(options: {
   }
 
   const inspectCache = new Map<string, Promise<RemoteSourceStatus>>();
-  const results = [];
+  const results: Array<{
+    bundle: string;
+    status: string;
+    source: string | null;
+    current_commit: string | null;
+    latest_commit: string | null;
+    worktree_commit: string | null;
+    worktree_stale: boolean;
+  }> = [];
   for (const entry of entries) {
     const materializedBundle =
-      worktreeState?.materialized_state.bundles[entry.bundle];
+      worktreeState?.materialized_state.bundles[bundleKey(entry)];
 
     if (!entry.source) {
       results.push({
@@ -2613,8 +2617,10 @@ async function renderUpdateCheck(options: {
   }
 
   const lines = results.map((result) => {
+    const label = pc.cyan(formatBundleLabel(result, results));
+
     if (result.status === "local-only") {
-      return `${pc.cyan(result.bundle)}: local-only (no remote source to check)`;
+      return `${label}: local-only (no remote source to check)`;
     }
     const updateSuffix =
       result.status === "update-available" &&
@@ -2623,7 +2629,7 @@ async function renderUpdateCheck(options: {
         ? ` ${shortCommit(result.current_commit)} -> ${shortCommit(result.latest_commit)}`
         : "";
     const staleSuffix = result.worktree_stale ? " (worktree stale)" : "";
-    return `${pc.cyan(result.bundle)}: ${result.status}${updateSuffix}${staleSuffix}`;
+    return `${label}: ${result.status}${updateSuffix}${staleSuffix}`;
   });
 
   const hasUpdates = results.some((r) => r.status === "update-available");
@@ -2725,7 +2731,8 @@ async function updateBundles(options: {
     worktreeState?.materialized_state.root_instruction_base_contents;
 
   for (const { entry, currentCommit, remoteStatus } of updatePlans) {
-    const existingBundleState = currentBundles[entry.bundle];
+    const key = bundleKey(entry);
+    const existingBundleState = currentBundles[key];
     const toolsToRefresh = getToolsToRefresh(entry, existingBundleState);
     const bundleStateToReplace =
       existingBundleState && toolsToRefresh && toolsToRefresh.length > 0
@@ -2803,13 +2810,13 @@ async function updateBundles(options: {
         resolvedBundleItemRefs,
         existingShadowedFiles: currentShadowedFiles,
         materializedBundles: currentBundles,
-        bundleOrder: nextDesiredState.map((candidate) => candidate.bundle),
+        bundleOrder: nextDesiredState.map(bundleKey),
         libraryDir: options.libraryDir,
       });
       assertRootInstructionModeCompatibility({
         desiredState: nextDesiredState,
         materializedBundles: currentBundles,
-        currentBundle: entry.bundle,
+        currentBundleKey: key,
         targetPaths: plannedRootInstructionTargets,
         mode: entry.root_instruction_mode,
       });
@@ -2866,7 +2873,7 @@ async function updateBundles(options: {
         });
       }
       const desiredIndex = nextDesiredState.findIndex(
-        (candidate) => candidate.bundle === entry.bundle,
+        (candidate) => bundleKey(candidate) === key,
       );
 
       nextDesiredState[desiredIndex] = {
@@ -2905,7 +2912,8 @@ async function updateBundles(options: {
 
         currentBundles = {
           ...currentBundles,
-          [entry.bundle]: buildMaterializedBundleState({
+          [key]: buildMaterializedBundleState({
+            bundle: entry.bundle,
             existingBundleState,
             materializedResult,
             repoRoot: gitContext.worktreeRoot,
@@ -2934,7 +2942,7 @@ async function updateBundles(options: {
               desiredState: nextDesiredState,
               materializedBundles: currentBundles,
               libraryDir: options.libraryDir,
-              seed: new Map([[entry.bundle, resolvedBundleItemRefs]]),
+              seed: new Map([[key, resolvedBundleItemRefs]]),
               itemSelectors: ["root-instruction"],
             }),
         });
@@ -3170,8 +3178,11 @@ async function applyBundle(options: {
   };
   let rootInstructionBaseContents =
     existingWorktreeState?.root_instruction_base_contents;
-  const existingBundleState =
-    existingWorktreeState?.bundles[preparedBundle.cachedBundle.bundle];
+  const key = bundleKey({
+    bundle: preparedBundle.cachedBundle.bundle,
+    source: preparedBundle.bundleSource,
+  });
+  const existingBundleState = existingWorktreeState?.bundles[key];
   const existingDesiredState =
     registry.repos[gitContext.repoFingerprint]?.desired_state ?? [];
   const effectiveRootInstructionMode =
@@ -3216,13 +3227,13 @@ async function applyBundle(options: {
     resolvedBundleItemRefs,
     existingShadowedFiles: currentShadowedFiles,
     materializedBundles: existingWorktreeState?.bundles ?? {},
-    bundleOrder: existingDesiredState.map((entry) => entry.bundle),
+    bundleOrder: existingDesiredState.map(bundleKey),
     libraryDir: options.libraryDir,
   });
   assertRootInstructionModeCompatibility({
     desiredState: existingDesiredState,
     materializedBundles: existingWorktreeState?.bundles ?? {},
-    currentBundle: preparedBundle.cachedBundle.bundle,
+    currentBundleKey: key,
     targetPaths: plannedRootInstructionTargets,
     mode: effectiveRootInstructionMode,
   });
@@ -3289,7 +3300,7 @@ async function applyBundle(options: {
   const sharedRootInstructionState = collectSharedRootInstructionState(
     existingWorktreeState?.bundles ?? {},
     plannedWriteTargets,
-    preparedBundle.cachedBundle.bundle,
+    key,
   );
 
   if (sharedRootInstructionState.files.length > 0) {
@@ -3346,6 +3357,7 @@ async function applyBundle(options: {
   });
 
   const newBundleState = buildMaterializedBundleState({
+    bundle: preparedBundle.cachedBundle.bundle,
     existingBundleState,
     materializedResult,
     repoRoot: gitContext.worktreeRoot,
@@ -3364,6 +3376,7 @@ async function applyBundle(options: {
     requestedTools: preparedBundle.selectedTools,
     requestedItems: preparedBundle.selectedItems,
     replaceRequestedItems: preparedBundle.replacesItemSelection,
+    bundleSource: preparedBundle.bundleSource,
     sourceRevision: preparedBundle.sourceRevision,
     disableModelInvocation: options.disableModelInvocation,
     rootInstructionMode: effectiveRootInstructionMode,
@@ -3381,7 +3394,7 @@ async function applyBundle(options: {
   const newMatState: MaterializedState = {
     bundles: {
       ...(existingWorktreeState?.bundles ?? {}),
-      [preparedBundle.cachedBundle.bundle]: newBundleState,
+      [key]: newBundleState,
     },
     exclude_configured: false,
     ...mcpOwnership.toRegistryFields(),
@@ -3403,9 +3416,7 @@ async function applyBundle(options: {
         desiredState: newDesiredState,
         materializedBundles: newMatState.bundles,
         libraryDir: options.libraryDir,
-        seed: new Map([
-          [preparedBundle.cachedBundle.bundle, resolvedBundleItemRefs],
-        ]),
+        seed: new Map([[key, resolvedBundleItemRefs]]),
         itemSelectors: ["root-instruction"],
       }),
   });
@@ -4682,13 +4693,16 @@ function buildDesiredEntryForAppliedBundle(options: {
   replaceRequestedTools?: boolean;
   requestedItems?: BundleItemSelector[];
   replaceRequestedItems?: boolean;
+  bundleSource?: string;
   sourceRevision?: CachedSourceRevision;
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
 }): DesiredBundleEntry {
-  const existingDesiredEntry = options.existingDesiredState.find(
-    (entry) => entry.bundle === options.cachedBundle.bundle,
-  );
+  const existingDesiredEntry = findDesiredBundleEntry({
+    desiredState: options.existingDesiredState,
+    bundle: options.cachedBundle.bundle,
+    source: options.bundleSource,
+  });
   const mergedDesiredTools = mergeDesiredTools({
     existingEntry: existingDesiredEntry,
     requestedTools: options.requestedTools,
@@ -4807,7 +4821,7 @@ async function resetWorktree(options: {
     const mcpOwnership = createMcpMaterializationOwnership(
       worktreeState.materialized_state,
     );
-    const allBundleEntries = Object.entries(
+    const allBundleEntries = listMaterializedBundles(
       worktreeState.materialized_state.bundles,
     );
     const allBundlePaths = allBundleEntries.map(([, bundleState]) =>
@@ -4835,7 +4849,7 @@ async function resetWorktree(options: {
       shadowedFiles: worktreeState.shadowed_files,
     });
 
-    const failedBundleStates: Record<string, MaterializedBundleState> = {};
+    const failedBundleStates: Record<BundleKey, MaterializedBundleState> = {};
     for (const [bundleName, bundleState] of allBundleEntries) {
       const removalResult = removeManagedPaths(
         gitContext.worktreeRoot,
@@ -4955,8 +4969,16 @@ async function removeBundle(options: {
     worktreeState,
     prompts: options.prompts,
   });
-  const bundle = selection.bundle;
-  const source = selection.source;
+  const identity = resolveActiveBundleIdentity({
+    desiredState: repoState?.desired_state ?? [],
+    materializedBundles: worktreeState?.materialized_state.bundles,
+    bundle: selection.bundle,
+    source: selection.source,
+    command: "remove",
+  });
+  const bundle = identity.bundle;
+  const source = identity.source;
+  const key = bundleKey(identity);
 
   const isInDesiredState =
     repoState?.desired_state.some(
@@ -4966,13 +4988,13 @@ async function removeBundle(options: {
     (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
   );
   const bundleMaterializedState = findMaterializedBundleState({
-    worktreeState,
+    bundles: worktreeState?.materialized_state.bundles,
     bundle,
     source,
   });
   const shadowedFilesForBundle = listShadowedPathsForBundle({
     shadowedFiles: worktreeState?.shadowed_files ?? {},
-    bundle,
+    bundle: key,
   });
 
   if (!isInDesiredState && !bundleMaterializedState) {
@@ -5063,7 +5085,7 @@ async function removeBundle(options: {
       bundlePaths.files.filter((filePath) => isRootInstructionPath(filePath)),
     );
     const remainingBundles = { ...worktreeState!.materialized_state.bundles };
-    delete remainingBundles[bundle];
+    delete remainingBundles[key];
     const remainingDesiredState =
       repoState?.desired_state.filter(
         (entry) => !matchesBundleIdentity(entry, bundle, source),
@@ -5098,7 +5120,7 @@ async function removeBundle(options: {
     currentShadowedFiles = retireTrackedShadowsForBundles({
       repoRoot: gitContext.worktreeRoot,
       shadowedFiles: currentShadowedFiles,
-      bundleNames: [bundle],
+      bundleKeys: [key],
     });
 
     if (Object.keys(remainingBundles).length > 0) {
@@ -5172,7 +5194,7 @@ async function removeBundle(options: {
       );
       const newMatState: MaterializedState = {
         bundles: failedBundleState
-          ? { ...refreshedRemainingBundles, [bundle]: failedBundleState }
+          ? { ...refreshedRemainingBundles, [key]: failedBundleState }
           : refreshedRemainingBundles,
         exclude_configured: false,
         ...mcpOwnership.toRegistryFields(),
@@ -5203,7 +5225,7 @@ async function removeBundle(options: {
     } else {
       if (Object.keys(currentShadowedFiles).length > 0 || failedBundleState) {
         const retainedMaterializedState: MaterializedState = {
-          bundles: failedBundleState ? { [bundle]: failedBundleState } : {},
+          bundles: failedBundleState ? { [key]: failedBundleState } : {},
           exclude_configured: false,
           ...mcpOwnership.toRegistryFields(),
         };
@@ -5679,12 +5701,12 @@ function listActiveRemoveBundleSelections(options: {
     });
   }
 
-  for (const [bundle, state] of Object.entries(
+  for (const state of Object.values(
     options.worktreeState?.materialized_state.bundles ?? {},
   )) {
     if (!matchesOptionalSource(state.source, options.source)) continue;
     addActiveRemoveBundleSelection(selections, seen, {
-      bundle,
+      bundle: state.bundle,
       ...(state.source !== undefined ? { source: state.source } : {}),
     });
   }
@@ -5718,7 +5740,7 @@ function isRemoveBundleActive(options: {
     ) ??
       false) ||
     findMaterializedBundleState({
-      worktreeState: options.worktreeState,
+      bundles: options.worktreeState?.materialized_state.bundles,
       bundle: options.bundle,
       source: options.source,
     }) !== undefined
@@ -5741,21 +5763,65 @@ function matchesBundleIdentity(
 }
 
 function findMaterializedBundleState(options: {
-  worktreeState?: WorktreeState;
+  bundles?: Record<BundleKey, MaterializedBundleState>;
   bundle: string;
   source?: string;
 }): MaterializedBundleState | undefined {
-  const bundleState =
-    options.worktreeState?.materialized_state.bundles[options.bundle];
+  return listMaterializedBundles(options.bundles ?? {})
+    .map(([, bundleState]) => bundleState)
+    .find(
+      (bundleState) =>
+        bundleState.bundle === options.bundle &&
+        matchesOptionalSource(bundleState.source, options.source),
+    );
+}
 
-  if (
-    !bundleState ||
-    !matchesOptionalSource(bundleState.source, options.source)
-  ) {
-    return undefined;
+/**
+ * Pins a bundle name, with or without a source, to the one active bundle it
+ * names. Two sources can ship the same bundle name, so a name that matches both
+ * has to be qualified by a source before it can be acted on.
+ */
+function resolveActiveBundleIdentity(options: {
+  desiredState: DesiredBundleEntry[];
+  materializedBundles?: Record<BundleKey, MaterializedBundleState>;
+  bundle: string;
+  source?: string;
+  command: string;
+}): { bundle: string; source?: string } {
+  const candidates = new Map<BundleKey, { bundle: string; source?: string }>();
+
+  for (const candidate of [
+    ...options.desiredState,
+    ...listMaterializedBundles(options.materializedBundles ?? {}).map(
+      ([, bundleState]) => bundleState,
+    ),
+  ]) {
+    if (
+      candidate.bundle === options.bundle &&
+      matchesOptionalSource(candidate.source, options.source)
+    ) {
+      candidates.set(bundleKey(candidate), {
+        bundle: candidate.bundle,
+        ...(candidate.source !== undefined ? { source: candidate.source } : {}),
+      });
+    }
   }
 
-  return bundleState;
+  if (candidates.size > 1) {
+    const sources = Array.from(candidates.values()).map(
+      (candidate) => candidate.source ?? "(local)",
+    );
+    throw new Error(
+      `Bundle ${options.bundle} is installed from several sources: ${sources.join(", ")}. Run "skul ${options.command} <source> ${options.bundle}" to choose one`,
+    );
+  }
+
+  return (
+    candidates.values().next().value ?? {
+      bundle: options.bundle,
+      ...(options.source !== undefined ? { source: options.source } : {}),
+    }
+  );
 }
 
 async function removeBundleItems(options: {
@@ -5959,7 +6025,8 @@ async function applyWorktree(options: {
       bundle: entry.bundle,
       source: entry.source,
     });
-    const existingBundleState = materializedBundles[entry.bundle];
+    const key = bundleKey(entry);
+    const existingBundleState = materializedBundles[key];
 
     if (
       existingBundleState &&
@@ -6017,6 +6084,7 @@ async function applyWorktree(options: {
       existingBundleState,
       availableTools,
     } = plan;
+    const key = bundleKey(entry);
     const refreshesExistingBundle =
       existingBundleState !== undefined &&
       entry.resolved_commit !== undefined &&
@@ -6076,13 +6144,13 @@ async function applyWorktree(options: {
       resolvedBundleItemRefs,
       existingShadowedFiles: currentShadowedFiles,
       materializedBundles: currentBundles,
-      bundleOrder: repoState.desired_state.map((entry) => entry.bundle),
+      bundleOrder: repoState.desired_state.map(bundleKey),
       libraryDir: options.libraryDir,
     });
     assertRootInstructionModeCompatibility({
       desiredState: repoState.desired_state,
       materializedBundles: currentBundles,
-      currentBundle: entry.bundle,
+      currentBundleKey: key,
       targetPaths: plannedRootInstructionTargets,
       mode: entry.root_instruction_mode,
     });
@@ -6134,7 +6202,7 @@ async function applyWorktree(options: {
     const sharedRootInstructionState = collectSharedRootInstructionState(
       currentBundles,
       plannedWriteTargets,
-      cachedBundle.bundle,
+      key,
     );
 
     if (sharedRootInstructionState.files.length > 0) {
@@ -6208,7 +6276,8 @@ async function applyWorktree(options: {
 
     currentBundles = {
       ...currentBundles,
-      [cachedBundle.bundle]: buildMaterializedBundleState({
+      [key]: buildMaterializedBundleState({
+        bundle: entry.bundle,
         existingBundleState,
         materializedResult,
         repoRoot: gitContext.worktreeRoot,
@@ -6236,7 +6305,7 @@ async function applyWorktree(options: {
           desiredState: repoState.desired_state,
           materializedBundles: currentBundles,
           libraryDir: options.libraryDir,
-          seed: new Map([[entry.bundle, resolvedBundleItemRefs]]),
+          seed: new Map([[key, resolvedBundleItemRefs]]),
           itemSelectors: ["root-instruction"],
         }),
     });
@@ -6324,18 +6393,19 @@ async function resolveMaterializedBundleItemRefsByBundle(options: {
   desiredState: DesiredBundleEntry[];
   materializedBundles: MaterializedState["bundles"];
   libraryDir: string;
-  seed?: ReadonlyMap<string, ReadonlyMap<string, ResolvedBundleItemRef>>;
+  seed?: ReadonlyMap<BundleKey, ReadonlyMap<string, ResolvedBundleItemRef>>;
   itemSelectors?: BundleItemSelector[];
-}): Promise<Map<string, ReadonlyMap<string, ResolvedBundleItemRef>>> {
+}): Promise<Map<BundleKey, ReadonlyMap<string, ResolvedBundleItemRef>>> {
   const resolvedByBundle = new Map(options.seed);
 
   for (const desiredEntry of options.desiredState) {
-    if (resolvedByBundle.has(desiredEntry.bundle)) {
+    const key = bundleKey(desiredEntry);
+
+    if (resolvedByBundle.has(key)) {
       continue;
     }
 
-    const materializedBundleState =
-      options.materializedBundles[desiredEntry.bundle];
+    const materializedBundleState = options.materializedBundles[key];
 
     if (!materializedBundleState) {
       continue;
@@ -6358,7 +6428,7 @@ async function resolveMaterializedBundleItemRefsByBundle(options: {
     });
 
     if (resolvedBundleItemRefs.size > 0) {
-      resolvedByBundle.set(desiredEntry.bundle, resolvedBundleItemRefs);
+      resolvedByBundle.set(key, resolvedBundleItemRefs);
     }
   }
 
@@ -6400,9 +6470,13 @@ function planTrackedShadows(options: {
    * overlays fold onto a shadowed file. A bundle missing from this list — the
    * one being added right now — folds last.
    */
-  bundleOrder: readonly string[];
+  bundleOrder: readonly BundleKey[];
   libraryDir?: string;
 }): TrackedShadowPlan {
+  const key = bundleKey({
+    bundle: options.bundleName,
+    source: options.bundleSource,
+  });
   const activeOverlayContents = collectComposedRootInstructionContents({
     bundleDir: options.bundleDir,
     manifest: options.manifest,
@@ -6438,7 +6512,7 @@ function planTrackedShadows(options: {
   // the path as a plain materialized file, which the shadow would overwrite.
   assertTrackedShadowConflicts({
     targetPaths: trackedTargetPaths,
-    bundleName: options.bundleName,
+    bundleKey: key,
     materializedBundles: options.materializedBundles,
   });
 
@@ -6446,7 +6520,7 @@ function planTrackedShadows(options: {
     return {
       writes: [],
       retirements: planStaleShadowOverlayRetirements({
-        bundleName: options.bundleName,
+        bundleKey: key,
         existingShadowedFiles: options.existingShadowedFiles,
         activeShadowPaths: trackedTargetPaths,
       }),
@@ -6464,6 +6538,7 @@ function planTrackedShadows(options: {
         filePath: targetPath,
         overlayContent: activeOverlayContents[targetPath] ?? "",
         bundleName: options.bundleName,
+        bundleSource: options.bundleSource,
         toolName: selectShadowToolForPath(options.toolNames, targetPath),
         strategy: options.rootInstructionMode ?? "append",
       }),
@@ -6487,7 +6562,7 @@ function planTrackedShadows(options: {
       }),
     ),
     retirements: planStaleShadowOverlayRetirements({
-      bundleName: options.bundleName,
+      bundleKey: key,
       existingShadowedFiles: options.existingShadowedFiles,
       activeShadowPaths: trackedTargetPaths,
     }),
@@ -6499,14 +6574,14 @@ function planTrackedShadows(options: {
 
 /** Finds files this bundle still has an overlay on but no longer contributes to. */
 function planStaleShadowOverlayRetirements(options: {
-  bundleName: string;
+  bundleKey: BundleKey;
   existingShadowedFiles: Record<string, ShadowedFileState>;
   activeShadowPaths: Set<string>;
 }): ShadowOverlayRetirement[] {
   return planShadowOverlayRetirements({
     shadowedFiles: options.existingShadowedFiles,
     isRetired: (filePath, overlay) =>
-      overlay.bundle === options.bundleName &&
+      bundleKey(overlay) === options.bundleKey &&
       !options.activeShadowPaths.has(filePath),
   });
 }
@@ -6521,27 +6596,27 @@ function planStaleShadowOverlayRetirements(options: {
 function composeShadowOverlays(options: {
   existingOverlays: ShadowOverlayState[] | undefined;
   contribution: ShadowOverlay;
-  bundleOrder: readonly string[];
+  bundleOrder: readonly BundleKey[];
 }): ShadowOverlay[] {
   const overlays: ShadowOverlay[] = [
     ...(options.existingOverlays ?? []).filter(
-      (overlay) => overlay.bundle !== options.contribution.bundle,
+      (overlay) => bundleKey(overlay) !== bundleKey(options.contribution),
     ),
     options.contribution,
   ];
 
   return overlays.sort(
     (left, right) =>
-      bundleOrderIndex(options.bundleOrder, left.bundle) -
-      bundleOrderIndex(options.bundleOrder, right.bundle),
+      bundleOrderIndex(options.bundleOrder, bundleKey(left)) -
+      bundleOrderIndex(options.bundleOrder, bundleKey(right)),
   );
 }
 
 function bundleOrderIndex(
-  bundleOrder: readonly string[],
-  bundleName: string,
+  bundleOrder: readonly BundleKey[],
+  key: BundleKey,
 ): number {
-  const index = bundleOrder.indexOf(bundleName);
+  const index = bundleOrder.indexOf(key);
 
   return index < 0 ? bundleOrder.length : index;
 }
@@ -6560,6 +6635,7 @@ function planTrackedMcpShadows(options: {
   toolNames: ToolName[];
   itemSelectors?: BundleItemSelector[];
   bundleName: string;
+  bundleSource?: string;
   libraryDir?: string;
 }): PlannedShadowOverlay[] {
   if (!isMcpItemSelected(options.itemSelectors)) {
@@ -6635,6 +6711,9 @@ function planTrackedMcpShadows(options: {
       contribution: {
         tool: toolName,
         bundle: options.bundleName,
+        ...(options.bundleSource !== undefined
+          ? { source: options.bundleSource }
+          : {}),
         strategy: "merge",
         overlay,
       },
@@ -6648,18 +6727,18 @@ function planTrackedMcpShadows(options: {
 function assertRootInstructionModeCompatibility(options: {
   desiredState: DesiredBundleEntry[];
   materializedBundles: MaterializedState["bundles"];
-  currentBundle: string;
+  currentBundleKey: BundleKey;
   targetPaths: Set<string>;
   mode?: RootInstructionMode;
 }): void {
   const mode = options.mode ?? "append";
 
   for (const entry of options.desiredState) {
-    if (entry.bundle === options.currentBundle) {
+    if (bundleKey(entry) === options.currentBundleKey) {
       continue;
     }
 
-    const materializedBundle = options.materializedBundles[entry.bundle];
+    const materializedBundle = options.materializedBundles[bundleKey(entry)];
     if (!materializedBundle) {
       continue;
     }
@@ -6683,14 +6762,14 @@ function assertRootInstructionModeCompatibility(options: {
 
 function assertTrackedShadowConflicts(options: {
   targetPaths: Set<string>;
-  bundleName: string;
+  bundleKey: BundleKey;
   materializedBundles: MaterializedState["bundles"];
 }): void {
   for (const targetPath of options.targetPaths) {
-    for (const [bundleName, bundleState] of Object.entries(
+    for (const [ownerKey, bundleState] of listMaterializedBundles(
       options.materializedBundles,
     )) {
-      if (bundleName === options.bundleName) {
+      if (ownerKey === options.bundleKey) {
         continue;
       }
 
@@ -6700,7 +6779,7 @@ function assertTrackedShadowConflicts(options: {
 
       if (ownsPath) {
         throw new Error(
-          `Cannot shadow the tracked file ${targetPath} for ${options.bundleName} because it is already managed by ${bundleName}`,
+          `Cannot shadow the tracked file ${targetPath} for ${options.bundleKey} because it is already managed by ${ownerKey}`,
         );
       }
     }
@@ -6712,6 +6791,7 @@ function planRootInstructionShadowOverlay(options: {
   filePath: string;
   overlayContent: string;
   bundleName: string;
+  bundleSource?: string;
   toolName: ToolName;
   strategy: RootInstructionMode;
 }): PlannedShadowOverlay {
@@ -6732,6 +6812,9 @@ function planRootInstructionShadowOverlay(options: {
     contribution: {
       tool: options.toolName,
       bundle: options.bundleName,
+      ...(options.bundleSource !== undefined
+        ? { source: options.bundleSource }
+        : {}),
       strategy: options.strategy,
       overlay: options.overlayContent,
     },
@@ -6883,14 +6966,14 @@ function retireAllTrackedShadows(options: {
 function retireTrackedShadowsForBundles(options: {
   repoRoot: string;
   shadowedFiles: Record<string, ShadowedFileState>;
-  bundleNames: string[];
+  bundleKeys: BundleKey[];
 }): Record<string, ShadowedFileState> {
-  const bundleNames = new Set(options.bundleNames);
+  const bundleKeys = new Set(options.bundleKeys);
 
   return retireShadowOverlays({
     repoRoot: options.repoRoot,
     shadowedFiles: options.shadowedFiles,
-    isRetired: (_filePath, overlay) => bundleNames.has(overlay.bundle),
+    isRetired: (_filePath, overlay) => bundleKeys.has(bundleKey(overlay)),
   });
 }
 
@@ -7114,7 +7197,7 @@ function getToolsToApply(options: {
 
 // Flatten all files and directories from every tool within a single bundle
 function flattenBundleState(
-  bundleState: MaterializedBundleState,
+  bundleState: Pick<MaterializedBundleState, "tools">,
 ): FingerprintedRemovalState & { directories: string[] } {
   const files = new Set<string>();
   const file_fingerprints: Record<string, string> = {};
@@ -7181,6 +7264,7 @@ function selectExistingBundleToolState(
   toolNames: ToolName[],
 ): MaterializedBundleState {
   return {
+    bundle: bundleState.bundle,
     ...(bundleState.source !== undefined ? { source: bundleState.source } : {}),
     ...(bundleState.resolved_commit !== undefined
       ? { resolved_commit: bundleState.resolved_commit }
@@ -7224,6 +7308,7 @@ function buildMaterializedToolStates(
 }
 
 function buildMaterializedBundleState(options: {
+  bundle: string;
   existingBundleState?: MaterializedBundleState;
   materializedResult: MaterializeBundleResult;
   repoRoot: string;
@@ -7243,6 +7328,7 @@ function buildMaterializedBundleState(options: {
       : {};
 
   return {
+    bundle: options.bundle,
     ...(options.source !== undefined
       ? { source: options.source }
       : options.existingBundleState?.source !== undefined
@@ -7542,6 +7628,7 @@ function retainFailedMcpBundleState(
 
   return Object.keys(tools).length > 0
     ? {
+        bundle: bundleState.bundle,
         ...(bundleState.source !== undefined
           ? { source: bundleState.source }
           : {}),
@@ -7554,9 +7641,9 @@ function retainFailedMcpBundleState(
 }
 
 function retainFailedMcpBundleStates(
-  bundleStates: Record<string, MaterializedBundleState>,
+  bundleStates: Record<BundleKey, MaterializedBundleState>,
   failedMcpServers: ManagedMcpOwnership[],
-): Record<string, MaterializedBundleState> {
+): Record<BundleKey, MaterializedBundleState> {
   return Object.fromEntries(
     Object.entries(bundleStates).flatMap(([bundleName, bundleState]) => {
       const retained = retainFailedMcpBundleState(
@@ -7771,15 +7858,17 @@ function selectDesiredEntries(
     return desiredState;
   }
 
-  const matchingEntry = desiredState.find((entry) => entry.bundle === bundle);
+  const matchingEntries = desiredState.filter(
+    (entry) => entry.bundle === bundle,
+  );
 
-  if (!matchingEntry) {
+  if (matchingEntries.length === 0) {
     throw new Error(
       `Bundle not found in active set: ${bundle}. Run "skul status" to see configured bundles`,
     );
   }
 
-  return [matchingEntry];
+  return matchingEntries;
 }
 
 function mergeDesiredTools(options: {
@@ -7805,7 +7894,7 @@ function upsertDesiredEntryPreservingOrder(
   nextEntry: DesiredBundleEntry,
 ): DesiredBundleEntry[] {
   const existingIndex = desiredState.findIndex(
-    (entry) => entry.bundle === nextEntry.bundle,
+    (entry) => bundleKey(entry) === bundleKey(nextEntry),
   );
 
   if (existingIndex === -1) {
@@ -8145,10 +8234,11 @@ async function applyBundleGlobal(options: {
   const mcpOwnership = createMcpMaterializationOwnership(
     existingGlobal?.materialized_state,
   );
-  const existingBundleState =
-    existingGlobal?.materialized_state.bundles[
-      preparedBundle.cachedBundle.bundle
-    ];
+  const key = bundleKey({
+    bundle: preparedBundle.cachedBundle.bundle,
+    source: preparedBundle.bundleSource,
+  });
+  const existingBundleState = existingGlobal?.materialized_state.bundles[key];
   const existingDesiredState = existingGlobal?.desired_state ?? [];
   const effectiveRootInstructionMode =
     options.rootInstructionMode ??
@@ -8182,7 +8272,7 @@ async function applyBundleGlobal(options: {
   assertRootInstructionModeCompatibility({
     desiredState: existingDesiredState,
     materializedBundles: existingGlobal?.materialized_state.bundles ?? {},
-    currentBundle: preparedBundle.cachedBundle.bundle,
+    currentBundleKey: key,
     targetPaths: plannedRootInstructionTargets,
     mode: effectiveRootInstructionMode,
   });
@@ -8242,7 +8332,7 @@ async function applyBundleGlobal(options: {
   const sharedRootInstructionState = collectSharedRootInstructionState(
     existingBundles,
     plannedWriteTargets,
-    preparedBundle.cachedBundle.bundle,
+    key,
   );
 
   if (sharedRootInstructionState.files.length > 0) {
@@ -8280,6 +8370,7 @@ async function applyBundleGlobal(options: {
   mcpOwnership.recordMaterialization(materializedResult);
 
   const newBundleState = buildMaterializedBundleState({
+    bundle: preparedBundle.cachedBundle.bundle,
     existingBundleState,
     materializedResult,
     repoRoot: options.homeDir,
@@ -8299,6 +8390,7 @@ async function applyBundleGlobal(options: {
     replaceRequestedTools: options.agents.length === 0,
     requestedItems: preparedBundle.selectedItems,
     replaceRequestedItems: preparedBundle.replacesItemSelection,
+    bundleSource: preparedBundle.bundleSource,
     sourceRevision: preparedBundle.sourceRevision,
     disableModelInvocation: options.disableModelInvocation,
     rootInstructionMode: effectiveRootInstructionMode,
@@ -8308,9 +8400,9 @@ async function applyBundleGlobal(options: {
     ...upsertDesiredEntryPreservingOrder(existingDesiredState, newDesiredEntry),
   ];
 
-  const newBundles: Record<string, MaterializedBundleState> = {
+  const newBundles: Record<BundleKey, MaterializedBundleState> = {
     ...existingBundles,
-    [preparedBundle.cachedBundle.bundle]: newBundleState,
+    [key]: newBundleState,
   };
 
   const syncedRootInstructionPaths = syncManagedRootInstructionFiles({
@@ -8327,9 +8419,7 @@ async function applyBundleGlobal(options: {
         desiredState: newDesiredState,
         materializedBundles: newBundles,
         libraryDir: options.libraryDir,
-        seed: new Map([
-          [preparedBundle.cachedBundle.bundle, resolvedBundleItemRefs],
-        ]),
+        seed: new Map([[key, resolvedBundleItemRefs]]),
         itemSelectors: ["root-instruction"],
       }),
   });
@@ -8579,6 +8669,28 @@ function resolveSourceRefForApply(options: {
   return explicitRefs[0];
 }
 
+/** Pairs each materialized bundle with its display label. */
+function labelMaterializedBundles(
+  bundles: Record<BundleKey, MaterializedBundleState>,
+): Array<[string, MaterializedBundleState]> {
+  const states = listMaterializedBundles(bundles).map(([, state]) => state);
+
+  return states.map((state) => [formatBundleLabel(state, states), state]);
+}
+
+/** Names a bundle, adding its source only where another listed bundle shares its name. */
+function formatBundleLabel(
+  bundle: { bundle: string; source?: string | null },
+  listed: ReadonlyArray<{ bundle: string }>,
+): string {
+  const isAmbiguous =
+    listed.filter((other) => other.bundle === bundle.bundle).length > 1;
+
+  return isAmbiguous && bundle.source
+    ? `${bundle.bundle} [${bundle.source}]`
+    : bundle.bundle;
+}
+
 function renderGlobalStatus(options: {
   registryFile: string;
   json: boolean;
@@ -8593,9 +8705,13 @@ function renderGlobalStatus(options: {
         materialized: {
           bundles: Object.fromEntries(
             Object.entries(globalState?.materialized_state.bundles ?? {}).map(
-              ([bundleName, bundleState]) => [
-                bundleName,
+              ([bundleKeyName, bundleState]) => [
+                bundleKeyName,
                 {
+                  bundle: bundleState.bundle,
+                  ...(bundleState.source !== undefined
+                    ? { source: bundleState.source }
+                    : {}),
                   tools: Object.fromEntries(
                     Object.entries(bundleState.tools).map(([t, s]) => [
                       t,
@@ -8617,7 +8733,9 @@ function renderGlobalStatus(options: {
 
   if (globalState && globalState.desired_state.length > 0) {
     for (const entry of globalState.desired_state) {
-      lines.push(`Bundle: ${pc.cyan(entry.bundle)}`);
+      lines.push(
+        `Bundle: ${pc.cyan(formatBundleLabel(entry, globalState.desired_state))}`,
+      );
     }
   } else {
     lines.push(pc.dim("Configured: no"));
@@ -8636,10 +8754,10 @@ function renderGlobalStatus(options: {
 
   lines.push(pc.green("Materialized: yes"), "", "Files:");
 
-  for (const [bundleName, bundleState] of Object.entries(
+  for (const [bundleLabel, bundleState] of labelMaterializedBundles(
     globalState.materialized_state.bundles,
   )) {
-    lines.push(`  Bundle: ${pc.cyan(bundleName)}`);
+    lines.push(`  Bundle: ${pc.cyan(bundleLabel)}`);
     for (const [toolName, toolState] of Object.entries(bundleState.tools)) {
       lines.push(`    Tool: ${toolName}`);
       for (const file of toolState.files) {
@@ -8693,8 +8811,16 @@ async function removeGlobalBundle(options: {
     globalState,
     prompts: options.prompts,
   });
-  const bundle = selection.bundle;
-  const source = selection.source;
+  const identity = resolveActiveBundleIdentity({
+    desiredState: globalState?.desired_state ?? [],
+    materializedBundles: globalState?.materialized_state.bundles,
+    bundle: selection.bundle,
+    source: selection.source,
+    command: "remove --global",
+  });
+  const bundle = identity.bundle;
+  const source = identity.source;
+  const key = bundleKey(identity);
   const isInDesiredState =
     globalState?.desired_state.some(
       (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
@@ -8775,7 +8901,7 @@ async function removeGlobalBundle(options: {
       bundlePaths.files.filter((p) => isRootInstructionPath(p)),
     );
     const remainingBundles = { ...globalState!.materialized_state.bundles };
-    delete remainingBundles[bundle];
+    delete remainingBundles[key];
     const remainingDesiredState =
       globalState?.desired_state.filter(
         (entry) => !matchesBundleIdentity(entry, bundle, source),
@@ -8869,7 +8995,7 @@ async function removeGlobalBundle(options: {
         desired_state: remainingDesiredState,
         materialized_state: {
           bundles: failedBundleState
-            ? { ...refreshedBundles, [bundle]: failedBundleState }
+            ? { ...refreshedBundles, [key]: failedBundleState }
             : refreshedBundles,
           ...mcpOwnership.toRegistryFields(),
           ...(nextRootInstructionBaseContents &&
@@ -8886,7 +9012,7 @@ async function removeGlobalBundle(options: {
         registry = upsertGlobalState(registry, {
           desired_state: remainingDesiredState,
           materialized_state: {
-            bundles: failedBundleState ? { [bundle]: failedBundleState } : {},
+            bundles: failedBundleState ? { [key]: failedBundleState } : {},
             ...mcpOwnership.toRegistryFields(),
           },
         });
@@ -9155,12 +9281,12 @@ function listActiveGlobalRemoveBundleSelections(options: {
     });
   }
 
-  for (const [bundle, state] of Object.entries(
+  for (const state of Object.values(
     options.globalState?.materialized_state.bundles ?? {},
   )) {
     if (!matchesOptionalSource(state.source, options.source)) continue;
     addActiveRemoveBundleSelection(selections, seen, {
-      bundle,
+      bundle: state.bundle,
       ...(state.source !== undefined ? { source: state.source } : {}),
     });
   }
@@ -9195,17 +9321,11 @@ function findGlobalMaterializedBundleState(options: {
   bundle: string;
   source?: string;
 }): MaterializedBundleState | undefined {
-  const bundleState =
-    options.globalState?.materialized_state.bundles[options.bundle];
-
-  if (
-    !bundleState ||
-    !matchesOptionalSource(bundleState.source, options.source)
-  ) {
-    return undefined;
-  }
-
-  return bundleState;
+  return findMaterializedBundleState({
+    bundles: options.globalState?.materialized_state.bundles,
+    bundle: options.bundle,
+    source: options.source,
+  });
 }
 
 async function removeGlobalBundleItems(options: {
@@ -9346,7 +9466,7 @@ async function resetGlobal(options: {
     return "No globally materialized Skul bundles found";
   }
 
-  const allBundleEntries = Object.entries(
+  const allBundleEntries = listMaterializedBundles(
     globalState.materialized_state.bundles,
   );
   const allBundlePaths = allBundleEntries.map(([, bundleState]) =>
@@ -9384,7 +9504,7 @@ async function resetGlobal(options: {
     }
   }
 
-  const failedBundleStates: Record<string, MaterializedBundleState> = {};
+  const failedBundleStates: Record<BundleKey, MaterializedBundleState> = {};
   for (const [bundleName, bundleState] of allBundleEntries) {
     const removalResult = removeManagedPaths(
       options.homeDir,
@@ -9443,7 +9563,7 @@ async function applyGlobal(options: {
 
   const outputLines: string[] = [];
   const toApply = globalState.desired_state.filter((entry) => {
-    const mat = globalState.materialized_state.bundles[entry.bundle];
+    const mat = globalState.materialized_state.bundles[bundleKey(entry)];
     if (!mat) return true;
     if (
       !isDesiredBundleMaterialized({

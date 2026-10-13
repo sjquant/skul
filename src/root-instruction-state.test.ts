@@ -7,7 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CachedBundle } from "./bundle-discovery";
 import type { BundleManifest } from "./bundle-manifest";
-import type { DesiredBundleEntry, MaterializedState } from "./registry";
+import {
+  bundleKey,
+  type DesiredBundleEntry,
+  type MaterializedState,
+} from "./registry";
 import {
   assertManagedRootInstructionSyncSourcesCached,
   captureRootInstructionBaseContents,
@@ -20,6 +24,8 @@ import {
 import {
   formatExpectedRootInstructionDocument,
   formatRootInstructionBundleBlock,
+  materializedBundleNamed,
+  materializedBundlesByName,
 } from "./utils/testing";
 
 const tempDirs: string[] = [];
@@ -173,11 +179,15 @@ describe("syncManagedRootInstructionFiles", () => {
       manifest,
       files: { "CLAUDE.md": "# My rules\n" },
     });
-    const materializedBundles: MaterializedState["bundles"] = {
-      "my-bundle": {
-        tools: { "claude-code": { files: ["CLAUDE.md"] } },
-      },
-    };
+    const materializedBundles: MaterializedState["bundles"] =
+      materializedBundlesByName(
+        {
+          "my-bundle": {
+            tools: { "claude-code": { files: ["CLAUDE.md"] } },
+          },
+        },
+        "github.com/user/vault",
+      );
 
     // When
     const written = syncManagedRootInstructionFiles({
@@ -214,11 +224,15 @@ describe("syncManagedRootInstructionFiles", () => {
       manifest,
       files: { "CLAUDE.md": "# Bundle rules\n" },
     });
-    const materializedBundles: MaterializedState["bundles"] = {
-      "my-bundle": {
-        tools: { "claude-code": { files: ["CLAUDE.md"] } },
-      },
-    };
+    const materializedBundles: MaterializedState["bundles"] =
+      materializedBundlesByName(
+        {
+          "my-bundle": {
+            tools: { "claude-code": { files: ["CLAUDE.md"] } },
+          },
+        },
+        "github.com/user/vault",
+      );
 
     // When
     const written = syncManagedRootInstructionFiles({
@@ -258,11 +272,15 @@ describe("syncManagedRootInstructionFiles", () => {
       files: { "CLAUDE.md": "# Global rules\n" },
     });
     // In global mode, claude-code's CLAUDE.md → .claude/CLAUDE.md
-    const materializedBundles: MaterializedState["bundles"] = {
-      "global-bundle": {
-        tools: { "claude-code": { files: [".claude/CLAUDE.md"] } },
-      },
-    };
+    const materializedBundles: MaterializedState["bundles"] =
+      materializedBundlesByName(
+        {
+          "global-bundle": {
+            tools: { "claude-code": { files: [".claude/CLAUDE.md"] } },
+          },
+        },
+        "github.com/user/vault",
+      );
 
     // When
     const written = syncManagedRootInstructionFiles({
@@ -386,16 +404,19 @@ describe("restoreRootInstructionBaseContents", () => {
 describe("refreshManagedFileFingerprintsForPaths", () => {
   it("returns the same bundles structure when filePaths is empty", () => {
     // Given
-    const bundles: MaterializedState["bundles"] = {
-      "my-bundle": {
-        tools: {
-          "claude-code": {
-            files: ["CLAUDE.md"],
-            file_fingerprints: { "CLAUDE.md": "old-hash" },
+    const bundles: MaterializedState["bundles"] = materializedBundlesByName(
+      {
+        "my-bundle": {
+          tools: {
+            "claude-code": {
+              files: ["CLAUDE.md"],
+              file_fingerprints: { "CLAUDE.md": "old-hash" },
+            },
           },
         },
       },
-    };
+      "github.com/user/vault",
+    );
 
     // When
     const result = refreshManagedFileFingerprintsForPaths(
@@ -413,16 +434,19 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
     const repoRoot = createTempDir();
     const content = "# Updated rules\n";
     writeFile(path.join(repoRoot, "CLAUDE.md"), content);
-    const bundles: MaterializedState["bundles"] = {
-      "my-bundle": {
-        tools: {
-          "claude-code": {
-            files: ["CLAUDE.md"],
-            file_fingerprints: { "CLAUDE.md": "stale-hash" },
+    const bundles: MaterializedState["bundles"] = materializedBundlesByName(
+      {
+        "my-bundle": {
+          tools: {
+            "claude-code": {
+              files: ["CLAUDE.md"],
+              file_fingerprints: { "CLAUDE.md": "stale-hash" },
+            },
           },
         },
       },
-    };
+      "github.com/user/vault",
+    );
 
     // When
     const result = refreshManagedFileFingerprintsForPaths(
@@ -433,25 +457,27 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
 
     // Then
     expect(
-      result["my-bundle"]?.tools["claude-code"]?.file_fingerprints?.[
-        "CLAUDE.md"
-      ],
+      materializedBundleNamed(result, "my-bundle")?.tools["claude-code"]
+        ?.file_fingerprints?.["CLAUDE.md"],
     ).toBe(sha256(content));
   });
 
   it("records an empty string fingerprint when the file cannot be read", () => {
     // Given: CLAUDE.md does not exist on disk
     const repoRoot = createTempDir();
-    const bundles: MaterializedState["bundles"] = {
-      "my-bundle": {
-        tools: {
-          "claude-code": {
-            files: ["CLAUDE.md"],
-            file_fingerprints: { "CLAUDE.md": "stale-hash" },
+    const bundles: MaterializedState["bundles"] = materializedBundlesByName(
+      {
+        "my-bundle": {
+          tools: {
+            "claude-code": {
+              files: ["CLAUDE.md"],
+              file_fingerprints: { "CLAUDE.md": "stale-hash" },
+            },
           },
         },
       },
-    };
+      "github.com/user/vault",
+    );
 
     // When
     const result = refreshManagedFileFingerprintsForPaths(
@@ -462,9 +488,8 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
 
     // Then
     expect(
-      result["my-bundle"]?.tools["claude-code"]?.file_fingerprints?.[
-        "CLAUDE.md"
-      ],
+      materializedBundleNamed(result, "my-bundle")?.tools["claude-code"]
+        ?.file_fingerprints?.["CLAUDE.md"],
     ).toBe("");
   });
 });
@@ -476,20 +501,23 @@ describe("refreshManagedFileFingerprintsForPaths", () => {
 describe("collectManagedRootInstructionTargets", () => {
   it("returns the set of root instruction paths owned by materialized bundles", () => {
     // Given
-    const bundles: MaterializedState["bundles"] = {
-      "bundle-a": {
-        tools: {
-          "claude-code": {
-            files: ["CLAUDE.md", ".claude/skills/react/SKILL.md"],
+    const bundles: MaterializedState["bundles"] = materializedBundlesByName(
+      {
+        "bundle-a": {
+          tools: {
+            "claude-code": {
+              files: ["CLAUDE.md", ".claude/skills/react/SKILL.md"],
+            },
+          },
+        },
+        "bundle-b": {
+          tools: {
+            cursor: { files: ["AGENTS.md"] },
           },
         },
       },
-      "bundle-b": {
-        tools: {
-          cursor: { files: ["AGENTS.md"] },
-        },
-      },
-    };
+      "github.com/user/vault",
+    );
 
     // When
     const targets = collectManagedRootInstructionTargets(bundles);
@@ -521,9 +549,12 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
     // When
     assertManagedRootInstructionSyncSourcesCached({
       desiredState: [makeDesiredEntry("my-bundle")],
-      materializedBundles: {
-        "my-bundle": { tools: { "claude-code": { files: ["CLAUDE.md"] } } },
-      },
+      materializedBundles: materializedBundlesByName(
+        {
+          "my-bundle": { tools: { "claude-code": { files: ["CLAUDE.md"] } } },
+        },
+        "github.com/user/vault",
+      ),
       targetPaths: new Set(),
       resolveCachedBundle,
     });
@@ -539,13 +570,16 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
     // When
     assertManagedRootInstructionSyncSourcesCached({
       desiredState: [makeDesiredEntry("my-bundle")],
-      materializedBundles: {
-        "my-bundle": {
-          tools: {
-            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+      materializedBundles: materializedBundlesByName(
+        {
+          "my-bundle": {
+            tools: {
+              "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+            },
           },
         },
-      },
+        "github.com/user/vault",
+      ),
       targetPaths: new Set(["CLAUDE.md"]),
       resolveCachedBundle,
     });
@@ -561,9 +595,12 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
     // When
     assertManagedRootInstructionSyncSourcesCached({
       desiredState: [makeDesiredEntry("my-bundle")],
-      materializedBundles: {
-        "my-bundle": { tools: { "claude-code": { files: ["CLAUDE.md"] } } },
-      },
+      materializedBundles: materializedBundlesByName(
+        {
+          "my-bundle": { tools: { "claude-code": { files: ["CLAUDE.md"] } } },
+        },
+        "github.com/user/vault",
+      ),
       targetPaths: new Set(["CLAUDE.md"]),
       resolveCachedBundle,
     });
@@ -582,9 +619,12 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
     expect(() =>
       assertManagedRootInstructionSyncSourcesCached({
         desiredState: [makeDesiredEntry("my-bundle")],
-        materializedBundles: {
-          "my-bundle": { tools: { "claude-code": { files: ["CLAUDE.md"] } } },
-        },
+        materializedBundles: materializedBundlesByName(
+          {
+            "my-bundle": { tools: { "claude-code": { files: ["CLAUDE.md"] } } },
+          },
+          "github.com/user/vault",
+        ),
         targetPaths: new Set(["CLAUDE.md"]),
         resolveCachedBundle,
       }),
@@ -599,30 +639,33 @@ describe("assertManagedRootInstructionSyncSourcesCached", () => {
 describe("collectSharedRootInstructionState", () => {
   it("collects root instruction paths owned by bundles other than the excluded one", () => {
     // Given
-    const bundles: MaterializedState["bundles"] = {
-      "bundle-a": {
-        tools: {
-          "claude-code": {
-            files: ["CLAUDE.md"],
-            file_fingerprints: { "CLAUDE.md": "hash-a" },
+    const bundles: MaterializedState["bundles"] = materializedBundlesByName(
+      {
+        "bundle-a": {
+          tools: {
+            "claude-code": {
+              files: ["CLAUDE.md"],
+              file_fingerprints: { "CLAUDE.md": "hash-a" },
+            },
+          },
+        },
+        "bundle-b": {
+          tools: {
+            cursor: {
+              files: ["AGENTS.md"],
+              file_fingerprints: { "AGENTS.md": "hash-b" },
+            },
           },
         },
       },
-      "bundle-b": {
-        tools: {
-          cursor: {
-            files: ["AGENTS.md"],
-            file_fingerprints: { "AGENTS.md": "hash-b" },
-          },
-        },
-      },
-    };
+      "github.com/user/vault",
+    );
 
     // When
     const result = collectSharedRootInstructionState(
       bundles,
       ["CLAUDE.md", "AGENTS.md"],
-      "bundle-a", // excluded
+      bundleKey({ bundle: "bundle-a", source: "github.com/user/vault" }), // excluded
     );
 
     // Then: only bundle-b's path appears
@@ -633,19 +676,22 @@ describe("collectSharedRootInstructionState", () => {
 
   it("excludes non-root-instruction paths from the shared state", () => {
     // Given
-    const bundles: MaterializedState["bundles"] = {
-      "bundle-a": {
-        tools: {
-          "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+    const bundles: MaterializedState["bundles"] = materializedBundlesByName(
+      {
+        "bundle-a": {
+          tools: {
+            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+          },
         },
       },
-    };
+      "github.com/user/vault",
+    );
 
     // When
     const result = collectSharedRootInstructionState(
       bundles,
       [".claude/skills/react/SKILL.md"],
-      "bundle-b", // a different bundle is excluded; bundle-a is still checked
+      bundleKey({ bundle: "bundle-b", source: "github.com/user/vault" }), // a different bundle is excluded; bundle-a is still checked
     );
 
     // Then: skill files are not root instruction paths
@@ -654,22 +700,25 @@ describe("collectSharedRootInstructionState", () => {
 
   it("returns empty state when all bundles are excluded", () => {
     // Given
-    const bundles: MaterializedState["bundles"] = {
-      "bundle-a": {
-        tools: {
-          "claude-code": {
-            files: ["CLAUDE.md"],
-            file_fingerprints: { "CLAUDE.md": "hash-a" },
+    const bundles: MaterializedState["bundles"] = materializedBundlesByName(
+      {
+        "bundle-a": {
+          tools: {
+            "claude-code": {
+              files: ["CLAUDE.md"],
+              file_fingerprints: { "CLAUDE.md": "hash-a" },
+            },
           },
         },
       },
-    };
+      "github.com/user/vault",
+    );
 
     // When
     const result = collectSharedRootInstructionState(
       bundles,
       ["CLAUDE.md"],
-      "bundle-a",
+      bundleKey({ bundle: "bundle-a", source: "github.com/user/vault" }),
     );
 
     // Then

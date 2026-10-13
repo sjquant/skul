@@ -15,6 +15,7 @@ import {
 import { run } from "./index";
 import { readRegistryFile } from "./registry";
 import { listToolDefinitions } from "./tool-mapping";
+import { materializedBundleNamed } from "./utils/testing";
 
 const SOURCE = "github.com/acme/bundles";
 const BUNDLE = "mcp-bundle";
@@ -2156,8 +2157,11 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       path.join(homeDir, ".skul", "registry.json"),
     );
     expect(
-      registry.worktrees[Object.keys(registry.worktrees)[0]!]
-        ?.materialized_state.bundles[BUNDLE],
+      materializedBundleNamed(
+        registry.worktrees[Object.keys(registry.worktrees)[0]!]
+          ?.materialized_state.bundles,
+        BUNDLE,
+      ),
     ).toBeDefined();
 
     // When the user repairs the configuration and retries removal

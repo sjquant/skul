@@ -46,6 +46,10 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import {
+  materializedBundleNamed,
+  materializedBundlesKeyedByName,
+} from "./utils/testing";
 
 describe("run", () => {
   it("apply materializes all desired bundles into the current worktree", async () => {
@@ -113,12 +117,12 @@ describe("run", () => {
     const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
     const worktreeState = registry.worktrees[linkedCtx.worktreeId];
     expect(worktreeState).toBeDefined();
-    expect(worktreeState.materialized_state.bundles).toHaveProperty(
-      "react-expert",
-    );
-    expect(worktreeState.materialized_state.bundles).toHaveProperty(
-      "repo-standards",
-    );
+    expect(
+      materializedBundlesKeyedByName(worktreeState.materialized_state.bundles),
+    ).toHaveProperty("react-expert");
+    expect(
+      materializedBundlesKeyedByName(worktreeState.materialized_state.bundles),
+    ).toHaveProperty("repo-standards");
   });
 
   it("apply is a no-op when all desired bundles are already materialized", async () => {
@@ -423,17 +427,17 @@ describe("run", () => {
       path.join(homeDir, ".skul", "registry.json"),
     );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state).toMatchObject({
-      bundles: {
-        "react-expert": {
-          tools: {
-            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
-          },
+    expect(
+      materializedBundlesKeyedByName(worktree.materialized_state.bundles),
+    ).toMatchObject({
+      "react-expert": {
+        tools: {
+          "claude-code": { files: [".claude/skills/react/SKILL.md"] },
         },
-        "next-expert": {
-          tools: {
-            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
-          },
+      },
+      "next-expert": {
+        tools: {
+          "claude-code": { files: [".claude/skills/react/SKILL.md"] },
         },
       },
     });
@@ -608,10 +612,12 @@ describe("run", () => {
       },
     ]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state.bundles).not.toHaveProperty(
-      "react-expert",
-    );
-    expect(worktree.materialized_state.bundles).toHaveProperty("next-expert");
+    expect(
+      materializedBundlesKeyedByName(worktree.materialized_state.bundles),
+    ).not.toHaveProperty("react-expert");
+    expect(
+      materializedBundlesKeyedByName(worktree.materialized_state.bundles),
+    ).toHaveProperty("next-expert");
   });
 
   it("apply respects tool selection stored in desired state", async () => {
@@ -664,14 +670,20 @@ describe("run", () => {
     const linkedCtx = detectGitContext({ cwd: linkedWorktree })!;
     const worktreeState = registry.worktrees[linkedCtx.worktreeId];
     expect(
-      worktreeState.materialized_state.bundles["react-expert"].tools,
+      materializedBundleNamed(
+        worktreeState.materialized_state.bundles,
+        "react-expert",
+      )!.tools,
     ).toMatchObject({
       "claude-code": {
         files: expect.arrayContaining([".claude/skills/react/SKILL.md"]),
       },
     });
     expect(
-      worktreeState.materialized_state.bundles["react-expert"].tools,
+      materializedBundleNamed(
+        worktreeState.materialized_state.bundles,
+        "react-expert",
+      )!.tools,
     ).not.toHaveProperty("cursor");
   });
 
@@ -734,8 +746,10 @@ describe("run", () => {
       },
     ]);
     expect(
-      linkedEntry.materialized_state.bundles["repo-standards"]!.tools["codex"]!
-        .files,
+      materializedBundleNamed(
+        linkedEntry.materialized_state.bundles,
+        "repo-standards",
+      )!.tools["codex"]!.files,
     ).toEqual([]);
     expect(linkedEntry.shadowed_files["AGENTS.md"]).toMatchObject({
       base_blob: runGit(linkedWorktree, ["rev-parse", "HEAD:AGENTS.md"]),
@@ -845,9 +859,10 @@ describe("run", () => {
     ).toBe("# react\n");
     expect(linkedEntry.shadowed_files).toEqual(linkedShadowState);
     expect(
-      linkedEntry.materialized_state.bundles["react-expert"]!.tools[
-        "claude-code"
-      ]!.files,
+      materializedBundleNamed(
+        linkedEntry.materialized_state.bundles,
+        "react-expert",
+      )!.tools["claude-code"]!.files,
     ).toContain(".claude/skills/react/SKILL.md");
     expect(mainEntry.shadowed_files).toEqual({});
   });
@@ -1225,9 +1240,12 @@ describe("run", () => {
       ),
     ).toBe("# stable\n");
     expect(
-      readRegistryFile(path.join(homeDir, ".skul", "registry.json")).worktrees[
-        detectGitContext({ cwd: linkedWorktree })!.worktreeId
-      ]?.materialized_state.bundles["react-expert"]?.resolved_commit,
+      materializedBundleNamed(
+        readRegistryFile(path.join(homeDir, ".skul", "registry.json"))
+          .worktrees[detectGitContext({ cwd: linkedWorktree })!.worktreeId]
+          ?.materialized_state.bundles,
+        "react-expert",
+      )?.resolved_commit,
     ).toBe(stableCommit);
   });
 

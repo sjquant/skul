@@ -3,6 +3,52 @@ import path from "node:path";
 
 import { expect } from "vitest";
 
+import {
+  type BundleKey,
+  bundleKey,
+  type MaterializedBundleState,
+} from "../registry";
+
+/**
+ * Builds a materialized-bundles record from states listed by bundle name, so
+ * fixtures need not spell out each registry key. A state's own `source` wins
+ * over `defaultSource`.
+ */
+export function materializedBundlesByName(
+  bundles: Record<string, Omit<MaterializedBundleState, "bundle">>,
+  defaultSource?: string,
+): Record<BundleKey, MaterializedBundleState> {
+  return Object.fromEntries(
+    Object.entries(bundles).map(([name, state]) => {
+      const source = state.source ?? defaultSource;
+      const full: MaterializedBundleState = {
+        bundle: name,
+        ...(source !== undefined ? { source } : {}),
+        ...state,
+        ...(source !== undefined ? { source } : {}),
+      };
+      return [bundleKey(full), full];
+    }),
+  ) as Record<BundleKey, MaterializedBundleState>;
+}
+
+/** Indexes materialized bundles by bundle name, for fixtures whose names are unique. */
+export function materializedBundlesKeyedByName(
+  bundles: Record<BundleKey, MaterializedBundleState> | undefined,
+): Record<string, MaterializedBundleState> {
+  return Object.fromEntries(
+    Object.values(bundles ?? {}).map((state) => [state.bundle, state]),
+  );
+}
+
+/** Returns the one materialized bundle with this name, whatever its source. */
+export function materializedBundleNamed(
+  bundles: Record<BundleKey, MaterializedBundleState> | undefined,
+  name: string,
+): MaterializedBundleState | undefined {
+  return Object.values(bundles ?? {}).find((state) => state.bundle === name);
+}
+
 /** Formats one expected root-instruction bundle block with Skul boundary markers. */
 export function formatRootInstructionBundleBlock(
   bundle: string,

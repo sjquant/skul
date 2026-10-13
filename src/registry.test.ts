@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  bundleKey,
   createEmptyRegistry,
   type DesiredBundleEntry,
   listManagedPathsForRemoval,
@@ -17,6 +18,7 @@ import {
   upsertWorktreeState,
   writeRegistryFile,
 } from "./registry";
+import { materializedBundleNamed } from "./utils/testing";
 
 // Shared fixture builders
 const REPO_FINGERPRINT = "repo_abc123";
@@ -42,6 +44,7 @@ function makeWorktreeEntry(overrides: object = {}) {
     materialized_state: {
       bundles: {
         "react-expert": {
+          bundle: "react-expert",
           tools: {
             "claude-code": {
               files: [".claude/skills/react/SKILL.md"],
@@ -118,6 +121,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 "react-expert": {
+                  bundle: "react-expert",
                   tools: {
                     "claude-code": {
                       files: [
@@ -148,6 +152,7 @@ describe("parseRegistry", () => {
           materialized_state: {
             bundles: {
               "react-expert": {
+                bundle: "react-expert",
                 tools: {
                   "claude-code": {
                     files: [
@@ -226,7 +231,8 @@ describe("parseRegistry", () => {
           path: "/Users/dev/project",
           materialized_state: {
             bundles: {
-              "react-expert": {
+              "react-expert@github.com/user/ai-vault": {
+                bundle: "react-expert",
                 source: "github.com/user/ai-vault",
                 resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
                 tools: {
@@ -252,7 +258,10 @@ describe("parseRegistry", () => {
       resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
     });
     expect(
-      parsed.worktrees[WORKTREE_ID]?.materialized_state.bundles["react-expert"],
+      materializedBundleNamed(
+        parsed.worktrees[WORKTREE_ID]?.materialized_state.bundles,
+        "react-expert",
+      ),
     ).toMatchObject({
       resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
     });
@@ -490,6 +499,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 "react-expert": {
+                  bundle: "react-expert",
                   tools: {
                     "claude-code": {
                       files: [".claude/skills/react/SKILL.md"],
@@ -509,6 +519,7 @@ describe("parseRegistry", () => {
           materialized_state: {
             bundles: {
               "react-expert": {
+                bundle: "react-expert",
                 tools: {
                   "claude-code": { directories: [".claude/skills/react"] },
                 },
@@ -580,6 +591,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 "react-expert": {
+                  bundle: "react-expert",
                   tools: {
                     "claude-code": {
                       files: ["managed/../../outside.txt"],
@@ -605,6 +617,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 "react-expert": {
+                  bundle: "react-expert",
                   tools: {
                     "claude-code": {
                       files: [".claude/skills/react/SKILL.md"],
@@ -626,6 +639,7 @@ describe("parseRegistry", () => {
           materialized_state: {
             bundles: {
               "react-expert": {
+                bundle: "react-expert",
                 tools: {
                   "claude-code": {
                     file_fingerprints: {
@@ -680,6 +694,7 @@ describe("parseRegistry", () => {
               materialized_state: {
                 bundles: {
                   "react-expert": {
+                    bundle: "react-expert",
                     tools: {
                       "claude-cod": {
                         files: [".claude/skills/react/SKILL.md"],
@@ -717,6 +732,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 "react-expert": {
+                  bundle: "react-expert",
                   tools: { "claude-code": { exclude_configured: true } },
                 },
               },
@@ -735,6 +751,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 "react-expert": {
+                  bundle: "react-expert",
                   tools: {
                     "claude-code": {
                       files: [
@@ -759,6 +776,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 "react-expert": {
+                  bundle: "react-expert",
                   tools: {
                     "claude-code": {
                       files: [".claude/skills/react/SKILL.md"],
@@ -797,6 +815,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 demo: {
+                  bundle: "demo",
                   tools: {
                     "claude-code": {
                       files: [".mcp.json"],
@@ -820,6 +839,7 @@ describe("parseRegistry", () => {
             materialized_state: {
               bundles: {
                 demo: {
+                  bundle: "demo",
                   tools: {
                     "claude-code": {
                       files: [".mcp.json"],
@@ -1025,7 +1045,8 @@ describe("registry persistence", () => {
       path: "/Users/dev/project",
       materialized_state: {
         bundles: {
-          "react-expert": {
+          [bundleKey({ bundle: "react-expert" })]: {
+            bundle: "react-expert",
             tools: {
               "claude-code": {
                 files: [".claude/skills/react/SKILL.md"],
@@ -1102,7 +1123,11 @@ describe("registry persistence", () => {
       path: "/Users/dev/project",
       materialized_state: {
         bundles: {
-          "react-expert": {
+          [bundleKey({
+            bundle: "react-expert",
+            source: "github.com/user/ai-vault",
+          })]: {
+            bundle: "react-expert",
             source: "github.com/user/ai-vault",
             resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
             tools: {
@@ -1130,9 +1155,10 @@ describe("registry persistence", () => {
       resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
     });
     expect(
-      reloaded.worktrees[WORKTREE_ID]?.materialized_state.bundles[
-        "react-expert"
-      ],
+      materializedBundleNamed(
+        reloaded.worktrees[WORKTREE_ID]?.materialized_state.bundles,
+        "react-expert",
+      ),
     ).toMatchObject({
       resolved_commit: "2813b888fb134532be3749c71a38ee111b788e5b",
     });
@@ -1187,7 +1213,8 @@ describe("ownership helpers", () => {
         path: "/Users/dev/project",
         materialized_state: {
           bundles: {
-            "react-expert": {
+            [bundleKey({ bundle: "react-expert" })]: {
+              bundle: "react-expert",
               tools: {
                 "claude-code": { files: [".claude/skills/react/SKILL.md"] },
               },

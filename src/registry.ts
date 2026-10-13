@@ -23,6 +23,33 @@ function isToolName(value: string): value is ToolName {
 
 export type RootInstructionMode = "append" | "replace";
 
+declare const bundleKeyBrand: unique symbol;
+
+/**
+ * Identifies one bundle across every source. A bundle name is unique only
+ * within its source, so registry state is keyed by name and source together.
+ */
+export type BundleKey = string & { readonly [bundleKeyBrand]: true };
+
+/** Lists materialized bundles with their typed registry keys. */
+export function listMaterializedBundles(
+  bundles: Record<BundleKey, MaterializedBundleState>,
+): Array<[BundleKey, MaterializedBundleState]> {
+  return Object.entries(bundles) as Array<[BundleKey, MaterializedBundleState]>;
+}
+
+/** Builds the registry key for a bundle installed from `source`, if it has one. */
+export function bundleKey(identity: {
+  bundle: string;
+  source?: string;
+}): BundleKey {
+  return (
+    identity.source === undefined
+      ? identity.bundle
+      : `${identity.bundle}@${identity.source}`
+  ) as BundleKey;
+}
+
 export interface DesiredBundleEntry {
   bundle: string;
   source?: string;
@@ -57,6 +84,8 @@ export interface MaterializedToolState {
 }
 
 export interface MaterializedBundleState {
+  /** Bundle name within its source; the registry key also encodes the source. */
+  bundle: string;
   source?: string;
   /** Commit SHA last materialized in this worktree for the bundle. */
   resolved_commit?: string;
@@ -64,7 +93,7 @@ export interface MaterializedBundleState {
 }
 
 export interface MaterializedState {
-  bundles: Record<string, MaterializedBundleState>;
+  bundles: Record<BundleKey, MaterializedBundleState>;
   exclude_configured: boolean;
   /** MCP configuration files Skul created and may delete once emptied. */
   created_mcp_files?: string[];
@@ -84,6 +113,7 @@ export type ShadowStrategy = "append" | "prepend" | "replace" | "merge";
 export interface ShadowOverlay {
   tool: ToolName;
   bundle: string;
+  source?: string;
   strategy: ShadowStrategy;
   overlay: string;
 }
@@ -147,7 +177,7 @@ export interface WorktreeState {
 }
 
 export interface GlobalMaterializedState {
-  bundles: Record<string, MaterializedBundleState>;
+  bundles: Record<BundleKey, MaterializedBundleState>;
   /** MCP configuration files Skul created and may delete once emptied. */
   created_mcp_files?: string[];
   /** Parent directories Skul created for those MCP configuration files. */
@@ -454,15 +484,7 @@ function parseMaterializedState(
   const state = expectRecord(input, label);
   const bundlesInput = expectRecord(state.bundles, `${label}.bundles`);
 
-  const bundles = Object.fromEntries(
-    Object.entries(bundlesInput).map(([bundleName, bundleValue]) => [
-      bundleName,
-      parseMaterializedBundleState(
-        bundleValue,
-        `${label}.bundles.${bundleName}`,
-      ),
-    ]),
-  );
+  const bundles = parseMaterializedBundles(bundlesInput, `${label}.bundles`);
 
   const rootInstructionBaseContents =
     state.root_instruction_base_contents === undefined
@@ -499,11 +521,31 @@ function parseMaterializedState(
   };
 }
 
+function parseMaterializedBundles(
+  input: UnknownRecord,
+  label: string,
+): Record<BundleKey, MaterializedBundleState> {
+  return Object.fromEntries(
+    Object.entries(input).map(([key, value]) => {
+      const state = parseMaterializedBundleState(value, `${label}.${key}`);
+
+      if (bundleKey(state) !== key) {
+        throw new Error(
+          `${label}.${key} must be keyed by its bundle and source (expected ${bundleKey(state)})`,
+        );
+      }
+
+      return [key, state];
+    }),
+  ) as Record<BundleKey, MaterializedBundleState>;
+}
+
 function parseMaterializedBundleState(
   input: unknown,
   label: string,
 ): MaterializedBundleState {
   const bundle = expectRecord(input, label);
+  const bundleName = expectNonEmptyString(bundle.bundle, `${label}.bundle`);
   const source =
     bundle.source === undefined
       ? undefined
@@ -529,6 +571,7 @@ function parseMaterializedBundleState(
   );
 
   return {
+    bundle: bundleName,
     ...(source !== undefined ? { source } : {}),
     ...(resolvedCommit !== undefined
       ? { resolved_commit: resolvedCommit }
@@ -672,6 +715,11 @@ function parseShadowOverlayState(
   return {
     tool,
     bundle: expectNonEmptyString(overlayState.bundle, `${label}.bundle`),
+    ...(overlayState.source !== undefined
+      ? {
+          source: expectNonEmptyString(overlayState.source, `${label}.source`),
+        }
+      : {}),
     strategy,
     overlay: expectShadowOverlay(
       overlayState.overlay,
@@ -884,15 +932,7 @@ function parseGlobalMaterializedState(
 ): GlobalMaterializedState {
   const state = expectRecord(input, label);
   const bundlesInput = expectRecord(state.bundles, `${label}.bundles`);
-  const bundles = Object.fromEntries(
-    Object.entries(bundlesInput).map(([bundleName, bundleValue]) => [
-      bundleName,
-      parseMaterializedBundleState(
-        bundleValue,
-        `${label}.bundles.${bundleName}`,
-      ),
-    ]),
-  );
+  const bundles = parseMaterializedBundles(bundlesInput, `${label}.bundles`);
   const rootInstructionBaseContents =
     state.root_instruction_base_contents === undefined
       ? undefined
@@ -972,6 +1012,7 @@ function cloneMaterializedBundleState(
   state: MaterializedBundleState,
 ): MaterializedBundleState {
   return {
+    bundle: state.bundle,
     ...(state.source !== undefined ? { source: state.source } : {}),
     ...(state.resolved_commit !== undefined
       ? { resolved_commit: state.resolved_commit }

@@ -12,6 +12,7 @@ import { readRegistryFile, writeRegistryFile } from "./registry";
 import {
   formatExpectedRootInstructionDocument,
   formatRootInstructionBundleBlock,
+  materializedBundleNamed,
 } from "./utils/testing";
 
 const tempDirs: string[] = [];
@@ -60,9 +61,10 @@ describe("run --global", () => {
       expect.objectContaining({ bundle: "react-expert" }),
     ]);
     expect(
-      registry.global!.materialized_state.bundles["react-expert"]!.tools[
-        "claude-code"
-      ]!.files,
+      materializedBundleNamed(
+        registry.global!.materialized_state.bundles,
+        "react-expert",
+      )!.tools["claude-code"]!.files,
     ).toContain(".claude/skills/react/SKILL.md");
   });
 
@@ -537,7 +539,7 @@ describe("run --global", () => {
       ],
       materialized_state: {
         bundles: {
-          extras: expect.objectContaining({
+          "extras@github.com/other/ai-vault": expect.objectContaining({
             source: "github.com/other/ai-vault",
           }),
         },
@@ -1215,8 +1217,10 @@ describe("run --global", () => {
     );
     expect(registry.global!.desired_state[0]!.items).toEqual(["skills/review"]);
     expect(
-      registry.global!.materialized_state.bundles["codex-only"]!.tools.codex!
-        .items,
+      materializedBundleNamed(
+        registry.global!.materialized_state.bundles,
+        "codex-only",
+      )!.tools.codex!.items,
     ).toEqual(["skills/review"]);
   });
 
@@ -1739,9 +1743,12 @@ describe("run --global", () => {
         protocol: "https",
       },
     ]);
-    expect(globalState.materialized_state.bundles.core).toBeUndefined();
     expect(
-      globalState.materialized_state.bundles.extras?.tools.codex?.items,
+      materializedBundleNamed(globalState.materialized_state.bundles, "core")!,
+    ).toBeUndefined();
+    expect(
+      materializedBundleNamed(globalState.materialized_state.bundles, "extras")
+        ?.tools.codex?.items,
     ).toEqual(["skills/plan"]);
   });
 
@@ -1770,7 +1777,8 @@ describe("run --global", () => {
       expect.objectContaining({ bundle: "react-expert" }),
     ]);
     expect(
-      parsed.materialized.bundles["react-expert"].tools["claude-code"].files,
+      parsed.materialized.bundles["react-expert@github.com/user/ai-vault"]
+        .tools["claude-code"].files,
     ).toContain(".claude/skills/react/SKILL.md");
   });
 

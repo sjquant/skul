@@ -46,6 +46,7 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import { materializedBundleNamed } from "./utils/testing";
 
 describe("tracked root-instruction shadow safety", () => {
   it("preserves untouched tracked shadow files during partial --agent refreshes", async () => {
@@ -186,8 +187,10 @@ describe("tracked root-instruction shadow safety", () => {
       initialShadow.rendered_fingerprint,
     );
     expect(
-      worktreeState.materialized_state.bundles["personal-rules"]!
-        .resolved_commit,
+      materializedBundleNamed(
+        worktreeState.materialized_state.bundles,
+        "personal-rules",
+      )!.resolved_commit,
     ).toBe(updatedCommit);
   });
 
@@ -327,8 +330,10 @@ describe("tracked root-instruction shadow safety", () => {
 
     expect(worktreeState.shadowed_files["AGENTS.md"]).toBeUndefined();
     expect(
-      worktreeState.materialized_state.bundles["personal-rules"]!
-        .resolved_commit,
+      materializedBundleNamed(
+        worktreeState.materialized_state.bundles,
+        "personal-rules",
+      )!.resolved_commit,
     ).toBe(updatedCommit);
   });
 

@@ -46,6 +46,10 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import {
+  materializedBundleNamed,
+  materializedBundlesKeyedByName,
+} from "./utils/testing";
 
 describe("run", () => {
   it("surfaces a clear error when reset runs outside a Git repository", async () => {
@@ -144,12 +148,12 @@ describe("run", () => {
       path.join(homeDir, ".skul", "registry.json"),
     );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state).toMatchObject({
-      bundles: {
-        "react-expert": {
-          tools: {
-            "claude-code": { files: [".claude/skills/react/SKILL.md"] },
-          },
+    expect(
+      materializedBundlesKeyedByName(worktree.materialized_state.bundles),
+    ).toMatchObject({
+      "react-expert": {
+        tools: {
+          "claude-code": { files: [".claude/skills/react/SKILL.md"] },
         },
       },
     });
@@ -321,8 +325,11 @@ describe("run", () => {
       },
     ]);
     expect(
-      registry.worktrees[Object.keys(registry.worktrees)[0]!]!
-        .materialized_state.bundles["react-expert"]!.tools.codex!.items,
+      materializedBundleNamed(
+        registry.worktrees[Object.keys(registry.worktrees)[0]!]!
+          .materialized_state.bundles,
+        "react-expert",
+      )!.tools.codex!.items,
     ).toEqual(["skills/next-task"]);
   });
 
@@ -669,7 +676,10 @@ describe("run", () => {
     })!.repoFingerprint;
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(
-      worktree.materialized_state.bundles["react-expert"].tools,
+      materializedBundleNamed(
+        worktree.materialized_state.bundles,
+        "react-expert",
+      )!.tools,
     ).toMatchObject({
       "claude-code": { files: [".claude/skills/react/SKILL.md"] },
       cursor: { files: [".cursor/skills/react/SKILL.md"] },
@@ -837,7 +847,10 @@ describe("run", () => {
       },
     ]);
     expect(
-      worktreeEntry.materialized_state.bundles["react-expert"],
+      materializedBundleNamed(
+        worktreeEntry.materialized_state.bundles,
+        "react-expert",
+      )!,
     ).toMatchObject({
       source: remoteSource.source,
       resolved_commit: remoteSource.initialCommit,
@@ -1127,29 +1140,24 @@ describe("run", () => {
     );
   });
 
-  it("drops a preserved ref when the bundle is re-added from a different source", async () => {
-    // Given
+  it("installs same-named bundles from different sources side by side", async () => {
+    // Given: react-expert installed from one source and pinned to a ref
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
+    const manifest = {
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    };
     const remoteSourceA = createRemoteBundleSource(homeDir, {
       source: "github.com/user/ai-vault-a",
       bundle: "react-expert",
-      manifest: {
-        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-      },
-      files: {
-        ".claude/skills/react/SKILL.md": "# react a\n",
-      },
+      manifest,
+      files: { ".claude/skills/react-a/SKILL.md": "# react a\n" },
     });
     const remoteSourceB = createRemoteBundleSource(homeDir, {
       source: "github.com/user/ai-vault-b",
       bundle: "react-expert",
-      manifest: {
-        tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-      },
-      files: {
-        ".claude/skills/react/SKILL.md": "# react b\n",
-      },
+      manifest,
+      files: { ".claude/skills/react-b/SKILL.md": "# react b\n" },
     });
     await run(["add", remoteSourceA.source, remoteSourceA.bundle], {
       homeDir,
@@ -1161,7 +1169,6 @@ describe("run", () => {
       cwd: repoRoot,
     })!.repoFingerprint;
     const registryWithRef = readRegistryFile(registryFile);
-
     writeRegistryFile(
       registryFile,
       upsertRepoState(registryWithRef, repoFingerprint, {
@@ -1175,7 +1182,7 @@ describe("run", () => {
       }),
     );
 
-    // When
+    // When: a bundle with the same name is added from another source
     await expect(
       run(["add", remoteSourceB.source, remoteSourceB.bundle], {
         homeDir,
@@ -1184,11 +1191,14 @@ describe("run", () => {
       }),
     ).resolves.toBe("Applied react-expert for claude-code");
 
-    // Then
+    // Then: both stay installed, and the first keeps its ref
     const registry = readRegistryFile(registryFile);
-    const repoEntry = registry.repos[repoFingerprint]!;
-
-    expect(repoEntry.desired_state).toEqual([
+    expect(registry.repos[repoFingerprint]!.desired_state).toEqual([
+      expect.objectContaining({
+        bundle: "react-expert",
+        source: remoteSourceA.source,
+        ref: "stable",
+      }),
       {
         bundle: "react-expert",
         source: remoteSourceB.source,
@@ -1197,5 +1207,12 @@ describe("run", () => {
         resolved_commit: remoteSourceB.initialCommit,
       },
     ]);
+    for (const skill of ["react-a", "react-b"]) {
+      expect(
+        fs.existsSync(
+          path.join(repoRoot, ".claude", "skills", skill, "SKILL.md"),
+        ),
+      ).toBe(true);
+    }
   });
 });

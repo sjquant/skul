@@ -4,11 +4,14 @@ import path from "node:path";
 
 import type { CachedBundle } from "./bundle-discovery";
 import type { ResolvedBundleItemRef } from "./bundle-item-refs";
-import type {
-  DesiredBundleEntry,
-  MaterializedBundleState,
-  MaterializedState,
-  RootInstructionMode,
+import {
+  type BundleKey,
+  bundleKey,
+  type DesiredBundleEntry,
+  listMaterializedBundles,
+  type MaterializedBundleState,
+  type MaterializedState,
+  type RootInstructionMode,
 } from "./registry";
 import { collectComposedRootInstructionContents } from "./root-instruction-content";
 import {
@@ -66,7 +69,7 @@ export function syncManagedRootInstructionFiles(options: {
   resolveCachedBundle: (entry: DesiredBundleEntry) => CachedBundle;
   repoRelPathRemapper?: (toolName: string, relPath: string) => string;
   resolvedBundleItemRefsByBundle?: ReadonlyMap<
-    string,
+    BundleKey,
     ReadonlyMap<string, ResolvedBundleItemRef>
   >;
 }): Set<string> {
@@ -102,7 +105,7 @@ function collectRootInstructionContentByPath(options: {
   resolveCachedBundle: (entry: DesiredBundleEntry) => CachedBundle;
   repoRelPathRemapper?: (toolName: string, relPath: string) => string;
   resolvedBundleItemRefsByBundle?: ReadonlyMap<
-    string,
+    BundleKey,
     ReadonlyMap<string, ResolvedBundleItemRef>
   >;
 }): Map<string, { parts: string[]; mode: RootInstructionMode }> {
@@ -114,7 +117,7 @@ function collectRootInstructionContentByPath(options: {
 
   for (const desiredEntry of options.desiredState) {
     const materializedBundleState =
-      options.materializedBundles[desiredEntry.bundle];
+      options.materializedBundles[bundleKey(desiredEntry)];
 
     if (!materializedBundleState) {
       continue;
@@ -139,7 +142,7 @@ function collectRootInstructionContentByPath(options: {
           targetPaths: undefined,
           itemSelectors: desiredEntry.items,
           resolvedBundleItemRefs: options.resolvedBundleItemRefsByBundle?.get(
-            desiredEntry.bundle,
+            bundleKey(desiredEntry),
           ),
         });
 
@@ -169,7 +172,7 @@ function collectRootInstructionContentByPath(options: {
             continue;
           }
 
-          const bundleTargetKey = `${desiredEntry.bundle}:${repoRelativePath}`;
+          const bundleTargetKey = `${bundleKey(desiredEntry)}:${repoRelativePath}`;
 
           if (seenBundleTargets.has(bundleTargetKey)) {
             continue;
@@ -194,7 +197,7 @@ function collectRootInstructionContentByPath(options: {
         targetPaths: options.targetPaths,
         itemSelectors: desiredEntry.items,
         resolvedBundleItemRefs: options.resolvedBundleItemRefsByBundle?.get(
-          desiredEntry.bundle,
+          bundleKey(desiredEntry),
         ),
       });
 
@@ -218,7 +221,7 @@ function collectRootInstructionContentByPath(options: {
             continue;
           }
 
-          const bundleTargetKey = `${desiredEntry.bundle}:${repoRelativePath}`;
+          const bundleTargetKey = `${bundleKey(desiredEntry)}:${repoRelativePath}`;
 
           if (seenBundleTargets.has(bundleTargetKey)) {
             continue;
@@ -305,8 +308,8 @@ export function refreshManagedFileFingerprintsForPaths(
   }
 
   return Object.fromEntries(
-    Object.entries(bundles).map(([bundleName, bundleState]) => [
-      bundleName,
+    listMaterializedBundles(bundles).map(([key, bundleState]) => [
+      key,
       {
         ...bundleState,
         tools: Object.fromEntries(
@@ -326,7 +329,7 @@ export function refreshManagedFileFingerprintsForPaths(
         ),
       } satisfies MaterializedBundleState,
     ]),
-  );
+  ) as MaterializedState["bundles"];
 }
 
 function captureManagedFileFingerprints(
@@ -377,7 +380,7 @@ export function assertManagedRootInstructionSyncSourcesCached(options: {
 
   for (const desiredEntry of options.desiredState) {
     const materializedBundleState =
-      options.materializedBundles[desiredEntry.bundle];
+      options.materializedBundles[bundleKey(desiredEntry)];
 
     if (!materializedBundleState) {
       continue;
@@ -400,7 +403,7 @@ export function assertManagedRootInstructionSyncSourcesCached(options: {
 export function collectSharedRootInstructionState(
   bundles: MaterializedState["bundles"],
   plannedWriteTargets: string[],
-  excludedBundleName: string,
+  excludedBundleKey: BundleKey,
 ): { files: string[]; file_fingerprints: Record<string, string> } {
   const sharedRootTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -408,8 +411,8 @@ export function collectSharedRootInstructionState(
   const files = new Set<string>();
   const fileFingerprints: Record<string, string> = {};
 
-  for (const [bundleName, bundleState] of Object.entries(bundles)) {
-    if (bundleName === excludedBundleName) {
+  for (const [key, bundleState] of listMaterializedBundles(bundles)) {
+    if (key === excludedBundleKey) {
       continue;
     }
 

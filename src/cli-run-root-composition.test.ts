@@ -46,6 +46,10 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import {
+  materializedBundleNamed,
+  materializedBundlesKeyedByName,
+} from "./utils/testing";
 
 describe("run", () => {
   it("composes child root instructions without importing the multi-bundle repository root file", async () => {
@@ -149,9 +153,10 @@ describe("run", () => {
       path.join(homeDir, ".skul", "registry.json"),
     );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    const fingerprint =
-      worktree.materialized_state.bundles["repo-standards"]!.tools["codex"]!
-        .file_fingerprints!["AGENTS.md"];
+    const fingerprint = materializedBundleNamed(
+      worktree.materialized_state.bundles,
+      "repo-standards",
+    )!.tools["codex"]!.file_fingerprints!["AGENTS.md"];
     expect(fingerprint).toBe(fingerprintFile(path.join(repoRoot, "AGENTS.md")));
   });
 
@@ -275,9 +280,10 @@ describe("run", () => {
       path.join(homeDir, ".skul", "registry.json"),
     );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    const fingerprint =
-      worktree.materialized_state.bundles["security-standards"]!.tools["codex"]!
-        .file_fingerprints!["AGENTS.md"];
+    const fingerprint = materializedBundleNamed(
+      worktree.materialized_state.bundles,
+      "security-standards",
+    )!.tools["codex"]!.file_fingerprints!["AGENTS.md"];
     expect(fingerprint).toBe(fingerprintFile(path.join(repoRoot, "AGENTS.md")));
   });
 
@@ -483,9 +489,10 @@ describe("run", () => {
     );
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
     expect(
-      worktree.materialized_state.bundles["repo-standards"]!.tools[
-        "claude-code"
-      ]!.files,
+      materializedBundleNamed(
+        worktree.materialized_state.bundles,
+        "repo-standards",
+      )!.tools["claude-code"]!.files,
     ).toContain("CLAUDE.md");
   });
 
@@ -896,10 +903,12 @@ describe("run", () => {
     const initialRegistry = readRegistryFile(registryPath);
     const initialWorktree =
       initialRegistry.worktrees[Object.keys(initialRegistry.worktrees)[0]];
-    const initialSkillFingerprint =
-      initialWorktree.materialized_state.bundles["repo-guide"]!.tools[
-        "claude-code"
-      ]!.file_fingerprints![".claude/skills/react/SKILL.md"]!;
+    const initialSkillFingerprint = materializedBundleNamed(
+      initialWorktree.materialized_state.bundles,
+      "repo-guide",
+    )!.tools["claude-code"]!.file_fingerprints![
+      ".claude/skills/react/SKILL.md"
+    ]!;
 
     fs.writeFileSync(
       path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
@@ -920,9 +929,12 @@ describe("run", () => {
     // Then
     const registry = readRegistryFile(registryPath);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    const refreshedSkillFingerprint =
-      worktree.materialized_state.bundles["repo-guide"]!.tools["claude-code"]!
-        .file_fingerprints![".claude/skills/react/SKILL.md"]!;
+    const refreshedSkillFingerprint = materializedBundleNamed(
+      worktree.materialized_state.bundles,
+      "repo-guide",
+    )!.tools["claude-code"]!.file_fingerprints![
+      ".claude/skills/react/SKILL.md"
+    ]!;
     expect(refreshedSkillFingerprint).toBe(initialSkillFingerprint);
     expect(refreshedSkillFingerprint).not.toBe(
       fingerprintFile(
@@ -1076,10 +1088,11 @@ describe("run", () => {
     ]);
     expect(Object.keys(registry.worktrees)).toHaveLength(1);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(Object.keys(worktree.materialized_state.bundles).sort()).toEqual([
-      "repo-guide",
-      "security-standards",
-    ]);
+    expect(
+      Object.keys(
+        materializedBundlesKeyedByName(worktree.materialized_state.bundles),
+      ).sort(),
+    ).toEqual(["repo-guide", "security-standards"]);
   });
 
   it("removes one shared tracked root instruction after safety checks pass", async () => {

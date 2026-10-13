@@ -44,6 +44,7 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import { materializedBundleNamed } from "./utils/testing";
 
 describe("tracked root-instruction shadow safety", () => {
   it("creates a tracked AGENTS.md shadow during add and records shadow metadata", async () => {
@@ -91,9 +92,10 @@ describe("tracked root-instruction shadow safety", () => {
       registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
     expect(
-      worktreeState.materialized_state.bundles["personal-rules"]!.tools[
-        "codex"
-      ]!.files,
+      materializedBundleNamed(
+        worktreeState.materialized_state.bundles,
+        "personal-rules",
+      )!.tools["codex"]!.files,
     ).toEqual([]);
     expect(worktreeState.shadowed_files["AGENTS.md"]).toMatchObject({
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:AGENTS.md"]),
@@ -246,9 +248,10 @@ describe("tracked root-instruction shadow safety", () => {
       registry.worktrees[detectGitContext({ cwd: repoRoot })!.worktreeId]!;
 
     expect(
-      worktreeState.materialized_state.bundles["repo-guide"]!.tools[
-        "claude-code"
-      ]!.files,
+      materializedBundleNamed(
+        worktreeState.materialized_state.bundles,
+        "repo-guide",
+      )!.tools["claude-code"]!.files,
     ).toEqual([]);
     expect(worktreeState.shadowed_files["CLAUDE.md"]).toMatchObject({
       base_blob: runGit(repoRoot, ["rev-parse", "HEAD:CLAUDE.md"]),
@@ -1093,7 +1096,10 @@ describe("tracked root-instruction shadow safety", () => {
 
     expect(
       Object.keys(
-        worktreeState.materialized_state.bundles["shared-guide"]!.tools,
+        materializedBundleNamed(
+          worktreeState.materialized_state.bundles,
+          "shared-guide",
+        )!.tools,
       ).sort(),
     ).toEqual(["claude-code", "cursor"]);
   });

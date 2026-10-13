@@ -24,9 +24,9 @@
 번들 `a`와 `b`가 모두 `.claude/skills/shared/SKILL.md`를 내보낸다고 합시다. `skul add a` 다음 `skul add b`를 하면 충돌 프롬프트가 뜨고, 덮어쓰기(`-y`이면 자동)를 고르면 `b`의 내용이 남습니다. 그다음 `skul remove a`를 하면 이 파일이 삭제됩니다. 그런데 `skul status`는 여전히 이 파일을 `b`의 것으로 표시합니다.
 → MCP 서버 이름에 이미 적용하는 정책을 그대로 따릅니다. **다른 번들이 소유한 경로에는 쓰지 않고, 쓰기 전에 거부합니다.** 거부 메시지에는 두 번들과 경로를 함께 적습니다.
 
-**P2. 번들은 이름만으로 식별됩니다.**
-`github.com/a/skills`의 `skills` 번들을 추가한 뒤 `github.com/b/skills`의 `skills` 번들을 추가하면, 앞의 번들이 desired state와 materialized state에서 경고 없이 통째로 교체됩니다. `materialized_state.bundles`가 번들 이름을 키로 쓰기 때문입니다. 커뮤니티 저장소는 `*/skills`처럼 이름이 겹치기 쉬워서, 의존성으로 외부 번들을 끌어오기 시작하면 이 문제가 바로 드러납니다.
-→ 번들 식별자를 `(source, bundle)`로 바꿉니다. 아직 배포 전이므로 레지스트리 마이그레이션은 하지 않습니다.
+**P2. 번들은 이름만으로 식별됩니다. (해결됨)**
+`github.com/a/skills`의 `skills` 번들을 추가한 뒤 `github.com/b/skills`의 `skills` 번들을 추가하면, 앞의 번들이 desired state와 materialized state에서 경고 없이 통째로 교체되었습니다. `materialized_state.bundles`가 번들 이름을 키로 썼기 때문입니다. 커뮤니티 저장소는 `*/skills`처럼 이름이 겹치기 쉬워서, 의존성으로 외부 번들을 끌어오기 시작하면 이 문제가 바로 드러납니다.
+→ 이제 레지스트리는 번들을 `(source, bundle)`로 구분합니다. 설치 기록은 `이름@소스` 키로 저장하고(`registry.ts`의 `bundleKey`), 각 기록에 `bundle` 이름을 함께 둡니다. 같은 이름의 번들을 서로 다른 소스에서 나란히 설치할 수 있고, 한쪽을 제거해도 다른 쪽은 그대로 남습니다. `skul remove <bundle>`처럼 이름만으로는 대상을 하나로 정할 수 없으면 소스를 함께 달라는 오류를 냅니다(`skul remove <source> <bundle>`). `check`와 `update`는 이름이 겹치는 번들을 모두 대상으로 삼습니다. 아직 배포 전이므로 기존 레지스트리 마이그레이션은 하지 않습니다.
 
 ## 목표와 비목표
 
@@ -155,7 +155,7 @@ README에 다음 기준을 적습니다. "다른 저장소의 아이템을 그�
 
 ## 단계
 
-0. **선행 문제 해결.** P1(경로 충돌 거부)과 P2(`(source, bundle)` 식별자). 의존성 기능과 별개로 지금도 있는 버그입니다.
+0. **선행 문제 해결.** P2(`(source, bundle)` 식별자)는 끝났습니다. P1(경로 충돌 거부)이 남아 있습니다. 의존성 기능과 별개로 지금도 있는 버그입니다.
 1. **같은 번들 안의 `requires`.** 외부 소스 없이 `--include`/`--select-items` closure만 처리합니다. 소유권 문제가 없어 범위가 작습니다.
 2. **외부 `requires`.** 전이 해석, 새 소스 확인, ref 충돌, 자동 정리, `status` 표시, refs origin의 `requires` 추적.
 3. **(필요할 때) lockfile.** 다른 컴퓨터에서 같은 의존성 커밋을 재현해야 할 때 검토합니다.

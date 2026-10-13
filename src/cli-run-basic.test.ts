@@ -47,6 +47,7 @@ import {
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
 import { getGlobalToolDefinition } from "./tool-mapping";
+import { materializedBundleNamed } from "./utils/testing";
 
 describe("run", () => {
   it("renders usage for bare invocations", async () => {
@@ -250,7 +251,9 @@ describe("run", () => {
     expect(parsed.worktree.materialized).toBe(true);
     expect(parsed.worktree.git_exclude_configured).toBe(true);
     expect(
-      parsed.worktree.bundles["react-expert"].tools["claude-code"].files,
+      parsed.worktree.bundles["react-expert@github.com/user/ai-vault"].tools[
+        "claude-code"
+      ].files,
     ).toContain(".claude/skills/react/SKILL.md");
   });
 
@@ -659,7 +662,10 @@ describe("run", () => {
       resolved_commit: updatedCommit,
     });
     expect(
-      worktreeEntry.materialized_state.bundles["react-expert"],
+      materializedBundleNamed(
+        worktreeEntry.materialized_state.bundles,
+        "react-expert",
+      )!,
     ).toMatchObject({
       resolved_commit: updatedCommit,
     });
@@ -974,7 +980,10 @@ describe("run", () => {
       ]!;
 
     expect(
-      linkedEntry.materialized_state.bundles["react-expert"],
+      materializedBundleNamed(
+        linkedEntry.materialized_state.bundles,
+        "react-expert",
+      )!,
     ).toMatchObject({
       resolved_commit: updatedCommit,
     });
@@ -1106,7 +1115,10 @@ describe("run", () => {
       ]!;
 
     expect(
-      linkedEntry.materialized_state.bundles["react-expert"],
+      materializedBundleNamed(
+        linkedEntry.materialized_state.bundles,
+        "react-expert",
+      )!,
     ).toMatchObject({
       resolved_commit: updatedCommit,
       tools: {
@@ -1116,7 +1128,10 @@ describe("run", () => {
       },
     });
     expect(
-      linkedEntry.materialized_state.bundles["react-expert"].tools,
+      materializedBundleNamed(
+        linkedEntry.materialized_state.bundles,
+        "react-expert",
+      )!.tools,
     ).not.toHaveProperty("cursor");
   });
 });

@@ -46,6 +46,10 @@ import {
   writeRegistryFile,
 } from "./registry";
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
+import {
+  materializedBundleNamed,
+  materializedBundlesKeyedByName,
+} from "./utils/testing";
 
 describe("run", () => {
   it("resets all materialized bundles from the current worktree", async () => {
@@ -662,12 +666,16 @@ describe("run", () => {
       },
     ]);
     expect(
-      registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles
-        .core,
+      materializedBundleNamed(
+        registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles,
+        "core",
+      )!,
     ).toBeUndefined();
     expect(
-      registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles
-        .extras?.tools.codex?.items,
+      materializedBundleNamed(
+        registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles,
+        "extras",
+      )?.tools.codex?.items,
     ).toEqual(["skills/plan"]);
   });
 
@@ -735,8 +743,11 @@ describe("run", () => {
       },
     ]);
     expect(
-      registry.worktrees[Object.keys(registry.worktrees)[0]!]!
-        .materialized_state.bundles["react-expert"]!.tools.codex!.items,
+      materializedBundleNamed(
+        registry.worktrees[Object.keys(registry.worktrees)[0]!]!
+          .materialized_state.bundles,
+        "react-expert",
+      )!.tools.codex!.items,
     ).toEqual(["skills/next-task"]);
   });
 
@@ -969,12 +980,12 @@ describe("run", () => {
       },
     ]);
     const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(worktree.materialized_state.bundles).not.toHaveProperty(
-      "react-expert",
-    );
-    expect(worktree.materialized_state.bundles).toHaveProperty(
-      "repo-standards",
-    );
+    expect(
+      materializedBundlesKeyedByName(worktree.materialized_state.bundles),
+    ).not.toHaveProperty("react-expert");
+    expect(
+      materializedBundlesKeyedByName(worktree.materialized_state.bundles),
+    ).toHaveProperty("repo-standards");
   });
 
   it("removes every active bundle when remove uses all", async () => {
@@ -1186,7 +1197,9 @@ describe("run", () => {
       },
     ]);
     expect(
-      registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles,
+      materializedBundlesKeyedByName(
+        registry.worktrees[gitContext.worktreeId]?.materialized_state.bundles,
+      ),
     ).toEqual({
       extras: expect.objectContaining({ source: "github.com/other/ai-vault" }),
     });
@@ -1529,5 +1542,67 @@ describe("run", () => {
         "repo-standards [github.com/user/ai-vault] (codex)",
       ),
     );
+  });
+
+  it("requires a source to remove a bundle name installed from several sources", async () => {
+    // Given: the same bundle name installed from two sources
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const manifest = {
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    };
+    const sourceA = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/ai-vault-a",
+      bundle: "react-expert",
+      manifest,
+      files: { ".claude/skills/react-a/SKILL.md": "# react a\n" },
+    });
+    const sourceB = createRemoteBundleSource(homeDir, {
+      source: "github.com/user/ai-vault-b",
+      bundle: "react-expert",
+      manifest,
+      files: { ".claude/skills/react-b/SKILL.md": "# react b\n" },
+    });
+    for (const source of [sourceA, sourceB]) {
+      await run(["add", source.source, source.bundle], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      });
+    }
+
+    // When: removing by name alone
+    await expect(
+      run(["remove", "react-expert", "-y"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrow(
+      `Bundle react-expert is installed from several sources: ${sourceA.source}, ${sourceB.source}`,
+    );
+
+    // Then: nothing was removed
+    expect(
+      fs.existsSync(path.join(repoRoot, ".claude/skills/react-a/SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(repoRoot, ".claude/skills/react-b/SKILL.md")),
+    ).toBe(true);
+
+    // When: removing with the source of one of them
+    await run(["remove", sourceB.source, "react-expert", "-y"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then: only that source's bundle is removed
+    expect(
+      fs.existsSync(path.join(repoRoot, ".claude/skills/react-a/SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(repoRoot, ".claude/skills/react-b/SKILL.md")),
+    ).toBe(false);
   });
 });
