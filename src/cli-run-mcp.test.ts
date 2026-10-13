@@ -2147,16 +2147,15 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       await runWithoutConsoleWarnings(() =>
         run(["remove", BUNDLE, ...flags, "--include", "mcp", "-y"], context),
       );
-      // Then ownership stays recorded as pending and the skill stays installed
-      const registry = readRegistryFile(
-        path.join(homeDir, ".skul", "registry.json"),
+      // Then the servers stay pending and the skill stays installed
+      const status = JSON.parse(
+        await run(["status", ...flags, "--json"], context),
       );
-      const materialized = flags.length
-        ? registry.global!.materialized_state
-        : Object.values(registry.worktrees)[0]!.materialized_state;
-      expect(materialized.bundles[BUNDLE]!.tools["claude-code"]).toMatchObject({
-        mcp_servers: { [config]: ["docs", "remote"] },
-        pending_mcp_cleanup: [config],
+      expect(
+        (flags.length ? status.materialized : status.worktree)
+          .pending_mcp_cleanup,
+      ).toEqual({
+        [BUNDLE]: { "claude-code": { [config]: ["docs", "remote"] } },
       });
       expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
         true,
@@ -2398,7 +2397,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       );
     });
 
-    it("retries a cleanup-only reset and removes its created configuration", async () => {
+    it("retries a failed reset and removes its created configuration", async () => {
       // Given an MCP-only bundle reset while its configuration did not parse
       const homeDir = createHomeDir();
       const cwd = createRepository();
@@ -2431,43 +2430,6 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       ).toBeUndefined();
       if (!flags.length)
         expect(status.worktree.git_exclude_configured).toBe(false);
-    });
-
-    it("reapplies cleanup-only ownership even if an older client drops the marker", async () => {
-      // Given a reset bundle with failed cleanup
-      const homeDir = createHomeDir();
-      const cwd = createRepository();
-      const root = flags.length ? homeDir : cwd;
-      const context = { homeDir, cwd, prompts: createPromptClientStub() };
-      writeMcpBundleWithSkill(homeDir);
-      await run(
-        ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
-        context,
-      );
-      fs.writeFileSync(path.join(root, config), "{ broken");
-      await runWithoutConsoleWarnings(() =>
-        run(["reset", ...flags, "-y"], context),
-      );
-      // And an older client rewrote the registry without the pending marker
-      const registryFile = path.join(homeDir, ".skul", "registry.json");
-      const registry = readRegistryFile(registryFile);
-      const materialized = flags.length
-        ? registry.global!.materialized_state
-        : Object.values(registry.worktrees)[0]!.materialized_state;
-      delete materialized.bundles[BUNDLE]!.tools["claude-code"]!
-        .pending_mcp_cleanup;
-      fs.writeFileSync(registryFile, JSON.stringify(registry));
-      fs.writeFileSync(
-        path.join(root, config),
-        JSON.stringify({ mcpServers: { docs: { command: "docs" } } }),
-      );
-
-      // When the file is repaired and apply runs
-      await run(["apply", ...flags, "-y"], context);
-      // Then the bundle is materialized again
-      expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
-        true,
-      );
     });
 
     it("retains failed ownership for a tool removed from the manifest, then retries on apply", async () => {
@@ -2556,19 +2518,15 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       } finally {
         subtract.mockRestore();
       }
-      // Then old and new server names are both still owned
-      const registry = readRegistryFile(
-        path.join(homeDir, ".skul", "registry.json"),
+      // Then the bundle is installed and its old servers are still pending
+      const status = JSON.parse(
+        await run(["status", ...flags, "--json"], context),
       );
-      const state = flags.length
-        ? registry.global!.materialized_state
-        : Object.values(registry.worktrees)[0]!.materialized_state;
-      expect(
-        state.bundles[BUNDLE]!.tools["claude-code"]!.mcp_servers![config],
-      ).toEqual(["docs", "remote", "fresh"]);
-      expect(await run(["status", ...flags], context)).toContain(
-        "Materialized: yes",
-      );
+      const state = flags.length ? status.materialized : status.worktree;
+      expect(Object.keys(state.bundles)).toEqual([BUNDLE]);
+      expect(state.pending_mcp_cleanup).toEqual({
+        [BUNDLE]: { "claude-code": { [config]: ["docs", "remote"] } },
+      });
 
       // When apply retries the cleanup
       await run(["apply", ...flags, "-y"], context);
@@ -2582,7 +2540,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     });
 
     it("leaves an installed bundle untouched by apply while its pending configuration still does not parse", async () => {
-      // Given an installed bundle whose earlier MCP cleanup failed transiently
+      // Given an installed bundle whose cleanup of its previous servers failed
       const homeDir = createHomeDir();
       const cwd = createRepository();
       const root = flags.length ? homeDir : cwd;
@@ -2592,6 +2550,9 @@ describe("skul add with an Agent Plugins mcp.json", () => {
         ["add", SOURCE, BUNDLE, ...flags, "--agent", "claude-code", "-y"],
         context,
       );
+      writeMcpBundle(homeDir, {
+        mcpServers: { fresh: { type: "stdio", command: "fresh" } },
+      });
       const subtract = vi
         .spyOn(mcpConfig, "subtractMcpConfigServers")
         .mockImplementationOnce(() => {
@@ -2626,7 +2587,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       );
     });
 
-    it("retries cleanup-only ownership when another agent of the bundle is added", async () => {
+    it("retries pending cleanup when another agent of the bundle is added", async () => {
       // Given a reset bundle whose claude-code MCP cleanup failed
       const homeDir = createHomeDir();
       const cwd = createRepository();

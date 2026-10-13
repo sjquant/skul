@@ -54,8 +54,20 @@ export interface MaterializedToolState {
    * outright, so removal subtracts these names instead of deleting the file.
    */
   mcp_servers?: Record<string, string[]>;
-  /** Owned MCP paths awaiting cleanup; server names remain in mcp_servers. */
-  pending_mcp_cleanup?: string[];
+}
+
+/**
+ * The MCP servers one bundle put into one tool's MCP configuration file.
+ *
+ * The tool travels with the path because subtracting the servers again needs
+ * the dialect of the file, not its location. Recording only the path would mean
+ * recovering the tool by matching that path against every tool's layout, and
+ * the caller would then have to say which layout the path came from.
+ */
+export interface McpServerOwnership {
+  tool: ToolName;
+  path: string;
+  servers: string[];
 }
 
 export interface MaterializedBundleState {
@@ -63,6 +75,11 @@ export interface MaterializedBundleState {
   /** Commit SHA last materialized in this worktree for the bundle. */
   resolved_commit?: string;
   tools: Record<string, MaterializedToolState>;
+  /**
+   * MCP servers a removal could not subtract because their configuration file
+   * did not parse. They stay owned until a later removal or apply succeeds.
+   */
+  pending_mcp_cleanup?: McpServerOwnership[];
 }
 
 export interface MaterializedState {
@@ -515,6 +532,18 @@ function parseMaterializedBundleState(
       ? undefined
       : expectGitObjectId(bundle.resolved_commit, `${label}.resolved_commit`);
   const toolsInput = expectRecord(bundle.tools, `${label}.tools`);
+  const pendingMcpCleanup =
+    bundle.pending_mcp_cleanup === undefined
+      ? undefined
+      : expectArray(
+          bundle.pending_mcp_cleanup,
+          `${label}.pending_mcp_cleanup`,
+        ).map((value, index) =>
+          parsePendingMcpCleanup(
+            value,
+            `${label}.pending_mcp_cleanup[${index}]`,
+          ),
+        );
 
   const tools = Object.fromEntries(
     Object.entries(toolsInput).map(([toolName, toolValue]) => {
@@ -536,6 +565,32 @@ function parseMaterializedBundleState(
       ? { resolved_commit: resolvedCommit }
       : {}),
     tools,
+    ...(pendingMcpCleanup?.length
+      ? { pending_mcp_cleanup: pendingMcpCleanup }
+      : {}),
+  };
+}
+
+function parsePendingMcpCleanup(
+  input: unknown,
+  label: string,
+): McpServerOwnership {
+  const ownership = expectRecord(input, label);
+  const tool = expectNonEmptyString(ownership.tool, `${label}.tool`);
+
+  if (!isToolName(tool)) {
+    throw new Error(
+      `${label}.tool must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
+    );
+  }
+
+  return {
+    tool,
+    path: expectRelativePath(ownership.path, `${label}.path`),
+    servers: expectArray(ownership.servers, `${label}.servers`).map(
+      (value, index) =>
+        expectNonEmptyString(value, `${label}.servers[${index}]`),
+    ),
   };
 }
 
@@ -576,30 +631,8 @@ function parseMaterializedToolState(
       ? undefined
       : parseMcpServerOwnership(toolState.mcp_servers, `${label}.mcp_servers`);
 
-  const pendingMcpCleanup =
-    toolState.pending_mcp_cleanup === undefined
-      ? undefined
-      : expectArray(
-          toolState.pending_mcp_cleanup,
-          `${label}.pending_mcp_cleanup`,
-        ).map((value, index) => {
-          const filePath = expectRelativePath(
-            value,
-            `${label}.pending_mcp_cleanup[${index}]`,
-          );
-          if (!Object.hasOwn(mcpServers ?? {}, filePath)) {
-            throw new Error(
-              `${label}.pending_mcp_cleanup must reference an owned MCP path: ${filePath}`,
-            );
-          }
-          return filePath;
-        });
-
   return {
     files,
-    ...(pendingMcpCleanup?.length
-      ? { pending_mcp_cleanup: pendingMcpCleanup }
-      : {}),
     ...(fileFingerprints === undefined
       ? {}
       : { file_fingerprints: fileFingerprints }),
@@ -1017,12 +1050,17 @@ function cloneMaterializedBundleState(
           ...(toolState.mcp_servers !== undefined
             ? { mcp_servers: { ...toolState.mcp_servers } }
             : {}),
-          ...(toolState.pending_mcp_cleanup !== undefined
-            ? { pending_mcp_cleanup: [...toolState.pending_mcp_cleanup] }
-            : {}),
         },
       ]),
     ),
+    ...(state.pending_mcp_cleanup !== undefined
+      ? {
+          pending_mcp_cleanup: state.pending_mcp_cleanup.map((ownership) => ({
+            ...ownership,
+            servers: [...ownership.servers],
+          })),
+        }
+      : {}),
   };
 }
 

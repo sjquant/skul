@@ -102,6 +102,7 @@ import {
   type MaterializedBundleState,
   type MaterializedState,
   type MaterializedToolState,
+  type McpServerOwnership,
   type Registry,
   type RepoState,
   type RootInstructionMode,
@@ -1216,28 +1217,14 @@ type ManagedRemovalState = {
   files: string[];
   file_fingerprints?: Record<string, string>;
   directories?: string[];
-  mcp_servers: ManagedMcpOwnership[];
-};
-
-/**
- * The servers one bundle put into one tool's MCP configuration file.
- *
- * The tool travels with the path because subtracting the servers again needs
- * the dialect of the file, not its location. Recording only the path would mean
- * recovering the tool by matching that path against every tool's layout, and
- * the caller would then have to say which layout the path came from.
- */
-type ManagedMcpOwnership = {
-  tool: ToolName;
-  path: string;
-  servers: string[];
+  mcp_servers: McpServerOwnership[];
 };
 
 /** Unions MCP server ownership across several bundles or tools. */
 function mergeMcpServerOwnership(
-  ownerships: Array<ManagedMcpOwnership[] | undefined>,
-): ManagedMcpOwnership[] {
-  const merged = new Map<string, ManagedMcpOwnership>();
+  ownerships: Array<McpServerOwnership[] | undefined>,
+): McpServerOwnership[] {
+  const merged = new Map<string, McpServerOwnership>();
 
   for (const ownership of ownerships ?? []) {
     for (const entry of ownership ?? []) {
@@ -3249,18 +3236,13 @@ async function applyBundle(options: {
 
     // When a tool flag is specified, only replace the selected tool targets.
     const toolsToReplace = preparedBundle.hasToolSelection
-      ? withCleanupOnlyTools(
-          options.agents.filter((t) => t in existingBundleState.tools),
-          existingBundleState,
-        )
+      ? options.agents
       : (Object.keys(existingBundleState.tools) as ToolName[]);
 
     pathsToReplace = excludeShadowedTrackedTargets(
-      flattenBundleState({
-        tools: Object.fromEntries(
-          toolsToReplace.map((t) => [t, existingBundleState.tools[t]!]),
-        ),
-      }),
+      flattenBundleState(
+        selectExistingBundleToolState(existingBundleState, toolsToReplace),
+      ),
       trackedShadowPlan.deferredMaterializationTargets,
     );
 
@@ -3309,7 +3291,7 @@ async function applyBundle(options: {
     filePaths: plannedWriteTargets,
   });
 
-  let failedMcpServers: ManagedMcpOwnership[] = [];
+  let failedMcpServers: McpServerOwnership[] | undefined;
   if (pathsToReplace) {
     ({ failedMcpServers } = removeManagedPaths(
       gitContext.worktreeRoot,
@@ -3348,9 +3330,7 @@ async function applyBundle(options: {
     repoRoot: gitContext.worktreeRoot,
     source: preparedBundle.bundleSource,
     resolvedCommit: preparedBundle.sourceRevision?.currentCommit,
-    selectedTools: preparedBundle.selectedTools
-      ? withCleanupOnlyTools(preparedBundle.selectedTools, existingBundleState)
-      : undefined,
+    selectedTools: preparedBundle.selectedTools,
     selectedItems: preparedBundle.selectedItems,
     failedMcpServers,
   });
@@ -6027,7 +6007,6 @@ async function applyWorktree(options: {
         repoRoot: gitContext.worktreeRoot,
         desiredEntry: entry,
         materializedBundleState: existingBundleState,
-        expectedTools: entry.tools ?? availableTools,
       });
     const toolsToApply = getToolsToApply({
       desiredEntry: entry,
@@ -6171,7 +6150,7 @@ async function applyWorktree(options: {
       filePaths: plannedWriteTargets,
     });
 
-    let failedMcpServers: ManagedMcpOwnership[] = [];
+    let failedMcpServers: McpServerOwnership[] | undefined;
     if (replacesExistingToolState && replacementState) {
       const pathsToReplace = excludeShadowedTrackedTargets(
         flattenBundleState(replacementState),
@@ -7083,7 +7062,7 @@ function isDesiredBundleMaterialized(options: {
   const expectedTools = options.desiredEntry.tools ?? options.availableTools;
 
   return (
-    !bundleNeedsRefresh({ ...options, expectedTools }) &&
+    !bundleNeedsRefresh(options) &&
     expectedTools.every(
       (toolName) =>
         toolName in options.materializedBundleState.tools &&
@@ -7103,17 +7082,12 @@ function bundleNeedsRefresh(options: {
   repoRoot: string;
   desiredEntry: DesiredBundleEntry;
   materializedBundleState: MaterializedBundleState;
-  expectedTools: ToolName[];
 }): boolean {
   return (
     (options.desiredEntry.resolved_commit !== undefined &&
       options.materializedBundleState.resolved_commit !==
         options.desiredEntry.resolved_commit) ||
-    hasRetryableMcpCleanup({
-      repoRoot: options.repoRoot,
-      bundleState: options.materializedBundleState,
-      expectedTools: options.expectedTools,
-    })
+    hasRetryableMcpCleanup(options.repoRoot, options.materializedBundleState)
   );
 }
 
@@ -7173,8 +7147,8 @@ function flattenBundleState(
     files: Array.from(files),
     file_fingerprints,
     directories: Array.from(directories),
-    mcp_servers: mergeMcpServerOwnership(
-      toolEntries.map(([toolName, toolState]) =>
+    mcp_servers: mergeMcpServerOwnership([
+      ...toolEntries.map(([toolName, toolState]) =>
         Object.entries(toolState.mcp_servers ?? {}).map(
           ([filePath, servers]) => ({
             tool: toolName,
@@ -7183,7 +7157,8 @@ function flattenBundleState(
           }),
         ),
       ),
-    ),
+      bundleState.pending_mcp_cleanup,
+    ]),
   };
 }
 
@@ -7224,6 +7199,10 @@ function selectExistingBundleToolState(
         return toolState ? [[toolName, toolState]] : [];
       }),
     ),
+    // Replacing any part of a bundle retries its pending MCP cleanup too.
+    ...(bundleState.pending_mcp_cleanup !== undefined
+      ? { pending_mcp_cleanup: bundleState.pending_mcp_cleanup }
+      : {}),
   };
 }
 
@@ -7264,7 +7243,7 @@ function buildMaterializedBundleState(options: {
   resolvedCommit?: string;
   selectedTools?: ToolName[];
   selectedItems?: BundleItemSelector[];
-  failedMcpServers?: ManagedMcpOwnership[];
+  failedMcpServers?: McpServerOwnership[];
 }): MaterializedBundleState {
   const preservedTools =
     options.existingBundleState && options.selectedTools
@@ -7282,33 +7261,14 @@ function buildMaterializedBundleState(options: {
     options.selectedItems,
   );
   const tools = { ...preservedTools, ...materializedTools };
-  const retained = options.existingBundleState
-    ? retainFailedMcpBundleState(
-        options.existingBundleState,
-        options.failedMcpServers ?? [],
-      )
-    : undefined;
-  for (const [toolName, pendingState] of Object.entries(
-    retained?.tools ?? {},
-  )) {
-    const activeState = tools[toolName];
-    // A later write can succeed after subtraction failed. It does not prove
-    // that old server names were removed, so keep them until subtraction succeeds.
-    const mcpServers = { ...activeState?.mcp_servers };
-    for (const [filePath, names] of Object.entries(
-      pendingState.mcp_servers ?? {},
-    )) {
-      mcpServers[filePath] = Array.from(
-        new Set([...names, ...(mcpServers[filePath] ?? [])]),
-      );
-    }
-    // Without an active state, the tool stays as the cleanup-only state.
-    tools[toolName] = {
-      ...(activeState ?? pendingState),
-      mcp_servers: mcpServers,
-      pending_mcp_cleanup: pendingState.pending_mcp_cleanup,
-    };
-  }
+  // Removal reports what it could not subtract; without a removal, what was
+  // already pending stays pending. Names the bundle owns again are not stale.
+  const pendingMcpCleanup = withoutOwnedMcpServers(
+    options.failedMcpServers ??
+      options.existingBundleState?.pending_mcp_cleanup ??
+      [],
+    tools,
+  );
 
   return {
     ...(options.source !== undefined
@@ -7322,7 +7282,26 @@ function buildMaterializedBundleState(options: {
         ? { resolved_commit: options.existingBundleState.resolved_commit }
         : {}),
     tools,
+    ...(pendingMcpCleanup.length > 0
+      ? { pending_mcp_cleanup: pendingMcpCleanup }
+      : {}),
   };
+}
+
+/** Drops pending server names that the bundle's tools hold at the same path. */
+function withoutOwnedMcpServers(
+  pending: McpServerOwnership[],
+  tools: MaterializedBundleState["tools"],
+): McpServerOwnership[] {
+  return pending.flatMap((ownership) => {
+    const owned = new Set(
+      Object.values(tools).flatMap(
+        (toolState) => toolState.mcp_servers?.[ownership.path] ?? [],
+      ),
+    );
+    const servers = ownership.servers.filter((name) => !owned.has(name));
+    return servers.length > 0 ? [{ ...ownership, servers }] : [];
+  });
 }
 
 // Collect all files across every bundle and tool for git-exclude configuration
@@ -7340,8 +7319,8 @@ function collectExcludedPaths(materializedState: MaterializedState): string[] {
     new Set([
       ...listManagedFiles(materializedState.bundles),
       ...Object.values(materializedState.bundles).flatMap((bundleState) =>
-        Object.values(bundleState.tools).flatMap((toolState) =>
-          Object.keys(toolState.mcp_servers ?? {}),
+        flattenBundleState(bundleState).mcp_servers.map(
+          ({ path: filePath }) => filePath,
         ),
       ),
     ]),
@@ -7416,12 +7395,12 @@ function listManagedFiles(bundles: MaterializedState["bundles"]): string[] {
  */
 function releaseManagedMcpServers(options: {
   repoRoot: string;
-  mcpServers: ManagedMcpOwnership[];
+  mcpServers: McpServerOwnership[];
   mcpOwnership: McpMaterializationOwnership;
   warnings?: CommandWarningCollector;
-}): { releasablePaths: Set<string>; failedMcpServers: ManagedMcpOwnership[] } {
+}): { releasablePaths: Set<string>; failedMcpServers: McpServerOwnership[] } {
   const releasablePaths = new Set<string>();
-  const failedMcpServers: ManagedMcpOwnership[] = [];
+  const failedMcpServers: McpServerOwnership[] = [];
 
   for (const ownership of options.mcpServers) {
     const { path: relativePath, servers: serverNames } = ownership;
@@ -7482,7 +7461,7 @@ function removeManagedPaths(
     mcpOwnership: McpMaterializationOwnership;
     warnings?: CommandWarningCollector;
   },
-): { failedMcpServers: ManagedMcpOwnership[] } {
+): { failedMcpServers: McpServerOwnership[] } {
   const releaseResult = releaseManagedMcpServers({
     repoRoot,
     mcpServers: state.mcp_servers,
@@ -7556,43 +7535,24 @@ function removeManagedPaths(
   return { failedMcpServers: releaseResult.failedMcpServers };
 }
 
+/**
+ * Keeps the part of a removed bundle whose MCP servers could not be subtracted,
+ * so a later removal, reset, or apply can retry it.
+ */
 function retainFailedMcpBundleState(
   bundleState: MaterializedBundleState,
-  failedMcpServers: ManagedMcpOwnership[],
+  failedMcpServers: McpServerOwnership[],
 ): MaterializedBundleState | undefined {
-  const failedByTool = new Map<string, Set<string>>();
-  for (const ownership of failedMcpServers) {
-    const paths = failedByTool.get(ownership.tool) ?? new Set<string>();
-    paths.add(ownership.path);
-    failedByTool.set(ownership.tool, paths);
-  }
-
-  const tools = Object.fromEntries(
-    Object.entries(bundleState.tools).flatMap(([toolName, toolState]) => {
-      const failedPaths = failedByTool.get(toolName);
-      const mcpServers = Object.fromEntries(
-        Object.entries(toolState.mcp_servers ?? {}).filter(([filePath]) =>
-          failedPaths?.has(filePath),
-        ),
-      );
-      return Object.keys(mcpServers).length > 0
-        ? [
-            [
-              toolName,
-              {
-                files: [],
-                // No items remain installed; older clients understand this too.
-                items: [],
-                mcp_servers: mcpServers,
-                pending_mcp_cleanup: Object.keys(mcpServers).sort(),
-              } satisfies MaterializedToolState,
-            ],
-          ]
-        : [];
-    }),
+  const failedKeys = new Set(
+    failedMcpServers.map(
+      ({ tool, path: filePath }) => `${tool}\u0000${filePath}`,
+    ),
+  );
+  const pendingMcpCleanup = flattenBundleState(bundleState).mcp_servers.filter(
+    ({ tool, path: filePath }) => failedKeys.has(`${tool}\u0000${filePath}`),
   );
 
-  return Object.keys(tools).length > 0
+  return pendingMcpCleanup.length > 0
     ? {
         ...(bundleState.source !== undefined
           ? { source: bundleState.source }
@@ -7600,14 +7560,15 @@ function retainFailedMcpBundleState(
         ...(bundleState.resolved_commit !== undefined
           ? { resolved_commit: bundleState.resolved_commit }
           : {}),
-        tools,
+        tools: {},
+        pending_mcp_cleanup: pendingMcpCleanup,
       }
     : undefined;
 }
 
 function retainFailedMcpBundleStates(
   bundleStates: Record<string, MaterializedBundleState>,
-  failedMcpServers: ManagedMcpOwnership[],
+  failedMcpServers: McpServerOwnership[],
 ): Record<string, MaterializedBundleState> {
   return Object.fromEntries(
     Object.entries(bundleStates).flatMap(([bundleName, bundleState]) => {
@@ -8268,17 +8229,12 @@ async function applyBundleGlobal(options: {
   if (existingBundleState) {
     const toolsToReplace =
       options.agents.length > 0
-        ? withCleanupOnlyTools(
-            options.agents.filter((t) => t in existingBundleState.tools),
-            existingBundleState,
-          )
+        ? options.agents
         : (Object.keys(existingBundleState.tools) as ToolName[]);
 
-    pathsToReplace = flattenBundleState({
-      tools: Object.fromEntries(
-        toolsToReplace.map((t) => [t, existingBundleState.tools[t]!]),
-      ),
-    });
+    pathsToReplace = flattenBundleState(
+      selectExistingBundleToolState(existingBundleState, toolsToReplace),
+    );
 
     const replacementAllowed = await confirmManagedFileRemovals(
       options.homeDir,
@@ -8314,7 +8270,7 @@ async function applyBundleGlobal(options: {
     }
   }
 
-  let failedMcpServers: ManagedMcpOwnership[] = [];
+  let failedMcpServers: McpServerOwnership[] | undefined;
   if (pathsToReplace) {
     ({ failedMcpServers } = removeManagedPaths(
       options.homeDir,
@@ -8345,10 +8301,7 @@ async function applyBundleGlobal(options: {
     repoRoot: options.homeDir,
     source: preparedBundle.bundleSource,
     resolvedCommit: preparedBundle.sourceRevision?.currentCommit,
-    selectedTools:
-      options.agents.length > 0
-        ? withCleanupOnlyTools(availableGlobalTools, existingBundleState)
-        : undefined,
+    selectedTools: options.agents.length > 0 ? availableGlobalTools : undefined,
     selectedItems: preparedBundle.selectedItems,
     failedMcpServers,
   });
@@ -9601,31 +9554,26 @@ function appendPendingMcpCleanupLines(
   lines.push(`Repair the configuration, ${MCP_CLEANUP_RETRY_HINT}`);
 }
 
-/** Separates active materialization from retryable MCP-only ownership for display. */
+/** Separates installed bundles from MCP cleanup left pending, for display. */
 function collectMaterializationStatus(bundles: MaterializedState["bundles"]) {
-  const activeBundles: MaterializedState["bundles"] = Object.create(null);
   const pendingCleanup: PendingMcpCleanup = Object.create(null);
   for (const [bundleName, bundleState] of Object.entries(bundles)) {
-    const activeTools: MaterializedBundleState["tools"] = Object.create(null);
-    for (const [toolName, toolState] of Object.entries(bundleState.tools)) {
-      if (hasPendingMcpCleanup(toolState)) {
-        pendingCleanup[bundleName] ??= Object.create(null);
-        pendingCleanup[bundleName]![toolName] = Object.fromEntries(
-          toolState.pending_mcp_cleanup!.map((filePath) => [
-            filePath,
-            toolState.mcp_servers![filePath]!,
-          ]),
-        );
-      }
-      if (!isCleanupOnlyToolState(toolState)) {
-        activeTools[toolName] = toolState;
-      }
+    for (const {
+      tool,
+      path: filePath,
+      servers,
+    } of bundleState.pending_mcp_cleanup ?? []) {
+      pendingCleanup[bundleName] ??= Object.create(null);
+      pendingCleanup[bundleName]![tool] ??= Object.create(null);
+      pendingCleanup[bundleName]![tool]![filePath] = servers;
     }
-    if (Object.keys(activeTools).length > 0)
-      activeBundles[bundleName] = { ...bundleState, tools: activeTools };
   }
   return {
-    bundles: activeBundles,
+    bundles: Object.fromEntries(
+      Object.entries(bundles).filter(
+        ([, bundleState]) => Object.keys(bundleState.tools).length > 0,
+      ),
+    ),
     ...(Object.keys(pendingCleanup).length > 0
       ? { pending_mcp_cleanup: pendingCleanup }
       : {}),
@@ -9633,35 +9581,27 @@ function collectMaterializationStatus(bundles: MaterializedState["bundles"]) {
 }
 
 /**
- * Whether apply should retry pending MCP cleanup for a desired entry, on a
- * cleanup-only tool or on an expected tool that apply re-materializes anyway.
+ * Whether apply can now finish MCP cleanup a removal left pending.
  *
  * A pending file that still cannot be read does not count. Retrying it would
  * only fail again, after the bundle's other managed files were already removed.
  */
-function hasRetryableMcpCleanup(options: {
-  repoRoot: string;
-  bundleState: MaterializedBundleState;
-  expectedTools: ToolName[];
-}): boolean {
-  return Object.entries(options.bundleState.tools).some(
-    ([toolName, toolState]) =>
-      hasPendingMcpCleanup(toolState) &&
-      (isCleanupOnlyToolState(toolState) ||
-        options.expectedTools.includes(toolName as ToolName)) &&
-      toolState.pending_mcp_cleanup!.every((filePath) =>
-        canSubtractOwnedMcpServers(options.repoRoot, {
-          tool: toolName as ToolName,
-          path: filePath,
-          servers: toolState.mcp_servers?.[filePath] ?? [],
-        }),
-      ),
+function hasRetryableMcpCleanup(
+  repoRoot: string,
+  bundleState: MaterializedBundleState,
+): boolean {
+  const pending = bundleState.pending_mcp_cleanup ?? [];
+  return (
+    pending.length > 0 &&
+    pending.every((ownership) =>
+      canSubtractOwnedMcpServers(repoRoot, ownership),
+    )
   );
 }
 
 function canSubtractOwnedMcpServers(
   repoRoot: string,
-  ownership: ManagedMcpOwnership,
+  ownership: McpServerOwnership,
 ): boolean {
   try {
     subtractOwnedMcpServers(
@@ -9681,7 +9621,7 @@ function canSubtractOwnedMcpServers(
  */
 function subtractOwnedMcpServers(
   targetPath: string,
-  ownership: ManagedMcpOwnership,
+  ownership: McpServerOwnership,
 ): McpSubtractResult | null {
   if (!fs.existsSync(targetPath)) return null;
   return subtractMcpConfigServers({
@@ -9690,26 +9630,6 @@ function subtractOwnedMcpServers(
     serverNames: ownership.servers,
     configPath: ownership.path,
   });
-}
-
-/** Adds cleanup-only tools, so replacing selected tools also retries their cleanup. */
-function withCleanupOnlyTools(
-  toolNames: ToolName[],
-  bundleState: MaterializedBundleState | undefined,
-): ToolName[] {
-  const cleanupOnlyTools = Object.entries(bundleState?.tools ?? {})
-    .filter(([, toolState]) => isCleanupOnlyToolState(toolState))
-    .map(([toolName]) => toolName as ToolName);
-  return Array.from(new Set([...toolNames, ...cleanupOnlyTools]));
-}
-
-/** A tool with no installed items that remains only to finish MCP cleanup. */
-function isCleanupOnlyToolState(toolState: MaterializedToolState): boolean {
-  return hasPendingMcpCleanup(toolState) && toolState.items?.length === 0;
-}
-
-function hasPendingMcpCleanup(toolState: MaterializedToolState): boolean {
-  return (toolState.pending_mcp_cleanup?.length ?? 0) > 0;
 }
 
 function assertUnreachable(_value: never): never {
