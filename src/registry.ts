@@ -56,11 +56,30 @@ export interface MaterializedToolState {
   mcp_servers?: Record<string, string[]>;
 }
 
+/**
+ * The MCP servers one bundle put into one tool's MCP configuration file.
+ *
+ * The tool travels with the path because subtracting the servers again needs
+ * the dialect of the file, not its location. Recording only the path would mean
+ * recovering the tool by matching that path against every tool's layout, and
+ * the caller would then have to say which layout the path came from.
+ */
+export interface McpServerOwnership {
+  tool: ToolName;
+  path: string;
+  servers: string[];
+}
+
 export interface MaterializedBundleState {
   source?: string;
   /** Commit SHA last materialized in this worktree for the bundle. */
   resolved_commit?: string;
   tools: Record<string, MaterializedToolState>;
+  /**
+   * MCP servers a removal could not subtract because their configuration file
+   * did not parse. They stay owned until a later removal or apply succeeds.
+   */
+  pending_mcp_cleanup?: McpServerOwnership[];
 }
 
 export interface MaterializedState {
@@ -379,15 +398,9 @@ function parseDesiredBundleEntry(
   const tools =
     entry.tools === undefined
       ? undefined
-      : expectArray(entry.tools, `${label}.tools`).map((value, index) => {
-          const name = expectNonEmptyString(value, `${label}.tools[${index}]`);
-          if (!isToolName(name)) {
-            throw new Error(
-              `${label}.tools[${index}] must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
-            );
-          }
-          return name;
-        });
+      : expectArray(entry.tools, `${label}.tools`).map((value, index) =>
+          expectToolName(value, `${label}.tools[${index}]`),
+        );
   const protocol = expectProtocol(entry.protocol, `${label}.protocol`);
   const items =
     entry.items === undefined
@@ -513,14 +526,22 @@ function parseMaterializedBundleState(
       ? undefined
       : expectGitObjectId(bundle.resolved_commit, `${label}.resolved_commit`);
   const toolsInput = expectRecord(bundle.tools, `${label}.tools`);
+  const pendingMcpCleanup =
+    bundle.pending_mcp_cleanup === undefined
+      ? undefined
+      : expectArray(
+          bundle.pending_mcp_cleanup,
+          `${label}.pending_mcp_cleanup`,
+        ).map((value, index) =>
+          parsePendingMcpCleanup(
+            value,
+            `${label}.pending_mcp_cleanup[${index}]`,
+          ),
+        );
 
   const tools = Object.fromEntries(
     Object.entries(toolsInput).map(([toolName, toolValue]) => {
-      if (!isToolName(toolName)) {
-        throw new Error(
-          `${label}.tools.${toolName} must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
-        );
-      }
+      expectToolName(toolName, `${label}.tools.${toolName}`);
       return [
         toolName,
         parseMaterializedToolState(toolValue, `${label}.tools.${toolName}`),
@@ -534,6 +555,22 @@ function parseMaterializedBundleState(
       ? { resolved_commit: resolvedCommit }
       : {}),
     tools,
+    ...(pendingMcpCleanup?.length
+      ? { pending_mcp_cleanup: pendingMcpCleanup }
+      : {}),
+  };
+}
+
+function parsePendingMcpCleanup(
+  input: unknown,
+  label: string,
+): McpServerOwnership {
+  const ownership = expectRecord(input, label);
+
+  return {
+    tool: expectToolName(ownership.tool, `${label}.tool`),
+    path: expectRelativePath(ownership.path, `${label}.path`),
+    servers: expectServerNames(ownership.servers, `${label}.servers`),
   };
 }
 
@@ -594,9 +631,7 @@ function parseMcpServerOwnership(
   return Object.fromEntries(
     Object.entries(record).map(([filePath, serverNames]) => [
       expectRelativePath(filePath, `${label} key`),
-      expectArray(serverNames, `${label}.${filePath}`).map((value, index) =>
-        expectNonEmptyString(value, `${label}.${filePath}[${index}]`),
-      ),
+      expectServerNames(serverNames, `${label}.${filePath}`),
     ]),
   );
 }
@@ -656,13 +691,7 @@ function parseShadowOverlayState(
   label: string,
 ): ShadowOverlayState {
   const overlayState = expectRecord(input, label);
-  const tool = expectNonEmptyString(overlayState.tool, `${label}.tool`);
-
-  if (!isToolName(tool)) {
-    throw new Error(
-      `${label}.tool must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
-    );
-  }
+  const tool = expectToolName(overlayState.tool, `${label}.tool`);
 
   const strategy = expectShadowStrategy(
     overlayState.strategy,
@@ -996,6 +1025,14 @@ function cloneMaterializedBundleState(
         },
       ]),
     ),
+    ...(state.pending_mcp_cleanup !== undefined
+      ? {
+          pending_mcp_cleanup: state.pending_mcp_cleanup.map((ownership) => ({
+            ...ownership,
+            servers: [...ownership.servers],
+          })),
+        }
+      : {}),
   };
 }
 
@@ -1047,6 +1084,24 @@ function expectAbsolutePath(input: unknown, label: string): string {
   }
 
   return value;
+}
+
+function expectToolName(input: unknown, label: string): ToolName {
+  const name = expectNonEmptyString(input, label);
+
+  if (!isToolName(name)) {
+    throw new Error(
+      `${label} must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
+    );
+  }
+
+  return name;
+}
+
+function expectServerNames(input: unknown, label: string): string[] {
+  return expectArray(input, label).map((value, index) =>
+    expectNonEmptyString(value, `${label}[${index}]`),
+  );
 }
 
 function expectRelativePath(input: unknown, label: string): string {
