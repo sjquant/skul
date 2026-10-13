@@ -398,15 +398,9 @@ function parseDesiredBundleEntry(
   const tools =
     entry.tools === undefined
       ? undefined
-      : expectArray(entry.tools, `${label}.tools`).map((value, index) => {
-          const name = expectNonEmptyString(value, `${label}.tools[${index}]`);
-          if (!isToolName(name)) {
-            throw new Error(
-              `${label}.tools[${index}] must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
-            );
-          }
-          return name;
-        });
+      : expectArray(entry.tools, `${label}.tools`).map((value, index) =>
+          expectToolName(value, `${label}.tools[${index}]`),
+        );
   const protocol = expectProtocol(entry.protocol, `${label}.protocol`);
   const items =
     entry.items === undefined
@@ -547,11 +541,7 @@ function parseMaterializedBundleState(
 
   const tools = Object.fromEntries(
     Object.entries(toolsInput).map(([toolName, toolValue]) => {
-      if (!isToolName(toolName)) {
-        throw new Error(
-          `${label}.tools.${toolName} must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
-        );
-      }
+      expectToolName(toolName, `${label}.tools.${toolName}`);
       return [
         toolName,
         parseMaterializedToolState(toolValue, `${label}.tools.${toolName}`),
@@ -576,21 +566,11 @@ function parsePendingMcpCleanup(
   label: string,
 ): McpServerOwnership {
   const ownership = expectRecord(input, label);
-  const tool = expectNonEmptyString(ownership.tool, `${label}.tool`);
-
-  if (!isToolName(tool)) {
-    throw new Error(
-      `${label}.tool must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
-    );
-  }
 
   return {
-    tool,
+    tool: expectToolName(ownership.tool, `${label}.tool`),
     path: expectRelativePath(ownership.path, `${label}.path`),
-    servers: expectArray(ownership.servers, `${label}.servers`).map(
-      (value, index) =>
-        expectNonEmptyString(value, `${label}.servers[${index}]`),
-    ),
+    servers: expectServerNames(ownership.servers, `${label}.servers`),
   };
 }
 
@@ -651,9 +631,7 @@ function parseMcpServerOwnership(
   return Object.fromEntries(
     Object.entries(record).map(([filePath, serverNames]) => [
       expectRelativePath(filePath, `${label} key`),
-      expectArray(serverNames, `${label}.${filePath}`).map((value, index) =>
-        expectNonEmptyString(value, `${label}.${filePath}[${index}]`),
-      ),
+      expectServerNames(serverNames, `${label}.${filePath}`),
     ]),
   );
 }
@@ -713,13 +691,7 @@ function parseShadowOverlayState(
   label: string,
 ): ShadowOverlayState {
   const overlayState = expectRecord(input, label);
-  const tool = expectNonEmptyString(overlayState.tool, `${label}.tool`);
-
-  if (!isToolName(tool)) {
-    throw new Error(
-      `${label}.tool must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
-    );
-  }
+  const tool = expectToolName(overlayState.tool, `${label}.tool`);
 
   const strategy = expectShadowStrategy(
     overlayState.strategy,
@@ -1112,6 +1084,24 @@ function expectAbsolutePath(input: unknown, label: string): string {
   }
 
   return value;
+}
+
+function expectToolName(input: unknown, label: string): ToolName {
+  const name = expectNonEmptyString(input, label);
+
+  if (!isToolName(name)) {
+    throw new Error(
+      `${label} must be one of: ${Array.from(KNOWN_TOOL_NAMES).join(", ")}`,
+    );
+  }
+
+  return name;
+}
+
+function expectServerNames(input: unknown, label: string): string[] {
+  return expectArray(input, label).map((value, index) =>
+    expectNonEmptyString(value, `${label}[${index}]`),
+  );
 }
 
 function expectRelativePath(input: unknown, label: string): string {

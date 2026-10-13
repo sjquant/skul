@@ -2155,7 +2155,9 @@ describe("skul add with an Agent Plugins mcp.json", () => {
         (flags.length ? status.materialized : status.worktree)
           .pending_mcp_cleanup,
       ).toEqual({
-        [BUNDLE]: { "claude-code": { [config]: ["docs", "remote"] } },
+        [BUNDLE]: [
+          { tool: "claude-code", path: config, servers: ["docs", "remote"] },
+        ],
       });
       expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
         true,
@@ -2205,7 +2207,9 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       const state = flags.length ? status.materialized : status.worktree;
       expect(state.bundles).toEqual({});
       expect(state.pending_mcp_cleanup).toEqual({
-        [BUNDLE]: { "claude-code": { [config]: ["docs", "remote"] } },
+        [BUNDLE]: [
+          { tool: "claude-code", path: config, servers: ["docs", "remote"] },
+        ],
       });
     });
 
@@ -2289,7 +2293,13 @@ describe("skul add with an Agent Plugins mcp.json", () => {
             cleanupOnly ? [] : [bundleName],
           );
           expect(state.pending_mcp_cleanup).toEqual({
-            [bundleName]: { "claude-code": { [config]: ["docs", "remote"] } },
+            [bundleName]: [
+              {
+                tool: "claude-code",
+                path: config,
+                servers: ["docs", "remote"],
+              },
+            ],
           });
           if (!flags.length) expect(state.materialized).toBe(!cleanupOnly);
           const output = await run(["status", ...flags], context);
@@ -2472,9 +2482,8 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       // Then codex stays active and claude-code cleanup is pending
       expect(Object.keys(state.bundles[BUNDLE].tools)).toEqual(["codex"]);
       expect(state.bundles[BUNDLE].tools.codex.files.length).toBeGreaterThan(0);
-      expect(state.pending_mcp_cleanup[BUNDLE]["claude-code"][config]).toEqual([
-        "docs",
-        "remote",
+      expect(state.pending_mcp_cleanup[BUNDLE]).toEqual([
+        { tool: "claude-code", path: config, servers: ["docs", "remote"] },
       ]);
       // When the file is repaired and apply runs
       fs.writeFileSync(
@@ -2525,7 +2534,9 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       const state = flags.length ? status.materialized : status.worktree;
       expect(Object.keys(state.bundles)).toEqual([BUNDLE]);
       expect(state.pending_mcp_cleanup).toEqual({
-        [BUNDLE]: { "claude-code": { [config]: ["docs", "remote"] } },
+        [BUNDLE]: [
+          { tool: "claude-code", path: config, servers: ["docs", "remote"] },
+        ],
       });
 
       // When apply retries the cleanup
@@ -2739,9 +2750,9 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(status.worktree.bundles[BUNDLE].tools["claude-code"].files).toEqual(
       [],
     );
-    expect(
-      status.worktree.pending_mcp_cleanup[BUNDLE]["claude-code"][".mcp.json"],
-    ).toEqual(["docs", "remote"]);
+    expect(status.worktree.pending_mcp_cleanup[BUNDLE]).toEqual([
+      { tool: "claude-code", path: ".mcp.json", servers: ["docs", "remote"] },
+    ]);
     expect(fs.readFileSync(path.join(cwd, "CLAUDE.md"), "utf8")).toContain(
       "Bundle instructions",
     );
