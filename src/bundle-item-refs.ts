@@ -2,10 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  assertSafeRepositoryPath,
   type CachedBundle,
+  cachedSourceDir,
   detectSourceProtocol,
   findCachedBundle,
   listCachedBundles,
+  listCachedBundlesAtPath,
   normalizeBundleSource,
 } from "./bundle-discovery";
 import { fetchRemoteSource, updateCachedRemoteSource } from "./bundle-fetch";
@@ -38,6 +41,7 @@ export interface BundleItemRef {
   path?: string;
   description?: string;
   source: string;
+  sourcePath?: string;
   bundle?: string;
   item: BundleItemSelector;
   ref?: string;
@@ -90,6 +94,7 @@ export async function resolveBundleItemRefs(options: {
       libraryDir: options.libraryDir,
       source,
       bundle: itemRef.bundle,
+      sourcePath: itemRef.sourcePath,
       item: itemRef.item,
       refFilePath: refsFilePath(options.bundleDir),
     });
@@ -100,6 +105,10 @@ export async function resolveBundleItemRefs(options: {
       source,
       refFilePath: refsFilePath(options.bundleDir),
     });
+    assertSafeRepositoryPath(
+      cachedSourceDir(options.libraryDir, source),
+      resolvedPath,
+    );
 
     resolved.set(itemRef.localSelector, {
       path: resolvedPath,
@@ -255,6 +264,7 @@ function parseBundleItemRefEntry(
       ? expectOptionalRootInstructionPath(record.path, location)
       : expectForbiddenPath(record.path, target, location);
   const source = expectNonEmptyString(record.source, "source", location);
+  const sourcePath = expectOptionalSourcePath(record.sourcePath, location);
   const description = expectDescription(record.description, location);
   const bundle = expectOptionalNonEmptyString(
     record.bundle,
@@ -296,6 +306,7 @@ function parseBundleItemRefEntry(
     ...(localPath ? { path: localPath } : {}),
     ...(description !== undefined ? { description } : {}),
     source,
+    ...(sourcePath ? { sourcePath } : {}),
     ...(bundle ? { bundle } : {}),
     item,
     ...(ref ? { ref } : {}),
@@ -391,6 +402,27 @@ function expectForbiddenPath(
       `Bundle item ref "path" is only valid for root-instruction refs, not ${target}: ${location}`,
     );
   }
+}
+
+function expectOptionalSourcePath(
+  value: unknown,
+  location: string,
+): string | undefined {
+  if (value === undefined) return undefined;
+  const sourcePath = expectNonEmptyString(value, "sourcePath", location);
+  if (
+    path.posix.isAbsolute(sourcePath) ||
+    path.win32.isAbsolute(sourcePath) ||
+    sourcePath.includes(":") ||
+    sourcePath.includes("\\") ||
+    sourcePath.includes("\0") ||
+    sourcePath.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    throw new Error(
+      `Bundle item ref "sourcePath" must be a safe repository-relative directory: ${location}`,
+    );
+  }
+  return sourcePath;
 }
 
 function normalizeRefItem(item: string, location: string): BundleItemSelector {
@@ -634,10 +666,11 @@ function resolveReferencedCachedBundle(options: {
   libraryDir: string;
   source: string;
   bundle?: string;
+  sourcePath?: string;
   item: BundleItemSelector;
   refFilePath: string;
 }): ReturnType<typeof findCachedBundle> {
-  if (options.bundle) {
+  if (options.bundle && !options.sourcePath) {
     return findCachedBundle({
       libraryDir: options.libraryDir,
       source: options.source,
@@ -645,9 +678,16 @@ function resolveReferencedCachedBundle(options: {
     });
   }
 
-  const matches = listCachedBundles({
-    libraryDir: options.libraryDir,
-  }).filter((bundle) => bundle.source === options.source);
+  const matches = options.sourcePath
+    ? listCachedBundlesAtPath({
+        libraryDir: options.libraryDir,
+        source: options.source,
+        sourcePath: options.sourcePath,
+        bundle: options.bundle,
+      })
+    : listCachedBundles({ libraryDir: options.libraryDir }).filter(
+        (bundle) => bundle.source === options.source,
+      );
   const itemMatches = matches.filter((bundle) =>
     findReferencedItemPath({
       cachedBundleDir: path.dirname(bundle.manifestFile),
@@ -661,19 +701,21 @@ function resolveReferencedCachedBundle(options: {
   }
 
   if (itemMatches.length === 0) {
-    const repoRootBundle = findReferencedRepoRootBundle(options);
+    const repoRootBundle = options.sourcePath
+      ? undefined
+      : findReferencedRepoRootBundle(options);
     if (repoRootBundle) {
       return repoRootBundle;
     }
 
     if (matches.length === 0) {
       throw new Error(
-        `No bundle found in ${options.source} for bundle item ref: ${options.refFilePath}`,
+        `No bundle${options.bundle ? ` "${options.bundle}"` : ""} found in ${options.source}${options.sourcePath ? ` at sourcePath "${options.sourcePath}"` : ""} for bundle item ref: ${options.refFilePath}`,
       );
     }
 
     throw new Error(
-      `Referenced bundle item "${options.item}" not found in ${options.source}: ${options.refFilePath}`,
+      `Referenced bundle item "${options.item}" not found in ${options.source}${options.sourcePath ? ` at sourcePath "${options.sourcePath}"` : ""}: ${options.refFilePath}`,
     );
   }
 
@@ -687,10 +729,7 @@ function findReferencedRepoRootBundle(options: {
   source: string;
   item: BundleItemSelector;
 }): CachedBundle | undefined {
-  const cachedBundleDir = path.join(
-    options.libraryDir,
-    ...options.source.split("/"),
-  );
+  const cachedBundleDir = cachedSourceDir(options.libraryDir, options.source);
 
   try {
     const manifest = inferBundleManifest(cachedBundleDir);
