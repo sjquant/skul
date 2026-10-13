@@ -149,11 +149,6 @@ export interface PromptClient {
     conflictPath: string,
     operation: "reset" | "replace" | "remove",
   ): Promise<boolean>;
-  confirmBundleSourceReplacement(
-    bundle: string,
-    installedSource: string,
-    newSource: string,
-  ): Promise<boolean>;
 }
 
 const COMMANDS: CommandName[] = [
@@ -315,15 +310,6 @@ export function createHeadlessPromptClient(): PromptClient {
         `Modified managed file blocks ${operation} in headless mode: ${conflictPath}\nHint: run 'skul status' to inspect managed files, or run the command interactively to confirm`,
       );
     },
-    async confirmBundleSourceReplacement(
-      bundle: string,
-      installedSource: string,
-      newSource: string,
-    ): Promise<boolean> {
-      throw new Error(
-        `Bundle ${bundle} is already installed from ${installedSource}; ${newSource} would replace it (headless mode)\nHint: run 'skul remove ${bundle}' first, or pass --yes to replace it`,
-      );
-    },
   };
 }
 
@@ -461,18 +447,6 @@ export function createPromptClientForSelections(
 
       return confirmed;
     },
-    async confirmBundleSourceReplacement(
-      bundle: string,
-      installedSource: string,
-      newSource: string,
-    ): Promise<boolean> {
-      const { confirm, isCancel } = await loadPrompts();
-      const confirmed = await confirm({
-        message: `${bundle} is installed from ${installedSource}. Replace it with the one from ${newSource}?`,
-      });
-
-      return !isCancel(confirmed) && confirmed;
-    },
   };
 }
 
@@ -520,7 +494,6 @@ export function createHelpText(command?: CommandName): string {
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
-    confirmBundleSourceReplacement: async () => true,
   });
   const writeOutput = (chunk: string) => {
     output.push(chunk);

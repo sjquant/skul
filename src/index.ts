@@ -526,7 +526,6 @@ function createYesPromptClient(
       : {}),
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
-    confirmBundleSourceReplacement: async () => true,
   };
 }
 
@@ -2128,7 +2127,6 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
     selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
-    confirmBundleSourceReplacement: promptClient.confirmBundleSourceReplacement,
   };
 }
 
@@ -3156,15 +3154,6 @@ async function applyBundle(options: {
       })}`,
     ].join("\n");
   }
-
-  await confirmBundleSourceReplacement({
-    existingDesiredState:
-      registryBeforePrepare.repos[gitContext.repoFingerprint]?.desired_state ??
-      [],
-    bundle: preparedBundle.cachedBundle.bundle,
-    source: preparedBundle.bundleSource,
-    prompts: options.prompts,
-  });
 
   let registry = registryBeforePrepare;
   const existingWorktreeState =
@@ -7912,42 +7901,6 @@ function findCachedBundleWithGuidance(options: {
   }
 }
 
-/**
- * Asks before a bundle name that is already installed from another source is
- * taken over by a different source, since the registry tracks one bundle per
- * name and the earlier bundle's desired state would be discarded.
- */
-async function confirmBundleSourceReplacement(options: {
-  existingDesiredState: DesiredBundleEntry[];
-  bundle: string;
-  source?: string;
-  prompts: PromptClient;
-}): Promise<void> {
-  const existing = options.existingDesiredState.find(
-    (entry) => entry.bundle === options.bundle,
-  );
-
-  if (
-    existing?.source === undefined ||
-    options.source === undefined ||
-    existing.source === options.source
-  ) {
-    return;
-  }
-
-  const confirmed = await options.prompts.confirmBundleSourceReplacement(
-    options.bundle,
-    existing.source,
-    options.source,
-  );
-
-  if (!confirmed) {
-    throw new Error(
-      `Replacement aborted: ${options.bundle} stays installed from ${existing.source}`,
-    );
-  }
-}
-
 async function confirmManagedFileRemovals(
   repoRoot: string,
   state: { files: string[]; file_fingerprints?: Record<string, string> },
@@ -8186,13 +8139,6 @@ async function applyBundleGlobal(options: {
       ...mcpSkipNotes,
     ].join("\n");
   }
-
-  await confirmBundleSourceReplacement({
-    existingDesiredState: existingGlobal?.desired_state ?? [],
-    bundle: preparedBundle.cachedBundle.bundle,
-    source: preparedBundle.bundleSource,
-    prompts: options.prompts,
-  });
 
   let rootInstructionBaseContents =
     existingGlobal?.materialized_state.root_instruction_base_contents;

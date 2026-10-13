@@ -18,7 +18,6 @@ export function createPromptClientStub(
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
-    confirmBundleSourceReplacement: async () => true,
     ...overrides,
   };
 }
