@@ -2394,8 +2394,9 @@ describe("skul add with an Agent Plugins mcp.json", () => {
         }),
       );
 
-      await run(["apply", ...flags, "-y"], context);
-      // Then the skill stays and only the user's server remains
+      const output = await run(["apply", ...flags, "-y"], context);
+      // Then the cleanup is reported, the skill stays and only the user's server remains
+      expect(output).toContain(`Finished pending MCP cleanup for ${BUNDLE}`);
       expect(pathExists(path.join(root, ".claude/skills/guide/SKILL.md"))).toBe(
         true,
       );

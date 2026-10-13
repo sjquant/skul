@@ -471,8 +471,7 @@ export async function run(
   }
 }
 
-const MCP_CLEANUP_RETRY_HINT =
-  "then retry whole-bundle removal/reset or apply for a configured bundle.";
+const MCP_CLEANUP_RETRY_HINT = "then retry removal, reset, or apply.";
 
 /**
  * Keeps recovery notices attached to the command result instead of writing
@@ -5892,7 +5891,11 @@ async function applyWorktree(options: {
       };
 
   const worktreeState = registry.worktrees[gitContext.worktreeId];
-  const materializedBundles = worktreeState?.materialized_state.bundles ?? {};
+  const mcpOwnership = createMcpMaterializationOwnership(
+    worktreeState?.materialized_state,
+  );
+  let materializedBundles = worktreeState?.materialized_state.bundles ?? {};
+  const cleanupLines: string[] = [];
 
   // Ahead of the plan loop, which returns early once every bundle is already
   // materialized — the state a committed managed file is most likely found in.
@@ -5901,7 +5904,51 @@ async function applyWorktree(options: {
       repoRoot: gitContext.worktreeRoot,
       bundles: materializedBundles,
     });
+    const cleanup = retryPendingMcpCleanup({
+      repoRoot: gitContext.worktreeRoot,
+      bundles: materializedBundles,
+      mcpOwnership,
+      restoreCommitted: true,
+      warnings: options.warnings,
+    });
+    materializedBundles = cleanup.bundles;
+    cleanupLines.push(...formatMcpCleanupLines(cleanup.cleanedBundles));
   }
+
+  let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
+  let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
+  let rootInstructionBaseContents =
+    worktreeState?.materialized_state.root_instruction_base_contents;
+  const saveMaterialization = () => {
+    const newMatState: MaterializedState = {
+      bundles: currentBundles,
+      exclude_configured: false,
+      ...mcpOwnership.toRegistryFields(),
+      ...(rootInstructionBaseContents !== undefined
+        ? { root_instruction_base_contents: rootInstructionBaseContents }
+        : {}),
+    };
+
+    const managedFiles = collectExcludedPaths(newMatState);
+    newMatState.exclude_configured = managedFiles.length > 0;
+
+    if (managedFiles.length > 0) {
+      configureSkulExcludeBlock({
+        gitDir: gitContext.gitDir,
+        files: managedFiles,
+      });
+    } else {
+      removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
+    }
+
+    registry = upsertWorktreeState(registry, gitContext.worktreeId, {
+      repo_fingerprint: gitContext.repoFingerprint,
+      path: gitContext.worktreeRoot,
+      materialized_state: newMatState,
+      shadowed_files: currentShadowedFiles,
+    });
+    writeRegistryFile(options.registryFile, registry);
+  };
 
   const cloneLines: string[] = [];
   const applyPlans: ApplyPlan[] = [];
@@ -5946,7 +5993,6 @@ async function applyWorktree(options: {
     if (
       existingBundleState &&
       isDesiredBundleMaterialized({
-        repoRoot: gitContext.worktreeRoot,
         desiredEntry: entry,
         materializedBundleState: existingBundleState,
         availableTools,
@@ -5966,9 +6012,9 @@ async function applyWorktree(options: {
   }
 
   if (applyPlans.length === 0) {
-    return options.dryRun
-      ? "DRY RUN: All bundles are already materialized"
-      : "All bundles are already materialized";
+    if (options.dryRun) return "DRY RUN: All bundles are already materialized";
+    if (cleanupLines.length > 0) saveMaterialization();
+    return [...cleanupLines, "All bundles are already materialized"].join("\n");
   }
 
   if (options.dryRun) {
@@ -5983,14 +6029,6 @@ async function applyWorktree(options: {
     return lines.join("\n");
   }
 
-  let currentBundles: MaterializedState["bundles"] = { ...materializedBundles };
-  const mcpOwnership = createMcpMaterializationOwnership(
-    worktreeState?.materialized_state,
-  );
-  let currentShadowedFiles = { ...(worktreeState?.shadowed_files ?? {}) };
-  let rootInstructionBaseContents =
-    worktreeState?.materialized_state.root_instruction_base_contents;
-
   for (const plan of applyPlans) {
     if (plan.uncached) continue;
     const {
@@ -6002,16 +6040,12 @@ async function applyWorktree(options: {
     } = plan;
     const refreshesExistingBundle =
       existingBundleState !== undefined &&
-      bundleNeedsRefresh({
-        repoRoot: gitContext.worktreeRoot,
-        desiredEntry: entry,
-        materializedBundleState: existingBundleState,
-      });
+      entry.resolved_commit !== undefined &&
+      existingBundleState.resolved_commit !== entry.resolved_commit;
     const toolsToApply = getToolsToApply({
       desiredEntry: entry,
       materializedBundleState: existingBundleState,
       availableTools,
-      refreshesExistingBundle,
     });
     const replacementState = refreshesExistingBundle
       ? existingBundleState
@@ -6238,39 +6272,15 @@ async function applyWorktree(options: {
       currentBundles,
       syncedRootInstructionPaths,
     );
-
-    const newMatState: MaterializedState = {
-      bundles: currentBundles,
-      exclude_configured: false,
-      ...mcpOwnership.toRegistryFields(),
-      ...(rootInstructionBaseContents !== undefined
-        ? { root_instruction_base_contents: rootInstructionBaseContents }
-        : {}),
-    };
-
-    const managedFiles = collectExcludedPaths(newMatState);
-    newMatState.exclude_configured = managedFiles.length > 0;
-
-    if (managedFiles.length > 0) {
-      configureSkulExcludeBlock({
-        gitDir: gitContext.gitDir,
-        files: managedFiles,
-      });
-    } else {
-      removeSkulExcludeBlock({ gitDir: gitContext.gitDir });
-    }
-
-    registry = upsertWorktreeState(registry, gitContext.worktreeId, {
-      repo_fingerprint: gitContext.repoFingerprint,
-      path: gitContext.worktreeRoot,
-      materialized_state: newMatState,
-      shadowed_files: currentShadowedFiles,
-    });
-    writeRegistryFile(options.registryFile, registry);
+    saveMaterialization();
   }
 
   const appliedNames = applyPlans.map(({ entry }) => entry.bundle).join(", ");
-  return [...cloneLines, pc.green(`Applied ${appliedNames}`)].join("\n");
+  return [
+    ...cloneLines,
+    ...cleanupLines,
+    pc.green(`Applied ${appliedNames}`),
+  ].join("\n");
 }
 
 interface PlannedTrackedShadow {
@@ -7053,7 +7063,6 @@ function excludeShadowedTrackedTargets(
 }
 
 function isDesiredBundleMaterialized(options: {
-  repoRoot: string;
   desiredEntry: DesiredBundleEntry;
   materializedBundleState: MaterializedBundleState;
   availableTools: ToolName[];
@@ -7068,24 +7077,10 @@ function isDesiredBundleMaterialized(options: {
           options.desiredEntry.items,
           options.materializedBundleState.tools[toolName]?.items,
         ),
-    ) && !bundleNeedsRefresh(options)
-  );
-}
-
-/**
- * Whether a materialized bundle must be replaced as a whole: its desired commit
- * moved, or MCP cleanup left pending by an earlier removal can now succeed.
- */
-function bundleNeedsRefresh(options: {
-  repoRoot: string;
-  desiredEntry: DesiredBundleEntry;
-  materializedBundleState: MaterializedBundleState;
-}): boolean {
-  return (
-    (options.desiredEntry.resolved_commit !== undefined &&
-      options.materializedBundleState.resolved_commit !==
-        options.desiredEntry.resolved_commit) ||
-    hasRetryableMcpCleanup(options.repoRoot, options.materializedBundleState)
+    ) &&
+    (options.desiredEntry.resolved_commit === undefined ||
+      options.materializedBundleState.resolved_commit ===
+        options.desiredEntry.resolved_commit)
   );
 }
 
@@ -7093,7 +7088,6 @@ function getToolsToApply(options: {
   desiredEntry: DesiredBundleEntry;
   materializedBundleState?: MaterializedBundleState;
   availableTools: ToolName[];
-  refreshesExistingBundle: boolean;
 }): ToolName[] | undefined {
   const expectedTools = options.desiredEntry.tools ?? options.availableTools;
 
@@ -7101,8 +7095,12 @@ function getToolsToApply(options: {
     return options.desiredEntry.tools;
   }
 
-  if (options.refreshesExistingBundle) {
-    return expectedTools;
+  if (
+    options.desiredEntry.resolved_commit !== undefined &&
+    options.materializedBundleState.resolved_commit !==
+      options.desiredEntry.resolved_commit
+  ) {
+    return options.desiredEntry.tools ?? options.availableTools;
   }
 
   const existingTools = options.materializedBundleState.tools;
@@ -9415,20 +9413,45 @@ async function applyGlobal(options: {
   warnings?: CommandWarningCollector;
   sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
-  const registry = readRegistryWithGuidance(options.registryFile);
-  const globalState = registry.global;
+  let registry = readRegistryWithGuidance(options.registryFile);
+  let globalState = registry.global;
 
   if (!globalState || globalState.desired_state.length === 0) {
     return `No global bundles configured. Run "skul add --global <bundle>" to add one`;
   }
 
   const outputLines: string[] = [];
+  if (!options.dryRun) {
+    const mcpOwnership = createMcpMaterializationOwnership(
+      globalState.materialized_state,
+    );
+    const cleanup = retryPendingMcpCleanup({
+      repoRoot: options.homeDir,
+      bundles: globalState.materialized_state.bundles,
+      mcpOwnership,
+      restoreCommitted: false,
+      warnings: options.warnings,
+    });
+    if (cleanup.cleanedBundles.length > 0) {
+      globalState = {
+        ...globalState,
+        materialized_state: {
+          ...globalState.materialized_state,
+          bundles: cleanup.bundles,
+          ...mcpOwnership.toRegistryFields(),
+        },
+      };
+      registry = upsertGlobalState(registry, globalState);
+      writeRegistryFile(options.registryFile, registry);
+      outputLines.push(...formatMcpCleanupLines(cleanup.cleanedBundles));
+    }
+  }
+
   const toApply = globalState.desired_state.filter((entry) => {
     const mat = globalState.materialized_state.bundles[entry.bundle];
     if (!mat) return true;
     if (
       !isDesiredBundleMaterialized({
-        repoRoot: options.homeDir,
         desiredEntry: entry,
         materializedBundleState: mat,
         availableTools: globalCapableToolNames(),
@@ -9449,7 +9472,9 @@ async function applyGlobal(options: {
   if (toApply.length === 0) {
     return options.dryRun
       ? "DRY RUN: All global bundles are already materialized"
-      : "All global bundles are already materialized";
+      : [...outputLines, "All global bundles are already materialized"].join(
+          "\n",
+        );
   }
 
   if (options.dryRun) {
@@ -9547,30 +9572,80 @@ function collectMaterializationStatus(bundles: MaterializedState["bundles"]) {
 }
 
 /**
- * Whether apply can now finish MCP cleanup a removal left pending.
- *
- * A pending file that still cannot be read does not count. Retrying it would
- * only fail again, after the bundle's other managed files were already removed.
+ * Retries MCP cleanup that a removal left pending, for each file that can be
+ * read again. A bundle left with neither installed tools nor pending servers is
+ * dropped. A file that still cannot be read stays pending without a warning.
  */
-function hasRetryableMcpCleanup(
+function retryPendingMcpCleanup(options: {
+  repoRoot: string;
+  bundles: MaterializedState["bundles"];
+  mcpOwnership: McpMaterializationOwnership;
+  restoreCommitted: boolean;
+  warnings?: CommandWarningCollector;
+}): { bundles: MaterializedState["bundles"]; cleanedBundles: string[] } {
+  const bundles = { ...options.bundles };
+  const cleanedBundles: string[] = [];
+
+  for (const [bundleName, bundleState] of Object.entries(options.bundles)) {
+    const pending = bundleState.pending_mcp_cleanup ?? [];
+    const retryable = pending.filter((ownership) =>
+      canSubtractOwnedMcpServers(options.repoRoot, ownership),
+    );
+    if (retryable.length === 0) continue;
+
+    const { failedMcpServers } = removeManagedPaths(
+      options.repoRoot,
+      { files: [], directories: [], mcp_servers: retryable },
+      {
+        restoreCommitted: options.restoreCommitted,
+        mcpOwnership: options.mcpOwnership,
+        warnings: options.warnings,
+      },
+    );
+    const remaining = [
+      ...pending.filter((ownership) => !retryable.includes(ownership)),
+      ...failedMcpServers,
+    ];
+    const { pending_mcp_cleanup: _, ...rest } = bundleState;
+
+    if (remaining.length > 0) {
+      bundles[bundleName] = { ...rest, pending_mcp_cleanup: remaining };
+    } else if (Object.keys(bundleState.tools).length > 0) {
+      bundles[bundleName] = rest;
+    } else {
+      delete bundles[bundleName];
+    }
+    if (failedMcpServers.length < retryable.length) {
+      cleanedBundles.push(bundleName);
+    }
+  }
+
+  return { bundles, cleanedBundles };
+}
+
+function formatMcpCleanupLines(cleanedBundles: string[]): string[] {
+  return cleanedBundles.length > 0
+    ? [
+        pc.green(
+          `Finished pending MCP cleanup for ${cleanedBundles.join(", ")}`,
+        ),
+      ]
+    : [];
+}
+
+function canSubtractOwnedMcpServers(
   repoRoot: string,
-  bundleState: MaterializedBundleState,
+  ownership: McpServerOwnership,
 ): boolean {
-  const pending = bundleState.pending_mcp_cleanup ?? [];
-  return (
-    pending.length > 0 &&
-    pending.every((ownership) => {
-      try {
-        subtractOwnedMcpServers(
-          path.join(repoRoot, ...ownership.path.split("/")),
-          ownership,
-        );
-        return true;
-      } catch {
-        return false;
-      }
-    })
-  );
+  try {
+    subtractOwnedMcpServers(
+      path.join(repoRoot, ...ownership.path.split("/")),
+      ownership,
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
