@@ -1666,4 +1666,39 @@ describe("run", () => {
       fs.existsSync(path.join(repoRoot, ".claude/skills/react/SKILL.md")),
     ).toBe(false);
   });
+
+  it("keeps global installs when a project bundle is added and removed", async () => {
+    // Given: a bundle installed globally
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    const options = {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    };
+    await run(["add", "react-expert", "--global"], options);
+
+    // When: the same bundle is installed in the project and then removed again
+    await run(["add", "react-expert"], options);
+    await run(["remove", "react-expert", "-y"], options);
+
+    // Then: the global install is still recorded
+    await expect(run(["status", "--global"], options)).resolves.toContain(
+      "react-expert",
+    );
+    await expect(
+      run(["remove", "react-expert", "--global", "-y"], options),
+    ).resolves.toContain("Removed");
+  });
 });

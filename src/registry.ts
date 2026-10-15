@@ -263,6 +263,7 @@ export function upsertRepoState(
       },
     },
     worktrees: { ...registry.worktrees },
+    ...carriedGlobalState(registry),
   };
 }
 
@@ -285,6 +286,7 @@ export function upsertWorktreeState(
       ...registry.worktrees,
       [worktreeId]: cloneWorktreeState(worktreeState),
     },
+    ...carriedGlobalState(registry),
   };
 }
 
@@ -298,6 +300,7 @@ export function removeWorktreeState(
       version: 1,
       repos: { ...registry.repos },
       worktrees: { ...registry.worktrees },
+      ...carriedGlobalState(registry),
     };
   }
 
@@ -308,7 +311,13 @@ export function removeWorktreeState(
     version: 1,
     repos: { ...registry.repos },
     worktrees,
+    ...carriedGlobalState(registry),
   };
+}
+
+/** Keeps the global install records when a project-scoped update rebuilds the registry. */
+function carriedGlobalState(registry: Registry): Pick<Registry, "global"> {
+  return registry.global !== undefined ? { global: registry.global } : {};
 }
 
 /** Returns managed files and directories in a safe removal order. */
