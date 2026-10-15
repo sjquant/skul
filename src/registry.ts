@@ -459,6 +459,10 @@ function parseDesiredBundleEntry(
 
 function parseWorktreeState(input: unknown, label: string): WorktreeState {
   const worktree = expectRecord(input, label);
+  const materializedState = parseMaterializedState(
+    worktree.materialized_state,
+    `${label}.materialized_state`,
+  );
 
   return {
     repo_fingerprint: expectNonEmptyString(
@@ -466,15 +470,46 @@ function parseWorktreeState(input: unknown, label: string): WorktreeState {
       `${label}.repo_fingerprint`,
     ),
     path: expectAbsolutePath(worktree.path, `${label}.path`),
-    materialized_state: parseMaterializedState(
-      worktree.materialized_state,
-      `${label}.materialized_state`,
-    ),
-    shadowed_files: parseShadowedFiles(
-      worktree.shadowed_files,
-      `${label}.shadowed_files`,
+    materialized_state: materializedState,
+    shadowed_files: attachLegacyOverlaySources(
+      parseShadowedFiles(worktree.shadowed_files, `${label}.shadowed_files`),
+      materializedState.bundles,
     ),
   };
+}
+
+/**
+ * Gives overlays written before bundles were identified by source the source
+ * of the one materialized bundle they name, so they keep matching it.
+ */
+function attachLegacyOverlaySources(
+  shadowedFiles: Record<string, ShadowedFileState>,
+  bundles: Record<BundleKey, MaterializedBundleState>,
+): Record<string, ShadowedFileState> {
+  const states = Object.values(bundles);
+
+  return Object.fromEntries(
+    Object.entries(shadowedFiles).map(([filePath, shadowedFile]) => [
+      filePath,
+      {
+        ...shadowedFile,
+        overlays: shadowedFile.overlays.map((overlay) => {
+          if (overlay.source !== undefined) {
+            return overlay;
+          }
+
+          const named = states.filter(
+            (state) => state.bundle === overlay.bundle,
+          );
+          const source = named[0]?.source;
+
+          return named.length === 1 && source !== undefined
+            ? { ...overlay, source }
+            : overlay;
+        }),
+      },
+    ]),
+  );
 }
 
 function parseMaterializedState(
@@ -527,15 +562,24 @@ function parseMaterializedBundles(
 ): Record<BundleKey, MaterializedBundleState> {
   return Object.fromEntries(
     Object.entries(input).map(([key, value]) => {
-      const state = parseMaterializedBundleState(value, `${label}.${key}`);
+      const state = parseMaterializedBundleState(value, `${label}.${key}`, key);
 
-      if (bundleKey(state) !== key) {
+      // A registry written before bundles were identified by source holds no
+      // `bundle` field and keys each record by bare name. Re-key it here; the
+      // next write persists the new shape.
+      const isLegacyRecord = !(
+        typeof value === "object" &&
+        value !== null &&
+        "bundle" in value
+      );
+
+      if (!isLegacyRecord && bundleKey(state) !== key) {
         throw new Error(
           `${label}.${key} must be keyed by its bundle and source (expected ${bundleKey(state)})`,
         );
       }
 
-      return [key, state];
+      return [bundleKey(state), state];
     }),
   ) as Record<BundleKey, MaterializedBundleState>;
 }
@@ -543,9 +587,13 @@ function parseMaterializedBundles(
 function parseMaterializedBundleState(
   input: unknown,
   label: string,
+  legacyBundleName: string,
 ): MaterializedBundleState {
   const bundle = expectRecord(input, label);
-  const bundleName = expectNonEmptyString(bundle.bundle, `${label}.bundle`);
+  const bundleName =
+    bundle.bundle === undefined
+      ? legacyBundleName
+      : expectNonEmptyString(bundle.bundle, `${label}.bundle`);
   const source =
     bundle.source === undefined
       ? undefined

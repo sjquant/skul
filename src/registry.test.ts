@@ -206,6 +206,84 @@ describe("parseRegistry", () => {
     });
   });
 
+  it("upgrades a registry written before bundles were identified by source", () => {
+    // Given: bundles keyed by bare name with no bundle field, and an overlay with no source
+    const input = {
+      version: 1,
+      repos: {
+        [REPO_FINGERPRINT]: {
+          repo_root: "/Users/dev/project",
+          desired_state: [
+            {
+              bundle: "react-expert",
+              source: "github.com/user/ai-vault",
+              protocol: "https",
+            },
+          ],
+        },
+      },
+      worktrees: {
+        [WORKTREE_ID]: {
+          repo_fingerprint: REPO_FINGERPRINT,
+          path: "/Users/dev/project",
+          materialized_state: {
+            bundles: {
+              "react-expert": {
+                source: "github.com/user/ai-vault",
+                tools: {
+                  "claude-code": { files: [".claude/skills/react/SKILL.md"] },
+                },
+              },
+              "local-notes": {
+                tools: { "claude-code": { files: [".claude/notes.md"] } },
+              },
+            },
+            exclude_configured: true,
+          },
+          shadowed_files: {
+            "AGENTS.md": {
+              base_blob: "2813b888fb134532be3749c71a38ee111b788e5b",
+              overlays: [
+                {
+                  tool: "codex",
+                  bundle: "react-expert",
+                  strategy: "append",
+                  overlay: "# Rules\n",
+                  overlay_fingerprint: "overlay-abc123",
+                },
+              ],
+              rendered_fingerprint: "rendered-def456",
+              skip_worktree: true,
+            },
+          },
+        },
+      },
+    };
+
+    // When
+    const parsed = parseRegistry(input);
+
+    // Then: each bundle is keyed by name and source, and the overlay names its source
+    const worktree = parsed.worktrees[WORKTREE_ID]!;
+    expect(Object.keys(worktree.materialized_state.bundles).sort()).toEqual([
+      "local-notes",
+      "react-expert@github.com/user/ai-vault",
+    ]);
+    expect(
+      materializedBundleNamed(
+        worktree.materialized_state.bundles,
+        "react-expert",
+      ),
+    ).toMatchObject({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+    });
+    expect(worktree.shadowed_files["AGENTS.md"]?.overlays[0]).toMatchObject({
+      bundle: "react-expert",
+      source: "github.com/user/ai-vault",
+    });
+  });
+
   it("accepts remote tracking metadata on desired and materialized bundle state", () => {
     // Given
     const input = {

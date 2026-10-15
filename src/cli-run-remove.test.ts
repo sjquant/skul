@@ -1605,4 +1605,65 @@ describe("run", () => {
       fs.existsSync(path.join(repoRoot, ".claude/skills/react-b/SKILL.md")),
     ).toBe(false);
   });
+
+  it("keeps working with a registry written before bundles were identified by source", async () => {
+    // Given: a bundle installed, then its registry record rewritten the old way
+    // (keyed by bare name, without a bundle field)
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# react\n",
+    );
+    await run(["add", "react-expert"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const registry = JSON.parse(fs.readFileSync(registryFile, "utf8")) as {
+      worktrees: Record<
+        string,
+        {
+          materialized_state: {
+            bundles: Record<string, { bundle: string }>;
+          };
+        }
+      >;
+    };
+    for (const worktree of Object.values(registry.worktrees)) {
+      const legacy: Record<string, unknown> = {};
+      for (const { bundle, ...rest } of Object.values(
+        worktree.materialized_state.bundles,
+      )) {
+        legacy[bundle] = rest;
+      }
+      worktree.materialized_state.bundles = legacy as Record<
+        string,
+        { bundle: string }
+      >;
+    }
+    fs.writeFileSync(registryFile, JSON.stringify(registry));
+
+    // When: the bundle is removed
+    await expect(
+      run(["remove", "react-expert", "-y"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).resolves.toBe("Removed react-expert");
+
+    // Then: its files are gone
+    expect(
+      fs.existsSync(path.join(repoRoot, ".claude/skills/react/SKILL.md")),
+    ).toBe(false);
+  });
 });
