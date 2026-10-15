@@ -23,6 +23,11 @@ export interface BundleManifestTarget {
 export interface BundleManifest {
   name?: string;
   root_instruction_mode?: "append" | "replace";
+  /**
+   * Items of this bundle that other items need, keyed by the item that needs
+   * them. Selecting an item installs everything it requires, transitively.
+   */
+  requires?: Record<string, string[]>;
   tools: Partial<
     Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
   >;
@@ -102,8 +107,46 @@ export function parseBundleManifest(input: unknown): BundleManifest {
           ),
         }
       : {}),
+    ...(manifest.requires !== undefined
+      ? { requires: parseRequires(manifest.requires) }
+      : {}),
     tools,
   });
+}
+
+const REQUIRED_ITEM_PATTERN = /^(skills|commands|agents)\/[^/]+$/;
+
+function parseRequires(input: unknown): Record<string, string[]> {
+  const requires = expectRecord(input, "requires");
+
+  return Object.fromEntries(
+    Object.entries(requires).map(([item, requiredInput]) => {
+      assertRequiresItem(item, `requires.${item}`);
+
+      if (!Array.isArray(requiredInput)) {
+        throw new Error(`requires.${item} must be an array of item selectors`);
+      }
+
+      return [
+        item,
+        requiredInput.map((required, index) => {
+          if (typeof required !== "string") {
+            throw new Error(`requires.${item}[${index}] must be a string`);
+          }
+          assertRequiresItem(required, `requires.${item}[${index}]`);
+          return required;
+        }),
+      ];
+    }),
+  );
+}
+
+function assertRequiresItem(value: string, label: string): void {
+  if (!REQUIRED_ITEM_PATTERN.test(value.trim().replaceAll("\\", "/"))) {
+    throw new Error(
+      `${label} must name a skill, command, or agent such as skills/<name>: ${value}`,
+    );
+  }
 }
 
 /** Merges explicit manifest metadata and tool targets over filesystem inference. */
@@ -138,6 +181,7 @@ export function mergeBundleManifests(
       : inferred.root_instruction_mode !== undefined
         ? { root_instruction_mode: inferred.root_instruction_mode }
         : {}),
+    ...(explicit.requires !== undefined ? { requires: explicit.requires } : {}),
     tools,
   });
 }
@@ -404,6 +448,7 @@ function expandRootInstructionTargets(
     ...(manifest.root_instruction_mode !== undefined
       ? { root_instruction_mode: manifest.root_instruction_mode }
       : {}),
+    ...(manifest.requires !== undefined ? { requires: manifest.requires } : {}),
     tools: expandedTools,
   };
 }

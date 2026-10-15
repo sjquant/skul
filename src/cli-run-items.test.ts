@@ -1215,4 +1215,83 @@ describe("run", () => {
       ).toBe(true);
     }
   });
+
+  it("installs the items a selected item requires, transitively, and records only the selection", async () => {
+    // Given: deploy requires k8s-context, which requires kubectl-tips; notes is unrelated
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "ops", {
+      name: "ops",
+      requires: {
+        "skills/deploy": ["skills/k8s-context"],
+        "skills/k8s-context": ["skills/kubectl-tips"],
+      },
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    for (const skill of ["deploy", "k8s-context", "kubectl-tips", "notes"]) {
+      writeBundleFile(
+        homeDir,
+        "github.com/user/ai-vault",
+        "ops",
+        `.claude/skills/${skill}/SKILL.md`,
+        `# ${skill}\n`,
+      );
+    }
+
+    // When: only deploy is selected
+    await run(["add", "ops", "--include", "skills/deploy"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then: deploy and everything it needs are installed, notes is not
+    const installed = (skill: string) =>
+      fs.existsSync(path.join(repoRoot, ".claude/skills", skill, "SKILL.md"));
+    expect(installed("deploy")).toBe(true);
+    expect(installed("k8s-context")).toBe(true);
+    expect(installed("kubectl-tips")).toBe(true);
+    expect(installed("notes")).toBe(false);
+
+    // And the registry keeps the user's selection, not the expanded set
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul", "registry.json"),
+    );
+    const repoFingerprint = detectGitContext({
+      cwd: repoRoot,
+    })!.repoFingerprint;
+    expect(registry.repos[repoFingerprint]!.desired_state[0]!.items).toEqual([
+      "skills/deploy",
+    ]);
+  });
+
+  it("rejects a requirement on an item the bundle does not ship before writing anything", async () => {
+    // Given: deploy requires a skill that is not in the bundle
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "ops", {
+      name: "ops",
+      requires: { "skills/deploy": ["skills/missing"] },
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "ops",
+      ".claude/skills/deploy/SKILL.md",
+      "# deploy\n",
+    );
+
+    // When / Then
+    await expect(
+      run(["add", "ops", "--include", "skills/deploy"], {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrow("requires names skills/missing");
+    expect(
+      fs.existsSync(path.join(repoRoot, ".claude/skills/deploy/SKILL.md")),
+    ).toBe(false);
+  });
 });

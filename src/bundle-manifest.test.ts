@@ -39,6 +39,36 @@ describe("parseBundleManifest", () => {
     });
   });
 
+  it.each([
+    [
+      "a root-instruction requirement",
+      { "skills/deploy": ["root-instruction"] },
+    ],
+    ["a requirement that is not a list", { "skills/deploy": "skills/k8s" }],
+    ["a dependent that names no item", { deploy: ["skills/k8s"] }],
+  ])("rejects requires with %s", (_label, requires) => {
+    // Given / When / Then
+    expect(() =>
+      parseBundleManifest({
+        requires,
+        tools: { "claude-code": { skills: { path: "skills" } } },
+      }),
+    ).toThrowError(/requires/);
+  });
+
+  it("keeps the items each item requires", () => {
+    // Given / When
+    const manifest = parseBundleManifest({
+      requires: { "skills/deploy": ["skills/k8s", "agents/reviewer"] },
+      tools: { "claude-code": { skills: { path: "skills" } } },
+    });
+
+    // Then
+    expect(manifest.requires).toEqual({
+      "skills/deploy": ["skills/k8s", "agents/reviewer"],
+    });
+  });
+
   it("accepts a single-tool bundle manifest", () => {
     // Given
     const manifest = {

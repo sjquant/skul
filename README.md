@@ -178,6 +178,19 @@ An optional `manifest.json` can add metadata without repeating inferred tool tar
 }
 ```
 
+An item can declare the other items of the same bundle that it needs, with `requires` in `manifest.json`:
+
+```json
+{
+  "requires": {
+    "skills/deploy": ["skills/k8s-context"],
+    "agents/reviewer": ["skills/k8s-context"]
+  }
+}
+```
+
+Selecting `skills/deploy` (for example with `--include skills/deploy`) also installs `skills/k8s-context`, and anything that item requires in turn. The registry records only the items you selected, so a later change to `requires` takes effect on the next `skul apply` or `skul update`. Only skills, commands, and agents can be listed, and a requirement on an item the bundle does not ship fails before anything is written.
+
 When `tools` is present, declared tools are the selection boundary: inferred non-root targets for those tools are retained, while explicit targets override them. Root-instruction targets must be declared explicitly in that mode so stale filesystem files cannot reappear after an update. In a multi-bundle repository, a bundle directory manifest takes precedence over repository-root metadata. Bundle identity remains the directory name (or repository slug for repo-as-bundle); `name` is display metadata only.
 
 In a multi-bundle repository, the repository-root manifest supplies metadata defaults such as `root_instruction_mode` to child bundles, and a child manifest overrides those defaults. Repository-root `tools` declarations are used for repo-as-bundle layouts; child directories define their own tool targets in multi-bundle layouts.

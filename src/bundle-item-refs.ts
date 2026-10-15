@@ -11,6 +11,7 @@ import {
 import { fetchRemoteSource, updateCachedRemoteSource } from "./bundle-fetch";
 import {
   type BundleItemSelector,
+  expandRequiredBundleItems,
   normalizeBundleItemSelector,
   stripKnownBundleItemExtension,
 } from "./bundle-items";
@@ -66,7 +67,13 @@ export async function resolveBundleItemRefs(options: {
     bundleDir: options.bundleDir,
     manifest: options.manifest,
     tools: options.tools,
-    itemSelectors: options.itemSelectors,
+    itemSelectors: options.manifest
+      ? expandRequiredBundleItems({
+          bundleDir: options.bundleDir,
+          manifest: options.manifest,
+          itemSelectors: options.itemSelectors,
+        })
+      : options.itemSelectors,
   });
 
   for (const itemRef of candidates) {

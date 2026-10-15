@@ -99,6 +99,62 @@ export function isRootInstructionItemSelected(
   return !selectors || selectors.includes(ROOT_INSTRUCTION_SELECTOR);
 }
 
+/**
+ * Adds every item the selected items require, transitively.
+ *
+ * `undefined` selects everything, so there is nothing to add. A requirement on
+ * an item the bundle does not ship is an error, since the selected item would
+ * install without something it needs.
+ */
+export function expandRequiredBundleItems(options: {
+  bundleDir: string;
+  manifest: BundleManifest;
+  itemSelectors: BundleItemSelector[] | undefined;
+}): BundleItemSelector[] | undefined {
+  const requires = options.manifest.requires;
+
+  if (!options.itemSelectors || !requires) {
+    return options.itemSelectors;
+  }
+
+  const requiredBy = new Map(
+    Object.entries(requires).map(([item, required]) => [
+      normalizeBundleItemSelector(item),
+      required.map((entry) => normalizeBundleItemSelector(entry)),
+    ]),
+  );
+  const available = new Set(
+    listSelectableBundleItems({
+      bundleDir: options.bundleDir,
+      manifest: options.manifest,
+    }),
+  );
+
+  for (const [item, required] of requiredBy) {
+    for (const selector of [item, ...required]) {
+      if (!available.has(selector)) {
+        throw new Error(
+          `requires names ${selector}, which this bundle does not ship`,
+        );
+      }
+    }
+  }
+
+  const expanded = new Set(options.itemSelectors);
+  const pending = [...options.itemSelectors];
+
+  for (let item = pending.pop(); item !== undefined; item = pending.pop()) {
+    for (const required of requiredBy.get(item) ?? []) {
+      if (!expanded.has(required)) {
+        expanded.add(required);
+        pending.push(required);
+      }
+    }
+  }
+
+  return Array.from(expanded);
+}
+
 /** Returns true when a bundle's MCP servers should be materialized. */
 export function isMcpItemSelected(
   selectors: BundleItemSelector[] | undefined,

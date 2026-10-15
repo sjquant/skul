@@ -156,7 +156,7 @@ README에 다음 기준을 적습니다. "다른 저장소의 아이템을 그�
 ## 단계
 
 0. **선행 문제 해결.** P1(경로 충돌 거부)과 P2(`(source, bundle)` 식별자) 모두 끝났습니다. 둘 다 의존성 기능과 별개로 지금도 있던 버그입니다.
-1. **같은 번들 안의 `requires`.** 외부 소스 없이 `--include`/`--select-items` closure만 처리합니다. 소유권 문제가 없어 범위가 작습니다.
+1. **같은 번들 안의 `requires`. (구현됨)** 외부 소스 없이 `--include`/`--select-items` closure만 처리합니다. 소유권 문제가 없어 범위가 작습니다. `manifest.json`의 `requires`는 `skills/`, `commands/`, `agents/` 셀렉터만 받고, 설치 입구(`materializeBundle`, `previewMaterializeBundleWriteTargets`, `resolveBundleItemRefs`)에서 선택된 아이템에 필요한 아이템을 전이적으로 더합니다. 레지스트리에는 사용자가 고른 아이템만 저장하고, 가리킨 아이템이 번들에 없으면 파일을 쓰기 전에 오류를 냅니다. 아직 없는 것: dry-run과 picker에서 의존성으로 추가되는 아이템 표시.
 2. **외부 `requires`.** 전이 해석, 새 소스 확인, ref 충돌, 자동 정리, `status` 표시, refs origin의 `requires` 추적.
 3. **(필요할 때) lockfile.** 다른 컴퓨터에서 같은 의존성 커밋을 재현해야 할 때 검토합니다.
 

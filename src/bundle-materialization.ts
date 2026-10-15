@@ -3,6 +3,7 @@ import path from "node:path";
 import type { ResolvedBundleItemRef } from "./bundle-item-refs";
 import {
   type BundleItemSelector,
+  expandRequiredBundleItems,
   isMcpItemSelected,
   isRootInstructionItemSelected,
   stripKnownBundleItemExtension,
@@ -106,8 +107,9 @@ interface CanonicalTargetItem {
  * new content.
  */
 export function previewMaterializeBundleWriteTargets(
-  options: BundleMaterializationScope,
+  scope: BundleMaterializationScope,
 ): string[] {
+  const options = withRequiredItems(scope);
   const writeTargets = new Set<string>();
   const pathLayout = options.pathLayout ?? PROJECT_TOOL_MATERIALIZATION_LAYOUT;
   const toolEntries =
@@ -288,8 +290,26 @@ export async function materializeBundle(
 ): Promise<MaterializeBundleResult> {
   return applyBundleMaterializationPlan(
     options.repoRoot,
-    await planBundleMaterialization(options),
+    await planBundleMaterialization(withRequiredItems(options)),
   );
+}
+
+/** Widens the selected items to include everything they require. */
+function withRequiredItems<
+  T extends {
+    bundleDir: string;
+    manifest: BundleManifest;
+    itemSelectors?: BundleItemSelector[];
+  },
+>(options: T): T {
+  return {
+    ...options,
+    itemSelectors: expandRequiredBundleItems({
+      bundleDir: options.bundleDir,
+      manifest: options.manifest,
+      itemSelectors: options.itemSelectors,
+    }),
+  };
 }
 
 /**
