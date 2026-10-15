@@ -365,91 +365,10 @@ describe("run", () => {
     );
   });
 
-  it("invokes conflict resolution when a newly added bundle targets a file already managed by another bundle", async () => {
-    // Given: react-expert is materialized with .claude/skills/react/SKILL.md
+  it("refuses to add a bundle that would overwrite a file another bundle manages", async () => {
+    // Given: react-expert is installed and owns .claude/skills/react/SKILL.md
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
-    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
-      name: "react-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-    });
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "react-expert",
-      ".claude/skills/react/SKILL.md",
-      "# react\n",
-    );
-    writeManifest(homeDir, "github.com/user/ai-vault", "next-expert", {
-      name: "next-expert",
-      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-    });
-    // next-expert also writes to the same relative skill path, causing a cross-bundle conflict
-    writeBundleFile(
-      homeDir,
-      "github.com/user/ai-vault",
-      "next-expert",
-      ".claude/skills/react/SKILL.md",
-      "# next react\n",
-    );
-    await run(["add", "react-expert"], {
-      homeDir,
-      cwd: repoRoot,
-      prompts: createPromptClientStub(),
-    });
-
-    const resolveFileConflict = vi
-      .fn()
-      .mockResolvedValue({ action: "overwrite" });
-
-    // When: add next-expert whose file conflicts with react-expert's managed file
-    await expect(
-      run(["add", "next-expert"], {
-        homeDir,
-        cwd: repoRoot,
-        prompts: createPromptClientStub({ resolveFileConflict }),
-      }),
-    ).resolves.toBe("Applied next-expert for claude-code");
-
-    // Then: conflict callback was invoked with the relative skill item path
-    expect(resolveFileConflict).toHaveBeenCalledWith("react");
-
-    // Then: next-expert's file overwrites react-expert's managed file
-    expect(
-      fs.readFileSync(
-        path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
-        "utf8",
-      ),
-    ).toBe("# next react\n");
-
-    // Then: the registry records both bundles with their respective file paths
-    const registry = readRegistryFile(
-      path.join(homeDir, ".skul", "registry.json"),
-    );
-    const worktree = registry.worktrees[Object.keys(registry.worktrees)[0]];
-    expect(
-      materializedBundlesKeyedByName(worktree.materialized_state.bundles),
-    ).toMatchObject({
-      "react-expert": {
-        tools: {
-          "claude-code": { files: [".claude/skills/react/SKILL.md"] },
-        },
-      },
-      "next-expert": {
-        tools: {
-          "claude-code": { files: [".claude/skills/react/SKILL.md"] },
-        },
-      },
-    });
-  });
-
-  it("overwrites a conflicting managed file without prompting when add uses yes", async () => {
-    // Given
-    const homeDir = createHomeDir();
-    const repoRoot = createRepository();
-    const resolveFileConflict = vi.fn(async () => {
-      throw new Error("resolveFileConflict should not be called");
-    });
     writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
       name: "react-expert",
       tools: { "claude-code": { skills: { path: ".claude/skills" } } },
@@ -477,24 +396,28 @@ describe("run", () => {
       cwd: repoRoot,
       prompts: createPromptClientStub(),
     });
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const registryBefore = fs.readFileSync(registryFile, "utf8");
 
-    // When
+    // When: another bundle that ships the same path is added, even with --yes
     await expect(
       run(["add", "next-expert", "-y"], {
         homeDir,
         cwd: repoRoot,
-        prompts: createPromptClientStub({ resolveFileConflict }),
+        prompts: createPromptClientStub(),
       }),
-    ).resolves.toBe("Applied next-expert for claude-code");
+    ).rejects.toThrow(
+      "Cannot write .claude/skills/react/SKILL.md for next-expert because it is already managed by react-expert",
+    );
 
-    // Then
-    expect(resolveFileConflict).not.toHaveBeenCalled();
+    // Then: the installed file and the registry are untouched
     expect(
       fs.readFileSync(
         path.join(repoRoot, ".claude", "skills", "react", "SKILL.md"),
         "utf8",
       ),
-    ).toBe("# next react\n");
+    ).toBe("# react\n");
+    expect(fs.readFileSync(registryFile, "utf8")).toBe(registryBefore);
   });
 
   it("cleans up Skul-created directories when removing the last managed file in them", async () => {

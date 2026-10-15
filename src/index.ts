@@ -2787,6 +2787,12 @@ async function updateBundles(options: {
       };
       const plannedWriteTargets =
         previewMaterializeBundleWriteTargets(materializationScope);
+      assertNoPathsOwnedByOtherBundles({
+        bundles: currentBundles,
+        plannedWriteTargets,
+        bundleKey: key,
+        bundleName: entry.bundle,
+      });
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
           isRootInstructionPath(filePath),
@@ -3208,6 +3214,12 @@ async function applyBundle(options: {
   };
   const plannedWriteTargets =
     previewMaterializeBundleWriteTargets(materializationScope);
+  assertNoPathsOwnedByOtherBundles({
+    bundles: existingWorktreeState?.bundles ?? {},
+    plannedWriteTargets,
+    bundleKey: key,
+    bundleName: preparedBundle.cachedBundle.bundle,
+  });
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
   );
@@ -6125,6 +6137,12 @@ async function applyWorktree(options: {
     };
     const plannedWriteTargets =
       previewMaterializeBundleWriteTargets(materializationScope);
+    assertNoPathsOwnedByOtherBundles({
+      bundles: currentBundles,
+      plannedWriteTargets,
+      bundleKey: key,
+      bundleName: entry.bundle,
+    });
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
     );
@@ -7990,6 +8008,48 @@ function findCachedBundleWithGuidance(options: {
   }
 }
 
+/**
+ * Refuses a write onto a path another bundle already manages.
+ *
+ * Overwriting it would hand the path to the new bundle while the registry still
+ * lists it under the old one, so removing either bundle would later delete a
+ * file the other still expects. Root-instruction files and MCP configuration
+ * files are exempt: bundles compose into those by design.
+ */
+function assertNoPathsOwnedByOtherBundles(options: {
+  bundles: Record<BundleKey, MaterializedBundleState>;
+  plannedWriteTargets: readonly string[];
+  bundleKey: BundleKey;
+  bundleName: string;
+}): void {
+  const planned = new Set(
+    options.plannedWriteTargets.filter(
+      (filePath) => !isRootInstructionPath(filePath),
+    ),
+  );
+  const others = listMaterializedBundles(options.bundles).filter(
+    ([key]) => key !== options.bundleKey,
+  );
+
+  for (const [, owner] of others) {
+    for (const toolState of Object.values(owner.tools)) {
+      for (const filePath of toolState.files) {
+        if (
+          planned.has(filePath) &&
+          !(filePath in (toolState.mcp_servers ?? {}))
+        ) {
+          throw new Error(
+            `Cannot write ${filePath} for ${options.bundleName} because it is already managed by ${formatBundleLabel(
+              owner,
+              others.map(([, state]) => state),
+            )}.\nRemove that bundle first, or exclude the item with --include.`,
+          );
+        }
+      }
+    }
+  }
+}
+
 async function confirmManagedFileRemovals(
   repoRoot: string,
   state: { files: string[]; file_fingerprints?: Record<string, string> },
@@ -8265,6 +8325,12 @@ async function applyBundleGlobal(options: {
   };
   const plannedWriteTargets =
     previewMaterializeBundleWriteTargets(materializationScope);
+  assertNoPathsOwnedByOtherBundles({
+    bundles: existingGlobal?.materialized_state.bundles ?? {},
+    plannedWriteTargets,
+    bundleKey: key,
+    bundleName: preparedBundle.cachedBundle.bundle,
+  });
 
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((p) => isRootInstructionPath(p)),
