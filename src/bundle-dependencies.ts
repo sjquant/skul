@@ -6,6 +6,7 @@ import {
   type BundleItemSelector,
   listExternalBundleRequirements,
 } from "./bundle-items";
+import { listBundleToolNames } from "./bundle-manifest";
 import { type BundleKey, bundleKey, type DesiredBundleEntry } from "./registry";
 import type { SourceFetchProgress } from "./source-fetch-progress";
 import type { ToolName } from "./tool-mapping";
@@ -22,6 +23,9 @@ export interface ResolvedDependency {
   ref?: string;
   cachedBundle: CachedBundle;
 }
+
+/** Everything required of other sources, by the registry key of the bundle that ships it. */
+export type ResolvedDependencies = Map<BundleKey, ResolvedDependency>;
 
 interface Requirer {
   key: BundleKey;
@@ -48,8 +52,8 @@ export async function resolveBundleDependencies(options: {
   libraryDir: string;
   confirmNewSources: (sources: string[]) => Promise<void>;
   sourceFetchProgress?: SourceFetchProgress;
-}): Promise<Map<BundleKey, ResolvedDependency>> {
-  const dependencies = new Map<BundleKey, ResolvedDependency>();
+}): Promise<ResolvedDependencies> {
+  const dependencies: ResolvedDependencies = new Map();
   const knownSources = new Set(
     Array.from(options.knownSources, (source) => normalizeBundleSource(source)),
   );
@@ -57,7 +61,7 @@ export async function resolveBundleDependencies(options: {
 
   for (const entry of options.entries) {
     if (entry.source !== undefined && entry.ref !== undefined) {
-      sourceRefs.set(entry.source, {
+      sourceRefs.set(normalizeBundleSource(entry.source), {
         ref: entry.ref,
         requiredBy: bundleKey(entry),
       });
@@ -71,7 +75,7 @@ export async function resolveBundleDependencies(options: {
       key: bundleKey(entry),
       cachedBundle,
       items: entry.items,
-      tools: entry.tools ?? bundleTools(cachedBundle),
+      tools: entry.tools ?? listBundleToolNames(cachedBundle.manifest),
       protocol: entry.protocol,
     };
   });
@@ -145,25 +149,13 @@ export async function resolveBundleDependencies(options: {
       };
       dependencies.set(key, dependency);
 
-      const sizeBefore =
-        dependency.items.size +
-        dependency.tools.size +
-        dependency.requiredBy.size;
-      dependency.items.add(requirement.item);
-      dependency.requiredBy.add(requirer.key);
-      for (const tool of requirer.tools) {
-        dependency.tools.add(tool);
-      }
-      if (requirement.ref !== undefined) {
-        dependency.ref = requirement.ref;
-      }
+      const grew = [
+        addAll(dependency.items, [requirement.item]),
+        addAll(dependency.requiredBy, [requirer.key]),
+        addAll(dependency.tools, requirer.tools),
+      ].some(Boolean);
 
-      if (
-        dependency.items.size +
-          dependency.tools.size +
-          dependency.requiredBy.size >
-        sizeBefore
-      ) {
+      if (grew) {
         changed.add(key);
       }
     }
@@ -171,7 +163,7 @@ export async function resolveBundleDependencies(options: {
     // A dependency may need things in turn, so what changed is asked again.
     wave = Array.from(changed).map((key) => {
       const dependency = dependencies.get(key)!;
-      const supported = bundleTools(dependency.cachedBundle);
+      const supported = listBundleToolNames(dependency.cachedBundle.manifest);
 
       return {
         key,
@@ -183,17 +175,22 @@ export async function resolveBundleDependencies(options: {
     });
   }
 
-  for (const key of dependencies.keys()) {
-    const ref = sourceRefs.get(dependencies.get(key)!.source)?.ref;
-
-    if (ref !== undefined) {
-      dependencies.get(key)!.ref = ref;
-    }
+  // A source is installed at one ref, whichever requirement or installed
+  // bundle named it, so the ref is read from the claims rather than per request.
+  for (const dependency of dependencies.values()) {
+    dependency.ref = sourceRefs.get(dependency.source)?.ref;
   }
 
   return dependencies;
 }
 
-function bundleTools(cachedBundle: CachedBundle): ToolName[] {
-  return Object.keys(cachedBundle.manifest.tools) as ToolName[];
+/** Adds the values to the set, reporting whether any of them was new. */
+function addAll<T>(set: Set<T>, values: Iterable<T>): boolean {
+  const sizeBefore = set.size;
+
+  for (const value of values) {
+    set.add(value);
+  }
+
+  return set.size > sizeBefore;
 }

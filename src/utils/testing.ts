@@ -22,9 +22,8 @@ export function materializedBundlesByName(
     Object.entries(bundles).map(([name, state]) => {
       const source = state.source ?? defaultSource;
       const full: MaterializedBundleState = {
-        bundle: name,
-        ...(source !== undefined ? { source } : {}),
         ...state,
+        bundle: name,
         ...(source !== undefined ? { source } : {}),
       };
       return [bundleKey(full), full];

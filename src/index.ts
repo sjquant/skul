@@ -7,7 +7,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { createColors, isColorSupported } from "picocolors";
-import { resolveBundleDependencies } from "./bundle-dependencies";
+import {
+  type ResolvedDependencies,
+  resolveBundleDependencies,
+} from "./bundle-dependencies";
 import {
   type CachedBundle,
   detectSourceProtocol,
@@ -44,7 +47,7 @@ import {
   normalizeBundleItemSelectors,
   stripKnownBundleItemExtension,
 } from "./bundle-items";
-import type { BundleManifest } from "./bundle-manifest";
+import { type BundleManifest, listBundleToolNames } from "./bundle-manifest";
 import {
   type BundleMaterializationScope,
   type MaterializeBundleResult,
@@ -545,27 +548,20 @@ function dependencySyncRequest(
  * so applying, updating and checking them needs no special case. They are
  * recomputed from the manifests every time rather than counted.
  */
-async function syncBundleDependencies(options: {
-  global: boolean;
-  cwd: string;
-  homeDir: string;
-  prompts: PromptClient;
-  registryFile: string;
-  libraryDir: string;
-  sourceFetchProgress?: SourceFetchProgress;
-  warnings: CommandWarningCollector;
-}): Promise<string[]> {
-  const scope = readDependencyScope(options);
+async function syncBundleDependencies(
+  options: DependencySyncOptions,
+): Promise<string[]> {
+  const scope = openDependencyScope(options);
+  const current = scope?.readDesiredState() ?? [];
 
-  if (!scope) {
+  if (!scope || current.length === 0) {
     return [];
   }
 
-  const current = scope.desiredState;
   const direct = current
     .filter((entry) => !entry.implicit)
     .map(withoutDependencyFields);
-  let dependencies: Awaited<ReturnType<typeof resolveBundleDependencies>>;
+  let dependencies: ResolvedDependencies;
 
   try {
     dependencies = await resolveBundleDependencies({
@@ -616,9 +612,7 @@ async function syncBundleDependencies(options: {
     lines.push(`Removed dependency ${entry.bundle} [${entry.source}]`);
   }
 
-  const afterRemoval = readDependencyScope(options)?.desiredState ?? [];
-
-  if (desiredStatesEqual(afterRemoval, next)) {
+  if (desiredStatesEqual(scope.readDesiredState(), next)) {
     return lines;
   }
 
@@ -638,11 +632,20 @@ async function syncBundleDependencies(options: {
 
   // Applying may re-add entries through the add flow, which treats them as
   // chosen by the user; put the dependency bookkeeping back.
-  scope.write(
-    restoreDependencyFields(readDependencyScope(options)!.desiredState, next),
-  );
+  const applied = scope.readDesiredState();
+  const restored = restoreDependencyFields(applied, next);
+
+  if (!desiredStatesEqual(applied, restored)) {
+    scope.write(restored);
+  }
 
   return lines;
+}
+
+class UncachedDependencyRequirer extends Error {
+  constructor(cause: unknown) {
+    super("A bundle's manifest is not cached", { cause });
+  }
 }
 
 function restoreDependencyFields(
@@ -675,14 +678,7 @@ function restoreDependencyFields(
   });
 }
 
-class UncachedDependencyRequirer extends Error {
-  constructor(cause: unknown) {
-    super("A bundle's manifest is not cached", { cause });
-  }
-}
-
-/** Reads, writes, applies and removes entries of the project or global desired state. */
-function readDependencyScope(options: {
+interface DependencySyncOptions {
   global: boolean;
   cwd: string;
   homeDir: string;
@@ -691,25 +687,25 @@ function readDependencyScope(options: {
   libraryDir: string;
   sourceFetchProgress?: SourceFetchProgress;
   warnings: CommandWarningCollector;
-}):
-  | {
-      desiredState: DesiredBundleEntry[];
-      write: (desiredState: DesiredBundleEntry[]) => void;
-      apply: () => Promise<unknown>;
-      remove: (entry: DesiredBundleEntry) => Promise<unknown>;
-    }
-  | undefined {
-  const registry = readRegistryWithGuidance(options.registryFile);
+}
 
+/** The desired state of the project or the global scope, with what it takes to change it. */
+interface DependencyScope {
+  readDesiredState: () => DesiredBundleEntry[];
+  write: (desiredState: DesiredBundleEntry[]) => void;
+  apply: () => Promise<unknown>;
+  remove: (entry: DesiredBundleEntry) => Promise<unknown>;
+}
+
+/** Opens the scope the command ran in; a project scope needs a Git worktree. */
+function openDependencyScope(
+  options: DependencySyncOptions,
+): DependencyScope | undefined {
   if (options.global) {
-    const globalState = registry.global;
-
-    if (!globalState || globalState.desired_state.length === 0) {
-      return undefined;
-    }
-
     return {
-      desiredState: globalState.desired_state,
+      readDesiredState: () =>
+        readRegistryWithGuidance(options.registryFile).global?.desired_state ??
+        [],
       write: (desiredState) => {
         const latest = readRegistryWithGuidance(options.registryFile);
         writeRegistryFile(
@@ -748,16 +744,16 @@ function readDependencyScope(options: {
   }
 
   const gitContext = detectGitContext({ cwd: options.cwd });
-  const repoState = gitContext
-    ? registry.repos[gitContext.repoFingerprint]
-    : undefined;
 
-  if (!gitContext || !repoState || repoState.desired_state.length === 0) {
+  if (!gitContext) {
     return undefined;
   }
 
   return {
-    desiredState: repoState.desired_state,
+    readDesiredState: () =>
+      readRegistryWithGuidance(options.registryFile).repos[
+        gitContext.repoFingerprint
+      ]?.desired_state ?? [],
     write: (desiredState) => {
       const latest = readRegistryWithGuidance(options.registryFile);
       writeRegistryFile(
@@ -802,7 +798,7 @@ function readDependencyScope(options: {
  */
 function reconcileDependencyEntries(options: {
   desiredState: DesiredBundleEntry[];
-  dependencies: Awaited<ReturnType<typeof resolveBundleDependencies>>;
+  dependencies: ResolvedDependencies;
   warn: (message: string) => void;
 }): DesiredBundleEntry[] {
   const existing = new Map(
@@ -834,9 +830,7 @@ function reconcileDependencyEntries(options: {
       continue;
     }
 
-    const supported = Object.keys(
-      dependency.cachedBundle.manifest.tools,
-    ) as ToolName[];
+    const supported = listBundleToolNames(dependency.cachedBundle.manifest);
     const tools = supported.filter((tool) => dependency.tools.has(tool)).sort();
     const unsupported = Array.from(dependency.tools).filter(
       (tool) => !supported.includes(tool),
@@ -1896,8 +1890,8 @@ function renderGlobalRemoveDryRun(options: {
   selection: BundleSelection;
   globalState?: GlobalState;
 }): string {
-  const bundleMaterializedState = findGlobalMaterializedBundleState({
-    globalState: options.globalState,
+  const bundleMaterializedState = findMaterializedBundleState({
+    bundles: options.globalState?.materialized_state.bundles,
     bundle: options.selection.bundle,
     source: options.selection.source,
   });
@@ -2351,13 +2345,13 @@ function assertDistinctMcpOverlayServers(
   overlays: ShadowOverlay[],
   label: string,
 ): void {
-  const declaringBundles = new Map<string, ShadowOverlay>();
+  const declaringOverlays = new Map<string, ShadowOverlay>();
 
   for (const overlay of overlays) {
     const renderedServers = JSON.parse(overlay.overlay) as RenderedMcpServers;
 
     for (const serverName of Object.keys(renderedServers)) {
-      const declaringOverlay = declaringBundles.get(serverName);
+      const declaringOverlay = declaringOverlays.get(serverName);
 
       if (
         declaringOverlay &&
@@ -2368,7 +2362,7 @@ function assertDistinctMcpOverlayServers(
         );
       }
 
-      declaringBundles.set(serverName, overlay);
+      declaringOverlays.set(serverName, overlay);
     }
   }
 }
@@ -5453,20 +5447,17 @@ async function removeBundle(options: {
   const source = identity.source;
   const key = bundleKey(identity);
 
+  const desiredEntry = findDesiredBundleEntry({
+    desiredState: repoState?.desired_state ?? [],
+    bundle,
+    source,
+  });
+  const isInDesiredState = desiredEntry !== undefined;
+
   assertNotRequiredByOtherBundles({
-    entry: repoState?.desired_state.find(
-      (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
-    ),
+    entry: desiredEntry,
     removingOrphanedDependency: options.removingOrphanedDependency,
   });
-
-  const isInDesiredState =
-    repoState?.desired_state.some(
-      (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
-    ) ?? false;
-  const desiredEntry = repoState?.desired_state.find(
-    (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
-  );
   const bundleMaterializedState = findMaterializedBundleState({
     bundles: worktreeState?.materialized_state.bundles,
     bundle,
@@ -6265,13 +6256,15 @@ function findMaterializedBundleState(options: {
   bundle: string;
   source?: string;
 }): MaterializedBundleState | undefined {
+  if (options.source !== undefined) {
+    return options.bundles?.[
+      bundleKey({ bundle: options.bundle, source: options.source })
+    ];
+  }
+
   return listMaterializedBundles(options.bundles ?? {})
     .map(([, bundleState]) => bundleState)
-    .find(
-      (bundleState) =>
-        bundleState.bundle === options.bundle &&
-        matchesOptionalSource(bundleState.source, options.source),
-    );
+    .find((bundleState) => bundleState.bundle === options.bundle);
 }
 
 /**
@@ -6294,10 +6287,7 @@ function resolveActiveBundleIdentity(options: {
       ([, bundleState]) => bundleState,
     ),
   ]) {
-    if (
-      candidate.bundle === options.bundle &&
-      matchesOptionalSource(candidate.source, options.source)
-    ) {
+    if (matchesBundleIdentity(candidate, options.bundle, options.source)) {
       candidates.set(bundleKey(candidate), {
         bundle: candidate.bundle,
         ...(candidate.source !== undefined ? { source: candidate.source } : {}),
@@ -9388,22 +9378,19 @@ async function removeGlobalBundle(options: {
   const source = identity.source;
   const key = bundleKey(identity);
 
+  const desiredEntry = findDesiredBundleEntry({
+    desiredState: globalState?.desired_state ?? [],
+    bundle,
+    source,
+  });
+  const isInDesiredState = desiredEntry !== undefined;
+
   assertNotRequiredByOtherBundles({
-    entry: globalState?.desired_state.find(
-      (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
-    ),
+    entry: desiredEntry,
     removingOrphanedDependency: options.removingOrphanedDependency,
   });
-
-  const isInDesiredState =
-    globalState?.desired_state.some(
-      (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
-    ) ?? false;
-  const desiredEntry = globalState?.desired_state.find(
-    (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
-  );
-  const bundleMaterializedState = findGlobalMaterializedBundleState({
-    globalState,
+  const bundleMaterializedState = findMaterializedBundleState({
+    bundles: globalState?.materialized_state.bundles,
     bundle,
     source,
   });
@@ -9882,24 +9869,12 @@ function isGlobalRemoveBundleActive(options: {
 
   return (
     desiredMatch ||
-    findGlobalMaterializedBundleState({
-      globalState: options.globalState,
+    findMaterializedBundleState({
+      bundles: options.globalState?.materialized_state.bundles,
       bundle: options.bundle,
       source: options.source,
     }) !== undefined
   );
-}
-
-function findGlobalMaterializedBundleState(options: {
-  globalState?: GlobalState;
-  bundle: string;
-  source?: string;
-}): MaterializedBundleState | undefined {
-  return findMaterializedBundleState({
-    bundles: options.globalState?.materialized_state.bundles,
-    bundle: options.bundle,
-    source: options.source,
-  });
 }
 
 async function removeGlobalBundleItems(options: {

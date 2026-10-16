@@ -71,7 +71,7 @@ export interface DesiredBundleEntry {
   /** True when the entry exists only because other bundles require it. */
   implicit?: true;
   /** Registry keys of the entries that require this one; recomputed from their manifests. */
-  required_by?: string[];
+  required_by?: BundleKey[];
   /** Items other bundles require of this one, installed alongside `items`. */
   required_items?: BundleItemSelector[];
 }
@@ -237,7 +237,6 @@ export function writeRegistryFile(
   );
 }
 
-/** Replaces one repository entry in the registry while preserving all others. */
 /**
  * The items an entry installs: its own selection plus whatever other bundles
  * require of it. `undefined` means every item.
@@ -290,13 +289,14 @@ function cloneDesiredEntry(entry: DesiredBundleEntry): DesiredBundleEntry {
   };
 }
 
+/** Replaces one repository entry in the registry while preserving all others. */
 export function upsertRepoState(
   registry: Registry,
   repoFingerprint: string,
   repoState: RepoState,
 ): Registry {
   return {
-    version: 1,
+    ...registry,
     repos: {
       ...registry.repos,
       [repoFingerprint]: {
@@ -305,7 +305,6 @@ export function upsertRepoState(
       },
     },
     worktrees: { ...registry.worktrees },
-    ...carriedGlobalState(registry),
   };
 }
 
@@ -322,13 +321,12 @@ export function upsertWorktreeState(
   }
 
   return {
-    version: 1,
+    ...registry,
     repos: { ...registry.repos },
     worktrees: {
       ...registry.worktrees,
       [worktreeId]: cloneWorktreeState(worktreeState),
     },
-    ...carriedGlobalState(registry),
   };
 }
 
@@ -339,10 +337,9 @@ export function removeWorktreeState(
 ): Registry {
   if (!(worktreeId in registry.worktrees)) {
     return {
-      version: 1,
+      ...registry,
       repos: { ...registry.repos },
       worktrees: { ...registry.worktrees },
-      ...carriedGlobalState(registry),
     };
   }
 
@@ -350,16 +347,10 @@ export function removeWorktreeState(
   delete worktrees[worktreeId];
 
   return {
-    version: 1,
+    ...registry,
     repos: { ...registry.repos },
     worktrees,
-    ...carriedGlobalState(registry),
   };
-}
-
-/** Keeps the global install records when a project-scoped update rebuilds the registry. */
-function carriedGlobalState(registry: Registry): Pick<Registry, "global"> {
-  return registry.global !== undefined ? { global: registry.global } : {};
 }
 
 /** Returns managed files and directories in a safe removal order. */
@@ -495,7 +486,10 @@ function parseDesiredBundleEntry(
       ? undefined
       : expectArray(entry.required_by, `${label}.required_by`).map(
           (value, index) =>
-            expectNonEmptyString(value, `${label}.required_by[${index}]`),
+            expectNonEmptyString(
+              value,
+              `${label}.required_by[${index}]`,
+            ) as BundleKey,
         );
   const requiredItems =
     entry.required_items === undefined

@@ -56,6 +56,11 @@ export interface CachedBundleLayout {
 
 type UnknownRecord = Record<string, unknown>;
 
+/** Lists the tools a manifest declares targets for. */
+export function listBundleToolNames(manifest: BundleManifest): ToolName[] {
+  return Object.keys(manifest.tools) as ToolName[];
+}
+
 /** Parses and validates a manifest JSON object into the internal bundle schema. */
 export function parseBundleManifest(input: unknown): BundleManifest {
   const manifest = expectRecord(input, "manifest");
@@ -165,34 +170,22 @@ function parseRequirement(input: unknown, label: string): BundleRequirement {
     }
   }
 
-  const source = requirement.source;
-  const item = requirement.item;
-
-  if (typeof source !== "string" || source.trim() === "") {
-    throw new Error(`${label}.source must be a non-empty string`);
-  }
-
-  if (typeof item !== "string") {
-    throw new Error(`${label}.item must be a string`);
-  }
+  const source = expectNonEmptyString(requirement.source, `${label}.source`);
+  const item = expectNonEmptyString(requirement.item, `${label}.item`);
 
   assertRequiresItem(item, `${label}.item`);
-
-  for (const optional of ["bundle", "ref"] as const) {
-    const value = requirement[optional];
-
-    if (value !== undefined && (typeof value !== "string" || value === "")) {
-      throw new Error(`${label}.${optional} must be a non-empty string`);
-    }
-  }
 
   return {
     source,
     item,
-    ...(typeof requirement.bundle === "string"
-      ? { bundle: requirement.bundle }
+    ...(requirement.bundle !== undefined
+      ? {
+          bundle: expectNonEmptyString(requirement.bundle, `${label}.bundle`),
+        }
       : {}),
-    ...(typeof requirement.ref === "string" ? { ref: requirement.ref } : {}),
+    ...(requirement.ref !== undefined
+      ? { ref: expectNonEmptyString(requirement.ref, `${label}.ref`) }
+      : {}),
   };
 }
 
