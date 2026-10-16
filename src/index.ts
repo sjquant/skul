@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createColors, isColorSupported } from "picocolors";
-
+import { resolveBundleDependencies } from "./bundle-dependencies";
 import {
   type CachedBundle,
   detectSourceProtocol,
@@ -56,6 +56,7 @@ import {
 import {
   type BundleItemChoice,
   type BundleSelection,
+  type CliParseResult,
   createHeadlessPromptClient,
   createHelpText,
   createPromptClientForSelections,
@@ -100,6 +101,8 @@ import {
   type BundleKey,
   bundleKey,
   type DesiredBundleEntry,
+  desiredStatesEqual,
+  effectiveDesiredItems,
   type GlobalState,
   listManagedPathsForRemoval,
   listMaterializedBundles,
@@ -219,44 +222,64 @@ export async function run(
   const sourceFetchProgress =
     options.sourceFetchProgress ?? (await createSourceFetchProgress());
 
-  switch (parsed.command) {
-    case "add": {
-      const addPrompts = parsed.options.yes
-        ? createYesPromptClient(prompts, { selectAllAgents: true })
-        : prompts;
+  const runParsedCommand = async (): Promise<string> => {
+    switch (parsed.command) {
+      case "add": {
+        const addPrompts = parsed.options.yes
+          ? createYesPromptClient(prompts, { selectAllAgents: true })
+          : prompts;
 
-      if (parsed.options.all) {
-        const addSource = parsed.options.source;
-        if (addSource === undefined) {
-          throw new Error("Command add --all requires a source");
+        if (parsed.options.all) {
+          const addSource = parsed.options.source;
+          if (addSource === undefined) {
+            throw new Error("Command add --all requires a source");
+          }
+
+          return applyAllBundles({
+            cwd,
+            homeDir: options.homeDir ?? os.homedir(),
+            prompts: addPrompts,
+            registryFile: stateLayout.registryFile,
+            libraryDir: stateLayout.libraryDir,
+            source: addSource,
+            protocol: parsed.options.protocol,
+            agents: parsed.options.agents,
+            dryRun: parsed.options.dryRun,
+            ref: parsed.options.ref,
+            global: parsed.options.global,
+            disableModelInvocation: parsed.options.disableModelInvocation,
+            rootInstructionMode: parsed.options.rootInstructionMode,
+            sourceFetchProgress,
+          });
         }
 
-        return applyAllBundles({
+        const addBundle = parsed.options.bundle;
+        if (addBundle === undefined) {
+          throw new Error("Command add requires a bundle name");
+        }
+
+        if (parsed.options.global) {
+          return applyBundleGlobal({
+            homeDir: options.homeDir ?? os.homedir(),
+            prompts: addPrompts,
+            registryFile: stateLayout.registryFile,
+            libraryDir: stateLayout.libraryDir,
+            bundle: addBundle,
+            source: parsed.options.source,
+            protocol: parsed.options.protocol,
+            agents: parsed.options.agents,
+            includeItems: parsed.options.includeItems ?? [],
+            selectItems: parsed.options.selectItems ?? false,
+            dryRun: parsed.options.dryRun,
+            ref: parsed.options.ref,
+            inferredBundleFromSource: parsed.options.inferredBundleFromSource,
+            disableModelInvocation: parsed.options.disableModelInvocation,
+            rootInstructionMode: parsed.options.rootInstructionMode,
+            sourceFetchProgress,
+          });
+        }
+        return applyBundle({
           cwd,
-          homeDir: options.homeDir ?? os.homedir(),
-          prompts: addPrompts,
-          registryFile: stateLayout.registryFile,
-          libraryDir: stateLayout.libraryDir,
-          source: addSource,
-          protocol: parsed.options.protocol,
-          agents: parsed.options.agents,
-          dryRun: parsed.options.dryRun,
-          ref: parsed.options.ref,
-          global: parsed.options.global,
-          disableModelInvocation: parsed.options.disableModelInvocation,
-          rootInstructionMode: parsed.options.rootInstructionMode,
-          sourceFetchProgress,
-        });
-      }
-
-      const addBundle = parsed.options.bundle;
-      if (addBundle === undefined) {
-        throw new Error("Command add requires a bundle name");
-      }
-
-      if (parsed.options.global) {
-        return applyBundleGlobal({
-          homeDir: options.homeDir ?? os.homedir(),
           prompts: addPrompts,
           registryFile: stateLayout.registryFile,
           libraryDir: stateLayout.libraryDir,
@@ -274,184 +297,178 @@ export async function run(
           sourceFetchProgress,
         });
       }
-      return applyBundle({
-        cwd,
-        prompts: addPrompts,
-        registryFile: stateLayout.registryFile,
-        libraryDir: stateLayout.libraryDir,
-        bundle: addBundle,
-        source: parsed.options.source,
-        protocol: parsed.options.protocol,
-        agents: parsed.options.agents,
-        includeItems: parsed.options.includeItems ?? [],
-        selectItems: parsed.options.selectItems ?? false,
-        dryRun: parsed.options.dryRun,
-        ref: parsed.options.ref,
-        inferredBundleFromSource: parsed.options.inferredBundleFromSource,
-        disableModelInvocation: parsed.options.disableModelInvocation,
-        rootInstructionMode: parsed.options.rootInstructionMode,
-        sourceFetchProgress,
-      });
-    }
-    case "list":
-      return renderBundleList({
-        libraryDir: stateLayout.libraryDir,
-        json: parsed.options.json,
-        source: parsed.options.source,
-      });
-    case "status":
-      if (parsed.options.global) {
-        return renderGlobalStatus({
+      case "list":
+        return renderBundleList({
+          libraryDir: stateLayout.libraryDir,
+          json: parsed.options.json,
+          source: parsed.options.source,
+        });
+      case "status":
+        if (parsed.options.global) {
+          return renderGlobalStatus({
+            registryFile: stateLayout.registryFile,
+            json: parsed.options.json,
+          });
+        }
+        return renderStatus({
+          cwd,
           registryFile: stateLayout.registryFile,
           json: parsed.options.json,
         });
-      }
-      return renderStatus({
-        cwd,
-        registryFile: stateLayout.registryFile,
-        json: parsed.options.json,
-      });
-    case "check":
-      return renderUpdateCheck({
-        cwd,
-        registryFile: stateLayout.registryFile,
-        libraryDir: stateLayout.libraryDir,
-        bundle: parsed.options.bundle,
-        json: parsed.options.json,
-      });
-    case "update":
-      return updateBundles({
-        cwd,
-        prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
-        registryFile: stateLayout.registryFile,
-        libraryDir: stateLayout.libraryDir,
-        bundle: parsed.options.bundle,
-        dryRun: parsed.options.dryRun,
-        sourceFetchProgress,
-      });
-    case "shadow":
-      return shadowWorktree({
-        cwd,
-        registryFile: stateLayout.registryFile,
-        action: parsed.options.action,
-      });
-    case "sync":
-      return syncWorktree({
-        cwd,
-        registryFile: stateLayout.registryFile,
-      });
-    case "reset":
-      if (parsed.options.global) {
-        const output = await resetGlobal({
-          homeDir: options.homeDir ?? os.homedir(),
-          prompts: parsed.options.yes
-            ? createYesPromptClient(prompts)
-            : prompts,
+      case "check":
+        return renderUpdateCheck({
+          cwd,
           registryFile: stateLayout.registryFile,
-          dryRun: parsed.options.dryRun,
-          warnings: commandWarnings,
+          libraryDir: stateLayout.libraryDir,
+          bundle: parsed.options.bundle,
+          json: parsed.options.json,
         });
-        return renderMutatingCommandResult({
-          output,
-          warnings: commandWarnings,
-          json: parsed.options.json ?? false,
-        });
-      }
-      {
-        const output = await resetWorktree({
+      case "update":
+        return updateBundles({
           cwd,
           prompts: parsed.options.yes
             ? createYesPromptClient(prompts)
             : prompts,
           registryFile: stateLayout.registryFile,
+          libraryDir: stateLayout.libraryDir,
+          bundle: parsed.options.bundle,
           dryRun: parsed.options.dryRun,
-          warnings: commandWarnings,
+          sourceFetchProgress,
         });
-        return renderMutatingCommandResult({
-          output,
-          warnings: commandWarnings,
-          json: parsed.options.json ?? false,
+      case "shadow":
+        return shadowWorktree({
+          cwd,
+          registryFile: stateLayout.registryFile,
+          action: parsed.options.action,
         });
-      }
-    case "remove":
-      if (parsed.options.all) {
-        const removePrompts = parsed.options.yes
-          ? createYesPromptClient(prompts)
-          : prompts;
-        const output = parsed.options.global
-          ? await removeAllGlobalBundles({
-              homeDir: options.homeDir ?? os.homedir(),
-              prompts: removePrompts,
-              registryFile: stateLayout.registryFile,
-              libraryDir: stateLayout.libraryDir,
-              source: parsed.options.source,
-              dryRun: parsed.options.dryRun,
-              warnings: commandWarnings,
-            })
-          : await removeAllWorktreeBundles({
-              cwd,
-              prompts: removePrompts,
-              registryFile: stateLayout.registryFile,
-              libraryDir: stateLayout.libraryDir,
-              source: parsed.options.source,
-              dryRun: parsed.options.dryRun,
-              warnings: commandWarnings,
-            });
-        return renderMutatingCommandResult({
-          output,
-          warnings: commandWarnings,
-          json: parsed.options.json ?? false,
+      case "sync":
+        return syncWorktree({
+          cwd,
+          registryFile: stateLayout.registryFile,
         });
-      }
+      case "reset":
+        if (parsed.options.global) {
+          const output = await resetGlobal({
+            homeDir: options.homeDir ?? os.homedir(),
+            prompts: parsed.options.yes
+              ? createYesPromptClient(prompts)
+              : prompts,
+            registryFile: stateLayout.registryFile,
+            dryRun: parsed.options.dryRun,
+            warnings: commandWarnings,
+          });
+          return renderMutatingCommandResult({
+            output,
+            warnings: commandWarnings,
+            json: parsed.options.json ?? false,
+          });
+        }
+        {
+          const output = await resetWorktree({
+            cwd,
+            prompts: parsed.options.yes
+              ? createYesPromptClient(prompts)
+              : prompts,
+            registryFile: stateLayout.registryFile,
+            dryRun: parsed.options.dryRun,
+            warnings: commandWarnings,
+          });
+          return renderMutatingCommandResult({
+            output,
+            warnings: commandWarnings,
+            json: parsed.options.json ?? false,
+          });
+        }
+      case "remove":
+        if (parsed.options.all) {
+          const removePrompts = parsed.options.yes
+            ? createYesPromptClient(prompts)
+            : prompts;
+          const output = parsed.options.global
+            ? await removeAllGlobalBundles({
+                homeDir: options.homeDir ?? os.homedir(),
+                prompts: removePrompts,
+                registryFile: stateLayout.registryFile,
+                libraryDir: stateLayout.libraryDir,
+                source: parsed.options.source,
+                dryRun: parsed.options.dryRun,
+                warnings: commandWarnings,
+              })
+            : await removeAllWorktreeBundles({
+                cwd,
+                prompts: removePrompts,
+                registryFile: stateLayout.registryFile,
+                libraryDir: stateLayout.libraryDir,
+                source: parsed.options.source,
+                dryRun: parsed.options.dryRun,
+                warnings: commandWarnings,
+              });
+          return renderMutatingCommandResult({
+            output,
+            warnings: commandWarnings,
+            json: parsed.options.json ?? false,
+          });
+        }
 
-      if (parsed.options.global) {
-        const output = await removeGlobalBundle({
-          homeDir: options.homeDir ?? os.homedir(),
-          prompts: parsed.options.yes
-            ? createYesPromptClient(prompts)
-            : prompts,
-          registryFile: stateLayout.registryFile,
-          libraryDir: stateLayout.libraryDir,
-          bundle: parsed.options.bundle,
-          source: parsed.options.source,
-          includeItems: parsed.options.includeItems ?? [],
-          selectItems: parsed.options.selectItems ?? false,
-          dryRun: parsed.options.dryRun,
-          inferredBundleFromSource: parsed.options.inferredBundleFromSource,
-          warnings: commandWarnings,
-        });
-        return renderMutatingCommandResult({
-          output,
-          warnings: commandWarnings,
-          json: parsed.options.json ?? false,
-        });
-      }
-      {
-        const output = await removeBundle({
+        if (parsed.options.global) {
+          const output = await removeGlobalBundle({
+            homeDir: options.homeDir ?? os.homedir(),
+            prompts: parsed.options.yes
+              ? createYesPromptClient(prompts)
+              : prompts,
+            registryFile: stateLayout.registryFile,
+            libraryDir: stateLayout.libraryDir,
+            bundle: parsed.options.bundle,
+            source: parsed.options.source,
+            includeItems: parsed.options.includeItems ?? [],
+            selectItems: parsed.options.selectItems ?? false,
+            dryRun: parsed.options.dryRun,
+            inferredBundleFromSource: parsed.options.inferredBundleFromSource,
+            warnings: commandWarnings,
+          });
+          return renderMutatingCommandResult({
+            output,
+            warnings: commandWarnings,
+            json: parsed.options.json ?? false,
+          });
+        }
+        {
+          const output = await removeBundle({
+            cwd,
+            prompts: parsed.options.yes
+              ? createYesPromptClient(prompts)
+              : prompts,
+            registryFile: stateLayout.registryFile,
+            libraryDir: stateLayout.libraryDir,
+            bundle: parsed.options.bundle,
+            source: parsed.options.source,
+            includeItems: parsed.options.includeItems ?? [],
+            selectItems: parsed.options.selectItems ?? false,
+            dryRun: parsed.options.dryRun,
+            inferredBundleFromSource: parsed.options.inferredBundleFromSource,
+            warnings: commandWarnings,
+          });
+          return renderMutatingCommandResult({
+            output,
+            warnings: commandWarnings,
+            json: parsed.options.json ?? false,
+          });
+        }
+      case "apply":
+        if (parsed.options.global) {
+          return applyGlobal({
+            homeDir: options.homeDir ?? os.homedir(),
+            prompts: parsed.options.yes
+              ? createYesPromptClient(prompts)
+              : prompts,
+            registryFile: stateLayout.registryFile,
+            libraryDir: stateLayout.libraryDir,
+            dryRun: parsed.options.dryRun,
+            sourceFetchProgress,
+          });
+        }
+        return applyWorktree({
           cwd,
-          prompts: parsed.options.yes
-            ? createYesPromptClient(prompts)
-            : prompts,
-          registryFile: stateLayout.registryFile,
-          libraryDir: stateLayout.libraryDir,
-          bundle: parsed.options.bundle,
-          source: parsed.options.source,
-          includeItems: parsed.options.includeItems ?? [],
-          selectItems: parsed.options.selectItems ?? false,
-          dryRun: parsed.options.dryRun,
-          inferredBundleFromSource: parsed.options.inferredBundleFromSource,
-          warnings: commandWarnings,
-        });
-        return renderMutatingCommandResult({
-          output,
-          warnings: commandWarnings,
-          json: parsed.options.json ?? false,
-        });
-      }
-    case "apply":
-      if (parsed.options.global) {
-        return applyGlobal({
-          homeDir: options.homeDir ?? os.homedir(),
           prompts: parsed.options.yes
             ? createYesPromptClient(prompts)
             : prompts,
@@ -460,18 +477,421 @@ export async function run(
           dryRun: parsed.options.dryRun,
           sourceFetchProgress,
         });
-      }
-      return applyWorktree({
-        cwd,
-        prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
-        registryFile: stateLayout.registryFile,
-        libraryDir: stateLayout.libraryDir,
-        dryRun: parsed.options.dryRun,
-        sourceFetchProgress,
-      });
-    default:
-      return assertUnreachable(parsed);
+      default:
+        return assertUnreachable(parsed);
+    }
+  };
+
+  const commandOutput = await runParsedCommand();
+
+  const dependencySync = dependencySyncRequest(parsed);
+
+  if (!dependencySync) {
+    return commandOutput;
   }
+
+  const dependencyLines = await syncBundleDependencies({
+    global: dependencySync.global,
+    cwd,
+    homeDir: options.homeDir ?? os.homedir(),
+    prompts: dependencySync.yes ? createYesPromptClient(prompts) : prompts,
+    registryFile: stateLayout.registryFile,
+    libraryDir: stateLayout.libraryDir,
+    sourceFetchProgress,
+    warnings: commandWarnings,
+  });
+
+  // Machine-readable results keep their shape; the dependency work still ran.
+  return dependencyLines.length === 0 || dependencySync.json
+    ? commandOutput
+    : [commandOutput, ...dependencyLines].join("\n");
+}
+
+/**
+ * Describes the dependency reconciliation a command calls for, or nothing for
+ * commands that cannot change which bundles are installed or required.
+ */
+function dependencySyncRequest(
+  parsed: CliParseResult,
+): { global: boolean; yes: boolean; json: boolean } | undefined {
+  if (parsed.kind !== "command") {
+    return undefined;
+  }
+
+  switch (parsed.command) {
+    case "add":
+    case "apply":
+    case "update":
+    case "remove":
+      return parsed.options.dryRun
+        ? undefined
+        : {
+            global:
+              "global" in parsed.options && parsed.options.global === true,
+            yes: "yes" in parsed.options && parsed.options.yes === true,
+            json: "json" in parsed.options && parsed.options.json === true,
+          };
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Brings the installed bundles in line with what the bundles the user chose
+ * require of other sources: installs what is newly required and removes what no
+ * installed bundle requires any more.
+ *
+ * Dependencies are recorded as ordinary desired-state entries marked implicit,
+ * so applying, updating and checking them needs no special case. They are
+ * recomputed from the manifests every time rather than counted.
+ */
+async function syncBundleDependencies(options: {
+  global: boolean;
+  cwd: string;
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  sourceFetchProgress?: SourceFetchProgress;
+  warnings: CommandWarningCollector;
+}): Promise<string[]> {
+  const scope = readDependencyScope(options);
+
+  if (!scope) {
+    return [];
+  }
+
+  const current = scope.desiredState;
+  const direct = current
+    .filter((entry) => !entry.implicit)
+    .map(withoutDependencyFields);
+  let dependencies: Awaited<ReturnType<typeof resolveBundleDependencies>>;
+
+  try {
+    dependencies = await resolveBundleDependencies({
+      entries: direct,
+      knownSources: current.flatMap((entry) =>
+        entry.source !== undefined ? [entry.source] : [],
+      ),
+      resolveCachedBundle: (entry) => {
+        try {
+          return resolveDesiredCachedBundle(options.libraryDir, entry);
+        } catch (error) {
+          throw new UncachedDependencyRequirer(error);
+        }
+      },
+      libraryDir: options.libraryDir,
+      confirmNewSources: async (sources) => {
+        if (!(await options.prompts.confirmDependencySources(sources))) {
+          throw new Error(
+            `Dependency installation declined for: ${sources.join(", ")}`,
+          );
+        }
+      },
+      sourceFetchProgress: options.sourceFetchProgress,
+    });
+  } catch (error) {
+    // Without a bundle's manifest its requirements are unknown, and treating
+    // that as "requires nothing" would remove its dependencies.
+    if (error instanceof UncachedDependencyRequirer) {
+      return [];
+    }
+
+    throw error;
+  }
+
+  const next = reconcileDependencyEntries({
+    desiredState: current,
+    dependencies,
+    warn: (message) => reportCommandWarning(message, options.warnings),
+  });
+  const nextKeys = new Set(next.map(bundleKey));
+  const orphaned = current.filter(
+    (entry) => entry.implicit && !nextKeys.has(bundleKey(entry)),
+  );
+  const lines: string[] = [];
+
+  for (const entry of orphaned) {
+    await scope.remove(entry);
+    lines.push(`Removed dependency ${entry.bundle} [${entry.source}]`);
+  }
+
+  const afterRemoval = readDependencyScope(options)?.desiredState ?? [];
+
+  if (desiredStatesEqual(afterRemoval, next)) {
+    return lines;
+  }
+
+  scope.write(next);
+
+  const currentKeys = new Set(current.map(bundleKey));
+
+  for (const entry of next) {
+    if (entry.implicit && !currentKeys.has(bundleKey(entry))) {
+      lines.push(
+        `Installed dependency ${entry.bundle} [${entry.source}] (required by ${(entry.required_by ?? []).join(", ")})`,
+      );
+    }
+  }
+
+  await scope.apply();
+
+  // Applying may re-add entries through the add flow, which treats them as
+  // chosen by the user; put the dependency bookkeeping back.
+  scope.write(
+    restoreDependencyFields(readDependencyScope(options)!.desiredState, next),
+  );
+
+  return lines;
+}
+
+function restoreDependencyFields(
+  applied: DesiredBundleEntry[],
+  expected: DesiredBundleEntry[],
+): DesiredBundleEntry[] {
+  const expectedByKey = new Map(
+    expected.map((entry) => [bundleKey(entry), entry]),
+  );
+
+  return applied.map((entry) => {
+    const wanted = expectedByKey.get(bundleKey(entry));
+
+    if (!wanted) {
+      return entry;
+    }
+
+    return {
+      ...withoutDependencyFields(entry),
+      ...(wanted.implicit
+        ? { items: wanted.items, implicit: true as const }
+        : {}),
+      ...(wanted.required_by !== undefined
+        ? { required_by: wanted.required_by }
+        : {}),
+      ...(wanted.required_items !== undefined
+        ? { required_items: wanted.required_items }
+        : {}),
+    };
+  });
+}
+
+class UncachedDependencyRequirer extends Error {
+  constructor(cause: unknown) {
+    super("A bundle's manifest is not cached", { cause });
+  }
+}
+
+/** Reads, writes, applies and removes entries of the project or global desired state. */
+function readDependencyScope(options: {
+  global: boolean;
+  cwd: string;
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  sourceFetchProgress?: SourceFetchProgress;
+  warnings: CommandWarningCollector;
+}):
+  | {
+      desiredState: DesiredBundleEntry[];
+      write: (desiredState: DesiredBundleEntry[]) => void;
+      apply: () => Promise<unknown>;
+      remove: (entry: DesiredBundleEntry) => Promise<unknown>;
+    }
+  | undefined {
+  const registry = readRegistryWithGuidance(options.registryFile);
+
+  if (options.global) {
+    const globalState = registry.global;
+
+    if (!globalState || globalState.desired_state.length === 0) {
+      return undefined;
+    }
+
+    return {
+      desiredState: globalState.desired_state,
+      write: (desiredState) => {
+        const latest = readRegistryWithGuidance(options.registryFile);
+        writeRegistryFile(
+          options.registryFile,
+          upsertGlobalState(latest, {
+            ...latest.global!,
+            desired_state: desiredState,
+          }),
+        );
+      },
+      apply: () =>
+        applyGlobal({
+          homeDir: options.homeDir,
+          prompts: options.prompts,
+          registryFile: options.registryFile,
+          libraryDir: options.libraryDir,
+          dryRun: false,
+          warnings: options.warnings,
+          sourceFetchProgress: options.sourceFetchProgress,
+        }),
+      remove: (entry) =>
+        removeGlobalBundle({
+          homeDir: options.homeDir,
+          prompts: options.prompts,
+          registryFile: options.registryFile,
+          libraryDir: options.libraryDir,
+          bundle: entry.bundle,
+          source: entry.source,
+          includeItems: [],
+          selectItems: false,
+          dryRun: false,
+          removingOrphanedDependency: true,
+          warnings: options.warnings,
+        }),
+    };
+  }
+
+  const gitContext = detectGitContext({ cwd: options.cwd });
+  const repoState = gitContext
+    ? registry.repos[gitContext.repoFingerprint]
+    : undefined;
+
+  if (!gitContext || !repoState || repoState.desired_state.length === 0) {
+    return undefined;
+  }
+
+  return {
+    desiredState: repoState.desired_state,
+    write: (desiredState) => {
+      const latest = readRegistryWithGuidance(options.registryFile);
+      writeRegistryFile(
+        options.registryFile,
+        upsertRepoState(latest, gitContext.repoFingerprint, {
+          ...latest.repos[gitContext.repoFingerprint]!,
+          repo_root: gitContext.repoRoot,
+          desired_state: desiredState,
+        }),
+      );
+    },
+    apply: () =>
+      applyWorktree({
+        cwd: options.cwd,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        dryRun: false,
+        warnings: options.warnings,
+        sourceFetchProgress: options.sourceFetchProgress,
+      }),
+    remove: (entry) =>
+      removeBundle({
+        cwd: options.cwd,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        bundle: entry.bundle,
+        source: entry.source,
+        includeItems: [],
+        selectItems: false,
+        dryRun: false,
+        removingOrphanedDependency: true,
+        warnings: options.warnings,
+      }),
+  };
+}
+
+/**
+ * Rebuilds the desired state so that its implicit entries are exactly the
+ * resolved dependencies, and every entry names who requires it.
+ */
+function reconcileDependencyEntries(options: {
+  desiredState: DesiredBundleEntry[];
+  dependencies: Awaited<ReturnType<typeof resolveBundleDependencies>>;
+  warn: (message: string) => void;
+}): DesiredBundleEntry[] {
+  const existing = new Map(
+    options.desiredState.map((entry) => [bundleKey(entry), entry]),
+  );
+  const direct = options.desiredState
+    .filter((entry) => !entry.implicit)
+    .map((entry) => {
+      const bare = withoutDependencyFields(entry);
+      const dependency = options.dependencies.get(bundleKey(entry));
+
+      return dependency
+        ? {
+            ...bare,
+            required_by: Array.from(dependency.requiredBy).sort(),
+            ...(bare.items !== undefined
+              ? { required_items: Array.from(dependency.items).sort() }
+              : {}),
+          }
+        : bare;
+    });
+  const directKeys = new Set(direct.map(bundleKey));
+  const implicit: DesiredBundleEntry[] = [];
+
+  for (const [key, dependency] of Array.from(
+    options.dependencies.entries(),
+  ).sort(([left], [right]) => left.localeCompare(right))) {
+    if (directKeys.has(key)) {
+      continue;
+    }
+
+    const supported = Object.keys(
+      dependency.cachedBundle.manifest.tools,
+    ) as ToolName[];
+    const tools = supported.filter((tool) => dependency.tools.has(tool)).sort();
+    const unsupported = Array.from(dependency.tools).filter(
+      (tool) => !supported.includes(tool),
+    );
+
+    if (tools.length === 0) {
+      options.warn(
+        `Skipping dependency ${dependency.bundle} [${dependency.source}]: it supports none of ${Array.from(dependency.tools).join(", ")}, which ${Array.from(dependency.requiredBy).join(", ")} install for`,
+      );
+      continue;
+    }
+
+    if (unsupported.length > 0) {
+      options.warn(
+        `Dependency ${dependency.bundle} [${dependency.source}] does not support ${unsupported.join(", ")}; it is installed for ${tools.join(", ")} only`,
+      );
+    }
+
+    const previous = existing.get(key);
+    const keepsResolution =
+      previous?.implicit && previous.ref === dependency.ref;
+
+    implicit.push({
+      bundle: dependency.bundle,
+      source: dependency.source,
+      protocol: dependency.protocol,
+      tools,
+      items: [],
+      implicit: true,
+      required_by: Array.from(dependency.requiredBy).sort(),
+      required_items: Array.from(dependency.items).sort(),
+      ...(dependency.ref !== undefined ? { ref: dependency.ref } : {}),
+      ...(keepsResolution && previous.resolved_ref !== undefined
+        ? { resolved_ref: previous.resolved_ref }
+        : {}),
+      ...(keepsResolution && previous.resolved_commit !== undefined
+        ? { resolved_commit: previous.resolved_commit }
+        : {}),
+    });
+  }
+
+  return [...direct, ...implicit];
+}
+
+function withoutDependencyFields(
+  entry: DesiredBundleEntry,
+): DesiredBundleEntry {
+  const {
+    implicit: _implicit,
+    required_by: _by,
+    required_items: _items,
+    ...bare
+  } = entry;
+
+  return bare;
 }
 
 /**
@@ -530,6 +950,7 @@ function createYesPromptClient(
       : {}),
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
+    confirmDependencySources: async () => true,
   };
 }
 
@@ -2118,6 +2539,7 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
     selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
+    confirmDependencySources: promptClient.confirmDependencySources,
   };
 }
 
@@ -2307,7 +2729,7 @@ function renderStatus(options: {
     for (const entry of repoState.desired_state) {
       const toolSuffix = entry.tools ? ` (${entry.tools.join(", ")})` : "";
       lines.push(
-        `Bundle: ${pc.cyan(formatBundleLabel(entry, repoState.desired_state))}${toolSuffix}`,
+        `Bundle: ${pc.cyan(formatBundleLabel(entry, repoState.desired_state))}${toolSuffix}${formatRequiredBySuffix(entry)}`,
       );
     }
   } else {
@@ -2771,7 +3193,7 @@ async function updateBundles(options: {
         bundleDir: path.dirname(cachedBundle.manifestFile),
         manifest: cachedBundle.manifest,
         tools: toolsToRefresh,
-        itemSelectors: entry.items,
+        itemSelectors: effectiveDesiredItems(entry),
         libraryDir: options.libraryDir,
         protocol: entry.protocol,
         sourceFetchProgress: options.sourceFetchProgress,
@@ -2782,7 +3204,7 @@ async function updateBundles(options: {
         bundleDir: path.dirname(cachedBundle.manifestFile),
         manifest: cachedBundle.manifest,
         tools: toolsToRefresh,
-        itemSelectors: entry.items,
+        itemSelectors: effectiveDesiredItems(entry),
         disableModelInvocation: entry.disable_model_invocation,
         resolvedBundleItemRefs,
       };
@@ -2809,7 +3231,7 @@ async function updateBundles(options: {
             toolsToRefresh ??
             (Object.keys(cachedBundle.manifest.tools) as ToolName[]),
         }),
-        itemSelectors: entry.items,
+        itemSelectors: effectiveDesiredItems(entry),
         targetPaths: plannedRootInstructionTargets,
         bundleName: entry.bundle,
         bundleSource: entry.source,
@@ -2927,7 +3349,7 @@ async function updateBundles(options: {
             source: entry.source,
             resolvedCommit: refreshed.currentCommit,
             selectedTools: toolsToRefresh,
-            selectedItems: entry.items,
+            selectedItems: effectiveDesiredItems(entry),
           }),
         };
         mcpOwnership.recordMaterialization(materializedResult);
@@ -4986,6 +5408,8 @@ async function removeBundle(options: {
   selectItems: boolean;
   dryRun: boolean;
   inferredBundleFromSource?: true;
+  /** Set when removing a dependency nothing requires any more, which is not a user removal. */
+  removingOrphanedDependency?: true;
   warnings?: CommandWarningCollector;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "remove");
@@ -5028,6 +5452,13 @@ async function removeBundle(options: {
   const bundle = identity.bundle;
   const source = identity.source;
   const key = bundleKey(identity);
+
+  assertNotRequiredByOtherBundles({
+    entry: repoState?.desired_state.find(
+      (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
+    ),
+    removingOrphanedDependency: options.removingOrphanedDependency,
+  });
 
   const isInDesiredState =
     repoState?.desired_state.some(
@@ -5796,6 +6227,24 @@ function isRemoveBundleActive(options: {
   );
 }
 
+/** Refuses to remove a bundle that exists only because other bundles require it. */
+function assertNotRequiredByOtherBundles(options: {
+  entry?: DesiredBundleEntry;
+  removingOrphanedDependency?: true;
+}): void {
+  if (
+    options.removingOrphanedDependency ||
+    !options.entry?.implicit ||
+    !options.entry.required_by?.length
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `${options.entry.bundle} is installed because ${options.entry.required_by.join(", ")} require${options.entry.required_by.length === 1 ? "s" : ""} it. Remove ${options.entry.required_by.length === 1 ? "that bundle" : "those bundles"} first`,
+  );
+}
+
 function matchesOptionalSource(
   candidateSource: string | undefined,
   requestedSource: string | undefined,
@@ -6159,7 +6608,7 @@ async function applyWorktree(options: {
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
-      itemSelectors: entry.items,
+      itemSelectors: effectiveDesiredItems(entry),
       libraryDir: options.libraryDir,
       protocol: entry.protocol,
       sourceFetchProgress: options.sourceFetchProgress,
@@ -6169,7 +6618,7 @@ async function applyWorktree(options: {
       bundleDir: path.dirname(cachedBundle.manifestFile),
       manifest: cachedBundle.manifest,
       tools: toolsToApply,
-      itemSelectors: entry.items,
+      itemSelectors: effectiveDesiredItems(entry),
       resolvedBundleItemRefs,
     };
     const plannedWriteTargets =
@@ -6191,7 +6640,7 @@ async function applyWorktree(options: {
         existingBundleState,
         nextToolNames: toolsToApply ?? availableTools,
       }),
-      itemSelectors: entry.items,
+      itemSelectors: effectiveDesiredItems(entry),
       targetPaths: plannedRootInstructionTargets,
       bundleName: entry.bundle,
       bundleSource: entry.source,
@@ -6339,7 +6788,7 @@ async function applyWorktree(options: {
         source: entry.source,
         resolvedCommit: entry.resolved_commit ?? sourceRevision?.currentCommit,
         selectedTools: refreshesExistingBundle ? undefined : toolsToApply,
-        selectedItems: entry.items,
+        selectedItems: effectiveDesiredItems(entry),
       }),
     };
     currentShadowedFiles = applyTrackedShadowPlan({
@@ -7209,7 +7658,7 @@ function isDesiredBundleMaterialized(options: {
       (toolName) =>
         toolName in options.materializedBundleState.tools &&
         bundleItemSelectionsEqual(
-          options.desiredEntry.items,
+          effectiveDesiredItems(options.desiredEntry),
           options.materializedBundleState.tools[toolName]?.items,
         ),
     ) &&
@@ -7244,7 +7693,7 @@ function getToolsToApply(options: {
     (toolName) =>
       !(toolName in existingTools) ||
       !bundleItemSelectionsEqual(
-        options.desiredEntry.items,
+        effectiveDesiredItems(options.desiredEntry),
         existingTools[toolName]?.items,
       ),
   );
@@ -8786,6 +9235,13 @@ function labelMaterializedBundles(
   return states.map((state) => [formatBundleLabel(state, states), state]);
 }
 
+/** Notes which bundles require an entry, when any do. */
+function formatRequiredBySuffix(entry: DesiredBundleEntry): string {
+  return entry.required_by?.length
+    ? pc.dim(` (required by ${entry.required_by.join(", ")})`)
+    : "";
+}
+
 /** Names a bundle, adding its source only where another listed bundle shares its name. */
 function formatBundleLabel(
   bundle: { bundle: string; source?: string | null },
@@ -8842,7 +9298,7 @@ function renderGlobalStatus(options: {
   if (globalState && globalState.desired_state.length > 0) {
     for (const entry of globalState.desired_state) {
       lines.push(
-        `Bundle: ${pc.cyan(formatBundleLabel(entry, globalState.desired_state))}`,
+        `Bundle: ${pc.cyan(formatBundleLabel(entry, globalState.desired_state))}${formatRequiredBySuffix(entry)}`,
       );
     }
   } else {
@@ -8888,6 +9344,8 @@ async function removeGlobalBundle(options: {
   selectItems: boolean;
   dryRun: boolean;
   inferredBundleFromSource?: true;
+  /** Set when removing a dependency nothing requires any more, which is not a user removal. */
+  removingOrphanedDependency?: true;
   warnings?: CommandWarningCollector;
 }): Promise<string> {
   const repoRelPathRemapper =
@@ -8929,6 +9387,14 @@ async function removeGlobalBundle(options: {
   const bundle = identity.bundle;
   const source = identity.source;
   const key = bundleKey(identity);
+
+  assertNotRequiredByOtherBundles({
+    entry: globalState?.desired_state.find(
+      (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
+    ),
+    removingOrphanedDependency: options.removingOrphanedDependency,
+  });
+
   const isInDesiredState =
     globalState?.desired_state.some(
       (e) => e.bundle === bundle && matchesOptionalSource(e.source, source),
@@ -9715,7 +10181,7 @@ async function applyGlobal(options: {
         source: entry.source,
         protocol: entry.protocol,
         agents: entry.tools ?? [],
-        includeItems: entry.items ?? [],
+        includeItems: effectiveDesiredItems(entry) ?? [],
         selectItems: false,
         dryRun: false,
         ref: entry.ref,

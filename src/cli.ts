@@ -149,6 +149,8 @@ export interface PromptClient {
     conflictPath: string,
     operation: "reset" | "replace" | "remove",
   ): Promise<boolean>;
+  /** Asks before fetching sources that bundles require but no installed bundle came from. */
+  confirmDependencySources(sources: string[]): Promise<boolean>;
 }
 
 const COMMANDS: CommandName[] = [
@@ -310,6 +312,11 @@ export function createHeadlessPromptClient(): PromptClient {
         `Modified managed file blocks ${operation} in headless mode: ${conflictPath}\nHint: run 'skul status' to inspect managed files, or run the command interactively to confirm`,
       );
     },
+    async confirmDependencySources(sources: string[]): Promise<boolean> {
+      throw new Error(
+        `Installing dependencies needs sources you have not installed from (headless mode): ${sources.join(", ")}\nHint: pass --yes to allow them, or run the command interactively to confirm`,
+      );
+    },
   };
 }
 
@@ -447,6 +454,14 @@ export function createPromptClientForSelections(
 
       return confirmed;
     },
+    async confirmDependencySources(sources: string[]): Promise<boolean> {
+      const { confirm, isCancel } = await loadPrompts();
+      const confirmed = await confirm({
+        message: `Installed bundles require items from sources you have not installed from:\n${sources.map((source) => `  ${source}`).join("\n")}\nFetch and install them?`,
+      });
+
+      return !isCancel(confirmed) && confirmed;
+    },
   };
 }
 
@@ -494,6 +509,7 @@ export function createHelpText(command?: CommandName): string {
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
+    confirmDependencySources: async () => true,
   });
   const writeOutput = (chunk: string) => {
     output.push(chunk);

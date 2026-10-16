@@ -120,6 +120,50 @@ export async function resolveBundleItemRefs(options: {
   return resolved;
 }
 
+/**
+ * Fetches `source` and finds the bundle that ships `item`, for a requirement
+ * declared in another bundle's manifest. `origin` names the requirer in errors.
+ */
+export async function locateExternalBundleItem(options: {
+  source: string;
+  bundle?: string;
+  item: BundleItemSelector;
+  ref?: string;
+  libraryDir: string;
+  protocol: "https" | "ssh";
+  origin: string;
+  sourceFetchProgress?: SourceFetchProgress;
+}): Promise<{ source: string; cachedBundle: CachedBundle }> {
+  const source = normalizeBundleSource(options.source);
+
+  await ensureReferencedSourceRevision({
+    source,
+    libraryDir: options.libraryDir,
+    protocol:
+      detectSourceProtocol(options.source) === "ssh" ? "ssh" : options.protocol,
+    ref: options.ref,
+    sourceFetchProgress: options.sourceFetchProgress,
+  });
+
+  const cachedBundle = resolveReferencedCachedBundle({
+    libraryDir: options.libraryDir,
+    source,
+    bundle: options.bundle,
+    item: options.item,
+    refFilePath: options.origin,
+  });
+
+  resolveReferencedItemPath({
+    cachedBundleDir: path.dirname(cachedBundle.manifestFile),
+    manifest: cachedBundle.manifest,
+    item: options.item,
+    source,
+    refFilePath: options.origin,
+  });
+
+  return { source, cachedBundle };
+}
+
 export function listBundleItemRefSelectors(options: {
   bundleDir: string;
   manifest?: BundleManifest;

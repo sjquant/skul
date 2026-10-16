@@ -16,6 +16,19 @@ export const MANIFEST_FILE_NAME = "manifest.json";
 const BUNDLE_ITEM_REFS_FILE_NAME = "skul.refs.json";
 const ROOT_INSTRUCTION_REF_TARGET = "root-instruction";
 
+/** An item of another source that a bundle item needs. */
+export interface ExternalBundleRequirement {
+  source: string;
+  item: string;
+  /** Needed only when several bundles of the source ship the item. */
+  bundle?: string;
+  /** Branch, tag, or commit of the source to install the item from. */
+  ref?: string;
+}
+
+/** One requirement: an item of the same bundle, or an item of another source. */
+export type BundleRequirement = string | ExternalBundleRequirement;
+
 export interface BundleManifestTarget {
   path: string;
 }
@@ -27,7 +40,7 @@ export interface BundleManifest {
    * Items of this bundle that other items need, keyed by the item that needs
    * them. Selecting an item installs everything it requires, transitively.
    */
-  requires?: Record<string, string[]>;
+  requires?: Record<string, BundleRequirement[]>;
   tools: Partial<
     Record<ToolName, Partial<Record<ToolTargetName, BundleManifestTarget>>>
   >;
@@ -116,7 +129,7 @@ export function parseBundleManifest(input: unknown): BundleManifest {
 
 const REQUIRED_ITEM_PATTERN = /^(skills|commands|agents)\/[^/]+$/;
 
-function parseRequires(input: unknown): Record<string, string[]> {
+function parseRequires(input: unknown): Record<string, BundleRequirement[]> {
   const requires = expectRecord(input, "requires");
 
   return Object.fromEntries(
@@ -129,16 +142,58 @@ function parseRequires(input: unknown): Record<string, string[]> {
 
       return [
         item,
-        requiredInput.map((required, index) => {
-          if (typeof required !== "string") {
-            throw new Error(`requires.${item}[${index}] must be a string`);
-          }
-          assertRequiresItem(required, `requires.${item}[${index}]`);
-          return required;
-        }),
+        requiredInput.map((required, index) =>
+          parseRequirement(required, `requires.${item}[${index}]`),
+        ),
       ];
     }),
   );
+}
+
+function parseRequirement(input: unknown, label: string): BundleRequirement {
+  if (typeof input === "string") {
+    assertRequiresItem(input, label);
+    return input;
+  }
+
+  const requirement = expectRecord(input, label);
+  const allowed = new Set(["source", "item", "bundle", "ref"]);
+
+  for (const key of Object.keys(requirement)) {
+    if (!allowed.has(key)) {
+      throw new Error(`${label}.${key} is not a supported requirement field`);
+    }
+  }
+
+  const source = requirement.source;
+  const item = requirement.item;
+
+  if (typeof source !== "string" || source.trim() === "") {
+    throw new Error(`${label}.source must be a non-empty string`);
+  }
+
+  if (typeof item !== "string") {
+    throw new Error(`${label}.item must be a string`);
+  }
+
+  assertRequiresItem(item, `${label}.item`);
+
+  for (const optional of ["bundle", "ref"] as const) {
+    const value = requirement[optional];
+
+    if (value !== undefined && (typeof value !== "string" || value === "")) {
+      throw new Error(`${label}.${optional} must be a non-empty string`);
+    }
+  }
+
+  return {
+    source,
+    item,
+    ...(typeof requirement.bundle === "string"
+      ? { bundle: requirement.bundle }
+      : {}),
+    ...(typeof requirement.ref === "string" ? { ref: requirement.ref } : {}),
+  };
 }
 
 function assertRequiresItem(value: string, label: string): void {

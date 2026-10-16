@@ -157,7 +157,12 @@ README에 다음 기준을 적습니다. "다른 저장소의 아이템을 그�
 
 0. **선행 문제 해결.** P1(경로 충돌 거부)과 P2(`(source, bundle)` 식별자) 모두 끝났습니다. 둘 다 의존성 기능과 별개로 지금도 있던 버그입니다.
 1. **같은 번들 안의 `requires`. (구현됨)** 외부 소스 없이 `--include`/`--select-items` closure만 처리합니다. 소유권 문제가 없어 범위가 작습니다. `manifest.json`의 `requires`는 `skills/`, `commands/`, `agents/` 셀렉터만 받고, 설치 입구(`materializeBundle`, `previewMaterializeBundleWriteTargets`, `resolveBundleItemRefs`)에서 선택된 아이템에 필요한 아이템을 전이적으로 더합니다. 레지스트리에는 사용자가 고른 아이템만 저장하고, 가리킨 아이템이 번들에 없으면 파일을 쓰기 전에 오류를 냅니다. 아직 없는 것: dry-run과 picker에서 의존성으로 추가되는 아이템 표시.
-2. **외부 `requires`.** 전이 해석, 새 소스 확인, ref 충돌, 자동 정리, `status` 표시, refs origin의 `requires` 추적.
+2. **외부 `requires`. (구현됨)** 전이 해석, 새 소스 확인, ref 충돌, 자동 정리, `status` 표시. 설계 초안과 달라진 점:
+   - 의존성은 계산 결과로만 두지 않고 `desired_state`에 `implicit: true` 항목으로 저장합니다(`required_by`, `required_items`, `items: []` 포함). 그래야 `apply`, `update`, `check`가 일반 항목과 같은 경로를 타고, 다른 워크트리의 `apply`도 의존성을 함께 설치합니다. 항목 목록은 `add`/`remove`/`apply`/`update`가 끝날 때마다 매니페스트에서 다시 계산해 덮어쓰므로 개수를 세지 않습니다.
+   - 사용자가 직접 추가한 번들이 동시에 의존성이기도 하면 `items`는 사용자의 선택 그대로 두고 `required_items`를 따로 기록합니다. 설치 범위는 둘의 합집합(`effectiveDesiredItems`)입니다.
+   - 새 소스 확인은 프롬프트 메서드 `confirmDependencySources`로 합니다. 거절하거나 비대화형에서 `--yes`가 없으면, 요구하는 번들은 이미 설치된 채로 의존성 단계만 실패합니다.
+   - ref 충돌은 어떤 소스도 내려받기 전에 한꺼번에 검사합니다.
+   - 아직 없는 것: refs로 가져온 아이템의 원본 번들이 가진 `requires`를 따라가는 것, dry-run과 picker에서 의존성으로 추가될 항목을 미리 보여주는 것, 의존성을 요구하는 번들이 `tools`를 좁게 지정한 직접 항목일 때 그 도구까지 넓히는 것.
 3. **(필요할 때) lockfile.** 다른 컴퓨터에서 같은 의존성 커밋을 재현해야 할 때 검토합니다.
 
 ## 열린 질문

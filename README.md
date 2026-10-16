@@ -191,6 +191,29 @@ An item can declare the other items of the same bundle that it needs, with `requ
 
 Selecting `skills/deploy` (for example with `--include skills/deploy`) also installs `skills/k8s-context`, and anything that item requires in turn. The registry records only the items you selected, so a later change to `requires` takes effect on the next `skul apply` or `skul update`. Only skills, commands, and agents can be listed, and a requirement on an item the bundle does not ship fails before anything is written.
 
+A requirement can also name an item of another source:
+
+```json
+{
+  "requires": {
+    "skills/deploy": [
+      { "source": "acme/shared", "item": "skills/git", "ref": "v2" }
+    ]
+  }
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `source` | yes | The source to install the item from, in any form `skul add` accepts. |
+| `item` | yes | The skill, command, or agent to install, such as `skills/git`. |
+| `bundle` | when ambiguous | The bundle of that source that ships the item, when several do. |
+| `ref` | no | Branch, tag, or commit of the source. Two bundles asking for different refs of one source fail with an error naming both. |
+
+Installing a bundle also installs those items, and whatever they require in turn, recording each as a dependency of the bundle. A dependency installs only the items that were required, for the tools its requirers install for that it supports, and is installed once however many bundles require it. `skul status` shows `(required by …)` next to it. A dependency cannot be removed on its own; it goes when the last bundle requiring it is removed. If you add a bundle you already have as a dependency, it becomes a regular bundle that stays when its requirers go.
+
+A source that no installed bundle came from is a source you never named, so Skul asks before fetching it. `--yes` allows it; with `SKUL_NO_TUI=1` and no `--yes` the command fails and says which sources were refused. Dependencies are installed in the same scope as the bundle that requires them (project or `--global`).
+
 When `tools` is present, declared tools are the selection boundary: inferred non-root targets for those tools are retained, while explicit targets override them. Root-instruction targets must be declared explicitly in that mode so stale filesystem files cannot reappear after an update. In a multi-bundle repository, a bundle directory manifest takes precedence over repository-root metadata. Bundle identity remains the directory name (or repository slug for repo-as-bundle); `name` is display metadata only.
 
 In a multi-bundle repository, the repository-root manifest supplies metadata defaults such as `root_instruction_mode` to child bundles, and a child manifest overrides those defaults. Repository-root `tools` declarations are used for repo-as-bundle layouts; child directories define their own tool targets in multi-bundle layouts.

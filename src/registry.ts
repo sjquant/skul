@@ -68,6 +68,12 @@ export interface DesiredBundleEntry {
   disable_model_invocation?: boolean;
   /** Root-instruction composition strategy. Defaults to append for legacy entries. */
   root_instruction_mode?: RootInstructionMode;
+  /** True when the entry exists only because other bundles require it. */
+  implicit?: true;
+  /** Registry keys of the entries that require this one; recomputed from their manifests. */
+  required_by?: string[];
+  /** Items other bundles require of this one, installed alongside `items`. */
+  required_items?: BundleItemSelector[];
 }
 
 export interface MaterializedToolState {
@@ -232,6 +238,58 @@ export function writeRegistryFile(
 }
 
 /** Replaces one repository entry in the registry while preserving all others. */
+/**
+ * The items an entry installs: its own selection plus whatever other bundles
+ * require of it. `undefined` means every item.
+ */
+export function effectiveDesiredItems(
+  entry: DesiredBundleEntry,
+): BundleItemSelector[] | undefined {
+  if (entry.items === undefined) {
+    return undefined;
+  }
+
+  return Array.from(new Set([...entry.items, ...(entry.required_items ?? [])]));
+}
+
+/** True when two desired states describe the same bundles, whatever their field order. */
+export function desiredStatesEqual(
+  left: readonly DesiredBundleEntry[],
+  right: readonly DesiredBundleEntry[],
+): boolean {
+  return (
+    JSON.stringify(left.map(cloneDesiredEntry)) ===
+    JSON.stringify(right.map(cloneDesiredEntry))
+  );
+}
+
+function cloneDesiredEntry(entry: DesiredBundleEntry): DesiredBundleEntry {
+  return {
+    bundle: entry.bundle,
+    ...(entry.source !== undefined ? { source: entry.source } : {}),
+    ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
+    ...(entry.items !== undefined ? { items: [...entry.items] } : {}),
+    protocol: entry.protocol,
+    ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
+    ...(entry.resolved_ref !== undefined
+      ? { resolved_ref: entry.resolved_ref }
+      : {}),
+    ...(entry.resolved_commit !== undefined
+      ? { resolved_commit: entry.resolved_commit }
+      : {}),
+    ...(entry.root_instruction_mode !== undefined
+      ? { root_instruction_mode: entry.root_instruction_mode }
+      : {}),
+    ...(entry.implicit !== undefined ? { implicit: entry.implicit } : {}),
+    ...(entry.required_by !== undefined
+      ? { required_by: [...entry.required_by] }
+      : {}),
+    ...(entry.required_items !== undefined
+      ? { required_items: [...entry.required_items] }
+      : {}),
+  };
+}
+
 export function upsertRepoState(
   registry: Registry,
   repoFingerprint: string,
@@ -243,23 +301,7 @@ export function upsertRepoState(
       ...registry.repos,
       [repoFingerprint]: {
         ...repoState,
-        desired_state: repoState.desired_state.map((entry) => ({
-          bundle: entry.bundle,
-          ...(entry.source !== undefined ? { source: entry.source } : {}),
-          ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
-          ...(entry.items !== undefined ? { items: [...entry.items] } : {}),
-          protocol: entry.protocol,
-          ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
-          ...(entry.resolved_ref !== undefined
-            ? { resolved_ref: entry.resolved_ref }
-            : {}),
-          ...(entry.resolved_commit !== undefined
-            ? { resolved_commit: entry.resolved_commit }
-            : {}),
-          ...(entry.root_instruction_mode !== undefined
-            ? { root_instruction_mode: entry.root_instruction_mode }
-            : {}),
-        })),
+        desired_state: repoState.desired_state.map(cloneDesiredEntry),
       },
     },
     worktrees: { ...registry.worktrees },
@@ -448,6 +490,25 @@ function parseDesiredBundleEntry(
     entry.resolved_commit === undefined
       ? undefined
       : expectGitObjectId(entry.resolved_commit, `${label}.resolved_commit`);
+  const requiredBy =
+    entry.required_by === undefined
+      ? undefined
+      : expectArray(entry.required_by, `${label}.required_by`).map(
+          (value, index) =>
+            expectNonEmptyString(value, `${label}.required_by[${index}]`),
+        );
+  const requiredItems =
+    entry.required_items === undefined
+      ? undefined
+      : expectArray(entry.required_items, `${label}.required_items`).map(
+          (value, index) =>
+            normalizeBundleItemSelector(
+              expectNonEmptyString(value, `${label}.required_items[${index}]`),
+            ),
+        );
+  if (entry.implicit !== undefined && entry.implicit !== true) {
+    throw new Error(`${label}.implicit must be true when present`);
+  }
 
   return {
     bundle,
@@ -463,6 +524,9 @@ function parseDesiredBundleEntry(
     ...(rootInstructionMode !== undefined
       ? { root_instruction_mode: rootInstructionMode }
       : {}),
+    ...(entry.implicit === true ? { implicit: true as const } : {}),
+    ...(requiredBy !== undefined ? { required_by: requiredBy } : {}),
+    ...(requiredItems !== undefined ? { required_items: requiredItems } : {}),
   };
 }
 
@@ -800,23 +864,7 @@ function sortRegistry(registry: Registry): Registry {
           repoFingerprint,
           {
             ...repoState,
-            desired_state: repoState.desired_state.map((entry) => ({
-              bundle: entry.bundle,
-              ...(entry.source !== undefined ? { source: entry.source } : {}),
-              ...(entry.tools !== undefined ? { tools: [...entry.tools] } : {}),
-              ...(entry.items !== undefined ? { items: [...entry.items] } : {}),
-              protocol: entry.protocol,
-              ...(entry.ref !== undefined ? { ref: entry.ref } : {}),
-              ...(entry.resolved_ref !== undefined
-                ? { resolved_ref: entry.resolved_ref }
-                : {}),
-              ...(entry.resolved_commit !== undefined
-                ? { resolved_commit: entry.resolved_commit }
-                : {}),
-              ...(entry.root_instruction_mode !== undefined
-                ? { root_instruction_mode: entry.root_instruction_mode }
-                : {}),
-            })),
+            desired_state: repoState.desired_state.map(cloneDesiredEntry),
           },
         ]),
     ),

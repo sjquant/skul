@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { listBundleItemRefSelectors } from "./bundle-item-refs";
-import type { BundleManifest } from "./bundle-manifest";
+import type {
+  BundleManifest,
+  ExternalBundleRequirement,
+} from "./bundle-manifest";
 import {
   getToolDefinition,
   type ToolName,
@@ -120,7 +123,9 @@ export function expandRequiredBundleItems(options: {
   const requiredBy = new Map(
     Object.entries(requires).map(([item, required]) => [
       normalizeBundleItemSelector(item),
-      required.map((entry) => normalizeBundleItemSelector(entry)),
+      required
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => normalizeBundleItemSelector(entry)),
     ]),
   );
   const available = new Set(
@@ -153,6 +158,43 @@ export function expandRequiredBundleItems(options: {
   }
 
   return Array.from(expanded);
+}
+
+/**
+ * Lists the items of other sources that the selected items, with everything
+ * they require inside this bundle, need.
+ */
+export function listExternalBundleRequirements(options: {
+  bundleDir: string;
+  manifest: BundleManifest;
+  itemSelectors: BundleItemSelector[] | undefined;
+}): ExternalBundleRequirement[] {
+  const requires = options.manifest.requires;
+
+  if (!requires) {
+    return [];
+  }
+
+  const selected = expandRequiredBundleItems(options);
+  const selectedSet = selected ? new Set(selected) : undefined;
+  const external: ExternalBundleRequirement[] = [];
+
+  for (const [item, required] of Object.entries(requires)) {
+    if (selectedSet && !selectedSet.has(normalizeBundleItemSelector(item))) {
+      continue;
+    }
+
+    for (const entry of required) {
+      if (typeof entry !== "string") {
+        external.push({
+          ...entry,
+          item: normalizeBundleItemSelector(entry.item),
+        });
+      }
+    }
+  }
+
+  return external;
 }
 
 /** Returns true when a bundle's MCP servers should be materialized. */
