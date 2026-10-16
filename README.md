@@ -189,7 +189,7 @@ An item can declare the other items of the same bundle that it needs, with `requ
 }
 ```
 
-Selecting `skills/deploy` (for example with `--include skills/deploy`) also installs `skills/k8s-context`, and anything that item requires in turn. The registry records only the items you selected, so a later change to `requires` takes effect on the next `skul apply` or `skul update`. Only skills, commands, and agents can be listed, and a requirement on an item the bundle does not ship fails before anything is written.
+Selecting `skills/deploy` (for example with `--include skills/deploy`) also installs `skills/k8s-context`, and anything that item requires in turn. The registry records only the items you selected, so a later change to `requires` takes effect on the next `skul apply` or `skul update`. Only skills, commands, and agents can be listed, and a requirement that a selected item reaches on an item the bundle does not ship fails before anything is written.
 
 A requirement can also name an item of another source:
 

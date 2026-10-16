@@ -509,6 +509,11 @@ export async function run(
     libraryDir: stateLayout.libraryDir,
     sourceFetchProgress,
     warnings: commandWarnings,
+  }).catch((error: unknown) => {
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\nThe command itself was applied; once this is fixed, run "skul apply${dependencySync.global ? " --global" : ""}" to install the dependencies.`,
+      { cause: error },
+    );
   });
 
   const dependencyReport = [
@@ -609,7 +614,7 @@ async function syncBundleDependencies(
         try {
           return resolveDesiredCachedBundle(options.libraryDir, entry);
         } catch (error) {
-          throw new UncachedDependencyRequirer(error);
+          throw new UncachedDependencyRequirer(entry, error);
         }
       },
       libraryDir: options.libraryDir,
@@ -628,6 +633,13 @@ async function syncBundleDependencies(
     // Without a bundle's manifest its requirements are unknown, and treating
     // that as "requires nothing" would remove its dependencies.
     if (error instanceof UncachedDependencyRequirer) {
+      if (current.some((entry) => entry.implicit)) {
+        reportCommandWarning(
+          `Left dependencies unchanged because ${error.message}`,
+          options.warnings,
+        );
+      }
+
       return [];
     }
 
@@ -684,8 +696,8 @@ async function syncBundleDependencies(
 }
 
 class UncachedDependencyRequirer extends Error {
-  constructor(cause: unknown) {
-    super("A bundle's manifest is not cached", { cause });
+  constructor(entry: DesiredBundleEntry, cause: unknown) {
+    super(`${bundleKey(entry)}: its manifest is not cached`, { cause });
   }
 }
 
@@ -8566,7 +8578,7 @@ function assertNoPathsOwnedByOtherBundles(options: {
             `Cannot write ${filePath} for ${options.bundleName} because it is already managed by ${formatBundleLabel(
               owner,
               others.map(([, state]) => state),
-            )}.\nRemove that bundle first, or exclude the item with --include.`,
+            )}.\nRemove that bundle first, or install without that item.`,
           );
         }
       }

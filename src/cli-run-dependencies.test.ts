@@ -191,7 +191,9 @@ describe("run — requirements on other sources", () => {
           confirmDependencySources: async () => false,
         }),
       }),
-    ).rejects.toThrow(`Dependency installation declined for: ${SHARED_SOURCE}`);
+    ).rejects.toThrow(
+      /declined for: github\.com\/acme\/shared[\s\S]*The command itself was applied/,
+    );
 
     // Then: the bundle itself is installed, and the dependency is not
     expect(
@@ -519,5 +521,53 @@ describe("run — requirements on other sources", () => {
         "utf8",
       ),
     ).toBe("# first\n");
+  });
+
+  it("leaves dependencies alone and says so when a bundle's manifest is no longer cached", async () => {
+    // Given: a bundle installed with its dependency, and an unrelated one, both from remotes
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    createSharedSource(homeDir);
+    const manifest = {
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    };
+    const ops = createRemoteBundleSource(homeDir, {
+      source: "github.com/acme/ops-vault",
+      bundle: "ops",
+      manifest: {
+        ...manifest,
+        requires: {
+          "skills/deploy": [{ source: SHARED_SOURCE, item: "skills/git" }],
+        },
+      },
+      files: { ".claude/skills/deploy/SKILL.md": "# deploy\n" },
+    });
+    const other = createRemoteBundleSource(homeDir, {
+      source: "github.com/acme/other-vault",
+      bundle: "other",
+      manifest,
+      files: { ".claude/skills/other/SKILL.md": "# other\n" },
+    });
+    const options = {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    };
+    await run(["add", ops.source, "ops"], options);
+    await run(["add", other.source, "other"], options);
+    fs.rmSync(path.join(homeDir, ".skul/library", ...ops.source.split("/")), {
+      recursive: true,
+    });
+
+    // When: only the unrelated bundle is updated
+    const output = await run(["update", "other"], options);
+
+    // Then: the warning names the bundle, and the dependency is not removed
+    expect(output).toContain(
+      `Left dependencies unchanged because ops@${ops.source}: its manifest is not cached`,
+    );
+    expect(
+      fs.existsSync(path.join(repoRoot, ".claude/skills/git/SKILL.md")),
+    ).toBe(true);
   });
 });

@@ -1294,9 +1294,43 @@ describe("run", () => {
         cwd: repoRoot,
         prompts: createPromptClientStub(),
       }),
-    ).rejects.toThrow("requires names skills/missing");
+    ).rejects.toThrow(
+      "skills/deploy requires skills/missing, which ops does not ship",
+    );
     expect(
       fs.existsSync(path.join(repoRoot, ".claude/skills/deploy/SKILL.md")),
     ).toBe(false);
+  });
+
+  it("ignores a requirement on a missing item that no selected item reaches", async () => {
+    // Given: a stale requirement on an item the bundle no longer ships
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "ops", {
+      name: "ops",
+      requires: { "skills/old": ["skills/gone"] },
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    for (const skill of ["old", "current"]) {
+      writeBundleFile(
+        homeDir,
+        "github.com/user/ai-vault",
+        "ops",
+        `.claude/skills/${skill}/SKILL.md`,
+        `# ${skill}\n`,
+      );
+    }
+
+    // When: only an unrelated item is selected
+    await run(["add", "ops", "--include", "skills/current"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then: it installs, because nothing selected reaches the stale requirement
+    expect(
+      fs.existsSync(path.join(repoRoot, ".claude/skills/current/SKILL.md")),
+    ).toBe(true);
   });
 });

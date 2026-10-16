@@ -1,173 +1,34 @@
-# 설계 초안: 번들 아이템 의존성 (`requires`)
+# Bundle item dependencies (`requires`)
 
-상태: 초안 (구현 전)
+Status: implemented. Usage is in the README ("Bundle Structure"); this note records the decisions behind it.
 
-## 배경
+## Why
 
-스킬은 다른 스킬을 이름으로 부르는 경우가 많습니다. 예를 들어 `deploy` 스킬 본문에 "먼저 `k8s-context` 스킬로 클러스터를 확인한다"라고 적혀 있다면, 에이전트는 도구의 스킬 디렉터리(예: `.claude/skills/`)에서 `k8s-context`라는 이름을 찾습니다. 그 이름이 없으면 스킬은 설치되어 있어도 제대로 동작하지 않습니다.
+A skill often calls another skill by name, so installing it without that skill leaves it broken. Several bundles also tend to need the same shared skill. `skul.refs.json` cannot express this: a referenced item becomes part of the referencing bundle, so two bundles referencing one skill own the same path, and what the source bundle itself requires is not followed.
 
-이 문서가 다루는 핵심 사례는 **여러 번들이 같은 공용 스킬(예: 커뮤니티의 `insane-search`, 팀 공통 `conventional-commits`)을 함께 필요로 하는 경우**입니다. 번들 작성자가 "이 아이템을 쓰려면 저 아이템도 있어야 한다"고 선언하면, skul이 그 선언을 따라가 필요한 아이템을 함께 설치하고, 아무도 필요로 하지 않게 되면 정리하는 것이 목표입니다.
+## Declaration
 
-### 지금 가능한 방법과 한계
+`requires` in `manifest.json` maps an item (`skills/…`, `commands/…`, `agents/…`) to what it needs: another item of the same bundle (a string), or an item of another source (`{ source, item, bundle?, ref? }`). It lives in the manifest rather than in `SKILL.md` frontmatter because skul rewrites frontmatter per tool and the same rule has to cover commands and agents.
 
-현재는 `skul.refs.json`으로 다른 저장소의 아이템을 가져올 수 있습니다. 하지만 refs는 의존성 용도로 쓰기에 세 가지 한계가 있습니다.
+## Behavior
 
-1. **vendoring 방식입니다.** 가져온 아이템은 refs를 선언한 번들의 소유가 됩니다. 두 번들이 같은 스킬을 refs로 가져오면, 같은 경로를 두 번들이 각각 소유하려 하게 됩니다(아래 P1).
-2. **전이적이지 않습니다.** refs는 대상 번들에 실제로 있는 파일만 찾습니다. 번들 `mid`가 refs로 `leaf`를 가져오고 있을 때, 다른 번들이 `mid`의 `skills/leaf`를 refs로 가리키면 `Referenced bundle item "skills/leaf" not found` 오류가 납니다. `mid`의 스킬만 가져오면 `mid`의 의존성은 빠집니다.
-3. **아이템 단위 선택과 연결되지 않습니다.** `--include skills/deploy`로 일부만 고르면 같은 번들 안의 `skills/k8s-context`가 빠져도 알 방법이 없습니다.
+- **Same bundle.** Selecting an item installs everything it requires, transitively, at the materialization entry points (`withRequiredItems`, `resolveBundleItemRefs`). The registry keeps only the user's selection, so a later change to `requires` applies on the next `apply` or `update`. A requirement on an item the bundle does not ship is an error when a selected item reaches it.
+- **Other sources.** After `add`, `remove`, `apply` and `update`, `syncBundleDependencies` recomputes every dependency from the manifests of the bundles the user chose, installs what is new and removes what nothing requires any more. A dependency installs only the required items, for the requirers' tools that it supports (a warning names the rest), in the requirer's scope (project or `--global`).
+- **Stored as implicit entries.** Dependencies are `desired_state` entries with `implicit`, `required_by` and `required_items`. Storing them, rather than deriving them on read, keeps `apply`, `update` and `check` on the ordinary path and lets `apply` in another worktree install them. Because they are recomputed each time, nothing is reference-counted. A bundle that is both chosen and required keeps its own `items`; it installs the union (`effectiveDesiredItems`).
+- **Shared and removed with the last requirer.** One install per `(source, bundle)` however many bundles require it. A dependency cannot be removed on its own. Adding it explicitly turns it into a regular bundle.
+- **Refs.** A `ref` is an exact branch, tag or commit. Two requirements on different refs of one source fail before anything is fetched. The installed ref and commit are recorded like any other entry.
+- **Trust.** A dependency is code the user never named, and an upstream manifest can add one at any update. Sources no installed bundle came from are confirmed before they are fetched. `--yes` does not approve them; `--allow-new-sources` does, and the output lists what it allowed. Without a terminal and without the flag the command fails.
+- **Failure.** The sync runs after the command, so a refused source, a ref conflict or a fetch failure leaves the command applied without its dependencies. The error says so and names the `skul apply` that finishes the job.
 
-## 선행 문제
+## Identity and ownership
 
-아래 두 문제는 의존성 기능과 무관하게 지금도 재현됩니다. 하지만 의존성 기능을 넣으면 여러 번들이 같은 아이템을 공유하는 상황이 흔해지므로, 먼저 해결해야 합니다. 두 문제 모두 CLI 수준 테스트로 재현했습니다.
+Dependencies make several bundles share names and paths, which the registry used to mishandle, so two changes came first:
 
-**P1. 같은 아이템 경로를 두 번들이 쓸 때 소유권이 깨집니다. (해결됨)**
-번들 `a`와 `b`가 모두 `.claude/skills/shared/SKILL.md`를 내보낸다고 합시다. `skul add a` 다음 `skul add b`를 하면 충돌 프롬프트가 뜨고, 덮어쓰기(`-y`이면 자동)를 고르면 `b`의 내용이 남습니다. 그다음 `skul remove a`를 하면 이 파일이 삭제됩니다. 그런데 `skul status`는 여전히 이 파일을 `b`의 것으로 표시합니다.
-→ MCP 서버 이름에 이미 적용하는 정책을 그대로 따릅니다. **다른 번들이 소유한 경로에는 쓰지 않고, 쓰기 전에 거부합니다.** `add`, `apply`, `update`(프로젝트와 `--global` 모두)가 파일을 쓰기 전에 계획된 경로를 다른 번들의 설치 기록과 비교하고, `-y`로도 넘어갈 수 없습니다. 거부 메시지에는 경로와 두 번들을 적습니다. 루트 지침 파일과 MCP 설정 파일은 번들끼리 합성하는 것이 원래 동작이라 제외합니다.
+- Bundles are identified by `(source, bundle)`: registry records are keyed `name@source` and carry `bundle`; shadow overlays carry `source`. Same-named bundles from different sources coexist; a bare name that matches several must be qualified (`skul remove <source> <bundle>`). Registries in the older format are upgraded when read.
+- A write onto a path another bundle manages is refused before anything is written, for `add`, `apply` and `update`, project and global. Root-instruction and MCP configuration files are exempt because bundles compose into them.
 
-**P2. 번들은 이름만으로 식별됩니다. (해결됨)**
-`github.com/a/skills`의 `skills` 번들을 추가한 뒤 `github.com/b/skills`의 `skills` 번들을 추가하면, 앞의 번들이 desired state와 materialized state에서 경고 없이 통째로 교체되었습니다. `materialized_state.bundles`가 번들 이름을 키로 썼기 때문입니다. 커뮤니티 저장소는 `*/skills`처럼 이름이 겹치기 쉬워서, 의존성으로 외부 번들을 끌어오기 시작하면 이 문제가 바로 드러납니다.
-→ 이제 레지스트리는 번들을 `(source, bundle)`로 구분합니다. 설치 기록은 `이름@소스` 키로 저장하고(`registry.ts`의 `bundleKey`), 각 기록에 `bundle` 이름을 함께 둡니다. 같은 이름의 번들을 서로 다른 소스에서 나란히 설치할 수 있고, 한쪽을 제거해도 다른 쪽은 그대로 남습니다. `skul remove <bundle>`처럼 이름만으로는 대상을 하나로 정할 수 없으면 소스를 함께 달라는 오류를 냅니다(`skul remove <source> <bundle>`). `check`와 `update`는 이름이 겹치는 번들을 모두 대상으로 삼습니다. 이전 형식의 레지스트리(이름만으로 키를 만들고 `bundle` 필드가 없는 설치 기록, 소스가 없는 그림자 오버레이)는 읽을 때 새 형식으로 올리고, 다음에 레지스트리를 쓸 때 새 형식으로 저장됩니다. 이전 버전의 skul은 새 형식의 레지스트리를 읽지 못합니다.
+## Not done
 
-## 목표와 비목표
-
-**목표**
-
-- 아이템이 같은 번들의 아이템이나 다른 소스의 아이템을 필요로 한다고 선언할 수 있다.
-- `add`, `apply`, `update`, `remove`가 선언을 전이적으로 따라가서 필요한 아이템을 설치하고, 필요 없어진 아이템을 정리한다.
-- 여러 번들이 필요로 하는 같은 아이템은 한 번만 설치한다.
-- 사용자가 직접 지정하지 않은 소스를 가져오기 전에 그 목록을 보여주고 확인을 받는다.
-
-**비목표 (v1)**
-
-- **버전 범위 해석.** npm 소스도 semver 범위를 지원하지 않습니다. 의존성의 `ref`는 정확한 브랜치, 태그, 커밋만 받습니다.
-- **이름 기준 충족.** "어떤 소스든 `insane-search`라는 스킬이 있으면 충족"으로 보지 않습니다. 의존성은 항상 특정 `(source, bundle, item)`을 가리킵니다. 이름 기준으로 충족시키면, 같은 이름의 다른 스킬이 조용히 의존성을 대신하게 됩니다.
-- **범위 교차 충족.** 프로젝트에 설치한 번들의 의존성을 전역(`--global`) 설치로 충족시키지 않습니다. 전역 설치를 읽지 않는 도구가 있고, 제거 순서에 따라 의존성이 사라질 수 있기 때문입니다.
-- **MCP 서버와 root instruction을 의존성 대상으로 삼는 것.** MCP 서버는 사용자 컴퓨터에서 명령을 실행하므로, 사용자가 이름을 적은 적 없는 저장소에서 전이적으로 가져오면 안 됩니다. root instruction은 의존성으로 설치할 의미가 불분명합니다.
-- **lockfile.** v1에서는 refs와 마찬가지로 `ref`를 지정하지 않은 의존성은 캐시된 체크아웃을 따릅니다.
-
-## 선언 형식
-
-번들의 `manifest.json`에 `requires`를 추가합니다. 키는 이 번들의 아이템 셀렉터이고, 값은 그 아이템이 필요로 하는 아이템 목록입니다.
-
-```json
-{
-  "requires": {
-    "skills/deploy": [
-      "skills/k8s-context",
-      { "source": "fivetaku/insane-search", "item": "skills/insane-search" },
-      {
-        "source": "acme/shared",
-        "bundle": "git",
-        "item": "skills/conventional-commits",
-        "ref": "v2"
-      }
-    ],
-    "agents/reviewer": ["skills/k8s-context"]
-  }
-}
-```
-
-| 형태 | 의미 |
-|---|---|
-| 문자열 | 같은 번들의 아이템 셀렉터. refs로 가져온 로컬 이름도 됩니다. |
-| 객체 | 다른 소스의 아이템. `source`와 `item`은 필수입니다. `bundle`은 해당 소스에서 그 아이템을 가진 번들이 여럿일 때만 필수이고, 규칙은 refs와 같습니다. `ref`는 선택입니다. |
-
-검증 규칙:
-
-- 키와 값의 대상은 `skills`, `commands`, `agents`만 허용합니다.
-- 키가 이 번들에 없는 아이템이면 오류입니다.
-- 같은 번들 안에서 가리킨 아이템이 없으면 오류입니다. 외부 아이템은 가져온 뒤 확인하고, 없으면 오류입니다.
-- 순환은 허용합니다. 해석 결과가 집합이므로 문제가 되지 않습니다.
-
-**SKILL.md frontmatter가 아닌 manifest에 두는 이유:** skul은 frontmatter를 도구별로 변환해 다시 쓰므로, skul 전용 키를 넣으면 도구별 출력에서 제거하는 처리가 따로 필요합니다. 또 commands와 agents에도 같은 규칙을 적용하고 번들 단위로 한 번에 검증하려면, 한 파일에 모으는 편이 단순합니다.
-
-## 해석 모델
-
-### desired state에는 사용자 의도만 저장합니다
-
-`desired_state`에는 지금처럼 사용자가 직접 추가한 번들과 고른 아이템만 남깁니다. 의존성으로 들어온 아이템은 저장하지 않고, `add`, `apply`, `update`, `remove`를 실행할 때마다 다시 계산합니다.
-
-이렇게 하면 다음이 따로 관리하지 않아도 따라옵니다.
-
-- **자동 정리:** 아무도 필요로 하지 않는 의존성은 다음 계산 결과에서 빠지므로, 기존 reconcile 과정에서 제거됩니다. 참조 카운트를 저장할 필요가 없습니다.
-- **upstream 변경 반영:** 의존하는 번들이 `requires`를 바꾸면 `update`나 `apply` 때 반영됩니다.
-- **의도와 결과의 구분:** "사용자가 원한 것"과 "그 때문에 설치된 것"이 레지스트리에서 섞이지 않습니다.
-
-### 계산 절차
-
-1. 시작 집합은 desired state의 각 엔트리가 선택한 아이템입니다. 각 아이템을 `(source, bundle, item)`으로 식별합니다.
-2. 각 아이템에 대해 그 아이템을 가진 번들(origin 번들)의 `requires`를 읽고, 가리키는 아이템을 집합에 추가합니다. 외부 소스는 필요할 때 가져옵니다.
-3. refs로 가져온 아이템이라면 **원래 소스 번들의 `requires`도 따릅니다.** 이것으로 앞에서 말한 refs의 전이성 문제가 해결됩니다.
-4. 방문한 아이템은 다시 처리하지 않습니다.
-
-결과는 `(source, bundle)`별로 묶은 effective 아이템 집합입니다. 사용자가 직접 추가한 번들이 의존성으로도 필요해지면, 그 번들의 effective 아이템은 직접 고른 것과 의존성으로 필요한 것의 합집합이 되고, materialized 레코드는 하나만 둡니다.
-
-### 도구
-
-의존성 아이템은 그것을 필요로 하는 모든 아이템의 대상 도구의 **합집합** 중에서, 의존성 번들이 지원하는 도구에만 설치합니다. 지원하지 않는 도구가 있으면, 어느 아이템 때문에 어느 도구가 빠졌는지 경고합니다.
-
-### 범위
-
-의존성은 그것을 필요로 하는 엔트리와 같은 범위(프로젝트 또는 전역)에 설치합니다.
-
-### ref 충돌
-
-- 같은 소스에 대해 `ref`를 지정한 쪽과 지정하지 않은 쪽이 섞이면, 지정한 `ref`를 씁니다. 지정하지 않은 것은 "선호 없음"으로 봅니다.
-- 같은 소스에 서로 다른 `ref`가 지정되면 해석하지 않고 오류로 처리합니다. 오류 메시지에는 각 `ref`를 요구한 아이템을 모두 적습니다.
-- 사용자가 직접 추가한 번들의 `--ref`는 의존성의 `ref`와 같은 규칙으로 비교합니다.
-
-### 경로 충돌
-
-식별자가 다른 두 아이템이 같은 경로에 설치되려 하면(예: `a/skills`와 `b/skills`가 모두 `skills/search`를 제공) P1의 정책대로 쓰기 전에 거부합니다. 사용자가 직접 관리하는 파일과 겹치는 경우는 지금의 충돌 프롬프트를 그대로 씁니다.
-
-## CLI 동작
-
-**`add` / `apply` / `update`**: 실행 계획과 `--dry-run` 출력에 의존성으로 추가되는 아이템과 그 이유를 표시합니다.
-
-```text
-+ github.com/fivetaku/insane-search  skills/insane-search  (required by github.com/acme/core: skills/deploy)
-```
-
-**새 외부 소스 확인**: 이번 계산에서 처음 등장하는 외부 소스가 있으면, 가져오기 전에 소스 목록을 보여주고 확인을 받습니다. `-y`이면 승인한 것으로 봅니다. `SKUL_NO_TUI=1`이고 `-y`가 없으면, 목록을 출력하고 아무것도 쓰지 않은 채 실패합니다. 의존성 아이템은 프롬프트 텍스트이고 스크립트를 포함할 수 있으므로, 사용자가 이름을 적은 적 없는 저장소가 조용히 설치되면 안 됩니다.
-
-**`remove <bundle>`**: 해당 엔트리를 desired state에서 빼고 다시 계산합니다. 다른 아이템이 아직 필요로 하는 의존성은 남고, 아무도 필요로 하지 않는 의존성은 함께 제거됩니다.
-- 의존성으로만 설치된 번들을 `remove`로 지정하면, 무엇이 필요로 하는지 알려주고 거부합니다.
-- 직접 추가했고 의존성으로도 필요한 번들을 제거하면, 직접 고른 부분만 빠지고 의존성으로 필요한 아이템은 남습니다. 출력에 이 사실을 표시합니다.
-
-**`--include` / `--select-items` / 아이템 제거**: 고른 아이템을 기준으로 다시 계산합니다. 대화형 picker에서 다른 아이템이 필요로 하는 아이템을 해제하면, 계속 설치된다는 사실과 그 이유를 표시합니다.
-
-**`status` / `list --json`**: 의존성으로 설치된 아이템에 `required_by`를 표시합니다. 이 값은 저장하지 않고 계산 결과에서 만듭니다.
-
-**`check` / `update`**: 의존성 소스도 원격 변경 확인과 갱신 대상에 포함합니다.
-
-## refs와의 관계
-
-두 기능은 목적이 다릅니다.
-
-| | `skul.refs.json` | `requires` |
-|---|---|---|
-| 의미 | 다른 저장소의 아이템을 **내 번들의 일부로 다시 내보냄** | 다른 아이템이 **존재하도록 보장** |
-| 소유 | 선언한 번들 | 의존성 아이템의 원래 번들 (공유) |
-| 이름 변경, description 덮어쓰기 | 가능 | 불가능 (원본 그대로) |
-| 여러 번들이 같은 아이템을 쓸 때 | 경로 충돌 (P1 정책에 따라 거부) | 한 번만 설치 |
-
-README에 다음 기준을 적습니다. "다른 저장소의 아이템을 그대로 쓰려면 `requires`, 이름이나 설명을 바꿔 내 번들의 일부로 내보내려면 refs."
-
-## 단계
-
-0. **선행 문제 해결.** P1(경로 충돌 거부)과 P2(`(source, bundle)` 식별자) 모두 끝났습니다. 둘 다 의존성 기능과 별개로 지금도 있던 버그입니다.
-1. **같은 번들 안의 `requires`. (구현됨)** 외부 소스 없이 `--include`/`--select-items` closure만 처리합니다. 소유권 문제가 없어 범위가 작습니다. `manifest.json`의 `requires`는 `skills/`, `commands/`, `agents/` 셀렉터만 받고, 설치 입구(`materializeBundle`, `previewMaterializeBundleWriteTargets`, `resolveBundleItemRefs`)에서 선택된 아이템에 필요한 아이템을 전이적으로 더합니다. 레지스트리에는 사용자가 고른 아이템만 저장하고, 가리킨 아이템이 번들에 없으면 파일을 쓰기 전에 오류를 냅니다. 아직 없는 것: dry-run과 picker에서 의존성으로 추가되는 아이템 표시.
-2. **외부 `requires`. (구현됨)** 전이 해석, 새 소스 확인, ref 충돌, 자동 정리, `status` 표시. 설계 초안과 달라진 점:
-   - 의존성은 계산 결과로만 두지 않고 `desired_state`에 `implicit: true` 항목으로 저장합니다(`required_by`, `required_items`, `items: []` 포함). 그래야 `apply`, `update`, `check`가 일반 항목과 같은 경로를 타고, 다른 워크트리의 `apply`도 의존성을 함께 설치합니다. 항목 목록은 `add`/`remove`/`apply`/`update`가 끝날 때마다 매니페스트에서 다시 계산해 덮어쓰므로 개수를 세지 않습니다.
-   - 사용자가 직접 추가한 번들이 동시에 의존성이기도 하면 `items`는 사용자의 선택 그대로 두고 `required_items`를 따로 기록합니다. 설치 범위는 둘의 합집합(`effectiveDesiredItems`)입니다.
-   - 새 소스 확인은 프롬프트 메서드 `confirmDependencySources`로 합니다. 거절하거나 비대화형에서 `--allow-new-sources`가 없으면, 요구하는 번들은 이미 설치된 채로 의존성 단계만 실패합니다. `--yes`는 새 소스를 허용하지 않습니다. 매니페스트가 업스트림에서 언제든 새 소스를 추가할 수 있어서, 스크립트의 `skul update -y`가 확인 없이 새 저장소를 가져오는 것을 막기 위해서입니다.
-   - ref 충돌은 어떤 소스도 내려받기 전에 한꺼번에 검사합니다.
-   - 아직 없는 것: refs로 가져온 아이템의 원본 번들이 가진 `requires`를 따라가는 것, dry-run과 picker에서 의존성으로 추가될 항목을 미리 보여주는 것, 의존성을 요구하는 번들이 `tools`를 좁게 지정한 직접 항목일 때 그 도구까지 넓히는 것.
-3. **(필요할 때) lockfile.** 다른 컴퓨터에서 같은 의존성 커밋을 재현해야 할 때 검토합니다.
-
-## 열린 질문
-
-- **ref 충돌 정책:** v1은 서로 다른 `ref`가 지정되면 오류로 처리합니다. 실제로 자주 충돌한다면, 사용자가 desired state에서 소스별 `ref`를 고정해 덮어쓰는 방법이 필요할 수 있습니다.
-- **전이 깊이:** 깊이 제한을 둘지, 새 소스 확인 단계만으로 충분할지.
-- **frontmatter 선언:** skul을 쓰지 않는 작성자가 만든 스킬도 `requires`를 담을 수 있게 할지. v1은 manifest만 지원합니다.
-- **경로 충돌 시 대체 수단:** 다른 소스에서 같은 이름의 스킬이 필요할 때 거부 외에 별칭 등의 방법을 제공할지. refs의 `name`으로 이름을 바꿔 가져오는 것이 현재 가능한 우회입니다.
+- Version ranges, satisfying a requirement by name rather than by source, satisfying a project install from a global one, MCP servers and root instructions as dependencies, and a lockfile.
+- Following `requires` declared by the source bundle of a referenced item (#133), showing dependencies in `--dry-run` and the picker (#134), widening the tools of a narrowly scoped direct bundle that is also a dependency (#135).
+- Resolving and confirming dependencies before the command writes, which would remove the partial-apply case above.

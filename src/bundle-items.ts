@@ -106,8 +106,8 @@ export function isRootInstructionItemSelected(
  * Adds every item the selected items require, transitively.
  *
  * `undefined` selects everything, so there is nothing to add. A requirement on
- * an item the bundle does not ship is an error, since the selected item would
- * install without something it needs.
+ * an item the bundle does not ship is an error when a selected item reaches it,
+ * since that item would install without something it needs.
  */
 export function expandRequiredBundleItems(options: {
   bundleDir: string;
@@ -128,28 +128,25 @@ export function expandRequiredBundleItems(options: {
         .map((entry) => normalizeBundleItemSelector(entry)),
     ]),
   );
-  const available = new Set(
-    listSelectableBundleItems({
-      bundleDir: options.bundleDir,
-      manifest: options.manifest,
-    }),
-  );
-
-  for (const [item, required] of requiredBy) {
-    for (const selector of [item, ...required]) {
-      if (!available.has(selector)) {
-        throw new Error(
-          `requires names ${selector}, which this bundle does not ship`,
-        );
-      }
-    }
-  }
-
   const expanded = new Set(options.itemSelectors);
   const pending = [...options.itemSelectors];
+  let available: Set<BundleItemSelector> | undefined;
 
   for (let item = pending.pop(); item !== undefined; item = pending.pop()) {
     for (const required of requiredBy.get(item) ?? []) {
+      available ??= new Set(
+        listSelectableBundleItems({
+          bundleDir: options.bundleDir,
+          manifest: options.manifest,
+        }),
+      );
+
+      if (!available.has(required)) {
+        throw new Error(
+          `${item} requires ${required}, which ${options.manifest.name ?? path.basename(options.bundleDir)} does not ship`,
+        );
+      }
+
       if (!expanded.has(required)) {
         expanded.add(required);
         pending.push(required);
