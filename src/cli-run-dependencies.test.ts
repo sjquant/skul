@@ -33,37 +33,13 @@ function createSharedSource(homeDir: string): void {
   });
 }
 
-/** Writes a vault bundle whose deploy skill requires the shared `git` skill. */
-function createOpsBundle(homeDir: string, bundle: string): void {
+/** Writes a vault bundle whose deploy skill requires the shared `git` skill, optionally at `ref`. */
+function createOpsBundle(homeDir: string, bundle: string, ref?: string): void {
   writeManifest(homeDir, VAULT_SOURCE, bundle, {
     name: bundle,
     requires: {
       [`skills/deploy-${bundle}`]: [
-        { source: SHARED_SOURCE, item: "skills/git" },
-      ],
-    },
-    tools: { "claude-code": { skills: { path: ".claude/skills" } } },
-  });
-  writeBundleFile(
-    homeDir,
-    VAULT_SOURCE,
-    bundle,
-    `.claude/skills/deploy-${bundle}/SKILL.md`,
-    `# deploy ${bundle}\n`,
-  );
-}
-
-/** Like `createOpsBundle`, with the requirement pinned to `ref`. */
-function createOpsBundleRequiringRef(
-  homeDir: string,
-  bundle: string,
-  ref: string,
-): void {
-  writeManifest(homeDir, VAULT_SOURCE, bundle, {
-    name: bundle,
-    requires: {
-      [`skills/deploy-${bundle}`]: [
-        { source: SHARED_SOURCE, item: "skills/git", ref },
+        { source: SHARED_SOURCE, item: "skills/git", ...(ref ? { ref } : {}) },
       ],
     },
     tools: { "claude-code": { skills: { path: ".claude/skills" } } },
@@ -288,7 +264,7 @@ describe("run — requirements on other sources", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     createSharedSource(homeDir);
-    createOpsBundleRequiringRef(homeDir, "ops", "main");
+    createOpsBundle(homeDir, "ops", "main");
     const options = {
       homeDir,
       cwd: repoRoot,
@@ -316,8 +292,8 @@ describe("run — requirements on other sources", () => {
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
     createSharedSource(homeDir);
-    createOpsBundleRequiringRef(homeDir, "ops-a", "main");
-    createOpsBundleRequiringRef(homeDir, "ops-b", "release");
+    createOpsBundle(homeDir, "ops-a", "main");
+    createOpsBundle(homeDir, "ops-b", "release");
     const options = {
       homeDir,
       cwd: repoRoot,

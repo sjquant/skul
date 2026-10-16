@@ -17,6 +17,9 @@ import {
 } from "./tool-mapping";
 import { getPackageVersion } from "./version";
 
+const ALLOW_NEW_SOURCES_DESCRIPTION =
+  "Fetch sources that installed bundles require but no installed bundle came from, without asking";
+
 export type CommandName =
   | "add"
   | "list"
@@ -699,10 +702,7 @@ function createProgram(
     .option("-s, --ssh", "Clone the bundle source using SSH instead of HTTPS")
     .option("-g, --global", "Install to global tool config under ~/")
     .option("-y, --yes", "Install without interactive confirmation prompts")
-    .option(
-      "--allow-new-sources",
-      "Fetch sources that installed bundles require but no installed bundle came from, without asking",
-    )
+    .option("--allow-new-sources", ALLOW_NEW_SOURCES_DESCRIPTION)
     .option(
       "--disable-model-invocation",
       "Force disable-model-invocation on all skills even when the skill does not set it",
@@ -971,10 +971,7 @@ function createProgram(
       "Preview what would be updated without making any changes",
     )
     .option("-y, --yes", "Run without interactive confirmation prompts")
-    .option(
-      "--allow-new-sources",
-      "Fetch sources that installed bundles require but no installed bundle came from, without asking",
-    )
+    .option("--allow-new-sources", ALLOW_NEW_SOURCES_DESCRIPTION)
     .action(
       (
         bundle: string | undefined,
@@ -1040,10 +1037,7 @@ function createProgram(
     )
     .option("-g, --global", "Apply global desired-state bundles")
     .option("-y, --yes", "Run without interactive confirmation prompts")
-    .option(
-      "--allow-new-sources",
-      "Fetch sources that installed bundles require but no installed bundle came from, without asking",
-    )
+    .option("--allow-new-sources", ALLOW_NEW_SOURCES_DESCRIPTION)
     .action(
       (opts: {
         dryRun?: boolean;
@@ -1121,10 +1115,7 @@ function createProgram(
     .option("-j, --json", "Output as JSON (for scripting and agent use)")
     .option("-g, --global", "Remove from globally managed tool config")
     .option("-y, --yes", "Run without interactive confirmation prompts")
-    .option(
-      "--allow-new-sources",
-      "Fetch sources that installed bundles require but no installed bundle came from, without asking",
-    )
+    .option("--allow-new-sources", ALLOW_NEW_SOURCES_DESCRIPTION)
     .action(
       (
         source: string | undefined,
