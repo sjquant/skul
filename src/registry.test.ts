@@ -1343,3 +1343,64 @@ describe("ownership helpers", () => {
     });
   });
 });
+
+describe("pending MCP cleanup", () => {
+  function registryWithBundle(bundle: object) {
+    return makeRegistry({
+      worktrees: {
+        [WORKTREE_ID]: makeWorktreeEntry({
+          materialized_state: {
+            bundles: { "react-expert": bundle },
+            exclude_configured: true,
+          },
+        }),
+      },
+    });
+  }
+
+  it("preserves pending cleanup through clone, write and read", () => {
+    // Given a bundle with no installed tools and MCP servers pending cleanup
+    const bundle = {
+      bundle: "react-expert",
+      tools: {},
+      pending_mcp_cleanup: [
+        { tool: "claude-code", path: ".mcp.json", servers: ["docs"] },
+      ],
+    };
+    // When the registry is parsed, cloned, written and read back
+    const parsed = parseRegistry(registryWithBundle(bundle));
+    const cloned = upsertRepoState(
+      parsed,
+      REPO_FINGERPRINT,
+      parsed.repos[REPO_FINGERPRINT]!,
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
+    const file = path.join(homeDir, "registry.json");
+    writeRegistryFile(file, cloned);
+    // Then the bundle state is unchanged
+    expect(
+      materializedBundleNamed(
+        readRegistryFile(file).worktrees[WORKTREE_ID]!.materialized_state
+          .bundles,
+        "react-expert",
+      ),
+    ).toEqual(bundle);
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it.each([
+    { tool: "claude-code", path: "/outside.json", servers: ["docs"] },
+    { tool: "claude-code", path: "../outside.json", servers: ["docs"] },
+    { tool: "unknown", path: ".mcp.json", servers: ["docs"] },
+    { tool: "claude-code", path: ".mcp.json", servers: [""] },
+  ])("rejects invalid pending cleanup $tool $path", (ownership) => {
+    // Given pending cleanup with an invalid tool, path or server name
+    // When the registry is parsed
+    // Then parsing fails
+    expect(() =>
+      parseRegistry(
+        registryWithBundle({ tools: {}, pending_mcp_cleanup: [ownership] }),
+      ),
+    ).toThrowError(/pending_mcp_cleanup/);
+  });
+});
