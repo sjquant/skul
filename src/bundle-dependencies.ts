@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { type CachedBundle, normalizeBundleSource } from "./bundle-discovery";
+import { readCachedSourceRevision } from "./bundle-fetch";
 import { locateExternalBundleItem } from "./bundle-item-refs";
 import {
   type BundleItemSelector,
@@ -21,6 +22,9 @@ export interface ResolvedDependency {
   /** Tools the requiring bundles install for; the dependency installs for the ones it supports. */
   tools: Set<ToolName>;
   ref?: string;
+  /** Where the source's checkout stood when the dependency was located. */
+  resolvedRef?: string;
+  resolvedCommit?: string;
   cachedBundle: CachedBundle;
 }
 
@@ -148,6 +152,14 @@ export async function resolveBundleDependencies(options: {
         cachedBundle,
       };
       dependencies.set(key, dependency);
+
+      const revision = readCachedSourceRevision({
+        source,
+        libraryDir: options.libraryDir,
+        protocol: requirer.protocol,
+      });
+      dependency.resolvedRef = revision.currentRef;
+      dependency.resolvedCommit = revision.currentCommit;
 
       const grew = [
         addAll(dependency.items, [requirement.item]),

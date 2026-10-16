@@ -494,30 +494,46 @@ export async function run(
     return commandOutput;
   }
 
+  // The command reports its own warnings; only the ones the sync adds are new.
+  const reportedWarnings = commandWarnings.length;
+
   const dependencyLines = await syncBundleDependencies({
     global: dependencySync.global,
     cwd,
     homeDir: options.homeDir ?? os.homedir(),
-    prompts: dependencySync.yes ? createYesPromptClient(prompts) : prompts,
+    prompts: withDependencySourcePolicy(
+      dependencySync.yes ? createYesPromptClient(prompts) : prompts,
+      dependencySync.allowNewSources,
+    ),
     registryFile: stateLayout.registryFile,
     libraryDir: stateLayout.libraryDir,
     sourceFetchProgress,
     warnings: commandWarnings,
   });
 
+  const dependencyReport = [
+    ...dependencyLines,
+    ...commandWarnings.slice(reportedWarnings),
+  ];
+
   // Machine-readable results keep their shape; the dependency work still ran.
-  return dependencyLines.length === 0 || dependencySync.json
+  return dependencyReport.length === 0 || dependencySync.json
     ? commandOutput
-    : [commandOutput, ...dependencyLines].join("\n");
+    : [commandOutput, ...dependencyReport].join("\n");
 }
 
 /**
  * Describes the dependency reconciliation a command calls for, or nothing for
  * commands that cannot change which bundles are installed or required.
  */
-function dependencySyncRequest(
-  parsed: CliParseResult,
-): { global: boolean; yes: boolean; json: boolean } | undefined {
+function dependencySyncRequest(parsed: CliParseResult):
+  | {
+      global: boolean;
+      yes: boolean;
+      allowNewSources: boolean;
+      json: boolean;
+    }
+  | undefined {
   if (parsed.kind !== "command") {
     return undefined;
   }
@@ -533,11 +549,29 @@ function dependencySyncRequest(
             global:
               "global" in parsed.options && parsed.options.global === true,
             yes: "yes" in parsed.options && parsed.options.yes === true,
+            allowNewSources:
+              "allowNewSources" in parsed.options &&
+              parsed.options.allowNewSources === true,
             json: "json" in parsed.options && parsed.options.json === true,
           };
     default:
       return undefined;
   }
+}
+
+/**
+ * `--yes` approves overwrites and removals, not fetching code from a source the
+ * user never named, which a bundle's manifest can add at any update. That needs
+ * its own `--allow-new-sources`; without it the prompt (or the headless error)
+ * decides.
+ */
+function withDependencySourcePolicy(
+  prompts: PromptClient,
+  allowNewSources: boolean,
+): PromptClient {
+  return allowNewSources
+    ? { ...prompts, confirmDependencySources: async () => true }
+    : prompts;
 }
 
 /**
@@ -562,6 +596,7 @@ async function syncBundleDependencies(
   const direct = current
     .filter((entry) => !entry.implicit)
     .map(withoutDependencyFields);
+  const allowedSources: string[] = [];
   let dependencies: ResolvedDependencies;
 
   try {
@@ -584,6 +619,8 @@ async function syncBundleDependencies(
             `Dependency installation declined for: ${sources.join(", ")}`,
           );
         }
+
+        allowedSources.push(...sources);
       },
       sourceFetchProgress: options.sourceFetchProgress,
     });
@@ -606,7 +643,10 @@ async function syncBundleDependencies(
   const orphaned = current.filter(
     (entry) => entry.implicit && !nextKeys.has(bundleKey(entry)),
   );
-  const lines: string[] = [];
+  const lines: string[] =
+    allowedSources.length > 0
+      ? [`Allowed new dependency sources: ${allowedSources.join(", ")}`]
+      : [];
 
   for (const entry of orphaned) {
     await scope.remove(entry);
@@ -864,16 +904,32 @@ function reconcileDependencyEntries(options: {
       required_by: Array.from(dependency.requiredBy).sort(),
       required_items: Array.from(dependency.items).sort(),
       ...(dependency.ref !== undefined ? { ref: dependency.ref } : {}),
-      ...(keepsResolution && previous.resolved_ref !== undefined
-        ? { resolved_ref: previous.resolved_ref }
-        : {}),
-      ...(keepsResolution && previous.resolved_commit !== undefined
-        ? { resolved_commit: previous.resolved_commit }
-        : {}),
+      ...resolutionOf(
+        keepsResolution
+          ? previous
+          : {
+              resolved_ref: dependency.resolvedRef,
+              resolved_commit: dependency.resolvedCommit,
+            },
+      ),
     });
   }
 
   return [...direct, ...implicit];
+}
+
+/** The resolved ref and commit of an entry, for those it has. */
+function resolutionOf(
+  entry: Pick<DesiredBundleEntry, "resolved_ref" | "resolved_commit">,
+): Pick<DesiredBundleEntry, "resolved_ref" | "resolved_commit"> {
+  return {
+    ...(entry.resolved_ref !== undefined
+      ? { resolved_ref: entry.resolved_ref }
+      : {}),
+    ...(entry.resolved_commit !== undefined
+      ? { resolved_commit: entry.resolved_commit }
+      : {}),
+  };
 }
 
 function withoutDependencyFields(
@@ -947,7 +1003,6 @@ function createYesPromptClient(
       : {}),
     resolveFileConflict: async () => ({ action: "overwrite" }),
     confirmManagedFileRemoval: async () => true,
-    confirmDependencySources: async () => true,
   };
 }
 

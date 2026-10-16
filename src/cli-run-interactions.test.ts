@@ -265,6 +265,43 @@ describe("run", () => {
     ).rejects.toThrowError(/conflict not resolved/i);
   });
 
+  it.each([
+    ["allows the sources when the user approves", true, false, true],
+    ["refuses the sources when the user declines", false, false, false],
+    [
+      "refuses the sources when the prompt is cancelled",
+      Symbol.for("clack:cancel"),
+      true,
+      false,
+    ],
+  ])("%s", async (_title, answer, cancelled, expected) => {
+    // Given: a prompt that answers the dependency-source question as described
+    const confirm = vi.fn().mockResolvedValue(answer);
+    const loadPrompts = vi.fn().mockResolvedValue({
+      isCancel: () => cancelled,
+      confirm,
+    });
+
+    // When: the user is asked about sources no installed bundle came from
+    const allowed = await createPromptClientForSelections(
+      [],
+      loadPrompts,
+    ).confirmDependencySources([
+      "github.com/acme/shared",
+      "github.com/acme/lint",
+    ]);
+
+    // Then: the question names every source, and only an approval allows them
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringMatching(
+          /github\.com\/acme\/shared[\s\S]*github\.com\/acme\/lint/,
+        ),
+      }),
+    );
+    expect(allowed).toBe(expected);
+  });
+
   it("explains Space and Enter roles in multiselect prompts", async () => {
     // Given
     const multiselect = vi

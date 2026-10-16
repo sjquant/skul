@@ -50,7 +50,12 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "update";
-      options: { bundle?: string; dryRun: boolean; yes?: boolean };
+      options: {
+        bundle?: string;
+        dryRun: boolean;
+        yes?: boolean;
+        allowNewSources?: boolean;
+      };
     }
   | {
       kind: "command";
@@ -61,7 +66,12 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "apply";
-      options: { dryRun: boolean; global: boolean; yes?: boolean };
+      options: {
+        dryRun: boolean;
+        global: boolean;
+        yes?: boolean;
+        allowNewSources?: boolean;
+      };
     }
   | {
       kind: "command";
@@ -90,6 +100,7 @@ export type CliParseResult =
         disableModelInvocation?: boolean;
         rootInstructionMode?: RootInstructionMode;
         yes?: boolean;
+        allowNewSources?: boolean;
         all?: boolean;
       };
     }
@@ -105,6 +116,7 @@ export type CliParseResult =
         inferredBundleFromSource?: true;
         global: boolean;
         yes?: boolean;
+        allowNewSources?: boolean;
         all?: boolean;
         json: boolean;
       };
@@ -314,7 +326,7 @@ export function createHeadlessPromptClient(): PromptClient {
     },
     async confirmDependencySources(sources: string[]): Promise<boolean> {
       throw new Error(
-        `Installing dependencies needs sources you have not installed from (headless mode): ${sources.join(", ")}\nHint: pass --yes to allow them, or run the command interactively to confirm`,
+        `Installing dependencies needs sources you have not installed from (headless mode): ${sources.join(", ")}\nHint: pass --allow-new-sources to allow them, or run the command interactively to confirm`,
       );
     },
   };
@@ -688,6 +700,10 @@ function createProgram(
     .option("-g, --global", "Install to global tool config under ~/")
     .option("-y, --yes", "Install without interactive confirmation prompts")
     .option(
+      "--allow-new-sources",
+      "Fetch sources that installed bundles require but no installed bundle came from, without asking",
+    )
+    .option(
       "--disable-model-invocation",
       "Force disable-model-invocation on all skills even when the skill does not set it",
     )
@@ -710,6 +726,7 @@ function createProgram(
           ssh?: boolean;
           global?: boolean;
           yes?: boolean;
+          allowNewSources?: boolean;
           disableModelInvocation?: boolean;
           rootInstructionMode?: RootInstructionMode;
         },
@@ -721,6 +738,7 @@ function createProgram(
         const dryRun = opts.dryRun ?? false;
         const global = opts.global ?? false;
         const yes = opts.yes ?? false;
+        const allowNewSources = opts.allowNewSources ?? false;
         const disableModelInvocation = opts.disableModelInvocation ?? false;
         const rootInstructionMode = opts.rootInstructionMode;
         if (
@@ -785,6 +803,7 @@ function createProgram(
               ...(ref !== undefined ? { ref } : {}),
               global,
               ...(yes ? { yes } : {}),
+              ...(allowNewSources ? { allowNewSources } : {}),
               ...(disableModelInvocation ? { disableModelInvocation } : {}),
               ...(rootInstructionMode !== undefined
                 ? { rootInstructionMode }
@@ -831,6 +850,7 @@ function createProgram(
                 inferredBundleFromSource: true,
                 global,
                 ...(yes ? { yes } : {}),
+                ...(allowNewSources ? { allowNewSources } : {}),
                 ...(disableModelInvocation ? { disableModelInvocation } : {}),
                 ...(rootInstructionMode !== undefined
                   ? { rootInstructionMode }
@@ -852,6 +872,7 @@ function createProgram(
                 ...(ref !== undefined ? { ref } : {}),
                 global,
                 ...(yes ? { yes } : {}),
+                ...(allowNewSources ? { allowNewSources } : {}),
                 ...(disableModelInvocation ? { disableModelInvocation } : {}),
                 ...(rootInstructionMode !== undefined
                   ? { rootInstructionMode }
@@ -882,6 +903,7 @@ function createProgram(
             ...(ref !== undefined ? { ref } : {}),
             global,
             ...(yes ? { yes } : {}),
+            ...(allowNewSources ? { allowNewSources } : {}),
             ...(disableModelInvocation ? { disableModelInvocation } : {}),
             ...(rootInstructionMode !== undefined
               ? { rootInstructionMode }
@@ -949,10 +971,14 @@ function createProgram(
       "Preview what would be updated without making any changes",
     )
     .option("-y, --yes", "Run without interactive confirmation prompts")
+    .option(
+      "--allow-new-sources",
+      "Fetch sources that installed bundles require but no installed bundle came from, without asking",
+    )
     .action(
       (
         bundle: string | undefined,
-        opts: { dryRun?: boolean; yes?: boolean },
+        opts: { dryRun?: boolean; yes?: boolean; allowNewSources?: boolean },
       ) => {
         context.result = {
           kind: "command",
@@ -961,6 +987,7 @@ function createProgram(
             ...(bundle !== undefined ? { bundle } : {}),
             dryRun: opts.dryRun ?? false,
             ...(opts.yes ? { yes: true } : {}),
+            ...(opts.allowNewSources ? { allowNewSources: true } : {}),
           },
         };
       },
@@ -1013,17 +1040,29 @@ function createProgram(
     )
     .option("-g, --global", "Apply global desired-state bundles")
     .option("-y, --yes", "Run without interactive confirmation prompts")
-    .action((opts: { dryRun?: boolean; global?: boolean; yes?: boolean }) => {
-      context.result = {
-        kind: "command",
-        command: "apply",
-        options: {
-          dryRun: opts.dryRun ?? false,
-          global: opts.global ?? false,
-          ...(opts.yes ? { yes: true } : {}),
-        },
-      };
-    });
+    .option(
+      "--allow-new-sources",
+      "Fetch sources that installed bundles require but no installed bundle came from, without asking",
+    )
+    .action(
+      (opts: {
+        dryRun?: boolean;
+        global?: boolean;
+        yes?: boolean;
+        allowNewSources?: boolean;
+      }) => {
+        context.result = {
+          kind: "command",
+          command: "apply",
+          options: {
+            dryRun: opts.dryRun ?? false,
+            global: opts.global ?? false,
+            ...(opts.yes ? { yes: true } : {}),
+            ...(opts.allowNewSources ? { allowNewSources: true } : {}),
+          },
+        };
+      },
+    );
 
   program
     .command("reset")
@@ -1082,6 +1121,10 @@ function createProgram(
     .option("-j, --json", "Output as JSON (for scripting and agent use)")
     .option("-g, --global", "Remove from globally managed tool config")
     .option("-y, --yes", "Run without interactive confirmation prompts")
+    .option(
+      "--allow-new-sources",
+      "Fetch sources that installed bundles require but no installed bundle came from, without asking",
+    )
     .action(
       (
         source: string | undefined,
@@ -1093,6 +1136,7 @@ function createProgram(
           dryRun?: boolean;
           global?: boolean;
           yes?: boolean;
+          allowNewSources?: boolean;
           json?: boolean;
         },
       ) => {
@@ -1126,6 +1170,7 @@ function createProgram(
               dryRun,
               global,
               ...(opts.yes ? { yes: true } : {}),
+              ...(opts.allowNewSources ? { allowNewSources: true } : {}),
               json,
               all: true,
             },
@@ -1144,6 +1189,7 @@ function createProgram(
                 dryRun,
                 global,
                 ...(opts.yes ? { yes: true } : {}),
+                ...(opts.allowNewSources ? { allowNewSources: true } : {}),
                 json,
               },
             };
@@ -1171,6 +1217,7 @@ function createProgram(
                 inferredBundleFromSource: true,
                 global,
                 ...(opts.yes ? { yes: true } : {}),
+                ...(opts.allowNewSources ? { allowNewSources: true } : {}),
                 json,
               },
             };
@@ -1185,6 +1232,7 @@ function createProgram(
                 dryRun,
                 global,
                 ...(opts.yes ? { yes: true } : {}),
+                ...(opts.allowNewSources ? { allowNewSources: true } : {}),
                 json,
               },
             };
@@ -1203,6 +1251,7 @@ function createProgram(
             dryRun,
             global,
             ...(opts.yes ? { yes: true } : {}),
+            ...(opts.allowNewSources ? { allowNewSources: true } : {}),
             json,
           },
         };
