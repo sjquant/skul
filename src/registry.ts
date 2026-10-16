@@ -227,7 +227,7 @@ export function upsertRepoState(
   repoState: RepoState,
 ): Registry {
   return {
-    version: 1,
+    ...registry,
     repos: {
       ...registry.repos,
       [repoFingerprint]: {
@@ -268,7 +268,7 @@ export function upsertWorktreeState(
   }
 
   return {
-    version: 1,
+    ...registry,
     repos: { ...registry.repos },
     worktrees: {
       ...registry.worktrees,
@@ -284,7 +284,7 @@ export function removeWorktreeState(
 ): Registry {
   if (!(worktreeId in registry.worktrees)) {
     return {
-      version: 1,
+      ...registry,
       repos: { ...registry.repos },
       worktrees: { ...registry.worktrees },
     };
@@ -294,7 +294,7 @@ export function removeWorktreeState(
   delete worktrees[worktreeId];
 
   return {
-    version: 1,
+    ...registry,
     repos: { ...registry.repos },
     worktrees,
   };
