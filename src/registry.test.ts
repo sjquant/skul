@@ -1050,6 +1050,33 @@ describe("registry persistence", () => {
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
+  it("keeps global state when project state is written", () => {
+    // Given a registry that already tracks a global bundle
+    const global = {
+      desired_state: [{ bundle: "ops", protocol: "https" as const }],
+      materialized_state: { bundles: {} },
+    };
+    const registry = { ...createEmptyRegistry(), global };
+
+    // When project state is written, updated and removed
+    const withRepo = upsertRepoState(registry, REPO_FINGERPRINT, {
+      repo_root: "/Users/dev/project",
+      desired_state: [{ bundle: "react-expert", protocol: "https" }],
+    });
+    const withWorktree = upsertWorktreeState(withRepo, WORKTREE_ID, {
+      repo_fingerprint: REPO_FINGERPRINT,
+      path: "/Users/dev/project",
+      materialized_state: { bundles: {}, exclude_configured: true },
+      shadowed_files: {},
+    });
+    const withoutWorktree = removeWorktreeState(withWorktree, WORKTREE_ID);
+
+    // Then the global state is unchanged at every step
+    expect(withRepo.global).toEqual(global);
+    expect(withWorktree.global).toEqual(global);
+    expect(withoutWorktree.global).toEqual(global);
+  });
+
   it("persists and reloads the protocol field on desired_state entries", () => {
     // Given
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "skul-registry-"));
