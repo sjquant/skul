@@ -36,6 +36,7 @@ import {
   assertBundleSupportsRequestedItems,
   type BundleItemSelector,
   bundleItemSelectionsEqual,
+  expandRequiredBundleItems,
   isMcpItemSelected,
   isSelectableBundleItemEntry,
   listSelectableBundleItems,
@@ -3165,6 +3166,7 @@ async function applyBundle(options: {
         items: preparedBundle.replacesItemSelection
           ? preparedBundle.selectedItems
           : undefined,
+        requiredItems: preparedBundle.requiredItems,
       })}`,
     ].join("\n");
   }
@@ -3467,6 +3469,7 @@ async function applyBundle(options: {
         items: preparedBundle.replacesItemSelection
           ? preparedBundle.selectedItems
           : undefined,
+        requiredItems: preparedBundle.requiredItems,
         updated: preparedBundle.sourceUpdated,
       }),
     ),
@@ -3477,12 +3480,14 @@ function formatAppliedBundleMessage(options: {
   bundle: string;
   toolLabel: string;
   items?: BundleItemSelector[];
+  requiredItems?: BundleItemSelector[];
   updated?: boolean;
 }): string {
   return formatApplyBundleMessage({
     bundle: options.bundle,
     toolLabel: options.toolLabel,
     items: options.items,
+    requiredItems: options.requiredItems,
     updated: options.updated,
     action: "Applied",
   });
@@ -3492,16 +3497,25 @@ function formatApplyBundleMessage(options: {
   bundle: string;
   toolLabel: string;
   items?: BundleItemSelector[];
+  requiredItems?: BundleItemSelector[];
   updated?: boolean;
   action?: "Applied";
 }): string {
   const itemLabel =
-    options.items !== undefined && options.items.length > 0
+    (options.items !== undefined && options.items.length > 0
       ? `: ${options.items.join(", ")}`
-      : "";
+      : "") + formatRequiredItemsLabel(options.requiredItems);
   const updatedLabel = options.updated ? " (Updated)" : "";
 
   return `${options.action ?? "apply"} ${options.bundle} for ${options.toolLabel}${itemLabel}${updatedLabel}`;
+}
+
+function formatRequiredItemsLabel(
+  requiredItems: BundleItemSelector[] | undefined,
+): string {
+  return requiredItems !== undefined && requiredItems.length > 0
+    ? ` (+ ${requiredItems.join(", ")} required)`
+    : "";
 }
 
 function shouldApplySelectedItemsAcrossSourceBundles(options: {
@@ -4018,6 +4032,8 @@ async function prepareApplyBundle(options: {
   toolLabel: string;
   hasToolSelection: boolean;
   replacesItemSelection: boolean;
+  /** Items installed only because a selected item requires them. */
+  requiredItems: BundleItemSelector[];
 }> {
   const refreshedSources = options.refreshedSources ?? new Set<string>();
   const refreshedSourceUpdates =
@@ -4180,7 +4196,28 @@ async function prepareApplyBundle(options: {
     toolLabel: nextToolNames.join(", "),
     hasToolSelection,
     replacesItemSelection: options.selectItems || options.replaceItems === true,
+    requiredItems: listRequiredOnlyItems({
+      bundleDir: path.dirname(cachedBundle.manifestFile),
+      manifest: cachedBundle.manifest,
+      selectedItems,
+    }),
   };
+}
+
+/** Lists the items a selection pulls in through `requires` beyond what was selected. */
+function listRequiredOnlyItems(options: {
+  bundleDir: string;
+  manifest: CachedBundle["manifest"];
+  selectedItems?: BundleItemSelector[];
+}): BundleItemSelector[] {
+  const expanded = expandRequiredBundleItems({
+    bundleDir: options.bundleDir,
+    manifest: options.manifest,
+    itemSelectors: options.selectedItems,
+  });
+  const selected = new Set(options.selectedItems);
+
+  return (expanded ?? []).filter((item) => !selected.has(item));
 }
 
 function findDesiredBundleEntry(options: {
@@ -8284,6 +8321,7 @@ async function applyBundleGlobal(options: {
         items: preparedBundle.replacesItemSelection
           ? preparedBundle.selectedItems
           : undefined,
+        requiredItems: preparedBundle.requiredItems,
       })}`,
       ...mcpSkipNotes,
     ].join("\n");
@@ -8519,6 +8557,7 @@ async function applyBundleGlobal(options: {
         items: preparedBundle.replacesItemSelection
           ? preparedBundle.selectedItems
           : undefined,
+        requiredItems: preparedBundle.requiredItems,
         updated: preparedBundle.sourceUpdated,
       }),
     ),
@@ -8578,12 +8617,14 @@ function formatAppliedGlobalBundleMessage(options: {
   bundle: string;
   toolLabel: string;
   items?: BundleItemSelector[];
+  requiredItems?: BundleItemSelector[];
   updated?: boolean;
 }): string {
   return formatApplyGlobalBundleMessage({
     bundle: options.bundle,
     toolLabel: options.toolLabel,
     items: options.items,
+    requiredItems: options.requiredItems,
     updated: options.updated,
     action: "Applied",
   });
@@ -8593,13 +8634,14 @@ function formatApplyGlobalBundleMessage(options: {
   bundle: string;
   toolLabel: string;
   items?: BundleItemSelector[];
+  requiredItems?: BundleItemSelector[];
   updated?: boolean;
   action?: "Applied";
 }): string {
   const itemLabel =
-    options.items !== undefined && options.items.length > 0
+    (options.items !== undefined && options.items.length > 0
       ? `: ${options.items.join(", ")}`
-      : "";
+      : "") + formatRequiredItemsLabel(options.requiredItems);
   const updatedLabel = options.updated ? " (Updated)" : "";
 
   return `${options.action ?? "apply"} ${options.bundle} globally for ${options.toolLabel}${itemLabel}${updatedLabel}`;

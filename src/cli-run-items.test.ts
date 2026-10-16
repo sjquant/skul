@@ -1239,13 +1239,18 @@ describe("run", () => {
     }
 
     // When: only deploy is selected
-    await run(["add", "ops", "--include", "skills/deploy"], {
+    const output = await run(["add", "ops", "--include", "skills/deploy"], {
       homeDir,
       cwd: repoRoot,
       prompts: createPromptClientStub(),
     });
 
-    // Then: deploy and everything it needs are installed, notes is not
+    // Then: the output names what was pulled in
+    expect(output).toContain(
+      "(+ skills/k8s-context, skills/kubectl-tips required)",
+    );
+
+    // And deploy and everything it needs are installed, notes is not
     const installed = (skill: string) =>
       fs.existsSync(path.join(repoRoot, ".claude/skills", skill, "SKILL.md"));
     expect(installed("deploy")).toBe(true);
