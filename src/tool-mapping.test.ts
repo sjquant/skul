@@ -28,6 +28,7 @@ describe("listToolDefinitions", () => {
       "qwen",
       "roo",
       "cline",
+      "zcode",
     ]);
   });
 });
@@ -204,6 +205,7 @@ describe("globalCapableToolNames", () => {
       "qwen",
       "roo",
       "cline",
+      "zcode",
     ]);
   });
 });

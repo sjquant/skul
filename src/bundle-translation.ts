@@ -23,7 +23,8 @@ type SkillTool =
   | "grok"
   | "qwen"
   | "roo"
-  | "cline";
+  | "cline"
+  | "zcode";
 type CommandTool =
   | "claude"
   | "cursor"
@@ -31,7 +32,8 @@ type CommandTool =
   | "antigravity"
   | "grok"
   | "qwen"
-  | "roo";
+  | "roo"
+  | "zcode";
 type AgentTool =
   | "claude"
   | "cursor"
@@ -53,7 +55,8 @@ type RootInstructionTool =
   | "grok"
   | "qwen"
   | "roo"
-  | "cline";
+  | "cline"
+  | "zcode";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
@@ -369,7 +372,8 @@ function renderCommand(
     targetTool === "antigravity" ||
     targetTool === "grok" ||
     targetTool === "qwen" ||
-    targetTool === "roo"
+    targetTool === "roo" ||
+    targetTool === "zcode"
   ) {
     const metadata: MetadataMap = {};
 

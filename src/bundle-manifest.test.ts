@@ -176,6 +176,7 @@ describe("parseBundleManifest", () => {
         qwen: { root_instruction: { path: "CLAUDE.md" } },
         roo: { root_instruction: { path: "CLAUDE.md" } },
         cline: { root_instruction: { path: "CLAUDE.md" } },
+        zcode: { root_instruction: { path: "CLAUDE.md" } },
       },
     });
   });
@@ -223,6 +224,7 @@ describe("parseBundleManifest", () => {
         qwen: { root_instruction: { path: "CLAUDE.md" } },
         roo: { root_instruction: { path: "CLAUDE.md" } },
         cline: { root_instruction: { path: "CLAUDE.md" } },
+        zcode: { root_instruction: { path: "CLAUDE.md" } },
       },
     });
   });

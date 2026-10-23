@@ -21,12 +21,15 @@ description: Tool targets and directory mappings supported by skul.
 | [Qwen Code](https://qwenlm.github.io/qwen-code-docs/) | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` |
 | [Roo Code](https://roocodeinc.github.io/Roo-Code/) | `.roo/skills` | `.roo/commands` | - | `AGENTS.md` |
 | [Cline](https://docs.cline.bot/) | `.cline/skills` | - | - | `AGENTS.md` |
+| [ZCode](https://zcode.z.ai/en/docs/welcome) | `.zcode/skills` | `.zcode/commands` | - | `AGENTS.md` |
 
 Root instruction bundles are translated into the native root-instruction target for each selected tool.
 
 For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`.
 
 `--agent` names a coding tool. DeepSeek provides models used through tools such as [Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) and [OpenCode](https://api-docs.deepseek.com/quick_start/agent_integrations/opencode/); use those tool names when targeting a DeepSeek-backed setup.
+
+ZCode is a separate coding tool. Select it with `--agent zcode`. Skul currently targets its skills, commands, and root instructions; ZCode subagents are user-scope only, and its MCP configuration uses a nested format that Skul does not write.
 
 ## Target one tool or many
 

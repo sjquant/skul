@@ -141,12 +141,13 @@ To use a private registry, set `SKUL_NPM_REGISTRY` (falls back to `npm_config_re
 | **[Qwen Code](https://qwenlm.github.io/qwen-code-docs/)** | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
 | **[Roo Code](https://roocodeinc.github.io/Roo-Code/)** | `.roo/skills` | `.roo/commands` | — | `AGENTS.md` | `.roo/mcp.json` |
 | **[Cline](https://docs.cline.bot/)** | `.cline/skills` | — | — | `AGENTS.md` | — |
+| **[ZCode](https://zcode.z.ai/en/docs/welcome)** | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | — |
 
 Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 
-`--agent` selects a coding tool, not its model. To use DeepSeek models, configure them in a supported tool such as [Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) or [OpenCode](https://api-docs.deepseek.com/quick_start/agent_integrations/opencode/), then target that tool with Skul. Grok Build is a separate tool and can be selected with `--agent grok`.
+`--agent` selects a coding tool, not its model. To use DeepSeek models, configure them in a supported tool such as [Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) or [OpenCode](https://api-docs.deepseek.com/quick_start/agent_integrations/opencode/), then target that tool with Skul. Grok Build and ZCode are separate tools; select them with `--agent grok` and `--agent zcode`.
 
-Global installs use each tool's paths under `~`. Antigravity CLI uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`; Roo Code uses `~/.roo/rules/AGENTS.md` for instructions; Cline uses `~/.agents/AGENTS.md` for instructions.
+Global installs use each tool's paths under `~`. Antigravity CLI uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`; Roo Code uses `~/.roo/rules/AGENTS.md` for instructions; Cline uses `~/.agents/AGENTS.md` for instructions; ZCode uses `~/.zcode/skills`, `~/.zcode/commands`, and `~/.zcode/AGENTS.md`. Skul does not materialize ZCode subagents or MCP servers: its documented subagents are user-scope only, and its MCP settings use a nested configuration format.
 
 `copilot` means the Copilot CLI and the Agent Host behind it, which is the surface with a documented home directory. Its repository files are the ones Copilot in VS Code reads as well, and VS Code reads `~/.copilot/skills` too, so one install serves both. What Skul does not write is `.vscode/mcp.json`: that file is VS Code chat's own, in another dialect, and no user-scope path names it.
 
@@ -316,7 +317,7 @@ Skul supports these root instruction target files:
 | Target file | Native tools |
 |---|---|
 | `CLAUDE.md` | `claude-code` |
-| `AGENTS.md` | `cursor`, `opencode`, `codex`, `kiro`, `copilot`, `antigravity`, `grok`, `roo`, `cline` |
+| `AGENTS.md` | `cursor`, `opencode`, `codex`, `kiro`, `copilot`, `antigravity`, `grok`, `roo`, `cline`, `zcode` |
 | `QWEN.md` | `qwen` |
 | `.github/copilot-instructions.md` | `copilot` |
 

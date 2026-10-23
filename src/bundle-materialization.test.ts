@@ -29,6 +29,7 @@ const skillCases: Array<[ToolName, string]> = [
   ["qwen", ".qwen/skills"],
   ["roo", ".roo/skills"],
   ["cline", ".cline/skills"],
+  ["zcode", ".zcode/skills"],
 ];
 const commandCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/commands"],
@@ -37,6 +38,7 @@ const commandCases: Array<[ToolName, string]> = [
   ["grok", ".grok/commands"],
   ["qwen", ".qwen/commands"],
   ["roo", ".roo/commands"],
+  ["zcode", ".zcode/commands"],
 ];
 const agentCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/agents"],
@@ -1731,6 +1733,7 @@ describe("materializeBundle – canonical command source", () => {
     "grok",
     "qwen",
     "roo",
+    "zcode",
   ] as const)("installs a canonical Markdown command for %s", async (tool) => {
     // Given a reusable Markdown command
     const repoRoot = createTempDir("skul-repo-");

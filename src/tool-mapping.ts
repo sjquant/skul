@@ -11,7 +11,8 @@ export type ToolName =
   | "grok"
   | "qwen"
   | "roo"
-  | "cline";
+  | "cline"
+  | "zcode";
 export type ToolTargetName =
   | "skills"
   | "commands"
@@ -148,6 +149,14 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       root_instruction: { path: "AGENTS.md", kind: "file" },
     },
   },
+  {
+    name: "zcode",
+    targets: {
+      skills: { path: ".zcode/skills", kind: "directory" },
+      commands: { path: ".zcode/commands", kind: "directory" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
+    },
+  },
 ];
 
 /**
@@ -263,6 +272,14 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
     targets: {
       skills: { path: ".cline/skills", kind: "directory" },
       root_instruction: { path: ".agents/AGENTS.md", kind: "file" },
+    },
+  },
+  {
+    name: "zcode",
+    targets: {
+      skills: { path: ".zcode/skills", kind: "directory" },
+      commands: { path: ".zcode/commands", kind: "directory" },
+      root_instruction: { path: ".zcode/AGENTS.md", kind: "file" },
     },
   },
 ];

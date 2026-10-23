@@ -2161,6 +2161,7 @@ describe("run --global", () => {
     ["qwen", "QWEN.md", ".qwen/QWEN.md"],
     ["roo", "AGENTS.md", ".roo/rules/AGENTS.md"],
     ["cline", "AGENTS.md", ".agents/AGENTS.md"],
+    ["zcode", "AGENTS.md", ".zcode/AGENTS.md"],
   ] as const)("writes %s global instructions to %s", async (tool, sourceFile, targetFile) => {
     // Given a bundle with root instructions for the selected tool
     const homeDir = createHomeDir();
@@ -2857,10 +2858,11 @@ describe("run --global", () => {
         "qwen",
         "roo",
         "cline",
+        "zcode",
       ]),
     );
     // Crucially, the tools list is the REPLACED set (all auto-selected), not claude-code alone
-    expect(registry.global!.desired_state[0]!.tools).toHaveLength(11);
+    expect(registry.global!.desired_state[0]!.tools).toHaveLength(12);
   });
 
   it("unions desired tools when re-applying with an explicit --agent flag", async () => {
