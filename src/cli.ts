@@ -171,7 +171,7 @@ const COMMANDS: CommandName[] = [
 const PROGRAM_HELP_DETAILS = [
   "",
   "Root instructions:",
-  "  cursor, codex, opencode, kiro, copilot, antigravity, grok, cline, and zcode target AGENTS.md; globally, codex targets .codex/AGENTS.md, opencode targets .config/opencode/AGENTS.md, kiro targets .kiro/steering/AGENTS.md, copilot targets .copilot/copilot-instructions.md, antigravity targets .gemini/GEMINI.md, grok targets .grok/AGENTS.md, cline targets .agents/AGENTS.md, and zcode targets .zcode/AGENTS.md; claude-code targets CLAUDE.md, and qwen targets QWEN.md.",
+  "  Each tool uses its native AGENTS.md, CLAUDE.md, or QWEN.md path; --global uses user-scope paths. See https://skul.solaqua.dev/docs/supported-tools.",
   "  Untracked root instructions are composed locally and hidden through .git/info/exclude.",
   "  Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
   "",

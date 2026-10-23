@@ -246,7 +246,7 @@ If the target file is **tracked by Git** — as `opencode.json` or `.codex/confi
 
 Only one bundle may shadow a given tracked file — a shadow renders that bundle's servers onto the committed content, so a second bundle would silently replace the first's, and Skul refuses instead. (Untracked files have no such limit; any number of bundles merge into them.)
 
-`skul add --global` merges MCP servers into each tool's user-scope configuration using the same dialect and merge rules as a project install. This includes `~/.grok/config.toml` for Grok Build. Qwen Code uses `~/.qwen/settings.json`. Cline has no supported global MCP target, so `skul add --global` reports its skipped servers.
+`skul add --global` merges MCP servers into each tool's user-scope configuration using the same dialect and merge rules as a project install. This includes `~/.grok/config.toml` for Grok Build. Qwen Code uses `~/.qwen/settings.json`. Cline and ZCode have no supported global MCP target, so `skul add --global` reports their skipped servers.
 
 `~/.claude.json` is one Claude Code rewrites while it runs. Skul reads it, merges, and replaces it in one atomic rename, so it never leaves a half-written file — but a running session that writes between the read and the rename loses that write. Run `skul add --global`, `skul remove --global`, and `skul reset --global` with Claude Code closed.
 

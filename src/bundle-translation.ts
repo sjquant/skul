@@ -326,7 +326,10 @@ function parseCommand(sourceTool: CommandTool, source: string): CommandModel {
   const document = parseMarkdownDocument(source);
 
   return {
-    body: document.body,
+    body:
+      sourceTool === "qwen"
+        ? document.body.replaceAll("{{args}}", "$ARGUMENTS")
+        : document.body,
     description: coerceOptionalString(document.metadata.description),
     agent: coerceOptionalString(document.metadata.agent),
     model: coerceOptionalString(document.metadata.model),
@@ -372,6 +375,10 @@ function renderCommand(
     targetTool === "zcode"
   ) {
     const metadata: MetadataMap = {};
+    const body =
+      targetTool === "qwen"
+        ? model.body.replace(/\$ARGUMENTS\b/g, "{{args}}")
+        : model.body;
 
     if (options.description ?? model.description) {
       metadata.description = options.description ?? model.description!;
@@ -390,10 +397,10 @@ function renderCommand(
     return {
       [commandFilePath(targetTool, commandName)]:
         Object.keys(metadata).length === 0
-          ? model.body
+          ? body
           : renderMarkdownDocument({
               metadata,
-              body: model.body,
+              body,
             }),
     };
   }

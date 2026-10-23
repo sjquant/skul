@@ -1402,6 +1402,32 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(output).not.toContain(MCP_SKIP_NOTE);
   });
 
+  it("reports skipped MCP servers for a global Cline install", async () => {
+    // Given a portable MCP bundle with a skill Cline can install
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      BUNDLE,
+      "skills/review/SKILL.md",
+      "---\nname: review\ndescription: Review code\n---\nReview code.\n",
+    );
+
+    // When the bundle is installed globally for Cline
+    const output = await run(
+      ["add", SOURCE, BUNDLE, "--global", "--agent", "cline", "-y"],
+      { homeDir, cwd, prompts: createPromptClientStub() },
+    );
+
+    // Then the skill is installed and the missing MCP configuration is reported
+    expect(
+      pathExists(path.join(homeDir, ".cline/skills/review/SKILL.md")),
+    ).toBe(true);
+    expect(output).toContain(`${MCP_SKIP_NOTE} for cline`);
+  });
+
   it("appends a marked block to the user-scope Codex config for a global install", async () => {
     // Given a hand-maintained ~/.codex/config.toml carrying the user's own server
     const homeDir = createHomeDir();
@@ -1751,6 +1777,39 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     // Then only Claude Code's configuration is materialized
     expect(pathExists(path.join(cwd, ".mcp.json"))).toBe(true);
     expect(pathExists(path.join(cwd, ".cursor", "mcp.json"))).toBe(false);
+  });
+
+  it("installs Qwen skills without treating native settings as portable MCP", async () => {
+    // Given a Qwen bundle with a skill and native settings in Qwen's format
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      BUNDLE,
+      ".qwen/skills/review/SKILL.md",
+      "---\nname: review\ndescription: Review code\n---\nReview code.\n",
+    );
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      BUNDLE,
+      ".qwen/settings.json",
+      JSON.stringify({ mcpServers: { docs: { command: "docs-server" } } }),
+    );
+
+    // When the bundle is added for Qwen
+    await run(["add", SOURCE, BUNDLE, "--agent", "qwen", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the skill is installed without parsing the settings as mcp.json
+    expect(pathExists(path.join(cwd, ".qwen/skills/review/SKILL.md"))).toBe(
+      true,
+    );
+    expect(pathExists(path.join(cwd, ".qwen/settings.json"))).toBe(false);
   });
 
   it("hides the materialized MCP configuration from Git status", async () => {

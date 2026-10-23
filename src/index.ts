@@ -8454,11 +8454,8 @@ async function applyBundleGlobal(options: {
  * Says which tools a global install cannot place a bundle's MCP servers for.
  *
  * A bundle declares its servers once and Skul writes them per tool, so a tool
- * with no global MCP location drops them. That is a deliberate omission, not a
- * failure — the remaining tools are still installed — but it leaves the bundle
- * partly unconfigured, so the run says so rather than letting it pass. Every
- * tool `--global` currently accepts has such a location, which is what keeps
- * this quiet; it speaks up if that ever stops being true.
+ * with no global MCP location drops them. The remaining tool content is still
+ * installed, but the run reports the missing server configuration.
  */
 function formatGlobalMcpSkipNotes(options: {
   manifest: BundleManifest;
@@ -8470,10 +8467,11 @@ function formatGlobalMcpSkipNotes(options: {
   }
 
   const placeable = globalMcpCapableToolNames();
+  const hasPortableMcpSource = Object.values(options.manifest.tools).some(
+    (targets) => targets?.mcp?.path === "mcp.json",
+  );
   const skipped = options.tools.filter(
-    (toolName) =>
-      options.manifest.tools[toolName]?.mcp !== undefined &&
-      !placeable.includes(toolName),
+    (toolName) => hasPortableMcpSource && !placeable.includes(toolName),
   );
 
   if (skipped.length === 0) {
@@ -8482,7 +8480,7 @@ function formatGlobalMcpSkipNotes(options: {
 
   return [
     pc.yellow(
-      `Note: MCP servers were skipped for ${skipped.join(", ")}: global mode writes MCP configuration only for ${placeable.join(", ")}`,
+      `Note: MCP servers were skipped for ${skipped.join(", ")}: no supported global MCP target`,
     ),
   ];
 }
