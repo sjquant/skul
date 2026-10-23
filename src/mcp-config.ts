@@ -216,14 +216,6 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       ...(server.headers ? { headers: server.headers } : {}),
     }),
   },
-  roo: {
-    format: "json",
-    serversKey: "mcpServers",
-    renderStdio: (server, paths) =>
-      renderConventionalStdio(server, paths, null),
-    renderRemote: (server) =>
-      renderConventionalRemote(server, server.transport),
-  },
   antigravity: {
     format: "json",
     serversKey: "mcpServers",

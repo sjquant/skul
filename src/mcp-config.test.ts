@@ -479,29 +479,6 @@ describe("dialect matrix", () => {
     });
   });
 
-  it("includes the transport type for Roo Code remote servers", () => {
-    // Given remote MCP servers of both supported transports
-    const servers = parseMcpConfig({
-      mcpServers: {
-        modern: { type: "streamable-http", url: "https://x/mcp" },
-        legacy: { type: "sse", url: "https://x/sse" },
-      },
-    });
-
-    // When Roo Code receives its project MCP configuration
-    const content = mergeMcpConfigDocument({
-      toolName: "roo",
-      servers,
-      pluginPaths: PLUGIN_PATHS,
-    }).content;
-
-    // Then each URL states the required transport
-    expect(JSON.parse(content).mcpServers).toEqual({
-      modern: { type: "streamable-http", url: "https://x/mcp" },
-      legacy: { type: "sse", url: "https://x/sse" },
-    });
-  });
-
   it("merges Grok servers into TOML while retaining user settings", () => {
     // Given an existing Grok config and an MCP server from a bundle
     const existingContent = '[models]\ndefault = "grok-build"\n';

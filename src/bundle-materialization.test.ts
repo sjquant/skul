@@ -27,7 +27,6 @@ const skillCases: Array<[ToolName, string]> = [
   ["antigravity", ".agents/skills"],
   ["grok", ".grok/skills"],
   ["qwen", ".qwen/skills"],
-  ["roo", ".roo/skills"],
   ["cline", ".cline/skills"],
   ["zcode", ".zcode/skills"],
 ];
@@ -37,7 +36,6 @@ const commandCases: Array<[ToolName, string]> = [
   ["opencode", ".opencode/commands"],
   ["grok", ".grok/commands"],
   ["qwen", ".qwen/commands"],
-  ["roo", ".roo/commands"],
   ["zcode", ".zcode/commands"],
 ];
 const agentCases: Array<[ToolName, string]> = [
@@ -1732,7 +1730,6 @@ describe("materializeBundle – canonical command source", () => {
   it.each([
     "grok",
     "qwen",
-    "roo",
     "zcode",
   ] as const)("installs a canonical Markdown command for %s", async (tool) => {
     // Given a reusable Markdown command

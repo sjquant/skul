@@ -26,7 +26,6 @@ describe("listToolDefinitions", () => {
       "antigravity",
       "grok",
       "qwen",
-      "roo",
       "cline",
       "zcode",
     ]);
@@ -203,7 +202,6 @@ describe("globalCapableToolNames", () => {
       "antigravity",
       "grok",
       "qwen",
-      "roo",
       "cline",
       "zcode",
     ]);

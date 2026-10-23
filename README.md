@@ -139,7 +139,6 @@ To use a private registry, set `SKUL_NPM_REGISTRY` (falls back to `npm_config_re
 | **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
 | **[Grok Build](https://docs.x.ai/build/overview)** | `.grok/skills` | `.grok/commands` | `.grok/agents` | `AGENTS.md` | `.grok/config.toml` |
 | **[Qwen Code](https://qwenlm.github.io/qwen-code-docs/)** | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
-| **[Roo Code](https://roocodeinc.github.io/Roo-Code/)** | `.roo/skills` | `.roo/commands` | — | `AGENTS.md` | `.roo/mcp.json` |
 | **[Cline](https://docs.cline.bot/)** | `.cline/skills` | — | — | `AGENTS.md` | — |
 | **[ZCode](https://zcode.z.ai/en/docs/welcome)** | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | — |
 
@@ -147,7 +146,7 @@ Use `--agent <name>` to target a single tool. Repeat the flag to target multiple
 
 `--agent` selects a coding tool, not its model. To use DeepSeek models, configure them in a supported tool such as [Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) or [OpenCode](https://api-docs.deepseek.com/quick_start/agent_integrations/opencode/), then target that tool with Skul. Grok Build and ZCode are separate tools; select them with `--agent grok` and `--agent zcode`.
 
-Global installs use each tool's paths under `~`. Antigravity CLI uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`; Roo Code uses `~/.roo/rules/AGENTS.md` for instructions; Cline uses `~/.agents/AGENTS.md` for instructions; ZCode uses `~/.zcode/skills`, `~/.zcode/commands`, and `~/.zcode/AGENTS.md`. Skul does not materialize ZCode subagents or MCP servers: its documented subagents are user-scope only, and its MCP settings use a nested configuration format.
+Global installs use each tool's paths under `~`. Antigravity CLI uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`; Cline uses `~/.agents/AGENTS.md` for instructions; ZCode uses `~/.zcode/skills`, `~/.zcode/commands`, and `~/.zcode/AGENTS.md`. Skul does not materialize ZCode subagents or MCP servers: its documented subagents are user-scope only, and its MCP settings use a nested configuration format.
 
 `copilot` means the Copilot CLI and the Agent Host behind it, which is the surface with a documented home directory. Its repository files are the ones Copilot in VS Code reads as well, and VS Code reads `~/.copilot/skills` too, so one install serves both. What Skul does not write is `.vscode/mcp.json`: that file is VS Code chat's own, in another dialect, and no user-scope path names it.
 
@@ -247,7 +246,7 @@ If the target file is **tracked by Git** — as `opencode.json` or `.codex/confi
 
 Only one bundle may shadow a given tracked file — a shadow renders that bundle's servers onto the committed content, so a second bundle would silently replace the first's, and Skul refuses instead. (Untracked files have no such limit; any number of bundles merge into them.)
 
-`skul add --global` merges MCP servers into each tool's user-scope configuration using the same dialect and merge rules as a project install. This includes `~/.grok/config.toml` for Grok Build. Qwen Code uses `~/.qwen/settings.json`. Roo Code and Cline have no supported global MCP target, so `skul add --global` reports their skipped servers.
+`skul add --global` merges MCP servers into each tool's user-scope configuration using the same dialect and merge rules as a project install. This includes `~/.grok/config.toml` for Grok Build. Qwen Code uses `~/.qwen/settings.json`. Cline has no supported global MCP target, so `skul add --global` reports its skipped servers.
 
 `~/.claude.json` is one Claude Code rewrites while it runs. Skul reads it, merges, and replaces it in one atomic rename, so it never leaves a half-written file — but a running session that writes between the read and the rename loses that write. Run `skul add --global`, `skul remove --global`, and `skul reset --global` with Claude Code closed.
 
@@ -317,7 +316,7 @@ Skul supports these root instruction target files:
 | Target file | Native tools |
 |---|---|
 | `CLAUDE.md` | `claude-code` |
-| `AGENTS.md` | `cursor`, `opencode`, `codex`, `kiro`, `copilot`, `antigravity`, `grok`, `roo`, `cline`, `zcode` |
+| `AGENTS.md` | `cursor`, `opencode`, `codex`, `kiro`, `copilot`, `antigravity`, `grok`, `cline`, `zcode` |
 | `QWEN.md` | `qwen` |
 | `.github/copilot-instructions.md` | `copilot` |
 

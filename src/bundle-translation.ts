@@ -22,7 +22,6 @@ type SkillTool =
   | "antigravity"
   | "grok"
   | "qwen"
-  | "roo"
   | "cline"
   | "zcode";
 type CommandTool =
@@ -32,7 +31,6 @@ type CommandTool =
   | "antigravity"
   | "grok"
   | "qwen"
-  | "roo"
   | "zcode";
 type AgentTool =
   | "claude"
@@ -54,7 +52,6 @@ type RootInstructionTool =
   | "antigravity"
   | "grok"
   | "qwen"
-  | "roo"
   | "cline"
   | "zcode";
 
@@ -372,7 +369,6 @@ function renderCommand(
     targetTool === "antigravity" ||
     targetTool === "grok" ||
     targetTool === "qwen" ||
-    targetTool === "roo" ||
     targetTool === "zcode"
   ) {
     const metadata: MetadataMap = {};

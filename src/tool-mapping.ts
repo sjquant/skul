@@ -10,7 +10,6 @@ export type ToolName =
   | "antigravity"
   | "grok"
   | "qwen"
-  | "roo"
   | "cline"
   | "zcode";
 export type ToolTargetName =
@@ -134,15 +133,6 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
-    name: "roo",
-    targets: {
-      skills: { path: ".roo/skills", kind: "directory" },
-      commands: { path: ".roo/commands", kind: "directory" },
-      root_instruction: { path: "AGENTS.md", kind: "file" },
-      mcp: { path: ".roo/mcp.json", kind: "file" },
-    },
-  },
-  {
     name: "cline",
     targets: {
       skills: { path: ".cline/skills", kind: "directory" },
@@ -257,14 +247,6 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       agents: { path: ".qwen/agents", kind: "directory" },
       root_instruction: { path: ".qwen/QWEN.md", kind: "file" },
       mcp: { path: ".qwen/settings.json", kind: "file" },
-    },
-  },
-  {
-    name: "roo",
-    targets: {
-      skills: { path: ".roo/skills", kind: "directory" },
-      commands: { path: ".roo/commands", kind: "directory" },
-      root_instruction: { path: ".roo/rules/AGENTS.md", kind: "file" },
     },
   },
   {

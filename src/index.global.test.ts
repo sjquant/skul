@@ -2159,7 +2159,6 @@ describe("run --global", () => {
   it.each([
     ["grok", "AGENTS.md", ".grok/AGENTS.md"],
     ["qwen", "QWEN.md", ".qwen/QWEN.md"],
-    ["roo", "AGENTS.md", ".roo/rules/AGENTS.md"],
     ["cline", "AGENTS.md", ".agents/AGENTS.md"],
     ["zcode", "AGENTS.md", ".zcode/AGENTS.md"],
   ] as const)("writes %s global instructions to %s", async (tool, sourceFile, targetFile) => {
@@ -2856,13 +2855,12 @@ describe("run --global", () => {
         "antigravity",
         "grok",
         "qwen",
-        "roo",
         "cline",
         "zcode",
       ]),
     );
     // Crucially, the tools list is the REPLACED set (all auto-selected), not claude-code alone
-    expect(registry.global!.desired_state[0]!.tools).toHaveLength(12);
+    expect(registry.global!.desired_state[0]!.tools).toHaveLength(11);
   });
 
   it("unions desired tools when re-applying with an explicit --agent flag", async () => {
