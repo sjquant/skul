@@ -544,6 +544,7 @@ function listRootInstructionConflictPaths(
       "AGENTS.md",
       "CLAUDE.md",
       "GEMINI.md",
+      "QWEN.md",
       ".github/copilot-instructions.md",
     ];
   }

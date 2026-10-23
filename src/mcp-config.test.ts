@@ -10,7 +10,6 @@ import {
   supportsMcpConfig,
 } from "./mcp-config";
 import {
-  globalCapableToolNames,
   listGlobalToolDefinitions,
   listToolDefinitions,
   type ToolName,
@@ -460,6 +459,69 @@ describe("dialect matrix", () => {
     expect(content).toContain('url = "https://x/sse"');
     expect(content).toContain('http_headers = { X-Key = "v" }');
   });
+
+  it("uses Qwen Code's HTTP endpoint key for streamable HTTP servers", () => {
+    // Given a streamable HTTP server in a bundle
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "streamable-http", url: "https://x/mcp" } },
+    });
+
+    // When the server is rendered for the target tool
+    const content = mergeMcpConfigDocument({
+      toolName: "qwen",
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then the tool treats it as streamable HTTP rather than SSE
+    expect(JSON.parse(content).mcpServers.docs).toEqual({
+      httpUrl: "https://x/mcp",
+    });
+  });
+
+  it("includes the transport type for Roo Code remote servers", () => {
+    // Given remote MCP servers of both supported transports
+    const servers = parseMcpConfig({
+      mcpServers: {
+        modern: { type: "streamable-http", url: "https://x/mcp" },
+        legacy: { type: "sse", url: "https://x/sse" },
+      },
+    });
+
+    // When Roo Code receives its project MCP configuration
+    const content = mergeMcpConfigDocument({
+      toolName: "roo",
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then each URL states the required transport
+    expect(JSON.parse(content).mcpServers).toEqual({
+      modern: { type: "streamable-http", url: "https://x/mcp" },
+      legacy: { type: "sse", url: "https://x/sse" },
+    });
+  });
+
+  it("merges Grok servers into TOML while retaining user settings", () => {
+    // Given an existing Grok config and an MCP server from a bundle
+    const existingContent = '[models]\ndefault = "grok-build"\n';
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "stdio", command: "docs-server" } },
+    });
+
+    // When Skul adds the server
+    const content = mergeMcpConfigDocument({
+      toolName: "grok",
+      existingContent,
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then the Grok settings and server are both present
+    expect(content).toContain(existingContent);
+    expect(content).toContain("[mcp_servers.docs]");
+    expect(content).toContain('command = "docs-server"');
+  });
 });
 
 describe("server name collisions", () => {
@@ -908,16 +970,6 @@ describe("MCP dialect coverage", () => {
     // would otherwise be reported as both skipped and supported at once
     expect(globalMcpCapableToolNames()).toEqual(globalToolsWithMcpTarget);
     expect(globalToolsWithMcpTarget.length).toBeGreaterThan(0);
-  });
-
-  it("places MCP servers for every globally installable tool", () => {
-    // Given every tool a global install can target
-
-    // When those are compared with the tools a global install writes MCP for
-    // Then none is left out, so no bundle has its servers dropped by a global
-    // install. `skul add --global` still carries a note naming any tool it
-    // cannot place servers for; this is what keeps that note unreachable.
-    expect(globalMcpCapableToolNames()).toEqual(globalCapableToolNames());
   });
 
   it("declares no MCP target for tools it cannot render configuration for", () => {

@@ -170,6 +170,12 @@ describe("parseBundleManifest", () => {
         antigravity: {
           root_instruction: { path: "CLAUDE.md" },
         },
+        grok: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        qwen: { root_instruction: { path: "CLAUDE.md" } },
+        roo: { root_instruction: { path: "CLAUDE.md" } },
+        cline: { root_instruction: { path: "CLAUDE.md" } },
       },
     });
   });
@@ -211,6 +217,12 @@ describe("parseBundleManifest", () => {
         antigravity: {
           root_instruction: { path: "CLAUDE.md" },
         },
+        grok: {
+          root_instruction: { path: "CLAUDE.md" },
+        },
+        qwen: { root_instruction: { path: "CLAUDE.md" } },
+        roo: { root_instruction: { path: "CLAUDE.md" } },
+        cline: { root_instruction: { path: "CLAUDE.md" } },
       },
     });
   });

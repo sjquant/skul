@@ -7,7 +7,11 @@ export type ToolName =
   | "codex"
   | "copilot"
   | "kiro"
-  | "antigravity";
+  | "antigravity"
+  | "grok"
+  | "qwen"
+  | "roo"
+  | "cline";
 export type ToolTargetName =
   | "skills"
   | "commands"
@@ -108,15 +112,49 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       mcp: { path: ".agents/mcp_config.json", kind: "file" },
     },
   },
+  {
+    name: "grok",
+    targets: {
+      skills: { path: ".grok/skills", kind: "directory" },
+      commands: { path: ".grok/commands", kind: "directory" },
+      agents: { path: ".grok/agents", kind: "directory" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".grok/config.toml", kind: "file" },
+    },
+  },
+  {
+    name: "qwen",
+    targets: {
+      skills: { path: ".qwen/skills", kind: "directory" },
+      commands: { path: ".qwen/commands", kind: "directory" },
+      agents: { path: ".qwen/agents", kind: "directory" },
+      root_instruction: { path: "QWEN.md", kind: "file" },
+      mcp: { path: ".qwen/settings.json", kind: "file" },
+    },
+  },
+  {
+    name: "roo",
+    targets: {
+      skills: { path: ".roo/skills", kind: "directory" },
+      commands: { path: ".roo/commands", kind: "directory" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".roo/mcp.json", kind: "file" },
+    },
+  },
+  {
+    name: "cline",
+    targets: {
+      skills: { path: ".cline/skills", kind: "directory" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
+    },
+  },
 ];
 
 /**
  * Where each tool keeps its user-scope configuration, relative to the home directory.
  *
- * Every tool here documents a user-scope MCP location under the home directory,
- * so a global install places a bundle's servers for all of them. Any tool added
- * without one would have its servers dropped, which `skul add --global` reports
- * rather than passing over in silence.
+ * Tools without a documented user-scope MCP location omit that target. A global
+ * install reports skipped servers for those tools.
  */
 const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -190,6 +228,41 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       commands: { path: ".agent/workflows", kind: "directory" },
       root_instruction: { path: ".gemini/GEMINI.md", kind: "file" },
       mcp: { path: ".gemini/config/mcp_config.json", kind: "file" },
+    },
+  },
+  {
+    name: "grok",
+    targets: {
+      skills: { path: ".grok/skills", kind: "directory" },
+      commands: { path: ".grok/commands", kind: "directory" },
+      agents: { path: ".grok/agents", kind: "directory" },
+      root_instruction: { path: ".grok/AGENTS.md", kind: "file" },
+      mcp: { path: ".grok/config.toml", kind: "file" },
+    },
+  },
+  {
+    name: "qwen",
+    targets: {
+      skills: { path: ".qwen/skills", kind: "directory" },
+      commands: { path: ".qwen/commands", kind: "directory" },
+      agents: { path: ".qwen/agents", kind: "directory" },
+      root_instruction: { path: ".qwen/QWEN.md", kind: "file" },
+      mcp: { path: ".qwen/settings.json", kind: "file" },
+    },
+  },
+  {
+    name: "roo",
+    targets: {
+      skills: { path: ".roo/skills", kind: "directory" },
+      commands: { path: ".roo/commands", kind: "directory" },
+      root_instruction: { path: ".roo/rules/AGENTS.md", kind: "file" },
+    },
+  },
+  {
+    name: "cline",
+    targets: {
+      skills: { path: ".cline/skills", kind: "directory" },
+      root_instruction: { path: ".agents/AGENTS.md", kind: "file" },
     },
   },
 ];

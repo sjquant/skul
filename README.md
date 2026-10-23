@@ -137,10 +137,16 @@ To use a private registry, set `SKUL_NPM_REGISTRY` (falls back to `npm_config_re
 | **[GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli)** | `.github/skills` | — | `.github/agents` | `AGENTS.md` | `.github/mcp.json` |
 | **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
 | **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
+| **[Grok Build](https://docs.x.ai/build/overview)** | `.grok/skills` | `.grok/commands` | `.grok/agents` | `AGENTS.md` | `.grok/config.toml` |
+| **[Qwen Code](https://qwenlm.github.io/qwen-code-docs/)** | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
+| **[Roo Code](https://roocodeinc.github.io/Roo-Code/)** | `.roo/skills` | `.roo/commands` | — | `AGENTS.md` | `.roo/mcp.json` |
+| **[Cline](https://docs.cline.bot/)** | `.cline/skills` | — | — | `AGENTS.md` | — |
 
 Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 
-For global Antigravity CLI materialization, Skul uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`. Copilot keeps all of its user-scope configuration in one place, so a global install writes `~/.copilot/skills`, `~/.copilot/agents`, `~/.copilot/copilot-instructions.md`, and `~/.copilot/mcp-config.json`. Globally, MCP servers go to each tool's own user-scope configuration: `~/.claude.json`, `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.codex/config.toml`, `~/.kiro/settings/mcp.json`, `~/.gemini/config/mcp_config.json`, and `~/.copilot/mcp-config.json`.
+`--agent` selects a coding tool, not its model. To use DeepSeek models, configure them in a supported tool such as [Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) or [OpenCode](https://api-docs.deepseek.com/quick_start/agent_integrations/opencode/), then target that tool with Skul. Grok Build is a separate tool and can be selected with `--agent grok`.
+
+Global installs use each tool's paths under `~`. Antigravity CLI uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`; Roo Code uses `~/.roo/rules/AGENTS.md` for instructions; Cline uses `~/.agents/AGENTS.md` for instructions.
 
 `copilot` means the Copilot CLI and the Agent Host behind it, which is the surface with a documented home directory. Its repository files are the ones Copilot in VS Code reads as well, and VS Code reads `~/.copilot/skills` too, so one install serves both. What Skul does not write is `.vscode/mcp.json`: that file is VS Code chat's own, in another dialect, and no user-scope path names it.
 
@@ -182,11 +188,11 @@ When `tools` is present, declared tools are the selection boundary: inferred non
 
 In a multi-bundle repository, the repository-root manifest supplies metadata defaults such as `root_instruction_mode` to child bundles, and a child manifest overrides those defaults. Repository-root `tools` declarations are used for repo-as-bundle layouts; child directories define their own tool targets in multi-bundle layouts.
 
-In a multi-bundle repository, root-level `AGENTS.md` and `CLAUDE.md` are not treated as bundle content. Skul emits one warning with guidance to move shared instructions into `bundles/common/`; child bundle instructions continue to be discovered and composed normally. A repository with no named child bundles remains a repo-as-bundle, so its root instruction files are preserved and inferred as bundle content.
+In a multi-bundle repository, root-level `AGENTS.md`, `CLAUDE.md`, and `QWEN.md` are not treated as bundle content. Skul emits one warning with guidance to move shared instructions into `bundles/common/`; child bundle instructions continue to be discovered and composed normally. A repository with no named child bundles remains a repo-as-bundle, so its root instruction files are preserved and inferred as bundle content.
 
 Inside a bundle, two content layouts are supported:
 
-**Canonical** — `skills/`, `commands/`, `agents/`, `AGENTS.md`, and `CLAUDE.md` at the top level. Skul copies each directory to every tool that supports it, and treats root instruction files as generic cross-tool sources.
+**Canonical** — `skills/`, `commands/`, `agents/`, `AGENTS.md`, `CLAUDE.md`, and `QWEN.md` at the top level. Skul copies each directory to every tool that supports it, and treats root instruction files as generic cross-tool sources.
 
 **Native** — tool-specific dotdirs (`.claude/skills/`, `.cursor/commands/`, `.github/agents/`, `.kiro/skills/`, etc.) for content targeting a single tool only.
 
@@ -212,7 +218,7 @@ A bundle can declare MCP servers in an `mcp.json` at the bundle root, using the 
 }
 ```
 
-Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers` or `mcp`) and the transport spelling. `streamable-http` becomes `http` for Claude Code and Copilot; Copilot calls a stdio server `local` and gates each server's tools with `tools: ["*"]`; Cursor and Kiro infer the transport from `url` and get no `type`; Antigravity infers it too but names the endpoint `serverUrl`, the only spelling it accepts; OpenCode uses `local`/`remote` and folds `command` and `args` into one array; Codex uses TOML `[mcp_servers.<name>]` tables with `http_headers`. Select it as a bundle item with `--include mcp`.
+Skul translates this into each tool's own MCP configuration file and dialect — the top-level key (`mcpServers` or `mcp`) and the transport spelling. `streamable-http` becomes `http` for Claude Code and Copilot; Copilot calls a stdio server `local` and gates each server's tools with `tools: ["*"]`; Cursor and Kiro infer the transport from `url` and get no `type`; Antigravity names the endpoint `serverUrl`; OpenCode uses `local`/`remote` and folds `command` and `args` into one array; Codex and Grok Build use TOML `[mcp_servers.<name>]` tables. Select it as a bundle item with `--include mcp`.
 
 `${PLUGIN_ROOT}` expands to the bundle's directory in `~/.skul/library/`, and `${PLUGIN_DATA}` to a per-bundle directory under `~/.skul/data/`. Both are substituted in `args`, `env` values, and `cwd`; `command` is left verbatim so it stays a single executable token. Skul resolves the data directory but does not create it.
 
@@ -240,11 +246,11 @@ If the target file is **tracked by Git** — as `opencode.json` or `.codex/confi
 
 Only one bundle may shadow a given tracked file — a shadow renders that bundle's servers onto the committed content, so a second bundle would silently replace the first's, and Skul refuses instead. (Untracked files have no such limit; any number of bundles merge into them.)
 
-`skul add --global` merges MCP servers into each tool's user-scope configuration — `~/.claude.json` (Claude Code), `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.codex/config.toml`, `~/.kiro/settings/mcp.json`, `~/.gemini/config/mcp_config.json` (Antigravity), and `~/.copilot/mcp-config.json` (Copilot) — using the same dialect and merge rules as a project install. Every tool `--global` accepts has such a path, so nothing is dropped; if a future tool has none, `skul add --global` names it rather than skipping in silence.
+`skul add --global` merges MCP servers into each tool's user-scope configuration using the same dialect and merge rules as a project install. This includes `~/.grok/config.toml` for Grok Build. Qwen Code uses `~/.qwen/settings.json`. Roo Code and Cline have no supported global MCP target, so `skul add --global` reports their skipped servers.
 
 `~/.claude.json` is one Claude Code rewrites while it runs. Skul reads it, merges, and replaces it in one atomic rename, so it never leaves a half-written file — but a running session that writes between the read and the rename loses that write. Run `skul add --global`, `skul remove --global`, and `skul reset --global` with Claude Code closed.
 
-As with other content, a bundle can instead pre-author a single tool's MCP file natively (`.mcp.json`, `.cursor/mcp.json`, `.github/mcp.json`, `.kiro/settings/mcp.json`, `.agents/mcp_config.json`, `opencode.json`, `.codex/config.toml`), which scopes those servers to that tool alone.
+For all tools, the portable source is bundle-root `mcp.json`. A tool-scoped JSON file can also be inferred when it uses that same Agent Plugins server schema. Native TOML files for Codex and Grok Build are destinations only; Skul writes them from `mcp.json`.
 
 ### Cross-Repo Bundle Item References
 
@@ -305,12 +311,13 @@ Plugin sources resolve relative to `sourcePath`, so `./plugins/sentry-cli` above
 
 ### Root Instruction Targets
 
-Skul supports three root instruction target files:
+Skul supports these root instruction target files:
 
 | Target file | Native tools |
 |---|---|
-| `CLAUDE.md` | `claude-code`, `cursor`, `opencode` |
-| `AGENTS.md` | `codex`, `kiro`, `copilot`, `antigravity` |
+| `CLAUDE.md` | `claude-code` |
+| `AGENTS.md` | `cursor`, `opencode`, `codex`, `kiro`, `copilot`, `antigravity`, `grok`, `roo`, `cline` |
+| `QWEN.md` | `qwen` |
 | `.github/copilot-instructions.md` | `copilot` |
 
 Root instruction bundles are compatible across those targets. If a bundle only ships `CLAUDE.md`, Skul can still materialize `AGENTS.md` for Codex or Kiro and `.github/copilot-instructions.md` for GitHub Copilot. If a bundle only ships `AGENTS.md` or `.github/copilot-instructions.md`, Skul can still materialize the equivalent target file for the other tools, as long as the instruction body can be reused as-is.

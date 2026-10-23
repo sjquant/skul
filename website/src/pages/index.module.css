@@ -146,35 +146,6 @@
   color: var(--skul-ink-strong);
 }
 
-.heroChecklist {
-  display: grid;
-  gap: 0.8rem;
-  list-style: none;
-  margin: 1.6rem 0 0;
-  max-width: 35rem;
-  padding: 0;
-}
-
-.heroChecklist li {
-  align-items: center;
-  background: var(--skul-surface-raised);
-  border: 1px solid var(--skul-line-soft);
-  border-radius: 0.9rem;
-  color: var(--skul-ink);
-  display: flex;
-  font-size: 0.98rem;
-  font-weight: 600;
-  gap: 0.7rem;
-  padding: 0.88rem 1rem;
-}
-
-.heroChecklist li::before {
-  color: var(--skul-accent-cyan-strong);
-  content: "•";
-  font-size: 1.1rem;
-  line-height: 1;
-}
-
 .commandPanel {
   background:
     radial-gradient(
@@ -302,7 +273,6 @@
 }
 
 .proofPill h2,
-.toolCard h3,
 .stepCard h3,
 .docsCard h3 {
   color: var(--skul-ink-strong);
@@ -316,7 +286,6 @@
 }
 
 .proofPill p,
-.toolCard p,
 .stepCard p,
 .docsCard p {
   color: var(--skul-muted);
@@ -349,7 +318,9 @@
 }
 
 .toolGrid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  padding: 0;
 }
 
 .stepGrid {
@@ -360,10 +331,15 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.toolCard,
 .stepCard,
 .docsCard {
   padding: 1.25rem;
+}
+
+.toolCard {
+  color: var(--skul-ink-strong);
+  font-weight: 700;
+  padding: 0.9rem 1rem;
 }
 
 .stepIndex {
@@ -388,10 +364,13 @@
   }
 
   .proofStrip,
-  .toolGrid,
   .stepGrid,
   .docsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .toolGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .hero {

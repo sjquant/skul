@@ -15,7 +15,7 @@ type Card = {
 };
 
 const siteDescription =
-  "skul is an AI bundle CLI for sharing and selectively installing Claude Code, Cursor, OpenCode, Codex, GitHub Copilot, and Kiro skills, commands, agents, and root instructions across projects without committing local AI setup files.";
+  "skul is an AI bundle CLI for sharing skills, commands, agents, and root instructions across Claude Code, Cursor, OpenCode, Codex, Copilot, Kiro, Antigravity, Grok Build, Qwen Code, Roo Code, and Cline without committing local AI setup files.";
 
 const siteKeywords = [
   "shared ai bundles",
@@ -26,6 +26,10 @@ const siteKeywords = [
   "opencode agents",
   "github copilot skills",
   "kiro agents",
+  "grok build skills",
+  "qwen code skills",
+  "roo code skills",
+  "cline skills",
   "select ai skills",
   "ai workflow cli",
   "developer ai tooling",
@@ -38,11 +42,6 @@ const heroStats = [
       "Install an entire bundle, or pick only the skill, agent, command, or root instruction you need.",
   },
   {
-    value: "One source, many tools",
-    label:
-      "Ship the same AI setup to Claude Code, Cursor, OpenCode, Codex, GitHub Copilot, and Kiro from one source repo.",
-  },
-  {
     value: "No repo noise",
     label:
       "Keep local AI files out of Git while still giving every project the setup it needs.",
@@ -52,12 +51,6 @@ const heroStats = [
     label:
       "Refresh shared prompts, skills, and agents without copy-pasting folders across repos.",
   },
-];
-
-const heroChecklist = [
-  "Share one bundle repo across Claude Code, Cursor, OpenCode, Codex, GitHub Copilot, and Kiro",
-  "Install a specific skill, agent, command, or root instruction from a bundle",
-  "Keep AI setup local instead of committing tool-specific dotdirs",
 ];
 
 const heroWorkflow = [
@@ -96,31 +89,18 @@ const workflowSteps = [
   },
 ];
 
-const toolCards = [
-  {
-    title: "Claude Code",
-    body: "Share Claude Code skills, commands, and agents across repos without committing them.",
-  },
-  {
-    title: "Cursor",
-    body: "Keep Cursor project setup consistent without maintaining a second copy of the same prompts.",
-  },
-  {
-    title: "Codex",
-    body: "Ship Codex skills and agents from the same source bundle you already use elsewhere.",
-  },
-  {
-    title: "OpenCode",
-    body: "Support OpenCode projects without inventing a separate packaging workflow.",
-  },
-  {
-    title: "GitHub Copilot",
-    body: "Share Copilot skills, agents, and instructions while keeping repository policy files controlled.",
-  },
-  {
-    title: "Kiro",
-    body: "Materialize Kiro skills, agents, and root instructions from the same reusable bundle source.",
-  },
+const toolNames = [
+  "Claude Code",
+  "Cursor",
+  "Codex",
+  "OpenCode",
+  "GitHub Copilot",
+  "Kiro",
+  "Antigravity CLI",
+  "Grok Build",
+  "Qwen Code",
+  "Roo Code",
+  "Cline",
 ];
 
 const docsCards: Card[] = [
@@ -193,10 +173,7 @@ function SiteHead({
     <Head>
       <meta name="keywords" content={siteKeywords.join(", ")} />
       <meta property="og:type" content="website" />
-      <meta
-        property="og:title"
-        content="skul | AI bundles for Claude Code, Cursor, OpenCode, Codex, Copilot, and Kiro"
-      />
+      <meta property="og:title" content="skul | AI bundles for coding tools" />
       <meta property="og:description" content={siteDescription} />
       <meta property="og:url" content={siteUrl} />
       <meta property="og:image" content={socialImageUrl} />
@@ -205,10 +182,7 @@ function SiteHead({
         content="skul social card showing the app icon and the text Reusable AI bundles without Git noise"
       />
       <meta name="twitter:card" content="summary_large_image" />
-      <meta
-        name="twitter:title"
-        content="skul | AI bundles for Claude Code, Cursor, OpenCode, Codex, Copilot, and Kiro"
-      />
+      <meta name="twitter:title" content="skul | AI bundles for coding tools" />
       <meta name="twitter:description" content={siteDescription} />
       <meta name="twitter:image" content={socialImageUrl} />
       <meta
@@ -230,8 +204,8 @@ function HeroSection(): ReactNode {
             Share AI bundles without Git noise
           </h1>
           <p className={styles.heroLead}>
-            <code>skul</code> lets teams reuse AI bundles across Claude Code,
-            Cursor, OpenCode, Codex, GitHub Copilot, and Kiro.
+            <code>skul</code> lets teams reuse AI bundles across their coding
+            tools.
           </p>
           <p className={styles.heroSupport}>
             Keep shared prompts, skills, agents, and root instructions in one
@@ -252,11 +226,6 @@ function HeroSection(): ReactNode {
               Quick Start
             </Link>
           </div>
-          <ul className={styles.heroChecklist}>
-            {heroChecklist.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
         </div>
         <HeroWorkflowPanel />
       </div>
@@ -304,21 +273,23 @@ function ToolSection(): ReactNode {
         <p className={styles.sectionLabel}>Supported AI tools</p>
         <div className={styles.sectionHeading}>
           <h2 className={styles.sectionTitle}>
-            One bundle model across six coding tools
+            One bundle model across coding tools
           </h2>
           <p className={styles.sectionBody}>
             Reuse the same bundle source across the tools your team already
             works in instead of rebuilding prompt folders for each one.
           </p>
         </div>
-        <div className={styles.toolGrid}>
-          {toolCards.map((card) => (
-            <article key={card.title} className={styles.toolCard}>
-              <h3>{card.title}</h3>
-              <p>{card.body}</p>
-            </article>
+        <ul className={styles.toolGrid}>
+          {toolNames.map((name) => (
+            <li key={name} className={styles.toolCard}>
+              {name}
+            </li>
           ))}
-        </div>
+        </ul>
+        <Link className={styles.docsLink} to="/docs/supported-tools">
+          Compare supported paths
+        </Link>
       </div>
     </section>
   );

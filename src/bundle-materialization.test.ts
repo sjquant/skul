@@ -25,11 +25,18 @@ const skillCases: Array<[ToolName, string]> = [
   ["opencode", ".opencode/skills"],
   ["codex", ".agents/skills"],
   ["antigravity", ".agents/skills"],
+  ["grok", ".grok/skills"],
+  ["qwen", ".qwen/skills"],
+  ["roo", ".roo/skills"],
+  ["cline", ".cline/skills"],
 ];
 const commandCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/commands"],
   ["cursor", ".cursor/commands"],
   ["opencode", ".opencode/commands"],
+  ["grok", ".grok/commands"],
+  ["qwen", ".qwen/commands"],
+  ["roo", ".roo/commands"],
 ];
 const agentCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/agents"],
@@ -37,6 +44,8 @@ const agentCases: Array<[ToolName, string]> = [
   ["opencode", ".opencode/agents"],
   ["codex", ".codex/agents"],
   ["antigravity", ".agents/agents"],
+  ["grok", ".grok/agents"],
+  ["qwen", ".qwen/agents"],
 ];
 
 afterEach(() => {
@@ -1718,6 +1727,35 @@ describe("materializeBundle – cross-repo bundle item references", () => {
 });
 
 describe("materializeBundle – canonical command source", () => {
+  it.each([
+    "grok",
+    "qwen",
+    "roo",
+  ] as const)("installs a canonical Markdown command for %s", async (tool) => {
+    // Given a reusable Markdown command
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "commands/review.md"),
+      "Review the changes.\n",
+    );
+
+    // When the selected tool installs it
+    await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { [tool]: { commands: { path: "commands" } } } },
+    });
+
+    // Then it receives a Markdown command in its native directory
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, `.${tool}/commands/review.md`),
+        "utf8",
+      ),
+    ).toContain("Review the changes.");
+  });
+
   it("translates a canonical command to claude-code format", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");

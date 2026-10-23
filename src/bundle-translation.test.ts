@@ -1029,6 +1029,25 @@ describe("translateCommand", () => {
 });
 
 describe("translateAgent", () => {
+  it.each([
+    "grok",
+    "qwen",
+  ] as const)("drops a Claude model alias from a %s subagent", (targetTool) => {
+    // Given a Claude subagent bound to a Claude-specific model alias
+    const source =
+      "---\nname: reviewer\ndescription: Review changes\nmodel: sonnet\n---\nReview code.\n";
+
+    // When it is translated to another agent's format
+    const translated = translateAgent({
+      sourceTool: "claude",
+      targetTool,
+      source,
+    });
+
+    // Then the target can choose its own compatible model
+    expect(Object.values(translated)[0]).not.toContain("model: sonnet");
+  });
+
   it("renders a Codex custom agent TOML file from Claude subagent markdown", () => {
     // Given
     const source = [

@@ -2156,6 +2156,43 @@ describe("run --global", () => {
     );
   });
 
+  it.each([
+    ["grok", "AGENTS.md", ".grok/AGENTS.md"],
+    ["qwen", "QWEN.md", ".qwen/QWEN.md"],
+    ["roo", "AGENTS.md", ".roo/rules/AGENTS.md"],
+    ["cline", "AGENTS.md", ".agents/AGENTS.md"],
+  ] as const)("writes %s global instructions to %s", async (tool, sourceFile, targetFile) => {
+    // Given a bundle with root instructions for the selected tool
+    const homeDir = createHomeDir();
+    writeManifest(homeDir, "github.com/user/ai-vault", "team-guide", {
+      name: "team-guide",
+      tools: { [tool]: { root_instruction: { path: sourceFile } } },
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "team-guide",
+      sourceFile,
+      "# Shared guidance\n",
+    );
+
+    // When the bundle is installed globally
+    await run(["add", "--global", "--agent", tool, "team-guide"], {
+      homeDir,
+    });
+
+    // Then the tool receives its own user-level instruction file
+    expect(fs.readFileSync(path.join(homeDir, targetFile), "utf8")).toBe(
+      formatExpectedRootInstructionDocument(
+        formatRootInstructionBundleBlock(
+          "team-guide",
+          "# Shared guidance\n",
+          "github.com/user/ai-vault",
+        ),
+      ),
+    );
+  });
+
   it("installs Antigravity CLI skills and nested agents into their global paths", async () => {
     // Given
     const homeDir = createHomeDir();
@@ -2816,10 +2853,14 @@ describe("run --global", () => {
         "copilot",
         "kiro",
         "antigravity",
+        "grok",
+        "qwen",
+        "roo",
+        "cline",
       ]),
     );
     // Crucially, the tools list is the REPLACED set (all auto-selected), not claude-code alone
-    expect(registry.global!.desired_state[0]!.tools).toHaveLength(7);
+    expect(registry.global!.desired_state[0]!.tools).toHaveLength(11);
   });
 
   it("unions desired tools when re-applying with an explicit --agent flag", async () => {

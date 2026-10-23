@@ -5,7 +5,11 @@ import path from "node:path";
 /** Metadata file recorded in a cached source fetched without Git. */
 export const SOURCE_METADATA_FILE = ".skul-source.json";
 
-const ROOT_INSTRUCTION_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
+const ROOT_INSTRUCTION_FILE_NAMES = [
+  "AGENTS.md",
+  "CLAUDE.md",
+  "QWEN.md",
+] as const;
 
 /**
  * Builds a replacement for one cached source beside it and swaps it in. The

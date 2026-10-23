@@ -199,6 +199,31 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       ...(server.headers ? { http_headers: server.headers } : {}),
     }),
   },
+  grok: {
+    format: "toml",
+    serversKey: "mcp_servers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) => renderConventionalRemote(server, null),
+  },
+  qwen: {
+    format: "json",
+    serversKey: "mcpServers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) => ({
+      [server.transport === "sse" ? "url" : "httpUrl"]: server.url,
+      ...(server.headers ? { headers: server.headers } : {}),
+    }),
+  },
+  roo: {
+    format: "json",
+    serversKey: "mcpServers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) =>
+      renderConventionalRemote(server, server.transport),
+  },
   antigravity: {
     format: "json",
     serversKey: "mcpServers",

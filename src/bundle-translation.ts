@@ -19,8 +19,19 @@ type SkillTool =
   | "opencode"
   | "copilot"
   | "kiro"
-  | "antigravity";
-type CommandTool = "claude" | "cursor" | "opencode" | "antigravity";
+  | "antigravity"
+  | "grok"
+  | "qwen"
+  | "roo"
+  | "cline";
+type CommandTool =
+  | "claude"
+  | "cursor"
+  | "opencode"
+  | "antigravity"
+  | "grok"
+  | "qwen"
+  | "roo";
 type AgentTool =
   | "claude"
   | "cursor"
@@ -28,7 +39,9 @@ type AgentTool =
   | "opencode"
   | "copilot"
   | "kiro"
-  | "antigravity";
+  | "antigravity"
+  | "grok"
+  | "qwen";
 type RootInstructionTool =
   | "claude"
   | "cursor"
@@ -36,7 +49,11 @@ type RootInstructionTool =
   | "opencode"
   | "copilot"
   | "kiro"
-  | "antigravity";
+  | "antigravity"
+  | "grok"
+  | "qwen"
+  | "roo"
+  | "cline";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
@@ -347,7 +364,13 @@ function renderCommand(
     };
   }
 
-  if (targetTool === "opencode" || targetTool === "antigravity") {
+  if (
+    targetTool === "opencode" ||
+    targetTool === "antigravity" ||
+    targetTool === "grok" ||
+    targetTool === "qwen" ||
+    targetTool === "roo"
+  ) {
     const metadata: MetadataMap = {};
 
     if (options.description ?? model.description) {
@@ -436,7 +459,7 @@ function renderAgent(
     description: model.description,
   };
 
-  if (model.model) {
+  if (model.model && targetTool !== "grok" && targetTool !== "qwen") {
     metadata.model = model.model;
   }
 

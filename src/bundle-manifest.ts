@@ -231,6 +231,9 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   // Native paths override canonical paths for the same tool + target.
   for (const toolDef of allTools) {
     for (const [targetName, targetDef] of Object.entries(toolDef.targets)) {
+      // Native TOML configuration is a destination, not the canonical mcp.json
+      // source format. Inferring it as a source would parse TOML as JSON.
+      if (targetName === "mcp" && targetDef.path.endsWith(".toml")) continue;
       if (
         isExistingToolTarget(
           path.join(bundleDir, targetDef.path),

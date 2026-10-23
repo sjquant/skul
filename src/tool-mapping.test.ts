@@ -24,6 +24,10 @@ describe("listToolDefinitions", () => {
       "copilot",
       "kiro",
       "antigravity",
+      "grok",
+      "qwen",
+      "roo",
+      "cline",
     ]);
   });
 });
@@ -156,6 +160,7 @@ describe("resolveToolTargetPath", () => {
     ["antigravity", "agents", path.join("/repo", ".agents/agents")],
     ["antigravity", "commands", path.join("/repo", ".agent/workflows")],
     ["antigravity", "root_instruction", path.join("/repo", "AGENTS.md")],
+    ["grok", "skills", path.join("/repo", ".grok/skills")],
   ];
 
   it.each(
@@ -195,6 +200,10 @@ describe("globalCapableToolNames", () => {
       "copilot",
       "kiro",
       "antigravity",
+      "grok",
+      "qwen",
+      "roo",
+      "cline",
     ]);
   });
 });

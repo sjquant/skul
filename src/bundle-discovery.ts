@@ -21,7 +21,11 @@ export interface CachedBundle {
 }
 
 const CLAUDE_MARKETPLACE_FILE = path.join(".claude-plugin", "marketplace.json");
-const ROOT_INSTRUCTION_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
+const ROOT_INSTRUCTION_FILE_NAMES = [
+  "AGENTS.md",
+  "CLAUDE.md",
+  "QWEN.md",
+] as const;
 const warnedMultiBundleRootInstructions = new Set<string>();
 
 /**
