@@ -29,7 +29,6 @@ type CommandTool =
   | "cursor"
   | "opencode"
   | "antigravity"
-  | "grok"
   | "qwen"
   | "zcode";
 type AgentTool =
@@ -370,7 +369,6 @@ function renderCommand(
   if (
     targetTool === "opencode" ||
     targetTool === "antigravity" ||
-    targetTool === "grok" ||
     targetTool === "qwen" ||
     targetTool === "zcode"
   ) {

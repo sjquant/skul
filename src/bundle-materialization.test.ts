@@ -34,7 +34,6 @@ const commandCases: Array<[ToolName, string]> = [
   ["claude-code", ".claude/commands"],
   ["cursor", ".cursor/commands"],
   ["opencode", ".opencode/commands"],
-  ["grok", ".grok/commands"],
   ["qwen", ".qwen/commands"],
   ["zcode", ".zcode/commands"],
 ];
@@ -1728,7 +1727,6 @@ describe("materializeBundle – cross-repo bundle item references", () => {
 
 describe("materializeBundle – canonical command source", () => {
   it.each([
-    "grok",
     "qwen",
     "zcode",
   ] as const)("installs a canonical Markdown command for %s", async (tool) => {

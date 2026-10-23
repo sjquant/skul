@@ -137,10 +137,12 @@ To use a private registry, set `SKUL_NPM_REGISTRY` (falls back to `npm_config_re
 | **[GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli)** | `.github/skills` | — | `.github/agents` | `AGENTS.md` | `.github/mcp.json` |
 | **[Kiro](https://kiro.dev)** | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
 | **[Antigravity CLI](https://antigravity.google/)** | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
-| **[Grok Build](https://docs.x.ai/build/overview)** | `.grok/skills` | `.grok/commands` | `.grok/agents` | `AGENTS.md` | `.grok/config.toml` |
+| **[Grok Build](https://docs.x.ai/build/overview)** | `.grok/skills` | — | `.grok/agents` | `AGENTS.md` | `.grok/config.toml` |
 | **[Qwen Code](https://qwenlm.github.io/qwen-code-docs/)** | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
 | **[Cline](https://docs.cline.bot/)** | `.cline/skills` | — | — | `AGENTS.md` | — |
 | **[ZCode](https://zcode.z.ai/en/docs/welcome)** | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | — |
+
+Grok Build exposes user-invocable skills as slash commands; put them in `skills/`.
 
 Use `--agent <name>` to target a single tool. Repeat the flag to target multiple tools.
 

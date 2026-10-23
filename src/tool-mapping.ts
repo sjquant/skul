@@ -116,7 +116,6 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "grok",
     targets: {
       skills: { path: ".grok/skills", kind: "directory" },
-      commands: { path: ".grok/commands", kind: "directory" },
       agents: { path: ".grok/agents", kind: "directory" },
       root_instruction: { path: "AGENTS.md", kind: "file" },
       mcp: { path: ".grok/config.toml", kind: "file" },
@@ -233,7 +232,6 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "grok",
     targets: {
       skills: { path: ".grok/skills", kind: "directory" },
-      commands: { path: ".grok/commands", kind: "directory" },
       agents: { path: ".grok/agents", kind: "directory" },
       root_instruction: { path: ".grok/AGENTS.md", kind: "file" },
       mcp: { path: ".grok/config.toml", kind: "file" },
