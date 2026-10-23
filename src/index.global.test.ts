@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createHeadlessPromptClient, type PromptClient } from "./cli";
+import type { PromptClient } from "./cli";
 import { createPromptClientStub } from "./cli.test-support";
 import { run } from "./index";
 import { readRegistryFile, writeRegistryFile } from "./registry";
@@ -142,9 +142,14 @@ describe("run --global", () => {
   });
 
   it.each([
-    { name: "headless refusal", prompts: () => createHeadlessPromptClient() },
+    {
+      name: "headless refusal",
+      prompts: () => undefined,
+      error: /Symlink conflict:[\s\S]*headless mode/,
+    },
     {
       name: "cancellation",
+      error: /Symlink conflict cancelled/,
       prompts: () =>
         createPromptStub({
           resolveSymlinkConflict: async () => {
@@ -154,6 +159,7 @@ describe("run --global", () => {
     },
   ])("preserves installed files and registry on refresh $name even with yes", async ({
     prompts,
+    error,
   }) => {
     // Given an installed bundle with an ordinary skill and an app-owned link
     const homeDir = createHomeDir();
@@ -185,13 +191,36 @@ describe("run --global", () => {
     fs.rmSync(link, { recursive: true });
     fs.symlinkSync(external, link);
 
-    // When refresh cannot resolve the symlink choice
-    await expect(
-      run(["add", "--global", "react-expert", "--yes"], {
-        homeDir,
-        prompts: prompts(),
+    // Exercise automatic non-TTY detection without the explicit headless env flag.
+    const terminalProperties = [process.stdin, process.stdout].map(
+      (stream) => ({
+        stream,
+        descriptor: Object.getOwnPropertyDescriptor(stream, "isTTY"),
       }),
-    ).rejects.toThrow(/Symlink conflict/);
+    );
+    vi.stubEnv("SKUL_NO_TUI", undefined);
+    try {
+      for (const { stream } of terminalProperties) {
+        Object.defineProperty(stream, "isTTY", {
+          configurable: true,
+          value: false,
+        });
+      }
+
+      // When refresh cannot resolve the symlink choice
+      await expect(
+        run(["add", "--global", "react-expert", "--yes"], {
+          homeDir,
+          prompts: prompts(),
+        }),
+      ).rejects.toThrow(error);
+    } finally {
+      for (const { stream, descriptor } of terminalProperties) {
+        if (descriptor) Object.defineProperty(stream, "isTTY", descriptor);
+        else Reflect.deleteProperty(stream, "isTTY");
+      }
+      vi.unstubAllEnvs();
+    }
 
     // Then no installed files, registry state, or external files have changed
     expect(fs.readlinkSync(link)).toBe(external);

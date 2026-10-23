@@ -215,6 +215,89 @@ describe("run", () => {
     ).toBe("# next\n");
   });
 
+  it("preserves installed files and registry when a project apply symlink choice is cancelled", async () => {
+    // Given a linked worktree whose installed bundle needs an additional desired skill
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const linkedWorktree = createLinkedWorktree(repoRoot);
+    const source = "github.com/user/ai-vault";
+    writeManifest(homeDir, source, "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    for (const skill of ["react", "other", "next"]) {
+      writeBundleFile(
+        homeDir,
+        source,
+        "react-expert",
+        `.claude/skills/${skill}/SKILL.md`,
+        `# ${skill}\n`,
+      );
+    }
+    await run(
+      [
+        "add",
+        "react-expert",
+        "--include",
+        "skills/react",
+        "--include",
+        "skills/other",
+      ],
+      {
+        homeDir,
+        cwd: repoRoot,
+        prompts: createPromptClientStub(),
+      },
+    );
+    await run(["apply"], { homeDir, cwd: linkedWorktree });
+    // Updating shared desired state in the main worktree forces apply to refresh the linked worktree.
+    await run(["add", "react-expert", "--include", "skills/next"], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    const link = path.join(linkedWorktree, ".claude/skills/react");
+    const external = path.join(homeDir, "app-skill");
+    fs.mkdirSync(external);
+    fs.writeFileSync(path.join(external, "SKILL.md"), "app original\n");
+    fs.rmSync(link, { recursive: true });
+    fs.symlinkSync(external, link);
+    const registryFile = path.join(homeDir, ".skul/registry.json");
+    const beforeRegistry = fs.readFileSync(registryFile, "utf8");
+    const resolveSymlinkConflict = vi.fn(async () => {
+      throw new Error("Symlink conflict cancelled");
+    });
+
+    // When the user cancels the link choice during project apply
+    await expect(
+      run(["apply", "--yes"], {
+        homeDir,
+        cwd: linkedWorktree,
+        prompts: createPromptClientStub({ resolveSymlinkConflict }),
+      }),
+    ).rejects.toThrow("Symlink conflict cancelled");
+
+    // Then refresh has neither removed installed files nor recorded new materialization
+    expect(resolveSymlinkConflict).toHaveBeenCalledExactlyOnceWith(
+      ".claude/skills/react",
+      external,
+    );
+    expect(fs.readlinkSync(link)).toBe(external);
+    expect(fs.readFileSync(path.join(external, "SKILL.md"), "utf8")).toBe(
+      "app original\n",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(linkedWorktree, ".claude/skills/other/SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# other\n");
+    expect(
+      fs.existsSync(path.join(linkedWorktree, ".claude/skills/next")),
+    ).toBe(false);
+    expect(fs.readFileSync(registryFile, "utf8")).toBe(beforeRegistry);
+  });
+
   it("apply only materializes bundles missing from the current worktree", async () => {
     // Given: two bundles in desired state; one already materialized, one missing
     const homeDir = createHomeDir();
