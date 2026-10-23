@@ -62,8 +62,9 @@ import {
   isHeadlessMode,
   type PromptClient,
   parseCliArgs,
+  type SymlinkConflictResolution,
 } from "./cli";
-import { writeFileAtomic } from "./fs-utils";
+import { findSymlinkInPath, writeFileAtomic } from "./fs-utils";
 import { detectGitContext } from "./git-context";
 import {
   configureSkulExcludeBlock,
@@ -2119,7 +2120,51 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
     selectBundleFromSelections: promptClient.selectBundleFromSelections,
     selectAgents: promptClient.selectAgents,
     resolveFileConflict: promptClient.resolveFileConflict,
+    resolveSymlinkConflict:
+      process.stdin.isTTY === true && process.stdout.isTTY === true
+        ? promptClient.resolveSymlinkConflict
+        : createHeadlessPromptClient().resolveSymlinkConflict,
     confirmManagedFileRemoval: promptClient.confirmManagedFileRemoval,
+  };
+}
+
+/** Settles link choices before refresh can remove any installed files. */
+async function prepareSymlinkConflictResolver(
+  scope: BundleMaterializationScope,
+  writeTargets: string[],
+  resolve: PromptClient["resolveSymlinkConflict"],
+): Promise<PromptClient["resolveSymlinkConflict"]> {
+  const decisions = new Map<
+    string,
+    { target: string; resolution: SymlinkConflictResolution }
+  >();
+  const mcpPaths = new Set(
+    Object.keys(scope.manifest.tools).map((toolName) =>
+      resolveMcpRepoRelPath({
+        toolName: toolName as ToolName,
+        repoRoot: scope.repoRoot,
+        pathLayout: scope.pathLayout,
+      }),
+    ),
+  );
+  for (const filePath of writeTargets) {
+    const link = findSymlinkInPath(scope.repoRoot, filePath);
+    if (!link) continue;
+    if (mcpPaths.has(filePath)) {
+      throw new Error(`MCP configuration path must not be a symlink: ${link}`);
+    }
+    if (decisions.has(link)) continue;
+    const target = fs.readlinkSync(path.join(scope.repoRoot, link));
+    decisions.set(link, { target, resolution: await resolve(link, target) });
+  }
+  return async (link, target) => {
+    const decision = decisions.get(link);
+    if (!decision || decision.target !== target) {
+      throw new Error(
+        `Symlink changed during refresh: ${link}. Rerun the command to resolve it.`,
+      );
+    }
+    return decision.resolution;
   };
 }
 
@@ -2758,6 +2803,11 @@ async function updateBundles(options: {
       };
       const plannedWriteTargets =
         previewMaterializeBundleWriteTargets(materializationScope);
+      const resolveSymlinkConflict = await prepareSymlinkConflictResolver(
+        materializationScope,
+        plannedWriteTargets,
+        options.prompts.resolveSymlinkConflict,
+      );
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
           isRootInstructionPath(filePath),
@@ -2877,6 +2927,7 @@ async function updateBundles(options: {
           rootInstructionBaseContents,
           rootInstructionMode: entry.root_instruction_mode,
           resolveFileConflict: options.prompts.resolveFileConflict,
+          resolveSymlinkConflict,
           libraryDir: options.libraryDir,
           existingMcpServers: ownedMcpServers(existingBundleState),
         });
@@ -3176,6 +3227,11 @@ async function applyBundle(options: {
   };
   const plannedWriteTargets =
     previewMaterializeBundleWriteTargets(materializationScope);
+  const resolveSymlinkConflict = await prepareSymlinkConflictResolver(
+    materializationScope,
+    plannedWriteTargets,
+    options.prompts.resolveSymlinkConflict,
+  );
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
   );
@@ -3313,6 +3369,7 @@ async function applyBundle(options: {
     rootInstructionBaseContents,
     rootInstructionMode: effectiveRootInstructionMode,
     resolveFileConflict: options.prompts.resolveFileConflict,
+    resolveSymlinkConflict,
     libraryDir: options.libraryDir,
     existingMcpServers: ownedMcpServers(existingBundleState),
   });
@@ -6078,6 +6135,11 @@ async function applyWorktree(options: {
     };
     const plannedWriteTargets =
       previewMaterializeBundleWriteTargets(materializationScope);
+    const resolveSymlinkConflict = await prepareSymlinkConflictResolver(
+      materializationScope,
+      plannedWriteTargets,
+      options.prompts.resolveSymlinkConflict,
+    );
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
     );
@@ -6227,6 +6289,7 @@ async function applyWorktree(options: {
       rootInstructionBaseContents,
       rootInstructionMode: entry.root_instruction_mode,
       resolveFileConflict: options.prompts.resolveFileConflict,
+      resolveSymlinkConflict,
       libraryDir: options.libraryDir,
       existingMcpServers: ownedMcpServers(existingBundleState),
     });
@@ -7488,6 +7551,10 @@ function removeManagedPaths(
       continue;
     }
 
+    if (findSymlinkInPath(repoRoot, relativePath)) {
+      continue;
+    }
+
     // Ahead of the existence check: a committed file already deleted from the
     // worktree is restored too, since that deletion is itself pending in Git.
     if (committedPaths.has(relativePath)) {
@@ -7904,6 +7971,7 @@ async function confirmManagedFileRemovals(
   operation: "reset" | "replace" | "remove",
 ): Promise<boolean> {
   for (const relativePath of findModifiedManagedFiles(repoRoot, state)) {
+    if (findSymlinkInPath(repoRoot, relativePath)) continue;
     const confirmed = await prompts.confirmManagedFileRemoval(
       relativePath,
       operation,
@@ -8171,6 +8239,11 @@ async function applyBundleGlobal(options: {
   };
   const plannedWriteTargets =
     previewMaterializeBundleWriteTargets(materializationScope);
+  const resolveSymlinkConflict = await prepareSymlinkConflictResolver(
+    materializationScope,
+    plannedWriteTargets,
+    options.prompts.resolveSymlinkConflict,
+  );
 
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((p) => isRootInstructionPath(p)),
@@ -8268,6 +8341,7 @@ async function applyBundleGlobal(options: {
     rootInstructionBaseContents,
     rootInstructionMode: effectiveRootInstructionMode,
     resolveFileConflict: options.prompts.resolveFileConflict,
+    resolveSymlinkConflict,
     libraryDir: options.libraryDir,
     existingMcpServers: ownedMcpServers(existingBundleState),
   });

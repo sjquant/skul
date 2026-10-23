@@ -111,6 +111,7 @@ export type CliParseResult =
     };
 
 export type FileConflictResolution = { action: "overwrite" };
+export type SymlinkConflictResolution = { action: "skip" | "replace" };
 
 export interface BundleSelection {
   bundle: string;
@@ -145,6 +146,10 @@ export interface PromptClient {
   ): Promise<string[]>;
   selectAgents(availableAgents: ToolName[]): Promise<ToolName[]>;
   resolveFileConflict(conflictPath: string): Promise<FileConflictResolution>;
+  resolveSymlinkConflict(
+    conflictPath: string,
+    target: string,
+  ): Promise<SymlinkConflictResolution>;
   confirmManagedFileRemoval(
     conflictPath: string,
     operation: "reset" | "replace" | "remove",
@@ -295,6 +300,11 @@ export function createHeadlessPromptClient(): PromptClient {
         `Agent selection is required in headless mode.\nHint: run 'skul add --agent <name>' to specify agents explicitly. Available: ${availableAgents.join(", ")}`,
       );
     },
+    async resolveSymlinkConflict(conflictPath, target) {
+      throw new Error(
+        `Symlink conflict: ${conflictPath} -> ${target} (headless mode)\nHint: run interactively to skip it or replace the link with a Skul-managed copy. --yes does not replace symlinks.`,
+      );
+    },
     async resolveFileConflict(
       conflictPath: string,
     ): Promise<FileConflictResolution> {
@@ -408,6 +418,26 @@ export function createPromptClientForSelections(
 
       return selected;
     },
+    async resolveSymlinkConflict(conflictPath, target) {
+      const { isCancel, select } = await loadPrompts();
+      const action = await select<"skip" | "replace" | "cancel">({
+        message: `${conflictPath} is a symlink → ${target}`,
+        initialValue: "skip",
+        options: [
+          { value: "skip", label: "Skip", hint: "keep the existing link" },
+          {
+            value: "replace",
+            label: "Manage with Skul",
+            hint: "replace only the link; leave its target untouched",
+          },
+          { value: "cancel", label: "Cancel" },
+        ],
+      });
+      if (isCancel(action) || action === "cancel") {
+        throw new Error(`Symlink conflict cancelled: ${conflictPath}`);
+      }
+      return { action };
+    },
     async resolveFileConflict(
       conflictPath: string,
     ): Promise<FileConflictResolution> {
@@ -493,6 +523,7 @@ export function createHelpText(command?: CommandName): string {
     selectBundleItemChoices: async () => [],
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
+    resolveSymlinkConflict: async () => ({ action: "skip" }),
     confirmManagedFileRemoval: async () => true,
   });
   const writeOutput = (chunk: string) => {

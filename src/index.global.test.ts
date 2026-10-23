@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { PromptClient } from "./cli";
+import { createHeadlessPromptClient, type PromptClient } from "./cli";
 import { createPromptClientStub } from "./cli.test-support";
 import { run } from "./index";
 import { readRegistryFile, writeRegistryFile } from "./registry";
@@ -64,6 +64,223 @@ describe("run --global", () => {
         "claude-code"
       ]!.files,
     ).toContain(".claude/skills/react/SKILL.md");
+  });
+
+  it("preserves an app-owned skill during refresh, then lets Skul take ownership", async () => {
+    // Given an installed skill that an app has replaced with its own link
+    const homeDir = createHomeDir();
+    const source = "github.com/user/ai-vault";
+    writeManifest(homeDir, source, "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      source,
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# bundled\n",
+    );
+    writeBundleFile(
+      homeDir,
+      source,
+      "react-expert",
+      ".claude/skills/other/SKILL.md",
+      "# other\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+    const link = path.join(homeDir, ".claude/skills/react");
+    const external = path.join(homeDir, "app-skill");
+    fs.mkdirSync(external);
+    fs.writeFileSync(path.join(external, "SKILL.md"), "app original");
+    fs.rmSync(link, { recursive: true });
+    fs.symlinkSync(external, link);
+    const resolveSymlinkConflict = vi.fn(async () => ({
+      action: "skip" as const,
+    }));
+
+    // When a refresh skips the app-owned skill
+    await run(["add", "--global", "react-expert"], {
+      homeDir,
+      prompts: createPromptStub({ resolveSymlinkConflict }),
+    });
+
+    // Then refresh leaves the app intact and relinquishes ownership of its files
+    expect(resolveSymlinkConflict).toHaveBeenCalledExactlyOnceWith(
+      ".claude/skills/react",
+      external,
+    );
+    expect(fs.readlinkSync(link)).toBe(external);
+    expect(fs.readFileSync(path.join(external, "SKILL.md"), "utf8")).toBe(
+      "app original",
+    );
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul/registry.json"),
+    );
+    expect(
+      registry.global?.materialized_state.bundles["react-expert"]?.tools[
+        "claude-code"
+      ]?.files,
+    ).toEqual([".claude/skills/other/SKILL.md"]);
+
+    // When the user subsequently chooses Skul ownership
+    await run(["add", "--global", "react-expert"], {
+      homeDir,
+      prompts: createPromptStub({
+        resolveSymlinkConflict: async () => ({ action: "replace" }),
+      }),
+    });
+
+    // Then Skul installs its copy without changing the app's copy
+    expect(fs.lstatSync(link).isDirectory()).toBe(true);
+    expect(fs.readFileSync(path.join(link, "SKILL.md"), "utf8")).toBe(
+      "# bundled\n",
+    );
+    expect(fs.readFileSync(path.join(external, "SKILL.md"), "utf8")).toBe(
+      "app original",
+    );
+  });
+
+  it.each([
+    { name: "headless refusal", prompts: () => createHeadlessPromptClient() },
+    {
+      name: "cancellation",
+      prompts: () =>
+        createPromptStub({
+          resolveSymlinkConflict: async () => {
+            throw new Error("Symlink conflict cancelled");
+          },
+        }),
+    },
+  ])("preserves installed files and registry on refresh $name even with yes", async ({
+    prompts,
+  }) => {
+    // Given an installed bundle with an ordinary skill and an app-owned link
+    const homeDir = createHomeDir();
+    const source = "github.com/user/ai-vault";
+    writeManifest(homeDir, source, "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      source,
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# bundled\n",
+    );
+    writeBundleFile(
+      homeDir,
+      source,
+      "react-expert",
+      ".claude/skills/other/SKILL.md",
+      "# other\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+    const registryFile = path.join(homeDir, ".skul/registry.json");
+    const beforeRegistry = fs.readFileSync(registryFile, "utf8");
+    const external = path.join(homeDir, "app-skill");
+    const link = path.join(homeDir, ".claude/skills/react");
+    fs.mkdirSync(external);
+    fs.rmSync(link, { recursive: true });
+    fs.symlinkSync(external, link);
+
+    // When refresh cannot resolve the symlink choice
+    await expect(
+      run(["add", "--global", "react-expert", "--yes"], {
+        homeDir,
+        prompts: prompts(),
+      }),
+    ).rejects.toThrow(/Symlink conflict/);
+
+    // Then no installed files, registry state, or external files have changed
+    expect(fs.readlinkSync(link)).toBe(external);
+    expect(fs.readdirSync(external)).toEqual([]);
+    expect(
+      fs.readFileSync(
+        path.join(homeDir, ".claude/skills/other/SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# other\n");
+    expect(fs.readFileSync(registryFile, "utf8")).toBe(beforeRegistry);
+  });
+
+  it("keeps a skipped shared root-instruction link intact during synchronization and removal", async () => {
+    // Given an existing owner of a root instruction now replaced by an app link
+    const homeDir = createHomeDir();
+    const source = "github.com/user/ai-vault";
+    for (const bundle of ["first", "second"]) {
+      writeManifest(homeDir, source, bundle, {
+        name: bundle,
+        tools: { "claude-code": { root_instruction: { path: "CLAUDE.md" } } },
+      });
+      writeBundleFile(homeDir, source, bundle, "CLAUDE.md", `# ${bundle}\n`);
+    }
+    const link = path.join(homeDir, ".claude/CLAUDE.md");
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.writeFileSync(link, "user base\n");
+    await run(["add", "--global", "first"], { homeDir });
+    const external = path.join(homeDir, "app-instructions.md");
+    fs.writeFileSync(external, "app original\n");
+    fs.unlinkSync(link);
+    fs.symlinkSync(external, link);
+    const resolveSymlinkConflict = vi.fn(async () => ({
+      action: "skip" as const,
+    }));
+
+    // When another bundle skips that path and the first owner is later removed
+    await run(["add", "--global", "second"], {
+      homeDir,
+      prompts: createPromptStub({ resolveSymlinkConflict }),
+    });
+    expect(fs.readFileSync(external, "utf8")).toBe("app original\n");
+    await run(["remove", "--global", "first"], {
+      homeDir,
+      prompts: createPromptStub(),
+    });
+
+    // Then neither shared-content synchronization nor base restoration writes through the link
+    expect(resolveSymlinkConflict).toHaveBeenCalledExactlyOnceWith(
+      ".claude/CLAUDE.md",
+      external,
+    );
+    expect(fs.readlinkSync(link)).toBe(external);
+    expect(fs.readFileSync(external, "utf8")).toBe("app original\n");
+  });
+
+  it("removes stale ownership when a managed directory has become a file", async () => {
+    // Given a skill directory replaced by an ordinary file
+    const homeDir = createHomeDir();
+    const source = "github.com/user/ai-vault";
+    writeManifest(homeDir, source, "react-expert", {
+      name: "react-expert",
+      tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      source,
+      "react-expert",
+      ".claude/skills/react/SKILL.md",
+      "# bundled\n",
+    );
+    await run(["add", "--global", "react-expert"], { homeDir });
+    const directory = path.join(homeDir, ".claude/skills/react");
+    fs.rmSync(directory, { recursive: true });
+    fs.writeFileSync(directory, "replacement file");
+
+    // When the user removes the installed bundle
+    await run(["remove", "--global", "react-expert"], {
+      homeDir,
+      prompts: createPromptStub(),
+    });
+
+    // Then cleanup succeeds and drops its stale ownership
+    const registry = readRegistryFile(
+      path.join(homeDir, ".skul/registry.json"),
+    );
+    expect(
+      registry.global?.materialized_state.bundles["react-expert"],
+    ).toBeUndefined();
   });
 
   it("deletes a globally installed file even when the home directory commits it", async () => {
@@ -2765,6 +2982,7 @@ function createPromptStub(overrides: Partial<PromptClient> = {}): PromptClient {
     selectBundleItemChoices: async (_available, selected) => selected,
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
+    resolveSymlinkConflict: async () => ({ action: "skip" }),
     confirmManagedFileRemoval: async () => true,
     ...overrides,
   };

@@ -15,8 +15,12 @@ import {
   translateRootInstruction,
   translateSkill,
 } from "./bundle-translation";
-import type { FileConflictResolution } from "./cli";
-import { pathDepth, writeFileAtomic } from "./fs-utils";
+import type {
+  FileConflictResolution,
+  PromptClient,
+  SymlinkConflictResolution,
+} from "./cli";
+import { findSymlinkInPath, pathDepth, writeFileAtomic } from "./fs-utils";
 import {
   type McpServer,
   mergeMcpConfigDocument,
@@ -211,8 +215,15 @@ interface PlannedFileWrite {
   mode?: number;
 }
 
+interface BundleMaterializationPlan {
+  tools: Map<ToolName, PlannedToolWrites>;
+  symlinks: Map<string, SymlinkConflictResolution>;
+}
+
 /** Everything one tool's materialization does, resolved before any of it happens. */
 interface PlannedToolWrites {
+  symlinks: Map<string, SymlinkConflictResolution>;
+  resolveSymlinkConflict: PromptClient["resolveSymlinkConflict"] | undefined;
   writes: PlannedFileWrite[];
   /** Repo-relative files the registry records as owned by this tool. */
   ownedFiles: string[];
@@ -229,6 +240,7 @@ interface PlannedToolWrites {
 }
 
 export interface MaterializeBundleOptions extends BundleMaterializationScope {
+  resolveSymlinkConflict?: PromptClient["resolveSymlinkConflict"];
   bundleName?: string;
   bundleSource?: string;
   assertSafeWriteTarget?: (repoRelativePath: string) => void;
@@ -298,8 +310,9 @@ export async function materializeBundle(
  */
 async function planBundleMaterialization(
   options: MaterializeBundleOptions,
-): Promise<Map<ToolName, PlannedToolWrites>> {
+): Promise<BundleMaterializationPlan> {
   const plans = new Map<ToolName, PlannedToolWrites>();
+  const symlinks = new Map<string, SymlinkConflictResolution>();
   // Repo-relative paths an earlier write in this run already claimed. Nothing is
   // on disk yet during planning, so this stands in for the filesystem when a
   // later target asks whether its destination is taken.
@@ -350,6 +363,8 @@ async function planBundleMaterialization(
 
   for (const [toolName, targets] of toolEntries) {
     const toolPlan: PlannedToolWrites = {
+      symlinks,
+      resolveSymlinkConflict: options.resolveSymlinkConflict,
       writes: [],
       ownedFiles: [],
       sharedFiles: new Set<string>(),
@@ -448,22 +463,39 @@ async function planBundleMaterialization(
       }
     }
 
+    for (const directory of toolPlan.ownedDirectories) {
+      if (
+        [...symlinks].some(
+          ([link, resolution]) =>
+            resolution.action === "skip" &&
+            (directory === link || directory.startsWith(`${link}/`)),
+        )
+      ) {
+        toolPlan.ownedDirectories.delete(directory);
+      }
+    }
     plans.set(toolName as ToolName, toolPlan);
   }
 
-  return plans;
+  return { tools: plans, symlinks };
 }
 
 /** Performs a resolved plan: the only pass that touches the worktree. */
 function applyBundleMaterializationPlan(
   repoRoot: string,
-  plans: Map<ToolName, PlannedToolWrites>,
+  plan: BundleMaterializationPlan,
 ): MaterializeBundleResult {
   const byTool: MaterializeBundleResult["byTool"] = {};
   const createdMcpFiles = new Set<string>();
   const createdMcpDirectories = new Set<string>();
 
-  for (const [toolName, toolPlan] of plans) {
+  for (const [link, resolution] of plan.symlinks) {
+    if (resolution.action === "replace") {
+      fs.unlinkSync(repoAbsPath(repoRoot, link));
+    }
+  }
+
+  for (const [toolName, toolPlan] of plan.tools) {
     for (const directory of toolPlan.ownedDirectories) {
       fs.mkdirSync(repoAbsPath(repoRoot, directory), { recursive: true });
     }
@@ -685,6 +717,10 @@ function planMcpTargetWrites(options: {
       continue;
     }
 
+    const link = findSymlinkInPath(options.repoRoot, repoRelPath);
+    if (link) {
+      throw new Error(`MCP configuration path must not be a symlink: ${link}`);
+    }
     options.assertSafeWriteTarget?.(repoRelPath);
 
     let servers = declarationsBySource.get(sourcePath);
@@ -1322,7 +1358,14 @@ async function planFileCopy(options: {
     | undefined;
 }): Promise<void> {
   assertBundleTargetFile(options.sourcePath, options.sourcePath);
+  const symlinkAction = await planSymlinkConflict(
+    options.repoRoot,
+    options.destinationPath,
+    options.toolPlan,
+  );
+  if (symlinkAction === "skip") return;
   await settleDestinationConflict({
+    replacingSymlink: symlinkAction === "replace",
     destinationPath: options.destinationPath,
     targetRootAbsPath: options.targetRootAbsPath,
     reservedDestinations: options.reservedDestinations,
@@ -1354,8 +1397,40 @@ async function planFileCopy(options: {
   options.toolPlan.ownedFiles.push(repoRelPath);
 }
 
+/** Resolves each link once; replacement is deferred until every write is planned. */
+async function planSymlinkConflict(
+  repoRoot: string,
+  destinationPath: string,
+  toolPlan: PlannedToolWrites,
+): Promise<"skip" | "replace" | undefined> {
+  const relativePath = repoRelPathOf(repoRoot, destinationPath);
+  const link = findSymlinkInPath(repoRoot, relativePath);
+  if (!link) return undefined;
+
+  let resolution = toolPlan.symlinks.get(link);
+  if (!resolution) {
+    const target = fs.readlinkSync(repoAbsPath(repoRoot, link));
+    if (!toolPlan.resolveSymlinkConflict) {
+      throw new Error(
+        `Symlink conflict: ${link} -> ${target}\nHint: run interactively to skip it or replace the link with a Skul-managed copy.`,
+      );
+    }
+    resolution = await toolPlan.resolveSymlinkConflict(link, target);
+    toolPlan.symlinks.set(link, resolution);
+  }
+  if (resolution.action === "replace") {
+    let directory = path.dirname(relativePath);
+    while (directory === link || directory.startsWith(`${link}/`)) {
+      toolPlan.ownedDirectories.add(directory);
+      directory = path.dirname(directory);
+    }
+  }
+  return resolution.action;
+}
+
 /** Refuses a taken destination, or lets the caller decide to overwrite it. */
 async function settleDestinationConflict(options: {
+  replacingSymlink: boolean;
   destinationPath: string;
   targetRootAbsPath: string;
   reservedDestinations: Set<string>;
@@ -1374,12 +1449,10 @@ async function settleDestinationConflict(options: {
     throw new Error(`Conflict detected: ${relativePath}`);
   }
 
+  const repoRelPath = repoRelPathOf(options.repoRoot, options.destinationPath);
   if (
-    !isWriteTargetTaken({
-      repoRoot: options.repoRoot,
-      repoRelPath: repoRelPathOf(options.repoRoot, options.destinationPath),
-      claimedWriteTargets: options.claimedWriteTargets,
-    })
+    !options.claimedWriteTargets.has(repoRelPath) &&
+    (options.replacingSymlink || !fs.existsSync(options.destinationPath))
   ) {
     return;
   }
@@ -1409,18 +1482,6 @@ function planOwnedParentDirectories(
     ownedDirectories.add(repoRelPathOf(repoRoot, currentPath));
     currentPath = path.dirname(currentPath);
   }
-}
-
-/** Reports whether a destination is taken — on disk, or by an earlier planned write. */
-function isWriteTargetTaken(options: {
-  repoRoot: string;
-  repoRelPath: string;
-  claimedWriteTargets: Set<string>;
-}): boolean {
-  return (
-    options.claimedWriteTargets.has(options.repoRelPath) ||
-    fs.existsSync(repoAbsPath(options.repoRoot, options.repoRelPath))
-  );
 }
 
 function listRelativeFiles(sourceDir: string, prefix = ""): string[] {
@@ -1848,11 +1909,15 @@ async function planTranslatedFile(options: {
     throw new Error(`Conflict detected: ${currentRepoRelPath}`);
   }
 
-  const isTaken = isWriteTargetTaken({
-    repoRoot: options.repoRoot,
-    repoRelPath: currentRepoRelPath,
-    claimedWriteTargets: options.claimedWriteTargets,
-  });
+  const symlinkAction = await planSymlinkConflict(
+    options.repoRoot,
+    currentAbsPath,
+    options.toolPlan,
+  );
+  if (symlinkAction === "skip") return;
+  const isTaken =
+    options.claimedWriteTargets.has(currentRepoRelPath) ||
+    (symlinkAction !== "replace" && fs.existsSync(currentAbsPath));
 
   if (isTaken && !options.allowExistingFileOverwrite) {
     if (!options.resolveFileConflict) {
