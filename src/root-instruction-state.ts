@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type { CachedBundle } from "./bundle-discovery";
 import type { ResolvedBundleItemRef } from "./bundle-item-refs";
+import { findSymlinkInPath } from "./fs-utils";
 import type {
   DesiredBundleEntry,
   MaterializedBundleState,
@@ -74,6 +75,7 @@ export function syncManagedRootInstructionFiles(options: {
   const writtenPaths = new Set<string>();
 
   for (const [repoRelativePath, composed] of contentByPath.entries()) {
+    if (findSymlinkInPath(options.repoRoot, repoRelativePath)) continue;
     const baseContent =
       composed.mode === "replace"
         ? undefined
@@ -279,6 +281,7 @@ export function restoreRootInstructionBaseContents(options: {
   const restoredPaths = new Set<string>();
 
   for (const repoRelativePath of options.targetPaths) {
+    if (findSymlinkInPath(options.repoRoot, repoRelativePath)) continue;
     const baseContent = options.baseContents[repoRelativePath];
 
     if (baseContent === undefined) {

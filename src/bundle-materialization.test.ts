@@ -224,6 +224,149 @@ describe("materializeBundle", () => {
     expect(result.createdMcpDirectories).toEqual([]);
   });
 
+  it.each([
+    ".claude/skills",
+    "skills",
+  ])("replaces a linked skill from %s without modifying its target", async (sourceRoot) => {
+    // Given a skill with multiple files and an app-owned destination link
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const external = createTempDir("skul-app-");
+    writeFile(path.join(external, "SKILL.md"), "app original");
+    writeFile(
+      path.join(bundleDir, sourceRoot, "react", "SKILL.md"),
+      "---\ndescription: Bundled skill\n---\n# bundled skill\n",
+    );
+    writeFile(
+      path.join(bundleDir, sourceRoot, "react", "scripts", "run.sh"),
+      "echo bundled",
+    );
+    const link = path.join(repoRoot, ".claude/skills/react");
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(external, link);
+    const resolveSymlinkConflict = vi.fn(async () => ({
+      action: "replace" as const,
+    }));
+
+    // When the user chooses Skul ownership
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: sourceRoot } } } },
+      resolveSymlinkConflict,
+    });
+
+    // Then the link becomes an owned directory and the app remains untouched
+    expect(resolveSymlinkConflict).toHaveBeenCalledExactlyOnceWith(
+      ".claude/skills/react",
+      external,
+    );
+    expect(fs.lstatSync(link).isDirectory()).toBe(true);
+    expect(fs.readFileSync(path.join(link, "SKILL.md"), "utf8")).toContain(
+      "# bundled skill",
+    );
+    expect(fs.readFileSync(path.join(link, "scripts/run.sh"), "utf8")).toBe(
+      "echo bundled",
+    );
+    expect(fs.readFileSync(path.join(external, "SKILL.md"), "utf8")).toBe(
+      "app original",
+    );
+    expect(fs.readdirSync(external)).toEqual(["SKILL.md"]);
+    expect(result.byTool["claude-code"]?.directories).toContain(
+      ".claude/skills/react/scripts",
+    );
+    expect(result.byTool["claude-code"]?.directories).toContain(
+      ".claude/skills/react",
+    );
+  });
+
+  it("keeps dangling skill links when skipped and installs other skills", async () => {
+    // Given a dangling link and two bundled skills
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, "skills/react/SKILL.md"),
+      "---\ndescription: React skill\n---\n# react\n",
+    );
+    writeFile(
+      path.join(bundleDir, "skills/other/SKILL.md"),
+      "---\ndescription: Other skill\n---\n# other\n",
+    );
+    const link = path.join(repoRoot, ".claude/skills/react");
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync("/missing/skul-app-skill", link);
+
+    // When the linked skill is skipped
+    const result = await materializeBundle({
+      repoRoot,
+      bundleDir,
+      manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+      resolveSymlinkConflict: async () => ({ action: "skip" }),
+    });
+
+    // Then only the other skill is installed and owned
+    expect(fs.readlinkSync(link)).toBe("/missing/skul-app-skill");
+    expect(result.byTool["claude-code"]?.files).toEqual([
+      ".claude/skills/other/SKILL.md",
+    ]);
+    expect(result.byTool["claude-code"]?.directories).not.toContain(
+      ".claude/skills/react",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(repoRoot, ".claude/skills/other/SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("# other");
+  });
+
+  it("preserves approved links if a later symlink conflict is cancelled", async () => {
+    // Given two app-owned links and an ordinary skill planned before them
+    const repoRoot = createTempDir("skul-repo-");
+    const bundleDir = createTempDir("skul-bundle-");
+    const external = createTempDir("skul-app-");
+    for (const name of ["a-normal", "b-linked", "c-linked"]) {
+      writeFile(
+        path.join(bundleDir, "skills", name, "SKILL.md"),
+        "---\ndescription: Test skill\n---\n# skill\n",
+      );
+    }
+    fs.mkdirSync(path.join(repoRoot, ".claude/skills"), { recursive: true });
+    for (const name of ["b-linked", "c-linked"]) {
+      fs.symlinkSync(external, path.join(repoRoot, ".claude/skills", name));
+    }
+    const resolveSymlinkConflict = vi
+      .fn()
+      .mockResolvedValueOnce({ action: "replace" })
+      .mockRejectedValueOnce(new Error("cancelled"));
+
+    // When the second conflict is cancelled
+    await expect(
+      materializeBundle({
+        repoRoot,
+        bundleDir,
+        manifest: { tools: { "claude-code": { skills: { path: "skills" } } } },
+        resolveSymlinkConflict,
+      }),
+    ).rejects.toThrow("cancelled");
+
+    // Then no planned write or link replacement has happened
+    expect(fs.existsSync(path.join(repoRoot, ".claude/skills/a-normal"))).toBe(
+      false,
+    );
+    expect(
+      fs
+        .lstatSync(path.join(repoRoot, ".claude/skills/b-linked"))
+        .isSymbolicLink(),
+    ).toBe(true);
+    expect(
+      fs
+        .lstatSync(path.join(repoRoot, ".claude/skills/c-linked"))
+        .isSymbolicLink(),
+    ).toBe(true);
+    expect(fs.readdirSync(external)).toEqual([]);
+  });
+
   it("tracks created nested directories for deterministic cleanup", async () => {
     // Given
     const repoRoot = createTempDir("skul-repo-");

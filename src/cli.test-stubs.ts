@@ -17,6 +17,7 @@ export function createPromptClientStub(
       selectedItems,
     selectAgents: async (agents) => agents,
     resolveFileConflict: async () => ({ action: "overwrite" }),
+    resolveSymlinkConflict: async () => ({ action: "skip" }),
     confirmManagedFileRemoval: async () => true,
     ...overrides,
   };

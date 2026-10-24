@@ -81,3 +81,20 @@ function readFilePermissions(filePath: string): number | undefined {
     return undefined;
   }
 }
+
+/** Finds the first symlink at or below a root, including dangling links. */
+export function findSymlinkInPath(
+  root: string,
+  relativePath: string,
+): string | undefined {
+  let current = root;
+  for (const segment of relativePath.split("/")) {
+    current = path.join(current, segment);
+    const stat = fs.lstatSync(current, { throwIfNoEntry: false });
+    if (!stat) return undefined;
+    if (stat.isSymbolicLink())
+      return path.relative(root, current).split(path.sep).join("/");
+    if (!stat.isDirectory()) return undefined;
+  }
+  return undefined;
+}

@@ -223,6 +223,52 @@ describe("run", () => {
     ).rejects.toThrowError(/file already exists \(headless mode\)/i);
   });
 
+  it.each([
+    "skip",
+    "replace",
+  ] as const)("returns %s from the symlink prompt with skip selected by default", async (action) => {
+    // Given an interactive choice for an app-owned symlink
+    const select = vi.fn().mockResolvedValue(action);
+    const loadPrompts = vi
+      .fn()
+      .mockResolvedValue({ isCancel: () => false, select });
+    const prompts = createPromptClientForSelections([], loadPrompts);
+
+    // When the user resolves the link conflict
+    const resolution = await prompts.resolveSymlinkConflict(
+      ".claude/skills/ego-browser",
+      "/app/skills",
+    );
+
+    // Then the selected action is returned and skipping was the default
+    expect(resolution).toEqual({ action });
+    expect(select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValue: "skip",
+        message: expect.stringContaining("/app/skills"),
+      }),
+    );
+  });
+
+  it.each([
+    "cancel",
+    Symbol("cancel"),
+  ])("aborts when the symlink prompt is cancelled (%s)", async (choice) => {
+    // Given either the cancel option or a terminal cancellation
+    const loadPrompts = vi.fn().mockResolvedValue({
+      isCancel: (value: unknown) => typeof value === "symbol",
+      select: async () => choice,
+    });
+
+    // When / Then cancellation aborts conflict resolution
+    await expect(
+      createPromptClientForSelections([], loadPrompts).resolveSymlinkConflict(
+        ".claude/skills/ego-browser",
+        "/app/skills",
+      ),
+    ).rejects.toThrow("Symlink conflict cancelled");
+  });
+
   it("returns overwrite when the user confirms the interactive conflict prompt", async () => {
     // Given
     const confirm = vi.fn().mockResolvedValue(true);
