@@ -1,7 +1,7 @@
 ---
 title: Supported tools
 slug: /tools
-description: Where skul writes for each of the 12 supported tools.
+description: Where skul writes for each supported tool.
 ---
 
 # Supported tools
@@ -50,7 +50,3 @@ A bundle only needs to ship one. Skul reuses the body for the others as long as 
 ## Copilot
 
 `copilot` means the Copilot CLI and the Agent Host behind it. Its repository files are also read by Copilot in VS Code, which reads `~/.copilot/skills` too, so one install serves both. Skul doesn't write `.vscode/mcp.json`: that's VS Code chat's own file, in another dialect.
-
-## MCP dialects
-
-Skul translates one `mcp.json` into each tool's spelling: `streamable-http` becomes `http` for Claude Code and Copilot, Copilot calls stdio servers `local`, Cursor and Kiro infer transport from `url`, Antigravity names the endpoint `serverUrl`, OpenCode folds `command` and `args` into one array, and Codex and Grok Build use TOML tables. See [Writing a bundle](/docs/bundles#mcp-servers).

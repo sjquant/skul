@@ -20,9 +20,6 @@ const config: Config = {
     defaultLocale: "en",
     locales: ["en"],
   },
-  customFields: {
-    githubUrl: "https://github.com/sjquant/skul",
-  },
   presets: [
     [
       "classic",

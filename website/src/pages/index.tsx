@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import styles from "./index.module.css";
 
 const siteDescription =
-  "Apply shared skills, commands, agents, instructions, and MCP servers to Claude Code, Cursor, Codex, and 9 more AI coding tools, without committing them to Git.";
+  "Apply shared skills, commands, agents, instructions, and MCP servers to Claude Code, Cursor, Codex, and other AI coding tools, without committing them to Git.";
 
 const points = [
   {
@@ -41,7 +41,6 @@ export default function Home(): ReactNode {
         />
         <meta property="og:description" content={siteDescription} />
         <meta property="og:image" content={socialImageUrl} />
-        <meta name="twitter:card" content="summary_large_image" />
       </Head>
       <main className={styles.page}>
         <div className={styles.wrap}>

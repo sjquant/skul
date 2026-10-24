@@ -9,12 +9,6 @@
   Apply shared skills, commands, agents, and instructions to any coding tool — without a single line in <code>git status</code>.
 </p>
 
-<p align="center">
-  <a href="https://skul.solaqua.dev">Docs</a> ·
-  <a href="https://skul.solaqua.dev/docs/intro">Getting started</a> ·
-  <a href="https://skul.solaqua.dev/docs/commands">Commands</a>
-</p>
-
 ---
 
 Every AI coding tool wants its own dotdir: `.claude/`, `.cursor/`, `.codex/`, `.kiro/`… Committing them pollutes the repo and your teammates' tool choices. Copying them between projects drifts.
@@ -32,11 +26,11 @@ skul remove react-expert                 # gone, as if it never happened
 
 ## Why
 
-**One bundle, every tool.** Write `skills/`, `commands/`, `agents/`, `AGENTS.md`, and `mcp.json` once. Skul translates them into the layout and dialect of 12 tools.
+**One bundle, every tool.** Write `skills/`, `commands/`, `agents/`, `AGENTS.md`, and `mcp.json` once. Skul translates them into the layout and dialect of each tool.
 
 **Invisible to Git.** Ignore rules go to `.git/info/exclude`, never `.gitignore`. Even a team-committed `AGENTS.md` can carry your personal layer on top without showing a diff.
 
-**Reversible.** Skul fingerprints what it writes. Remove a bundle, or `skul reset`, and your original files come back.
+**Fully reversible.** Skul fingerprints what it writes. Remove a bundle, or `skul reset`, and your original files come back.
 
 ## Works with
 
