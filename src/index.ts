@@ -3172,6 +3172,42 @@ async function applyBundle(options: {
     sourceFetchProgress: options.sourceFetchProgress,
   });
 
+  const skippedProjectMcpTools = isMcpItemSelected(preparedBundle.selectedItems)
+    ? preparedBundle.nextToolNames.filter(
+        (toolName) =>
+          preparedBundle.cachedBundle.manifest.tools[toolName]?.mcp &&
+          !resolveMcpRepoRelPath({
+            toolName,
+            repoRoot: gitContext.worktreeRoot,
+          }),
+      )
+    : [];
+  if (skippedProjectMcpTools.length === preparedBundle.nextToolNames.length) {
+    const selectedItems =
+      preparedBundle.selectedItems ??
+      listSelectableBundleItems({
+        bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
+        manifest: preparedBundle.cachedBundle.manifest,
+        tools: preparedBundle.nextToolNames,
+      });
+    if (
+      selectedItems.length > 0 &&
+      selectedItems.every((item) => item === "mcp")
+    ) {
+      throw new Error(
+        `No project MCP target for ${skippedProjectMcpTools.join(", ")}; use --global to install its MCP servers`,
+      );
+    }
+  }
+  const projectMcpSkipNotes =
+    skippedProjectMcpTools.length > 0
+      ? [
+          pc.yellow(
+            `Note: MCP servers were skipped for ${skippedProjectMcpTools.join(", ")}: no supported project MCP target`,
+          ),
+        ]
+      : [];
+
   if (options.dryRun) {
     return [
       ...preparedBundle.cloneLines,
@@ -3182,6 +3218,7 @@ async function applyBundle(options: {
           ? preparedBundle.selectedItems
           : undefined,
       })}`,
+      ...projectMcpSkipNotes,
     ].join("\n");
   }
 
@@ -3482,6 +3519,7 @@ async function applyBundle(options: {
         updated: preparedBundle.sourceUpdated,
       }),
     ),
+    ...projectMcpSkipNotes,
   ].join("\n");
 }
 

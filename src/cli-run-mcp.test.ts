@@ -1436,6 +1436,58 @@ describe("skul add with an Agent Plugins mcp.json", () => {
   });
 
   it.each([
+    ["by default", []],
+    ["by item selection", ["--include", "mcp"]],
+  ] as const)("rejects a project Cline MCP-only install %s", async (_selection, itemFlags) => {
+    // Given a portable MCP bundle and a project without a Cline MCP target
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+
+    // When the project install selects only MCP servers for Cline
+    await expect(
+      run(["add", SOURCE, BUNDLE, "--agent", "cline", ...itemFlags, "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrow("No project MCP target for cline");
+
+    // Then the project does not acquire a false Cline MCP installation
+    expect(pathExists(path.join(cwd, ".cline/mcp.json"))).toBe(false);
+  });
+
+  it("reports skipped Cline MCP servers while installing its project skill", async () => {
+    // Given a bundle containing a Cline skill and portable MCP declarations
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+    writeBundleFile(
+      homeDir,
+      SOURCE,
+      BUNDLE,
+      "skills/review/SKILL.md",
+      "---\nname: review\ndescription: Review code\n---\nReview code.\n",
+    );
+
+    // When the bundle is installed in project scope
+    const output = await run(
+      ["add", SOURCE, BUNDLE, "--agent", "cline", "-y"],
+      {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      },
+    );
+
+    // Then the skill is installed and the MCP omission is explicit
+    expect(pathExists(path.join(cwd, ".cline/skills/review/SKILL.md"))).toBe(
+      true,
+    );
+    expect(output).toContain(`${MCP_SKIP_NOTE} for cline`);
+  });
+
+  it.each([
     ["project", [], ".zcode/config.json"],
     ["global", ["--global"], ".zcode/cli/config.json"],
   ] as const)("installs and removes ZCode MCP servers at %s scope", async (_scope, flags, configPath) => {
@@ -1466,6 +1518,38 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       prompts: createPromptClientStub(),
     });
     expect(pathExists(path.join(root, configPath))).toBe(false);
+  });
+
+  it.each([
+    ["project", [], ".zcode/config.json"],
+    ["global", ["--global"], ".zcode/cli/config.json"],
+  ] as const)("preserves ZCode's generic MCP servers at %s scope", async (_scope, flags, configPath) => {
+    // Given servers that ZCode currently loads from its generic fallback
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    const root = flags.length > 0 ? homeDir : cwd;
+    writeMcpBundle(homeDir);
+    fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, ".agents/mcp.json"),
+      JSON.stringify({ mcpServers: { mine: { command: "mine-server" } } }),
+    );
+
+    // When Skul tries to add a native ZCode MCP server
+    await expect(
+      run(["add", SOURCE, BUNDLE, ...flags, "--agent", "zcode", "-y"], {
+        homeDir,
+        cwd,
+        prompts: createPromptClientStub(),
+      }),
+    ).rejects.toThrow(".agents/mcp.json already has servers");
+
+    // Then the native file cannot hide the user's existing server
+    expect(pathExists(path.join(root, configPath))).toBe(false);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, ".agents/mcp.json"), "utf8"))
+        .mcpServers.mine.command,
+    ).toBe("mine-server");
   });
 
   it("appends a marked block to the user-scope Codex config for a global install", async () => {
@@ -1820,9 +1904,25 @@ describe("skul add with an Agent Plugins mcp.json", () => {
   });
 
   it.each([
-    ["qwen", ".qwen", "settings.json"],
-    ["kimi", ".kimi-code", "mcp.json"],
-  ] as const)("installs %s skills without parsing native MCP settings as portable declarations", async (tool, directory, configFile) => {
+    [
+      "qwen",
+      ".qwen",
+      "settings.json",
+      { mcpServers: { docs: { command: "docs-server" } } },
+    ],
+    [
+      "kimi",
+      ".kimi-code",
+      "mcp.json",
+      { mcpServers: { docs: { command: "docs-server" } } },
+    ],
+    [
+      "zcode",
+      ".zcode",
+      "config.json",
+      { mcp: { servers: { docs: { command: "docs-server" } } } },
+    ],
+  ] as const)("installs %s skills without parsing native MCP settings as portable declarations", async (tool, directory, configFile, nativeConfig) => {
     // Given a native skill and MCP settings without Agent Plugins type fields
     const homeDir = createHomeDir();
     const cwd = createRepository();
@@ -1838,7 +1938,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       SOURCE,
       BUNDLE,
       `${directory}/${configFile}`,
-      JSON.stringify({ mcpServers: { docs: { command: "docs-server" } } }),
+      JSON.stringify(nativeConfig),
     );
 
     // When the bundle is added for the selected tool
