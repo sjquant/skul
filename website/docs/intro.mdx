@@ -1,69 +1,42 @@
 ---
-title: Overview
+title: Getting started
 slug: /intro
-description: What skul is and why it exists.
+description: Install skul and apply your first bundle.
 ---
 
-# skul
+# Getting started
 
-`skul` is a CLI for applying reusable AI bundles into the directories each coding tool already expects.
+Skul applies a shared **bundle** — skills, commands, agents, instructions, MCP servers — to a project, in the layout each AI coding tool expects, and keeps it out of Git.
 
-It is designed for teams or individuals who want to share:
-
-- skills
-- slash commands
-- agents
-- root instructions
-
-without checking those generated or tool-local files into Git.
-
-## The problem
-
-Most AI coding tools look for project-local files in their own dot directories:
-
-- Claude Code uses `.claude/...`
-- Cursor uses `.cursor/...`
-- Codex uses `.agents/...` and `.codex/...`
-- OpenCode uses `.opencode/...`
-- GitHub Copilot uses `.github/...`
-- Kiro uses `.kiro/...`
-- Grok Build uses `.grok/...`
-- Qwen Code uses `.qwen/...`
-- Cline uses `.cline/...`
-- Kimi Code CLI uses `.kimi-code/...`
-- ZCode uses `.zcode/...`
-
-That makes reuse awkward. You can copy files manually, commit them into every repo, or maintain custom setup scripts. All three options drift over time.
-
-## What skul does
-
-`skul` fetches a bundle source, materializes the right files into the current worktree, and records what it wrote so it can update or remove those files safely later.
-
-Key behaviors:
-
-- Fetch reusable bundle content from a Git repository.
-- Write files into tool-native locations.
-- Install a whole bundle or only selected bundle items.
-- Hide those files with `.git/info/exclude` instead of modifying `.gitignore`.
-- Track desired state per repository and materialized state per worktree.
-- Re-apply the same setup in fresh worktrees with `skul apply`.
-
-For root instructions, `skul` supports two paths:
-
-- untracked local composition for tool-specific dotdirs and untracked root files
-- tracked shadow rendering for repository-owned root instruction files
-
-When a root instruction target is already tracked in Git, `skul` builds a managed overlay on top of the file's `HEAD` content instead of leaving a visible diff behind.
-
-## Typical use
+## Install
 
 ```bash
-skul add github.com/sjquant/ai-bundles react-expert
-skul add react-expert --agent codex --include skills/diagnose
-skul status
-skul sync
-skul check
-skul update
+npm install --global @solaqua/skul
 ```
 
-If you work across multiple AI coding tools, `skul` gives you one bundle format and one command surface instead of separate setup flows per editor or agent.
+Needs Node.js 20+ and Git.
+
+## Apply a bundle
+
+```bash
+skul add acme/ai-bundles react-expert
+```
+
+Skul clones `acme/ai-bundles` into `~/.skul/library/`, asks which tools to target, writes the files, and adds them to `.git/info/exclude`. Run `git status`: nothing changed.
+
+Narrow it down when you want less:
+
+```bash
+skul add react-expert --agent codex                       # one tool
+skul add react-expert --include skills/diagnose           # one item
+skul add react-expert --ref v2                            # a branch, tag, or commit
+```
+
+## Keep going
+
+```bash
+skul status     # what is applied, and where
+skul update     # pull newer bundle revisions
+skul apply      # reproduce the setup in a fresh worktree
+skul remove react-expert
+```

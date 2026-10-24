@@ -1,0 +1,52 @@
+---
+title: Supported tools
+slug: /tools
+description: Where skul writes for each supported tool.
+---
+
+# Supported tools
+
+Pass `--agent <id>` to target one tool; repeat it for several. `--agent` picks a coding tool, not a model — to use DeepSeek, configure it inside Codex or OpenCode and target that.
+
+| Tool | `--agent` | Skills | Commands | Agents | Instructions | MCP |
+|---|---|---|---|---|---|---|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude-code` | `.claude/skills` | `.claude/commands` | `.claude/agents` | `CLAUDE.md` | `.mcp.json` |
+| [Cursor](https://cursor.sh) | `cursor` | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `AGENTS.md` | `.cursor/mcp.json` |
+| [Codex](https://openai.com/index/openai-codex) | `codex` | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | `.codex/config.toml` |
+| [OpenCode](https://opencode.ai) | `opencode` | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `AGENTS.md` | `opencode.json` |
+| [GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli) | `copilot` | `.github/skills` | — | `.github/agents` | `AGENTS.md` | `.github/mcp.json` |
+| [Kiro](https://kiro.dev) | `kiro` | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
+| [Antigravity CLI](https://antigravity.google/) | `antigravity` | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
+| [Grok Build](https://docs.x.ai/build/overview) | `grok` | `.grok/skills` | — | `.grok/agents` | `AGENTS.md` | `.grok/config.toml` |
+| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/) | `qwen` | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
+| [Cline](https://docs.cline.bot/) | `cline` | `.cline/skills` | — | — | `AGENTS.md` | global only |
+| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/) | `kimi` | `.kimi-code/skills` | — | `.kimi-code/agents` | `AGENTS.md` | `.kimi-code/mcp.json` |
+| [ZCode](https://zcode.z.ai/en/docs/welcome) | `zcode` | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | `.zcode/config.json` |
+
+Grok Build and Kimi Code CLI expose skills as slash commands, so put those in `skills/`.
+
+## Root instruction files
+
+| File | Read by |
+|---|---|
+| `CLAUDE.md` | Claude Code |
+| `AGENTS.md` | Cursor, Codex, OpenCode, Copilot, Kiro, Antigravity, Grok Build, Cline, Kimi Code CLI, ZCode |
+| `QWEN.md` | Qwen Code |
+| `.github/copilot-instructions.md` | Copilot |
+
+A bundle only needs to ship one. Skul reuses the body for the others as long as it works unchanged.
+
+## Global installs
+
+`--global` writes under `~` instead of the project. Most tools use the same relative paths. The exceptions:
+
+| Tool | Global locations |
+|---|---|
+| Antigravity CLI | `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, `~/.gemini/GEMINI.md` |
+| Cline | `~/.agents/AGENTS.md`; MCP in `~/.cline/data/settings/cline_mcp_settings.json` |
+| Kimi Code CLI | `~/.kimi-code/skills`, `~/.kimi-code/agents`, `~/.kimi-code/AGENTS.md` |
+| ZCode | `~/.zcode/skills`, `~/.zcode/commands`, `~/.zcode/AGENTS.md` (no subagents: its docs make them user-scope only) |
+
+## Copilot
+
+`copilot` means the Copilot CLI and the Agent Host behind it. Its repository files are also read by Copilot in VS Code, which reads `~/.copilot/skills` too, so one install serves both. Skul doesn't write `.vscode/mcp.json`: that's VS Code chat's own file, in another dialect.

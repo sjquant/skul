@@ -171,7 +171,7 @@ const COMMANDS: CommandName[] = [
 const PROGRAM_HELP_DETAILS = [
   "",
   "Root instructions:",
-  "  Each tool uses its native AGENTS.md, CLAUDE.md, or QWEN.md path; --global uses user-scope paths. See https://skul.solaqua.dev/docs/supported-tools.",
+  "  Each tool uses its native AGENTS.md, CLAUDE.md, or QWEN.md path; --global uses user-scope paths. See https://skul.solaqua.dev/docs/tools.",
   "  Untracked root instructions are composed locally and hidden through .git/info/exclude.",
   "  Tracked root instructions are rendered from HEAD plus Skul overlay content and marked skip-worktree.",
   "",
