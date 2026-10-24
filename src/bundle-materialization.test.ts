@@ -28,6 +28,7 @@ const skillCases: Array<[ToolName, string]> = [
   ["grok", ".grok/skills"],
   ["qwen", ".qwen/skills"],
   ["cline", ".cline/skills"],
+  ["kimi", ".kimi-code/skills"],
   ["zcode", ".zcode/skills"],
 ];
 const commandCases: Array<[ToolName, string]> = [
@@ -45,6 +46,7 @@ const agentCases: Array<[ToolName, string]> = [
   ["antigravity", ".agents/agents"],
   ["grok", ".grok/agents"],
   ["qwen", ".qwen/agents"],
+  ["kimi", ".kimi-code/agents"],
 ];
 
 afterEach(() => {

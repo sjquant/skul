@@ -15,7 +15,7 @@ type Card = {
 };
 
 const siteDescription =
-  "skul is an AI bundle CLI for sharing skills, commands, agents, and root instructions across Claude Code, Cursor, OpenCode, Codex, Copilot, Kiro, Antigravity, Grok Build, Qwen Code, Cline, and ZCode without committing local AI setup files.";
+  "skul is an AI bundle CLI for sharing skills, commands, agents, and root instructions across Claude Code, Cursor, OpenCode, Codex, Copilot, Kiro, Antigravity, Grok Build, Qwen Code, Cline, Kimi Code CLI, and ZCode without committing local AI setup files.";
 
 const siteKeywords = [
   "shared ai bundles",
@@ -27,6 +27,7 @@ const siteKeywords = [
   "github copilot skills",
   "kiro agents",
   "zcode skills",
+  "kimi code cli skills",
   "grok build skills",
   "qwen code skills",
   "cline skills",
@@ -100,6 +101,7 @@ const toolNames = [
   "Grok Build",
   "Qwen Code",
   "Cline",
+  "Kimi Code CLI",
   "ZCode",
 ];
 

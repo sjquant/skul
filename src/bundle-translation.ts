@@ -22,6 +22,7 @@ type SkillTool =
   | "antigravity"
   | "grok"
   | "qwen"
+  | "kimi"
   | "cline"
   | "zcode";
 type CommandTool =
@@ -40,7 +41,8 @@ type AgentTool =
   | "kiro"
   | "antigravity"
   | "grok"
-  | "qwen";
+  | "qwen"
+  | "kimi";
 type RootInstructionTool =
   | "claude"
   | "cursor"
@@ -51,6 +53,7 @@ type RootInstructionTool =
   | "antigravity"
   | "grok"
   | "qwen"
+  | "kimi"
   | "cline"
   | "zcode";
 
@@ -205,7 +208,7 @@ function parseSkill(
     };
   }
 
-  // claude, cursor, copilot, kiro, antigravity — all use the same SKILL.md format
+  // The remaining tools share the same SKILL.md fields.
   return {
     name,
     description,
@@ -272,7 +275,7 @@ function renderSkill(
     };
   }
 
-  // claude, cursor, copilot, kiro, antigravity — all use the same SKILL.md format
+  // The remaining tools share the same SKILL.md fields.
   const metadata: MetadataMap = { name, description };
 
   if (model.manualOnly) {
@@ -464,7 +467,12 @@ function renderAgent(
     description: model.description,
   };
 
-  if (model.model && targetTool !== "grok" && targetTool !== "qwen") {
+  if (
+    model.model &&
+    targetTool !== "grok" &&
+    targetTool !== "qwen" &&
+    targetTool !== "kimi"
+  ) {
     metadata.model = model.model;
   }
 

@@ -10,6 +10,7 @@ export type ToolName =
   | "antigravity"
   | "grok"
   | "qwen"
+  | "kimi"
   | "cline"
   | "zcode";
 export type ToolTargetName =
@@ -139,6 +140,15 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: "kimi",
+    targets: {
+      skills: { path: ".kimi-code/skills", kind: "directory" },
+      agents: { path: ".kimi-code/agents", kind: "directory" },
+      root_instruction: { path: "AGENTS.md", kind: "file" },
+      mcp: { path: ".kimi-code/mcp.json", kind: "file" },
+    },
+  },
+  {
     name: "zcode",
     targets: {
       skills: { path: ".zcode/skills", kind: "directory" },
@@ -252,6 +262,15 @@ const GLOBAL_TOOL_DEFINITIONS: ToolDefinition[] = [
     targets: {
       skills: { path: ".cline/skills", kind: "directory" },
       root_instruction: { path: ".agents/AGENTS.md", kind: "file" },
+    },
+  },
+  {
+    name: "kimi",
+    targets: {
+      skills: { path: ".kimi-code/skills", kind: "directory" },
+      agents: { path: ".kimi-code/agents", kind: "directory" },
+      root_instruction: { path: ".kimi-code/AGENTS.md", kind: "file" },
+      mcp: { path: ".kimi-code/mcp.json", kind: "file" },
     },
   },
   {

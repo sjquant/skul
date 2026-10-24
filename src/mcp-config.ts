@@ -91,7 +91,7 @@ interface McpConfigDialect {
   renderRemote(server: McpRemoteServer): Record<string, unknown>;
 }
 
-/** Renders the `mcpServers` shape shared by Claude Code, Cursor, Kiro, and Copilot. */
+/** Renders conventional stdio server fields shared by several tools. */
 function renderConventionalStdio(
   server: McpStdioServer,
   pluginPaths: McpPluginPaths,
@@ -213,6 +213,17 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       renderConventionalStdio(server, paths, null),
     renderRemote: (server) => ({
       [server.transport === "sse" ? "url" : "httpUrl"]: server.url,
+      ...(server.headers ? { headers: server.headers } : {}),
+    }),
+  },
+  kimi: {
+    format: "json",
+    serversKey: "mcpServers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) => ({
+      ...(server.transport === "sse" ? { transport: "sse" } : {}),
+      url: server.url,
       ...(server.headers ? { headers: server.headers } : {}),
     }),
   },

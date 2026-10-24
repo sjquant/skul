@@ -411,6 +411,17 @@ describe("dialect matrix", () => {
       },
       { serverUrl: "https://x/sse", headers: { "X-Key": "v" } },
     ],
+    [
+      "kimi",
+      "mcpServers",
+      {
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { transport: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
+    ],
   ] as const)("renders stdio and sse servers in %s's vocabulary", (toolName, serversKey, expectedStdio, expectedRemote) => {
     // Given a stdio server and an sse server
     const paths = { pluginRoot: "/lib", pluginData: "/data" };
@@ -476,6 +487,25 @@ describe("dialect matrix", () => {
     // Then the tool treats it as streamable HTTP rather than SSE
     expect(JSON.parse(content).mcpServers.docs).toEqual({
       httpUrl: "https://x/mcp",
+    });
+  });
+
+  it("uses Kimi Code CLI's default HTTP transport for remote servers", () => {
+    // Given a streamable HTTP server in a bundle
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "streamable-http", url: "https://x/mcp" } },
+    });
+
+    // When the server is rendered for Kimi Code CLI
+    const content = mergeMcpConfigDocument({
+      toolName: "kimi",
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then Kimi infers HTTP from the URL without a transport field
+    expect(JSON.parse(content).mcpServers.docs).toEqual({
+      url: "https://x/mcp",
     });
   });
 

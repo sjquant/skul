@@ -1779,37 +1779,40 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(pathExists(path.join(cwd, ".cursor", "mcp.json"))).toBe(false);
   });
 
-  it("installs Qwen skills without treating native settings as portable MCP", async () => {
-    // Given a Qwen bundle with a skill and native settings in Qwen's format
+  it.each([
+    ["qwen", ".qwen", "settings.json"],
+    ["kimi", ".kimi-code", "mcp.json"],
+  ] as const)("installs %s skills without parsing native MCP settings as portable declarations", async (tool, directory, configFile) => {
+    // Given a native skill and MCP settings without Agent Plugins type fields
     const homeDir = createHomeDir();
     const cwd = createRepository();
     writeBundleFile(
       homeDir,
       SOURCE,
       BUNDLE,
-      ".qwen/skills/review/SKILL.md",
+      `${directory}/skills/review/SKILL.md`,
       "---\nname: review\ndescription: Review code\n---\nReview code.\n",
     );
     writeBundleFile(
       homeDir,
       SOURCE,
       BUNDLE,
-      ".qwen/settings.json",
+      `${directory}/${configFile}`,
       JSON.stringify({ mcpServers: { docs: { command: "docs-server" } } }),
     );
 
-    // When the bundle is added for Qwen
-    await run(["add", SOURCE, BUNDLE, "--agent", "qwen", "-y"], {
+    // When the bundle is added for the selected tool
+    await run(["add", SOURCE, BUNDLE, "--agent", tool, "-y"], {
       homeDir,
       cwd,
       prompts: createPromptClientStub(),
     });
 
-    // Then the skill is installed without parsing the settings as mcp.json
-    expect(pathExists(path.join(cwd, ".qwen/skills/review/SKILL.md"))).toBe(
-      true,
-    );
-    expect(pathExists(path.join(cwd, ".qwen/settings.json"))).toBe(false);
+    // Then the skill is installed without parsing or copying the native settings
+    expect(
+      pathExists(path.join(cwd, directory, "skills/review/SKILL.md")),
+    ).toBe(true);
+    expect(pathExists(path.join(cwd, directory, configFile))).toBe(false);
   });
 
   it("hides the materialized MCP configuration from Git status", async () => {

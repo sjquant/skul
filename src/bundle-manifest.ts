@@ -232,10 +232,13 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   for (const toolDef of allTools) {
     for (const [targetName, targetDef] of Object.entries(toolDef.targets)) {
       // These native settings formats are destinations, not portable mcp.json
-      // sources. Qwen's JSON settings also use a different server schema.
+      // sources. Qwen and Kimi use native JSON server schemas that differ from
+      // the portable mcp.json source.
       if (
         targetName === "mcp" &&
-        (targetDef.path.endsWith(".toml") || toolDef.name === "qwen")
+        (targetDef.path.endsWith(".toml") ||
+          toolDef.name === "qwen" ||
+          toolDef.name === "kimi")
       )
         continue;
       if (

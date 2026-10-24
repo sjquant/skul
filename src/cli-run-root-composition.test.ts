@@ -128,7 +128,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, zcode",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, kimi, zcode",
     );
 
     // Then
@@ -193,7 +193,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, zcode",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, kimi, zcode",
     );
 
     // Then
@@ -316,7 +316,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, zcode",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, kimi, zcode",
     );
 
     // Then
@@ -412,7 +412,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, zcode",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, kimi, zcode",
     );
 
     // Then
@@ -457,7 +457,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, zcode",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, kimi, zcode",
     );
 
     // Then
@@ -803,7 +803,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, zcode",
+      "Applied repo-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, kimi, zcode",
     );
 
     // Then
@@ -854,7 +854,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied shared-agents-guide for codex, opencode, claude-code, cursor, copilot, kiro, antigravity, grok, qwen, cline, zcode",
+      "Applied shared-agents-guide for codex, opencode, claude-code, cursor, copilot, kiro, antigravity, grok, qwen, cline, kimi, zcode",
     );
 
     // Then: codex and opencode content is merged into the shared AGENTS.md target
@@ -914,7 +914,7 @@ describe("run", () => {
         prompts: createPromptClientStub(),
       }),
     ).resolves.toBe(
-      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, zcode",
+      "Applied security-standards for codex, claude-code, cursor, opencode, copilot, kiro, antigravity, grok, qwen, cline, kimi, zcode",
     );
 
     // Then

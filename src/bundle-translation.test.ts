@@ -1056,6 +1056,7 @@ describe("translateAgent", () => {
   it.each([
     "grok",
     "qwen",
+    "kimi",
   ] as const)("drops a Claude model alias from a %s subagent", (targetTool) => {
     // Given a Claude subagent bound to a Claude-specific model alias
     const source =

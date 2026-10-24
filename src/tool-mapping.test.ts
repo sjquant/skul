@@ -27,6 +27,7 @@ describe("listToolDefinitions", () => {
       "grok",
       "qwen",
       "cline",
+      "kimi",
       "zcode",
     ]);
   });
@@ -202,6 +203,7 @@ describe("globalCapableToolNames", () => {
       "grok",
       "qwen",
       "cline",
+      "kimi",
       "zcode",
     ]);
   });
