@@ -1,87 +1,72 @@
 ---
 title: Commands
 slug: /commands
-description: Command reference for the current skul CLI surface.
+description: Every skul command and flag.
 ---
 
 # Commands
 
-## Add and remove
+| Command | Does |
+|---|---|
+| [`add`](#add) | Fetch if needed, then write a bundle into the project |
+| `list` | List cached bundles (`--source <source>` to filter) |
+| `status` | Desired state vs. what's written |
+| `remove [source] [bundle]` | Delete a bundle's managed files (`--all` for every one) |
+| `apply` | Write all wanted bundles into this worktree |
+| `check [bundle]` | Report upstream updates, read-only |
+| `update [bundle]` | Move bundles to the latest upstream revision |
+| `sync` | `git pull --ff-only`, with shadows suspended and refreshed |
+| `shadow` | `--suspend` or `--refresh` tracked shadows by hand |
+| `reset` | Remove everything Skul manages here |
 
-| Command | Description |
-| --- | --- |
-| `skul add <bundle>` | Materialize a uniquely named cached bundle |
-| `skul add <source>` | Fetch a source when needed and select one of its bundles |
-| `skul add <source> <bundle>` | Fetch a source when needed and materialize a specific bundle |
-| `skul remove <bundle>` | Remove one bundle and delete its managed files |
-| `skul reset` | Remove all `skul`-managed files from the current worktree |
+## Flags everywhere
 
-## Re-apply and inspect
+| Flag | Applies to | Effect |
+|---|---|---|
+| `-n, --dry-run` | mutating commands | Preview, change nothing |
+| `-y, --yes` | `add` `remove` `apply` `update` `reset` | Approve overwrite and removal prompts |
+| `-j, --json` | `list` `status` `check` `remove` `reset` | Machine-readable output |
+| `-g, --global` | `add` `remove` `apply` `status` `reset` | Operate on `~` tool config instead of the project |
 
-| Command | Description |
-| --- | --- |
-| `skul apply` | Re-materialize all desired bundles in the current worktree |
-| `skul list` | List cached bundles |
-| `skul status` | Show desired state and materialization status |
+Mutating commands print `{ "output": "…", "warnings": [] }` under `--json`. Set `SKUL_NO_TUI=1` to turn off every interactive prompt, which is what scripts and agents should do.
 
-## Tracked root lifecycle
-
-| Command | Description |
-| --- | --- |
-| `skul shadow --suspend` | Restore tracked root instruction files back to `HEAD` and clear shadow state from the working tree |
-| `skul shadow --refresh` | Rebuild tracked root-instruction shadows from the latest `HEAD` content plus bundle overlays |
-| `skul sync` | Run the safe suspend / `git pull --ff-only` / refresh sequence in one command |
-
-## Remote update flow
-
-| Command | Description |
-| --- | --- |
-| `skul check [bundle]` | Check remote-backed bundles for upstream updates |
-| `skul update [bundle]` | Update remote-backed bundles to the latest upstream revision |
-
-## `skul add` options
+## add
 
 ```text
 skul add [options] [source] [bundle]
 ```
 
-| Option | Description |
-| --- | --- |
-| `-a, --agent <name>` | Materialize for one tool only. Repeat to target multiple tools. Defaults to every tool the bundle ships content for. |
-| `--ref <selector>` | Track a specific branch, tag, or commit instead of remote `HEAD`. For npm sources, a version or dist-tag instead of `latest`. Persisted in the registry and reused by `skul apply`. |
-| `--include <item>` | Install only a specific bundle item. Repeat for multiple. Selectors: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction` (`AGENTS.md` / `CLAUDE.md` also accepted). |
-| `--select-items` | Open an interactive picker for bundle items. When combined with `--include`, the included items are preselected. |
-| `--all` | Install every bundle from the source. Requires a source and cannot be combined with a bundle name. |
-| `-s, --ssh` | Clone the source via SSH instead of HTTPS. `git@host:owner/repo` URLs are auto-detected as SSH. Protocol is persisted and reused by `skul apply`. |
-| `-g, --global` | Install to global tool config under `~/` instead of the current worktree. |
-| `-y, --yes` | Install without interactive confirmation prompts. Selects all available agents and auto-approves overwrite/replacement confirmations. Also available on `remove`, `apply`, `update`, and `reset` for confirmation prompts. |
-| `-n, --dry-run` | Preview what would be written without making any changes. |
+`source` is `github.com/owner/repo`, `owner/repo`, an SSH URL such as `git@github.com:owner/repo`, or `npm:@scope/package`. Omit it to re-apply a uniquely named cached bundle without network. Omit `bundle` for a single-bundle repo, or to get a picker.
 
-## Other flags
+| Option | Effect |
+|---|---|
+| `-a, --agent <id>` | Target one tool; repeat for more. Default: every tool the bundle has content for. |
+| `--ref <selector>` | Track a branch, tag, or commit instead of `HEAD` (npm: a version or dist-tag). Remembered by `apply`. |
+| `--include <item>` | Install only one item; repeat for more: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction`, `mcp` |
+| `--select-items` | Pick items interactively |
+| `--all` | Every bundle from the source |
+| `-s, --ssh` | Clone over SSH. `git@` URLs imply it. Remembered by `apply`. |
+| `--root-instruction-mode <mode>` | `append` (default) or `replace` |
+| `--disable-model-invocation` | Force it on for every skill |
 
-- Mutating commands accept `--dry-run`.
-- `skul add <source> --all` installs every bundle from a source, and `skul remove --all` removes every active bundle.
-- `skul add`, `skul remove`, `skul apply`, `skul update`, and `skul reset` accept `-y, --yes` to auto-approve overwrite/removal confirmations.
-- `skul list`, `skul status`, `skul check`, `skul remove`, and `skul reset` accept `--json`. Mutating command results use `{ "output": "…", "warnings": [] }`.
+```bash
+skul add acme/ai-bundles react-expert --ref 2813b88
+skul add react-expert --agent codex --include skills/diagnose
+skul add npm:@acme/react-skills@1.2.0
+```
 
-## Protocol behavior
+If SSH auth fails, Skul prints the HTTPS equivalent.
 
-Bare `owner/repo` references default to `github.com/owner/repo`. If you pass `--ssh` or use a `git@host:owner/repo` URL, `skul` persists that protocol choice and reuses it later during `apply`.
+## Environment
 
-## npm sources
+| Variable | Effect |
+|---|---|
+| `SKUL_NO_TUI` | `1` disables prompts; operations that need confirmation fail instead |
+| `SKUL_NPM_REGISTRY` | Registry for `npm:` sources (then `npm_config_registry`, then npmjs.org) |
+| `SKUL_NPM_TOKEN` | Bearer token, sent only to that registry's origin |
 
-`skul add npm:@scope/package` installs a bundle published to an npm registry. Skul downloads the package tarball, verifies it against the registry's digest, and treats the package root like a repository root. Pin a version with `npm:@scope/package@1.2.0` or `--ref 1.2.0`, or follow another dist-tag with `--ref next`; without either, Skul follows `latest`. Dist-tags are followed by `skul check` and `skul update`, exact versions are pinned, and semver ranges are not supported.
+## Staying current
 
-Set `SKUL_NPM_REGISTRY` to use a private registry (falls back to `npm_config_registry`, then `https://registry.npmjs.org/`). `SKUL_NPM_TOKEN` is sent as a bearer token to that registry's origin only.
+`skul check` shows what changed upstream; `skul update` applies it. A dist-tag like `latest` is followed; an exact version is pinned; semver ranges aren't supported.
 
-## Root-instruction safety
-
-Tracked root-instruction refresh refuses:
-
-- staged changes
-- unstaged edits
-- unmerged files
-- incompatible Git index flags
-- manual edits to the current shadow render
-
-Use `skul status` to inspect shadow health before running `skul sync` or `skul shadow --refresh`.
+For tracked `AGENTS.md` / `CLAUDE.md`, use `skul sync` for pulls. See [How it stays out of Git](/docs/how-it-works#tracked-the-shadow).

@@ -1,76 +1,68 @@
 ---
-title: How It Works
+title: How it stays out of Git
 slug: /how-it-works
-description: Cache, registry, and materialization behavior in skul.
+description: Exclude rules, the registry, and tracked-file shadows.
 ---
 
-# How It Works
+# How it stays out of Git
 
-`skul` separates desired state from materialized state.
+Skul never touches `.gitignore`, your history, or your index for files it creates. Three pieces make that work.
 
-## Cache
+## The cache and the registry
 
-Remote bundle sources are cloned once into:
+| Path | Holds |
+|---|---|
+| `~/.skul/library/` | Cloned bundle sources, reused by every project |
+| `~/.skul/registry.json` | What each repo **wants**, and what was **written** in each worktree |
 
-```text
-~/.skul/library/
-```
+Wanted and written are tracked separately. A new linked worktree inherits the wanted state immediately; `skul apply` writes it.
 
-Later `add` operations reuse that cache unless you clear it.
+## Exclude, not ignore
 
-## Registry
+Files Skul creates are listed in `.git/info/exclude` — local to your clone, never committed or pushed. Remove the bundle and the entries go with it.
 
-`skul` stores repository-wide and worktree-specific state in:
+Skul also fingerprints everything it writes. If you edit a managed file, removal asks first (or fails under `SKUL_NO_TUI=1`) instead of silently destroying your change.
 
-```text
-~/.skul/registry.json
-```
+## Root instructions
 
-The registry records:
+`AGENTS.md`, `CLAUDE.md`, and `QWEN.md` are the hard case: your team may already commit them.
 
-- which bundles a repository wants
-- which source revision was used
-- which files were written into each worktree
+### Not tracked
 
-## Materialization
+Skul writes the file like any other and hides it. A file that already existed locally is kept as the base, with bundle content appended inside `SKUL:BUNDLE` markers. Several bundles can share one file; when the last one leaves, your original comes back.
 
-When you apply a bundle, `skul` writes the corresponding files into the current repository clone and updates `.git/info/exclude` so those files stay untracked locally.
+Use `--root-instruction-mode replace` to discard the base instead of appending to it (it's still restored on remove).
 
-That means:
+### Tracked: the shadow
 
-- no `.gitignore` edits
-- no committed generated tool files
-- safe re-application in new worktrees
+If Git already tracks the file, Skul can't hide a diff with an exclude rule. Instead it renders `HEAD` plus your overlay into the working file and sets `skip-worktree`. `git status` stays clean; `skul status` lists it under **Shadowed Instructions**.
 
-## Tracked root-instruction shadows
+A tracked file has one shadow owner at a time, and Skul treats the rendered file as generated output. Don't edit it by hand — later commands refuse to overwrite a file that no longer matches what Skul wrote.
 
-Root instruction targets are special when the repository already tracks them.
+#### Pulling upstream changes
 
-In that case, `skul`:
-
-- reads the file's `HEAD` content
-- renders bundle overlay content on top of that base
-- marks the file with `skip-worktree`
-- tracks enough state to suspend, refresh, retire, or restore the shadow later
-
-This is why tracked-root workflows use:
+`skip-worktree` hides upstream changes too, so shadows need a pause around anything that moves `HEAD`:
 
 ```bash
 skul sync
 ```
 
-or, when run manually:
+That's `git pull --ff-only` wrapped in suspend and refresh. If the pull fails, shadows are restored first. If upstream stops tracking the file, the shadow is retired.
+
+For other Git commands, do the same by hand:
 
 ```bash
 skul shadow --suspend
-git pull --ff-only
+git rebase origin/main
 skul shadow --refresh
 ```
 
-## Re-applying in a new worktree
+Skul refuses to create or refresh a shadow while the file has staged, unstaged, or unmerged changes.
 
-Because desired state is tracked separately, a fresh linked worktree can inherit the same bundle setup:
+## Cleaning up
 
 ```bash
-skul apply
+skul reset
 ```
+
+Removes everything Skul manages in this worktree, restores shadowed files from `HEAD`, and restores preserved local bases. Run it before `git worktree remove`; otherwise the registry keeps a record of a clone that no longer exists.

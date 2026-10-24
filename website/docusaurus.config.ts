@@ -4,7 +4,7 @@ import { themes as prismThemes } from "prism-react-renderer";
 
 const config: Config = {
   title: "skul",
-  tagline: "AI bundles for AI coding tools",
+  tagline: "Your AI setup, kept out of Git",
   favicon: "img/favicon.ico",
   future: {
     v4: true,
@@ -54,7 +54,7 @@ const config: Config = {
     ],
     colorMode: {
       defaultMode: "light",
-      respectPrefersColorScheme: false,
+      respectPrefersColorScheme: true,
     },
     navbar: {
       title: "skul",
@@ -63,45 +63,9 @@ const config: Config = {
         src: "img/logo.svg",
       },
       items: [
-        {
-          type: "dropdown",
-          position: "left",
-          label: "Docs",
-          items: [
-            {
-              label: "Overview",
-              to: "/docs/intro",
-            },
-            {
-              label: "Installation",
-              to: "/docs/installation",
-            },
-            {
-              label: "Quick Start",
-              to: "/docs/quick-start",
-            },
-            {
-              label: "Supported Tools",
-              to: "/docs/supported-tools",
-            },
-            {
-              label: "Bundle Structure",
-              to: "/docs/bundle-structure",
-            },
-            {
-              label: "How It Works",
-              to: "/docs/how-it-works",
-            },
-            {
-              label: "Commands",
-              to: "/docs/commands",
-            },
-            {
-              label: "FAQ",
-              to: "/docs/faq",
-            },
-          ],
-        },
+        { to: "/docs/intro", label: "Docs", position: "left" },
+        { to: "/docs/commands", label: "Commands", position: "left" },
+        { to: "/docs/tools", label: "Tools", position: "left" },
         {
           href: "https://github.com/sjquant/skul",
           label: "GitHub",
@@ -110,57 +74,12 @@ const config: Config = {
       ],
     },
     footer: {
-      style: "dark",
-      links: [
-        {
-          title: "Docs",
-          items: [
-            {
-              label: "Overview",
-              to: "/docs/intro",
-            },
-            {
-              label: "Quick Start",
-              to: "/docs/quick-start",
-            },
-            {
-              label: "Commands",
-              to: "/docs/commands",
-            },
-          ],
-        },
-        {
-          title: "Project",
-          items: [
-            {
-              label: "GitHub",
-              href: "https://github.com/sjquant/skul",
-            },
-            {
-              label: "Issues",
-              href: "https://github.com/sjquant/skul/issues",
-            },
-          ],
-        },
-        {
-          title: "Topics",
-          items: [
-            {
-              label: "Supported Tools",
-              to: "/docs/supported-tools",
-            },
-            {
-              label: "Bundle Structure",
-              to: "/docs/bundle-structure",
-            },
-          ],
-        },
-      ],
-      copyright: `Copyright ${new Date().getFullYear()} sjquant. Built with Docusaurus.`,
+      style: "light",
+      copyright: `ISC License · sjquant`,
     },
     prism: {
-      theme: prismThemes.dracula,
-      darkTheme: prismThemes.dracula,
+      theme: prismThemes.github,
+      darkTheme: prismThemes.vsDark,
     },
   } satisfies Preset.ThemeConfig,
 };
