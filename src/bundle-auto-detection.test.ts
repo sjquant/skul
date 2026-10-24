@@ -25,6 +25,26 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("inferBundleManifest", () => {
+  it("does not treat native TOML MCP settings as a canonical mcp.json source", () => {
+    // Given tool-native MCP settings in a bundle
+    const bundleDir = createTempDir("skul-bundle-");
+    writeFile(
+      path.join(bundleDir, ".grok/config.toml"),
+      '[mcp_servers.docs]\ncommand = "docs"\n',
+    );
+    writeFile(
+      path.join(bundleDir, ".codex/config.toml"),
+      '[mcp_servers.docs]\ncommand = "docs"\n',
+    );
+
+    // When Skul infers the manifest
+    const manifest = inferBundleManifest(bundleDir);
+
+    // Then no JSON source parser is sent a TOML file
+    expect(manifest.tools.grok?.mcp).toBeUndefined();
+    expect(manifest.tools.codex?.mcp).toBeUndefined();
+  });
+
   it("infers all tools that support skills from a canonical skills/ directory", () => {
     // Given
     const bundleDir = createTempDir("skul-bundle-");

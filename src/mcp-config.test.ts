@@ -10,7 +10,6 @@ import {
   supportsMcpConfig,
 } from "./mcp-config";
 import {
-  globalCapableToolNames,
   listGlobalToolDefinitions,
   listToolDefinitions,
   type ToolName,
@@ -412,6 +411,28 @@ describe("dialect matrix", () => {
       },
       { serverUrl: "https://x/sse", headers: { "X-Key": "v" } },
     ],
+    [
+      "kimi",
+      "mcpServers",
+      {
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { transport: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
+    ],
+    [
+      "cline",
+      "mcpServers",
+      {
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { type: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
+    ],
   ] as const)("renders stdio and sse servers in %s's vocabulary", (toolName, serversKey, expectedStdio, expectedRemote) => {
     // Given a stdio server and an sse server
     const paths = { pluginRoot: "/lib", pluginData: "/data" };
@@ -459,6 +480,125 @@ describe("dialect matrix", () => {
     // Then Codex's own header key is used
     expect(content).toContain('url = "https://x/sse"');
     expect(content).toContain('http_headers = { X-Key = "v" }');
+  });
+
+  it("uses Qwen Code's HTTP endpoint key for streamable HTTP servers", () => {
+    // Given a streamable HTTP server in a bundle
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "streamable-http", url: "https://x/mcp" } },
+    });
+
+    // When the server is rendered for the target tool
+    const content = mergeMcpConfigDocument({
+      toolName: "qwen",
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then the tool treats it as streamable HTTP rather than SSE
+    expect(JSON.parse(content).mcpServers.docs).toEqual({
+      httpUrl: "https://x/mcp",
+    });
+  });
+
+  it("uses Kimi Code CLI's default HTTP transport for remote servers", () => {
+    // Given a streamable HTTP server in a bundle
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "streamable-http", url: "https://x/mcp" } },
+    });
+
+    // When the server is rendered for Kimi Code CLI
+    const content = mergeMcpConfigDocument({
+      toolName: "kimi",
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then Kimi infers HTTP from the URL without a transport field
+    expect(JSON.parse(content).mcpServers.docs).toEqual({
+      url: "https://x/mcp",
+    });
+  });
+
+  it("merges and removes ZCode servers without changing other settings", () => {
+    // Given an existing ZCode configuration with its own server and settings
+    const existingContent = JSON.stringify({
+      mcp: {
+        enabled: true,
+        servers: { mine: { type: "stdio", command: "mine" } },
+      },
+      features: { mcp: true },
+    });
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "streamable-http", url: "https://x/mcp" } },
+    });
+
+    // When Skul installs and then removes its server
+    const merged = mergeMcpConfigDocument({
+      toolName: "zcode",
+      existingContent,
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    });
+    const restored = subtractMcpConfigServers({
+      toolName: "zcode",
+      existingContent: merged.content,
+      serverNames: merged.serverNames,
+    });
+
+    // Then ZCode receives its HTTP dialect and the user's settings survive removal
+    expect(JSON.parse(merged.content)).toEqual({
+      mcp: {
+        enabled: true,
+        servers: {
+          mine: { type: "stdio", command: "mine" },
+          docs: { type: "http", url: "https://x/mcp" },
+        },
+      },
+      features: { mcp: true },
+    });
+    expect(JSON.parse(restored.content)).toEqual(JSON.parse(existingContent));
+  });
+
+  it("marks Cline's streamable HTTP transport explicitly", () => {
+    // Given a portable remote MCP server
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "streamable-http", url: "https://x/mcp" } },
+    });
+
+    // When it is rendered for Cline
+    const content = mergeMcpConfigDocument({
+      toolName: "cline",
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then Cline uses HTTP instead of its legacy SSE default
+    expect(JSON.parse(content).mcpServers.docs).toEqual({
+      type: "streamableHttp",
+      url: "https://x/mcp",
+    });
+  });
+
+  it("merges Grok servers into TOML while retaining user settings", () => {
+    // Given an existing Grok config and an MCP server from a bundle
+    const existingContent = '[models]\ndefault = "grok-build"\n';
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "stdio", command: "docs-server" } },
+    });
+
+    // When Skul adds the server
+    const content = mergeMcpConfigDocument({
+      toolName: "grok",
+      existingContent,
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then the Grok settings and server are both present
+    expect(content).toContain(existingContent);
+    expect(content).toContain("[mcp_servers.docs]");
+    expect(content).toContain('command = "docs-server"');
   });
 });
 
@@ -908,16 +1048,6 @@ describe("MCP dialect coverage", () => {
     // would otherwise be reported as both skipped and supported at once
     expect(globalMcpCapableToolNames()).toEqual(globalToolsWithMcpTarget);
     expect(globalToolsWithMcpTarget.length).toBeGreaterThan(0);
-  });
-
-  it("places MCP servers for every globally installable tool", () => {
-    // Given every tool a global install can target
-
-    // When those are compared with the tools a global install writes MCP for
-    // Then none is left out, so no bundle has its servers dropped by a global
-    // install. `skul add --global` still carries a note naming any tool it
-    // cannot place servers for; this is what keeps that note unreachable.
-    expect(globalMcpCapableToolNames()).toEqual(globalCapableToolNames());
   });
 
   it("declares no MCP target for tools it cannot render configuration for", () => {

@@ -19,8 +19,19 @@ type SkillTool =
   | "opencode"
   | "copilot"
   | "kiro"
-  | "antigravity";
-type CommandTool = "claude" | "cursor" | "opencode" | "antigravity";
+  | "antigravity"
+  | "grok"
+  | "qwen"
+  | "kimi"
+  | "cline"
+  | "zcode";
+type CommandTool =
+  | "claude"
+  | "cursor"
+  | "opencode"
+  | "antigravity"
+  | "qwen"
+  | "zcode";
 type AgentTool =
   | "claude"
   | "cursor"
@@ -28,7 +39,10 @@ type AgentTool =
   | "opencode"
   | "copilot"
   | "kiro"
-  | "antigravity";
+  | "antigravity"
+  | "grok"
+  | "qwen"
+  | "kimi";
 type RootInstructionTool =
   | "claude"
   | "cursor"
@@ -36,7 +50,12 @@ type RootInstructionTool =
   | "opencode"
   | "copilot"
   | "kiro"
-  | "antigravity";
+  | "antigravity"
+  | "grok"
+  | "qwen"
+  | "kimi"
+  | "cline"
+  | "zcode";
 
 interface MarkdownDocument {
   metadata: MetadataMap;
@@ -189,7 +208,7 @@ function parseSkill(
     };
   }
 
-  // claude, cursor, copilot, kiro, antigravity — all use the same SKILL.md format
+  // The remaining tools share the same SKILL.md fields.
   return {
     name,
     description,
@@ -256,7 +275,7 @@ function renderSkill(
     };
   }
 
-  // claude, cursor, copilot, kiro, antigravity — all use the same SKILL.md format
+  // The remaining tools share the same SKILL.md fields.
   const metadata: MetadataMap = { name, description };
 
   if (model.manualOnly) {
@@ -309,7 +328,10 @@ function parseCommand(sourceTool: CommandTool, source: string): CommandModel {
   const document = parseMarkdownDocument(source);
 
   return {
-    body: document.body,
+    body:
+      sourceTool === "qwen"
+        ? document.body.replaceAll("{{args}}", "$ARGUMENTS")
+        : document.body,
     description: coerceOptionalString(document.metadata.description),
     agent: coerceOptionalString(document.metadata.agent),
     model: coerceOptionalString(document.metadata.model),
@@ -347,8 +369,17 @@ function renderCommand(
     };
   }
 
-  if (targetTool === "opencode" || targetTool === "antigravity") {
+  if (
+    targetTool === "opencode" ||
+    targetTool === "antigravity" ||
+    targetTool === "qwen" ||
+    targetTool === "zcode"
+  ) {
     const metadata: MetadataMap = {};
+    const body =
+      targetTool === "qwen"
+        ? model.body.replace(/\$ARGUMENTS\b/g, "{{args}}")
+        : model.body;
 
     if (options.description ?? model.description) {
       metadata.description = options.description ?? model.description!;
@@ -367,10 +398,10 @@ function renderCommand(
     return {
       [commandFilePath(targetTool, commandName)]:
         Object.keys(metadata).length === 0
-          ? model.body
+          ? body
           : renderMarkdownDocument({
               metadata,
-              body: model.body,
+              body,
             }),
     };
   }
@@ -436,7 +467,12 @@ function renderAgent(
     description: model.description,
   };
 
-  if (model.model) {
+  if (
+    model.model &&
+    targetTool !== "grok" &&
+    targetTool !== "qwen" &&
+    targetTool !== "kimi"
+  ) {
     metadata.model = model.model;
   }
 

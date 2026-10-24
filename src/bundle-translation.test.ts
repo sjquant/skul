@@ -991,6 +991,30 @@ describe("translateCommand", () => {
     });
   });
 
+  it("keeps command arguments in place between Claude and Qwen", () => {
+    // Given commands that name the arguments at a specific position
+    const claudeSource = "Review $ARGUMENTS for regressions.\n";
+    const qwenSource = "Review {{args}} for regressions.\n";
+
+    // When each command is translated to the other tool
+    const qwenCommand = translateCommand({
+      sourceTool: "claude",
+      targetTool: "qwen",
+      source: claudeSource,
+      options: { name: "review" },
+    });
+    const claudeCommand = translateCommand({
+      sourceTool: "qwen",
+      targetTool: "claude",
+      source: qwenSource,
+      options: { name: "review" },
+    });
+
+    // Then each tool receives its own argument placeholder
+    expect(qwenCommand[".qwen/commands/review.md"]).toBe(qwenSource);
+    expect(claudeCommand[".claude/commands/review.md"]).toContain(claudeSource);
+  });
+
   it("requires a command name for targets with named command output", () => {
     // Given
     const source = "Review the changed files and summarize the risks.\n";
@@ -1029,6 +1053,26 @@ describe("translateCommand", () => {
 });
 
 describe("translateAgent", () => {
+  it.each([
+    "grok",
+    "qwen",
+    "kimi",
+  ] as const)("drops a Claude model alias from a %s subagent", (targetTool) => {
+    // Given a Claude subagent bound to a Claude-specific model alias
+    const source =
+      "---\nname: reviewer\ndescription: Review changes\nmodel: sonnet\n---\nReview code.\n";
+
+    // When it is translated to another agent's format
+    const translated = translateAgent({
+      sourceTool: "claude",
+      targetTool,
+      source,
+    });
+
+    // Then the target can choose its own compatible model
+    expect(Object.values(translated)[0]).not.toContain("model: sonnet");
+  });
+
   it("renders a Codex custom agent TOML file from Claude subagent markdown", () => {
     // Given
     const source = [

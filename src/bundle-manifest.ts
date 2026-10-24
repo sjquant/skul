@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { MCP_CONFIG_FILE_NAME } from "./mcp-config";
 import {
+  getGlobalToolDefinition,
   getToolDefinition,
   listAcceptedToolNames,
   listToolDefinitions,
@@ -218,7 +219,11 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
     isExistingToolTarget(path.join(bundleDir, MCP_CONFIG_FILE_NAME), "file")
   ) {
     for (const toolDef of allTools) {
-      if (!toolDef.targets.mcp) continue;
+      if (
+        !toolDef.targets.mcp &&
+        !getGlobalToolDefinition(toolDef.name)?.targets.mcp
+      )
+        continue;
 
       if (!tools[toolDef.name]) tools[toolDef.name] = {};
       tools[toolDef.name]!.mcp = { path: MCP_CONFIG_FILE_NAME };
@@ -231,6 +236,17 @@ export function inferBundleManifest(bundleDir: string): BundleManifest {
   // Native paths override canonical paths for the same tool + target.
   for (const toolDef of allTools) {
     for (const [targetName, targetDef] of Object.entries(toolDef.targets)) {
+      // These native settings formats are destinations, not portable mcp.json
+      // sources. Qwen and Kimi use native JSON server schemas that differ from
+      // the portable mcp.json source.
+      if (
+        targetName === "mcp" &&
+        (targetDef.path.endsWith(".toml") ||
+          toolDef.name === "qwen" ||
+          toolDef.name === "kimi" ||
+          toolDef.name === "zcode")
+      )
+        continue;
       if (
         isExistingToolTarget(
           path.join(bundleDir, targetDef.path),

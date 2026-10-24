@@ -737,6 +737,9 @@ function planMcpTargetWrites(options: {
       path.join(options.repoRoot, ...repoRelPath.split("/")),
       repoRelPath,
     );
+    if (toolName === "zcode" && Object.keys(servers).length > 0) {
+      assertZcodeMcpFallbackPreserved(options.repoRoot, existingContent);
+    }
     const merged = mergeMcpConfigDocument({
       toolName,
       servers,
@@ -759,6 +762,52 @@ function planMcpTargetWrites(options: {
   }
 
   return plans;
+}
+
+/** ZCode ignores generic servers once its native config contains any server. */
+function assertZcodeMcpFallbackPreserved(
+  repoRoot: string,
+  nativeContent: string | null,
+): void {
+  const fallbackPath = path.join(repoRoot, ".agents/mcp.json");
+  if (!fs.existsSync(fallbackPath)) return;
+
+  let fallback: unknown;
+  let native: unknown;
+  try {
+    fallback = JSON.parse(fs.readFileSync(fallbackPath, "utf8"));
+    native = nativeContent ? JSON.parse(nativeContent) : {};
+  } catch {
+    return;
+  }
+
+  const fallbackServers =
+    fallback && typeof fallback === "object" && !Array.isArray(fallback)
+      ? (fallback as Record<string, unknown>).mcpServers
+      : undefined;
+  const nativeMcp =
+    native && typeof native === "object" && !Array.isArray(native)
+      ? (native as Record<string, unknown>).mcp
+      : undefined;
+  const nativeServers =
+    nativeMcp && typeof nativeMcp === "object" && !Array.isArray(nativeMcp)
+      ? (nativeMcp as Record<string, unknown>).servers
+      : undefined;
+
+  if (
+    fallbackServers &&
+    typeof fallbackServers === "object" &&
+    !Array.isArray(fallbackServers) &&
+    Object.keys(fallbackServers).length > 0 &&
+    (!nativeServers ||
+      typeof nativeServers !== "object" ||
+      Array.isArray(nativeServers) ||
+      Object.keys(nativeServers).length === 0)
+  ) {
+    throw new Error(
+      `Cannot install ZCode MCP servers: .agents/mcp.json already has servers that ZCode would stop loading once its native MCP configuration is written. Move those servers into ZCode's native config first.`,
+    );
+  }
 }
 
 /**

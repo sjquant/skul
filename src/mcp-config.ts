@@ -84,6 +84,8 @@ interface McpConfigDialect {
   format: "json" | "toml";
   /** Top-level JSON key, or the TOML table prefix such as `mcp_servers`. */
   serversKey: string;
+  /** Parent of a nested JSON server map, such as ZCode's `mcp.servers`. */
+  jsonParentKey?: string;
   renderStdio(
     server: McpStdioServer,
     pluginPaths: McpPluginPaths,
@@ -91,7 +93,7 @@ interface McpConfigDialect {
   renderRemote(server: McpRemoteServer): Record<string, unknown>;
 }
 
-/** Renders the `mcpServers` shape shared by Claude Code, Cursor, Kiro, and Copilot. */
+/** Renders conventional stdio server fields shared by several tools. */
 function renderConventionalStdio(
   server: McpStdioServer,
   pluginPaths: McpPluginPaths,
@@ -198,6 +200,57 @@ const MCP_CONFIG_DIALECTS: Partial<Record<ToolName, McpConfigDialect>> = {
       url: server.url,
       ...(server.headers ? { http_headers: server.headers } : {}),
     }),
+  },
+  grok: {
+    format: "toml",
+    serversKey: "mcp_servers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) => renderConventionalRemote(server, null),
+  },
+  qwen: {
+    format: "json",
+    serversKey: "mcpServers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) => ({
+      [server.transport === "sse" ? "url" : "httpUrl"]: server.url,
+      ...(server.headers ? { headers: server.headers } : {}),
+    }),
+  },
+  kimi: {
+    format: "json",
+    serversKey: "mcpServers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) => ({
+      ...(server.transport === "sse" ? { transport: "sse" } : {}),
+      url: server.url,
+      ...(server.headers ? { headers: server.headers } : {}),
+    }),
+  },
+  cline: {
+    format: "json",
+    serversKey: "mcpServers",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, null),
+    renderRemote: (server) =>
+      renderConventionalRemote(
+        server,
+        server.transport === "sse" ? "sse" : "streamableHttp",
+      ),
+  },
+  zcode: {
+    format: "json",
+    serversKey: "servers",
+    jsonParentKey: "mcp",
+    renderStdio: (server, paths) =>
+      renderConventionalStdio(server, paths, "stdio"),
+    renderRemote: (server) =>
+      renderConventionalRemote(
+        server,
+        server.transport === "sse" ? "sse" : "http",
+      ),
   },
   antigravity: {
     format: "json",
@@ -407,7 +460,8 @@ export function mergeRenderedMcpServers(options: {
   }
 
   const document = parseExistingDocument(options.existingContent, label);
-  const existingServers = readServersObject(document, dialect, label);
+  const container = readJsonServerContainer(document, dialect, label);
+  const existingServers = readServersObject(container, dialect, label);
 
   for (const serverName of serverNames) {
     if (Object.hasOwn(existingServers, serverName) && !owned.has(serverName)) {
@@ -418,10 +472,15 @@ export function mergeRenderedMcpServers(options: {
   }
 
   return {
-    content: formatDocument({
-      ...document,
-      [dialect.serversKey]: { ...existingServers, ...options.renderedServers },
-    }),
+    content: formatDocument(
+      setJsonServerContainer(document, dialect, {
+        ...container,
+        [dialect.serversKey]: {
+          ...existingServers,
+          ...options.renderedServers,
+        },
+      }),
+    ),
     serverNames,
   };
 }
@@ -747,27 +806,38 @@ export function subtractMcpConfigServers(options: {
   }
 
   const document = parseExistingDocument(options.existingContent, label);
+  const container = readJsonServerContainer(document, dialect, label);
   const remainingServers = Object.fromEntries(
-    Object.entries(readServersObject(document, dialect, label)).filter(
+    Object.entries(readServersObject(container, dialect, label)).filter(
       ([serverName]) => !options.serverNames.includes(serverName),
     ),
   );
 
   if (Object.keys(remainingServers).length > 0) {
     return {
-      content: formatDocument({
-        ...document,
-        [dialect.serversKey]: remainingServers,
-      }),
+      content: formatDocument(
+        setJsonServerContainer(document, dialect, {
+          ...container,
+          [dialect.serversKey]: remainingServers,
+        }),
+      ),
       emptied: false,
     };
   }
 
-  const { [dialect.serversKey]: _servers, ...otherSettings } = document;
+  const { [dialect.serversKey]: _servers, ...otherSettings } = container;
+  const remainingDocument =
+    dialect.jsonParentKey && Object.keys(otherSettings).length === 0
+      ? Object.fromEntries(
+          Object.entries(document).filter(
+            ([key]) => key !== dialect.jsonParentKey,
+          ),
+        )
+      : setJsonServerContainer(document, dialect, otherSettings);
 
   return {
-    content: formatDocument(otherSettings),
-    emptied: holdsOnlySchema(otherSettings),
+    content: formatDocument(remainingDocument),
+    emptied: holdsOnlySchema(remainingDocument),
   };
 }
 
@@ -814,7 +884,11 @@ export function extractMcpOverlay(options: {
   try {
     const label = describeConfig(options.toolName);
     servers = readServersObject(
-      parseExistingDocument(options.content, label),
+      readJsonServerContainer(
+        parseExistingDocument(options.content, label),
+        dialect,
+        label,
+      ),
       dialect,
       label,
     );
@@ -1144,13 +1218,35 @@ function parseExistingDocument(
   return parsed as Record<string, unknown>;
 }
 
-/**
- * Reads the document's server table.
- *
- * A key of the wrong shape is refused rather than treated as absent: writing
- * over it would destroy configuration Skul does not own, which is the one thing
- * this module exists to avoid.
- */
+/** Reads the parent of a JSON server map without replacing unrelated settings. */
+function readJsonServerContainer(
+  document: Record<string, unknown>,
+  dialect: McpConfigDialect,
+  label: string,
+): Record<string, unknown> {
+  if (!dialect.jsonParentKey) return document;
+
+  const container = document[dialect.jsonParentKey];
+  if (container === undefined || container === null) return {};
+  if (typeof container !== "object" || Array.isArray(container)) {
+    throw new Error(
+      `"${dialect.jsonParentKey}" in ${label} must be an object.\nSkul will not overwrite it, because that would discard configuration it does not own.`,
+    );
+  }
+  return container as Record<string, unknown>;
+}
+
+function setJsonServerContainer(
+  document: Record<string, unknown>,
+  dialect: McpConfigDialect,
+  container: Record<string, unknown>,
+): Record<string, unknown> {
+  return dialect.jsonParentKey
+    ? { ...document, [dialect.jsonParentKey]: container }
+    : container;
+}
+
+/** Rejects a malformed server map so merging cannot discard user settings. */
 function readServersObject(
   document: Record<string, unknown>,
   dialect: McpConfigDialect,

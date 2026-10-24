@@ -24,6 +24,11 @@ describe("listToolDefinitions", () => {
       "copilot",
       "kiro",
       "antigravity",
+      "grok",
+      "qwen",
+      "cline",
+      "kimi",
+      "zcode",
     ]);
   });
 });
@@ -156,6 +161,7 @@ describe("resolveToolTargetPath", () => {
     ["antigravity", "agents", path.join("/repo", ".agents/agents")],
     ["antigravity", "commands", path.join("/repo", ".agent/workflows")],
     ["antigravity", "root_instruction", path.join("/repo", "AGENTS.md")],
+    ["zcode", "mcp", path.join("/repo", ".zcode/config.json")],
   ];
 
   it.each(
@@ -195,6 +201,11 @@ describe("globalCapableToolNames", () => {
       "copilot",
       "kiro",
       "antigravity",
+      "grok",
+      "qwen",
+      "cline",
+      "kimi",
+      "zcode",
     ]);
   });
 });
@@ -321,6 +332,12 @@ describe("resolveGlobalToolTargetPath", () => {
       path.join("/home", ".gemini/antigravity-cli/skills"),
     ],
     ["antigravity", "agents", path.join("/home", ".gemini/config/agents")],
+    [
+      "cline",
+      "mcp",
+      path.join("/home", ".cline/data/settings/cline_mcp_settings.json"),
+    ],
+    ["zcode", "mcp", path.join("/home", ".zcode/cli/config.json")],
   ] satisfies Array<
     [string, ToolTargetName, string]
   >)("resolves global %s %s beneath the home directory", (toolName, targetName, expectedPath) => {
