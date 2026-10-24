@@ -8467,11 +8467,10 @@ function formatGlobalMcpSkipNotes(options: {
   }
 
   const placeable = globalMcpCapableToolNames();
-  const hasPortableMcpSource = Object.values(options.manifest.tools).some(
-    (targets) => targets?.mcp?.path === "mcp.json",
-  );
   const skipped = options.tools.filter(
-    (toolName) => hasPortableMcpSource && !placeable.includes(toolName),
+    (toolName) =>
+      options.manifest.tools[toolName]?.mcp?.path === "mcp.json" &&
+      !placeable.includes(toolName),
   );
 
   if (skipped.length === 0) {

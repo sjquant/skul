@@ -141,7 +141,7 @@ To use a private registry, set `SKUL_NPM_REGISTRY` (falls back to `npm_config_re
 | **[Qwen Code](https://qwenlm.github.io/qwen-code-docs/)** | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
 | **[Cline](https://docs.cline.bot/)** | `.cline/skills` | — | — | `AGENTS.md` | — |
 | **[Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/)** | `.kimi-code/skills` | — | `.kimi-code/agents` | `AGENTS.md` | `.kimi-code/mcp.json` |
-| **[ZCode](https://zcode.z.ai/en/docs/welcome)** | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | — |
+| **[ZCode](https://zcode.z.ai/en/docs/welcome)** | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | `.zcode/config.json` |
 
 Grok Build and Kimi Code CLI expose skills as slash commands; put them in `skills/`.
 
@@ -149,7 +149,7 @@ Use `--agent <name>` to target a single tool. Repeat the flag to target multiple
 
 `--agent` selects a coding tool, not its model. To use DeepSeek models, configure them in a supported tool such as [Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) or [OpenCode](https://api-docs.deepseek.com/quick_start/agent_integrations/opencode/), then target that tool with Skul. Grok Build, Kimi Code CLI, and ZCode are separate tools; select them with `--agent grok`, `--agent kimi`, and `--agent zcode`.
 
-Global installs use each tool's paths under `~`. Antigravity CLI uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`; Cline uses `~/.agents/AGENTS.md` for instructions; Kimi Code CLI uses `~/.kimi-code/skills`, `~/.kimi-code/agents`, and `~/.kimi-code/AGENTS.md`; ZCode uses `~/.zcode/skills`, `~/.zcode/commands`, and `~/.zcode/AGENTS.md`. Skul does not materialize ZCode subagents or MCP servers: its documented subagents are user-scope only, and its MCP settings use a nested configuration format.
+Global installs use each tool's paths under `~`. Antigravity CLI uses `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, and `~/.gemini/GEMINI.md`; Cline uses `~/.agents/AGENTS.md` for instructions; Kimi Code CLI uses `~/.kimi-code/skills`, `~/.kimi-code/agents`, and `~/.kimi-code/AGENTS.md`; ZCode uses `~/.zcode/skills`, `~/.zcode/commands`, and `~/.zcode/AGENTS.md`. Skul does not materialize ZCode subagents because its documented subagents are user-scope only.
 
 `copilot` means the Copilot CLI and the Agent Host behind it, which is the surface with a documented home directory. Its repository files are the ones Copilot in VS Code reads as well, and VS Code reads `~/.copilot/skills` too, so one install serves both. What Skul does not write is `.vscode/mcp.json`: that file is VS Code chat's own, in another dialect, and no user-scope path names it.
 
@@ -249,11 +249,11 @@ If the target file is **tracked by Git** — as `opencode.json` or `.codex/confi
 
 Only one bundle may shadow a given tracked file — a shadow renders that bundle's servers onto the committed content, so a second bundle would silently replace the first's, and Skul refuses instead. (Untracked files have no such limit; any number of bundles merge into them.)
 
-`skul add --global` merges MCP servers into each tool's user-scope configuration using the same dialect and merge rules as a project install. This includes `~/.grok/config.toml` for Grok Build, `~/.qwen/settings.json` for Qwen Code, and `~/.kimi-code/mcp.json` for Kimi Code CLI. Cline and ZCode have no supported global MCP target, so `skul add --global` reports their skipped servers.
+`skul add --global` merges MCP servers into each tool's user-scope configuration using the same dialect and merge rules as a project install. This includes `~/.grok/config.toml` for Grok Build, `~/.qwen/settings.json` for Qwen Code, `~/.kimi-code/mcp.json` for Kimi Code CLI, `~/.cline/data/settings/cline_mcp_settings.json` for Cline, and `~/.zcode/cli/config.json` for ZCode. Cline has no documented project MCP target, so Skul writes its servers only with `--global`.
 
 `~/.claude.json` is one Claude Code rewrites while it runs. Skul reads it, merges, and replaces it in one atomic rename, so it never leaves a half-written file — but a running session that writes between the read and the rename loses that write. Run `skul add --global`, `skul remove --global`, and `skul reset --global` with Claude Code closed.
 
-For all tools, the portable source is bundle-root `mcp.json`. A tool-scoped JSON file can also be inferred when it uses that same Agent Plugins server schema. Native TOML files for Codex and Grok Build are destinations only; Skul writes them from `mcp.json`.
+For all tools, the portable source is bundle-root `mcp.json`. A tool-scoped JSON file can also be inferred when it uses that same Agent Plugins server schema. Native TOML files for Codex and Grok Build, and native settings files for Qwen Code, Kimi Code CLI, and ZCode, are destinations only; Skul writes them from `mcp.json`.
 
 ### Cross-Repo Bundle Item References
 

@@ -422,6 +422,17 @@ describe("dialect matrix", () => {
       },
       { transport: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
     ],
+    [
+      "cline",
+      "mcpServers",
+      {
+        command: "run",
+        args: ["--root", "/lib/ref"],
+        env: { TOKEN: "t" },
+        cwd: "/lib",
+      },
+      { type: "sse", url: "https://x/sse", headers: { "X-Key": "v" } },
+    ],
   ] as const)("renders stdio and sse servers in %s's vocabulary", (toolName, serversKey, expectedStdio, expectedRemote) => {
     // Given a stdio server and an sse server
     const paths = { pluginRoot: "/lib", pluginData: "/data" };
@@ -505,6 +516,66 @@ describe("dialect matrix", () => {
 
     // Then Kimi infers HTTP from the URL without a transport field
     expect(JSON.parse(content).mcpServers.docs).toEqual({
+      url: "https://x/mcp",
+    });
+  });
+
+  it("merges and removes ZCode servers without changing other settings", () => {
+    // Given an existing ZCode configuration with its own server and settings
+    const existingContent = JSON.stringify({
+      mcp: {
+        enabled: true,
+        servers: { mine: { type: "stdio", command: "mine" } },
+      },
+      features: { mcp: true },
+    });
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "streamable-http", url: "https://x/mcp" } },
+    });
+
+    // When Skul installs and then removes its server
+    const merged = mergeMcpConfigDocument({
+      toolName: "zcode",
+      existingContent,
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    });
+    const restored = subtractMcpConfigServers({
+      toolName: "zcode",
+      existingContent: merged.content,
+      serverNames: merged.serverNames,
+    });
+
+    // Then ZCode receives its HTTP dialect and the user's settings survive removal
+    expect(JSON.parse(merged.content)).toEqual({
+      mcp: {
+        enabled: true,
+        servers: {
+          mine: { type: "stdio", command: "mine" },
+          docs: { type: "http", url: "https://x/mcp" },
+        },
+      },
+      features: { mcp: true },
+    });
+    expect(JSON.parse(restored.content)).toEqual(JSON.parse(existingContent));
+  });
+
+  it("marks Cline's streamable HTTP transport explicitly", () => {
+    // Given a portable remote MCP server
+    const servers = parseMcpConfig({
+      mcpServers: { docs: { type: "streamable-http", url: "https://x/mcp" } },
+    });
+
+    // When it is rendered for Cline
+    const content = mergeMcpConfigDocument({
+      toolName: "cline",
+      servers,
+      pluginPaths: PLUGIN_PATHS,
+    }).content;
+
+    // Then Cline uses HTTP instead of its legacy SSE default
+    expect(JSON.parse(content).mcpServers.docs).toEqual({
+      type: "streamableHttp",
       url: "https://x/mcp",
     });
   });

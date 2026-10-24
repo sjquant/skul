@@ -1402,7 +1402,7 @@ describe("skul add with an Agent Plugins mcp.json", () => {
     expect(output).not.toContain(MCP_SKIP_NOTE);
   });
 
-  it("reports skipped MCP servers for a global Cline install", async () => {
+  it("installs MCP servers for a global Cline install", async () => {
     // Given a portable MCP bundle with a skill Cline can install
     const homeDir = createHomeDir();
     const cwd = createRepository();
@@ -1421,11 +1421,51 @@ describe("skul add with an Agent Plugins mcp.json", () => {
       { homeDir, cwd, prompts: createPromptClientStub() },
     );
 
-    // Then the skill is installed and the missing MCP configuration is reported
+    // Then the skill and both MCP servers are installed in Cline's user scope
     expect(
       pathExists(path.join(homeDir, ".cline/skills/review/SKILL.md")),
     ).toBe(true);
-    expect(output).toContain(`${MCP_SKIP_NOTE} for cline`);
+    expect(
+      Object.keys(
+        readMcpServers(
+          path.join(homeDir, ".cline/data/settings/cline_mcp_settings.json"),
+        ),
+      ).sort(),
+    ).toEqual(["docs", "remote"]);
+    expect(output).not.toContain(MCP_SKIP_NOTE);
+  });
+
+  it.each([
+    ["project", [], ".zcode/config.json"],
+    ["global", ["--global"], ".zcode/cli/config.json"],
+  ] as const)("installs and removes ZCode MCP servers at %s scope", async (_scope, flags, configPath) => {
+    // Given a bundle with portable MCP declarations
+    const homeDir = createHomeDir();
+    const cwd = createRepository();
+    writeMcpBundle(homeDir);
+
+    // When it is installed for ZCode
+    await run(["add", SOURCE, BUNDLE, ...flags, "--agent", "zcode", "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+
+    // Then the servers appear in ZCode's native nested configuration
+    const root = flags.length > 0 ? homeDir : cwd;
+    const config = JSON.parse(
+      fs.readFileSync(path.join(root, configPath), "utf8"),
+    );
+    expect(Object.keys(config.mcp.servers).sort()).toEqual(["docs", "remote"]);
+    expect(config.mcp.servers.remote.type).toBe("http");
+
+    // When the bundle is removed, its created configuration is deleted
+    await run(["remove", BUNDLE, ...flags, "-y"], {
+      homeDir,
+      cwd,
+      prompts: createPromptClientStub(),
+    });
+    expect(pathExists(path.join(root, configPath))).toBe(false);
   });
 
   it("appends a marked block to the user-scope Codex config for a global install", async () => {
