@@ -7,12 +7,12 @@ import type { ReactNode } from "react";
 import styles from "./index.module.css";
 
 const siteDescription =
-  "Apply shared skills, commands, agents, instructions, and MCP servers to Claude Code, Cursor, Codex, and other AI coding tools, without committing them to Git.";
+  "Apply shared skills, subagents, commands, instructions, and MCP servers to Claude Code, Cursor, Codex, and other AI coding tools, without committing them to Git.";
 
 const points = [
   {
-    title: "One bundle, every tool",
-    body: "Write skills, agents, instructions, and MCP config once. Skul lays them out for each tool.",
+    title: "Not just skills",
+    body: "Skills, subagents, commands, AGENTS.md / CLAUDE.md, and MCP servers, in every tool's own format. Per project or global.",
   },
   {
     title: "Invisible to Git",
@@ -46,7 +46,7 @@ export default function Home(): ReactNode {
         <div className={styles.wrap}>
           <h1 className={styles.title}>Your AI setup, kept out of Git.</h1>
           <p className={styles.lead}>
-            Apply shared skills, commands, agents, and instructions to any
+            Apply shared skills, subagents, instructions, and MCP servers to any
             coding tool, without a single line in <code>git status</code>.
           </p>
           <div className={styles.actions}>

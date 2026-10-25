@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Your AI setup, kept out of Git.</strong><br />
-  Apply shared skills, commands, agents, and instructions to any coding tool — without a single line in <code>git status</code>.
+  Apply shared skills, subagents, instructions, and MCP servers to any coding tool — without a single line in <code>git status</code>.
 </p>
 
 ---
@@ -26,7 +26,7 @@ skul remove react-expert                 # gone, as if it never happened
 
 ## Why
 
-**One bundle, every tool.** Write `skills/`, `commands/`, `agents/`, `AGENTS.md`, and `mcp.json` once. Skul translates them into the layout and dialect of each tool.
+**Not just skills.** Skills, subagents, commands, `AGENTS.md` / `CLAUDE.md`, and MCP servers: write them once in a bundle and Skul translates each into the layout and dialect of every supported tool. Install per project, or globally with `--global`.
 
 **Invisible to Git.** Ignore rules go to `.git/info/exclude`, never `.gitignore`. Even a team-committed `AGENTS.md` can carry your personal layer on top without showing a diff.
 
