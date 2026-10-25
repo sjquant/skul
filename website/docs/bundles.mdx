@@ -1,0 +1,131 @@
+---
+title: Writing a bundle
+slug: /bundles
+description: Layout, manifest, MCP servers, and references.
+---
+
+# Writing a bundle
+
+A bundle is a Git repository (or an npm package) of plain files. There's nothing to register and no manifest required.
+
+## Layout
+
+Put `skills/`, `commands/`, `agents/`, and root instructions in a folder:
+
+```text
+skills/
+commands/
+agents/
+AGENTS.md          # or CLAUDE.md, QWEN.md
+mcp.json
+```
+
+Skul copies each to every tool that supports it. Content for one tool only goes in that tool's own dotdir (`.claude/skills/`, `.cursor/commands/`, …).
+
+### One bundle or many
+
+The repository root is the bundle, named after the repo:
+
+```text
+github.com/you/react-bundle
+├── skills/
+└── commands/
+```
+
+Or each subdirectory is a bundle, named after the directory:
+
+```text
+github.com/you/ai-bundles
+├── react-expert/
+│   ├── skills/
+│   └── agents/
+└── python-data/
+    └── skills/
+```
+
+Users run `skul add you/react-bundle` or `skul add you/ai-bundles react-expert`. In a multi-bundle repo, root-level `AGENTS.md` / `CLAUDE.md` / `QWEN.md` aren't bundle content (Skul warns); put shared instructions in `bundles/common/`.
+
+### npm
+
+Publish the same layout as a package and install with `skul add npm:@you/react-skills`. Use `@1.2.0` or `--ref next` to pin a version or dist-tag. Set `SKUL_NPM_REGISTRY` and `SKUL_NPM_TOKEN` for a private registry.
+
+## Root instructions travel
+
+Ship `CLAUDE.md` and Codex still gets `AGENTS.md`; ship `AGENTS.md` and Claude Code gets `CLAUDE.md`. Copilot also gets `.github/copilot-instructions.md`. See [tools](/docs/tools#root-instruction-files) for the full mapping.
+
+## Manifest (optional)
+
+```json title="manifest.json"
+{
+  "root_instruction_mode": "replace"
+}
+```
+
+A manifest adds metadata; it doesn't need to repeat what Skul infers. If you declare `tools`, only those tools are targeted, and root-instruction targets must be listed explicitly. In a multi-bundle repo, a root manifest provides defaults and each bundle's own manifest overrides them. `name` is display-only; identity is the directory (or repo) name.
+
+## MCP servers
+
+Declare servers once in `mcp.json`, using the [Agent Plugins](https://agent-plugins.org/specification) schema:
+
+```json title="mcp.json"
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "docs": {
+      "type": "stdio",
+      "command": "docs-server",
+      "args": ["--root", "${PLUGIN_ROOT}/reference"],
+      "env": { "CACHE_DIR": "${PLUGIN_DATA}/cache" }
+    },
+    "remote": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp"
+    }
+  }
+}
+```
+
+Skul writes each tool's own file and dialect. `${PLUGIN_ROOT}` is the bundle's directory in the cache; `${PLUGIN_DATA}` is a per-bundle directory under `~/.skul/data/` (Skul doesn't create it).
+
+It **merges**, never owns, those files:
+
+- Your own servers, other bundles' servers, and unrelated settings are preserved.
+- `skul remove` subtracts only the names that bundle added, and deletes the file only if Skul created it and it's now empty.
+- A server name you already declare is never replaced — `skul add` refuses and names the file, before writing anything.
+- Codex's `.codex/config.toml` is edited as a marked block at the end, leaving the rest byte-for-byte intact.
+- If the target file is tracked by Git (`opencode.json` often is), it's shadowed like a root instruction. Only one bundle can shadow a given file.
+- Cline has no project MCP target; its servers are written only with `--global`.
+
+Because the merged file now contains machine-specific absolute paths, it's added to the exclude block even if Skul didn't create it.
+
+:::caution
+Claude Code rewrites `~/.claude.json` while it runs. Close it before `skul add|remove|reset --global`.
+:::
+
+## Reference items from another repo
+
+Rather than copy a skill into your bundle, point at it. Add `skul.refs.json`:
+
+```json title="skul.refs.json"
+{
+  "refs": [
+    { "target": "skills", "name": "insane-search", "source": "fivetaku/insane-search" },
+    { "target": "root-instruction", "source": "fivetaku/standards" }
+  ]
+}
+```
+
+| Field | Notes |
+|---|---|
+| `target` | **Required.** `skills`, `agents`, `commands`, or `root-instruction` |
+| `name` | Required except for `root-instruction`; the local item name |
+| `source` | **Required.** Any source `skul add` accepts |
+| `bundle` | Needed only if several bundles in `source` contain the item |
+| `item` | Remote selector, e.g. `skills/other-name`; defaults from `target` and `name` |
+| `ref` | Branch, tag, or commit to fetch |
+| `path` | Root-instruction refs: local path such as `AGENTS.md` |
+| `sourcePath` | Subdirectory of `source` holding a nested marketplace or the bundle |
+| `description` | Single-line override for skills, commands, agents |
+| `disable-model-invocation` | Skill refs: force it on |
+
+Referenced sources use the same cache as regular bundles. A repo with `.claude-plugin/marketplace.json` exposes its plugins as bundles; use a plugin's declared `name` as `bundle` if names collide. For a marketplace inside a monorepo, set `sourcePath` to the directory that contains it. Skul only looks inside `sourcePath`.

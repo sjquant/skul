@@ -1022,7 +1022,7 @@ describe("createHelpText", () => {
 
     // Then
     expect(helpText).toContain(
-      "Each tool uses its native AGENTS.md, CLAUDE.md, or QWEN.md path; --global uses user-scope paths. See https://skul.solaqua.dev/docs/supported-tools.",
+      "Each tool uses its native AGENTS.md, CLAUDE.md, or QWEN.md path; --global uses user-scope paths. See https://skul.solaqua.dev/docs/tools.",
     );
     expect(helpText).toContain(
       "Untracked root instructions are composed locally and hidden through .git/info/exclude.",
