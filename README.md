@@ -26,11 +26,11 @@ skul remove react-expert                 # gone, as if it never happened
 
 ## Why
 
-**Not just skills.** Skills, subagents, commands, `AGENTS.md` / `CLAUDE.md`, and MCP servers: write them once in a bundle and Skul translates each into the layout and dialect of every supported tool. Install per project, or globally with `--global`.
+**More than skills.** Subagents, commands, `AGENTS.md` / `CLAUDE.md`, and MCP servers go in the same bundle, and Skul translates each into every tool's own layout and dialect. Install per project, or globally with `--global`.
 
-**Invisible to Git.** Ignore rules go to `.git/info/exclude`, never `.gitignore`. Even a team-committed `AGENTS.md` can carry your personal layer on top without showing a diff.
+**Nothing to commit.** Files are hidden through `.git/info/exclude`, never `.gitignore`. Even a team-committed `AGENTS.md` can take your own layer on top with no diff.
 
-**Fully reversible.** Skul fingerprints what it writes. Remove a bundle, or `skul reset`, and your original files come back.
+**Undo anytime.** Skul tracks what it wrote. Remove a bundle, or `skul reset`, and your original files come back.
 
 ## Works with
 

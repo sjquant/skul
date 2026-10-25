@@ -9,18 +9,29 @@ import styles from "./index.module.css";
 const siteDescription =
   "Apply shared skills, subagents, commands, instructions, and MCP servers to Claude Code, Cursor, Codex, and other AI coding tools, without committing them to Git.";
 
+const session = [
+  { kind: "prompt", text: "skul add acme/ai-bundles react-expert" },
+  { kind: "out", text: "Applied react-expert for claude-code, codex, cursor" },
+  {
+    kind: "comment",
+    text: "# wrote .claude/ .codex/ .cursor/ .agents/ CLAUDE.md .mcp.json",
+  },
+  { kind: "prompt", text: "git status" },
+  { kind: "out", text: "nothing to commit, working tree clean" },
+] as const;
+
 const points = [
   {
-    title: "Not just skills",
-    body: "Skills, subagents, commands, instructions, and MCP in each tool's own format. Project or global.",
+    title: "More than skills",
+    body: "Subagents, instructions, and MCP servers go with them, translated for each tool. Project or global.",
   },
   {
-    title: "Invisible to Git",
-    body: "Files go in .git/info/exclude. Even a committed AGENTS.md takes your personal layer without a diff.",
+    title: "Nothing to commit",
+    body: "Files are hidden through .git/info/exclude. Even a committed AGENTS.md takes your own layer with no diff.",
   },
   {
-    title: "Fully reversible",
-    body: "Skul fingerprints what it writes, so remove and reset put everything back.",
+    title: "Undo anytime",
+    body: "Skul tracks what it wrote. Remove a bundle, or reset, and your original files come back.",
   },
 ];
 
@@ -59,18 +70,15 @@ export default function Home(): ReactNode {
           </div>
 
           <pre className={styles.terminal}>
-            <span className={styles.prompt}>$ </span>npm i -g @solaqua/skul
-            {"\n"}
-            <span className={styles.prompt}>$ </span>skul add acme/ai-bundles
-            react-expert
-            {"\n"}
-            <span className={styles.comment}>
-              # .claude/ .cursor/ AGENTS.md written, then hidden
-            </span>
-            {"\n"}
-            <span className={styles.prompt}>$ </span>git status
-            {"\n"}
-            nothing to commit, working tree clean
+            {session.map((line) => (
+              <span key={line.text} className={styles[line.kind]}>
+                {line.kind === "prompt" ? (
+                  <span className={styles.dollar}>$ </span>
+                ) : null}
+                {line.text}
+                {"\n"}
+              </span>
+            ))}
           </pre>
 
           <div className={styles.points}>
