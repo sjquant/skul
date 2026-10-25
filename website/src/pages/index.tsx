@@ -12,7 +12,7 @@ const siteDescription =
 const points = [
   {
     title: "Not just skills",
-    body: "Skills, subagents, commands, AGENTS.md / CLAUDE.md, and MCP servers, in every tool's own format. Per project or global.",
+    body: "Skills, subagents, commands, instructions, and MCP in each tool's own format. Project or global.",
   },
   {
     title: "Invisible to Git",
