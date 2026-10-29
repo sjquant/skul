@@ -2128,13 +2128,12 @@ function createDefaultPromptClient(libraryDir: string): PromptClient {
   };
 }
 
-/** Settles link choices before refresh can remove any installed files. */
+/** Reuses unchanged skip choices and settles links before installed files are removed. */
 async function prepareSymlinkConflictResolver(
   scope: BundleMaterializationScope,
   writeTargets: string[],
   resolve: PromptClient["resolveSymlinkConflict"],
   registryFile: string,
-  reuseDecisions: boolean,
 ): Promise<PromptClient["resolveSymlinkConflict"]> {
   const decisions = new Map<
     string,
@@ -2174,7 +2173,7 @@ async function prepareSymlinkConflictResolver(
       fs.rmSync(decisionPath, { force: true });
     }
     const resolution =
-      reuseDecisions && previousTarget === target
+      previousTarget === target
         ? { action: "skip" as const }
         : await resolve(link, target);
     if (resolution.action === "skip") {
@@ -2836,7 +2835,6 @@ async function updateBundles(options: {
         plannedWriteTargets,
         options.prompts.resolveSymlinkConflict,
         options.registryFile,
-        true,
       );
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
@@ -3302,7 +3300,6 @@ async function applyBundle(options: {
     plannedWriteTargets,
     options.prompts.resolveSymlinkConflict,
     options.registryFile,
-    false,
   );
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -6216,7 +6213,6 @@ async function applyWorktree(options: {
       plannedWriteTargets,
       options.prompts.resolveSymlinkConflict,
       options.registryFile,
-      true,
     );
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -8347,7 +8343,6 @@ async function applyBundleGlobal(options: {
     plannedWriteTargets,
     options.prompts.resolveSymlinkConflict,
     options.registryFile,
-    false,
   );
 
   const plannedRootInstructionTargets = new Set(

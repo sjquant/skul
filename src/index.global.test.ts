@@ -66,7 +66,7 @@ describe("run --global", () => {
     ).toContain(".claude/skills/react/SKILL.md");
   });
 
-  it("preserves an app-owned skill during refresh, then lets Skul take ownership", async () => {
+  it("remembers skipped global links on reinstall and prompts when their target changes", async () => {
     // Given an installed skill that an app has replaced with its own link
     const homeDir = createHomeDir();
     const source = "github.com/user/ai-vault";
@@ -123,7 +123,15 @@ describe("run --global", () => {
       ]?.files,
     ).toEqual([".claude/skills/other/SKILL.md"]);
 
-    // When the user subsequently chooses Skul ownership
+    // When the bundle is reinstalled without an interactive prompt
+    await run(["add", "--global", "react-expert"], { homeDir });
+
+    // Then the saved skip preserves the app's link
+    expect(fs.readlinkSync(link)).toBe(external);
+
+    // When the link changes and the user chooses Skul ownership
+    fs.unlinkSync(link);
+    fs.symlinkSync(`${external}-new`, link);
     await run(["add", "--global", "react-expert"], {
       homeDir,
       prompts: createPromptStub({

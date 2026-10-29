@@ -971,7 +971,7 @@ describe("run", () => {
     );
   });
 
-  it("updates remote bundles without repeating unchanged conflict choices", async () => {
+  it("reinstalls and updates remote bundles without repeating unchanged symlink choices", async () => {
     // Given
     const homeDir = createHomeDir();
     const repoRoot = createRepository();
@@ -1013,6 +1013,7 @@ describe("run", () => {
         resolveSymlinkConflict,
       }),
     };
+    await run(["add", source, bundle], options);
     await run(["add", source, bundle], options);
     updateRemoteBundleSource(remoteRepoPath, bundle, {
       "AGENTS.md": "# v2\n",
