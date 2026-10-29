@@ -971,6 +971,71 @@ describe("run", () => {
     );
   });
 
+  it("updates remote bundles without repeating unchanged conflict choices", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(
+      homeDir,
+      {
+        bundle: "repo-guide",
+        manifest: {
+          name: "repo-guide",
+          root_instruction_mode: "replace",
+          tools: {
+            codex: {
+              root_instruction: { path: "AGENTS.md" },
+              skills: { path: ".agents/skills" },
+            },
+          },
+        },
+        files: {
+          "AGENTS.md": "# v1\n",
+          ".agents/skills/react/SKILL.md": "# skill v1\n",
+        },
+      },
+    );
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user rules\n");
+    const link = path.join(repoRoot, ".agents/skills/react");
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(path.join(homeDir, "external"), link);
+    const resolveFileConflict = vi.fn(async () => ({
+      action: "overwrite" as const,
+    }));
+    const resolveSymlinkConflict = vi.fn(async () => ({
+      action: "skip" as const,
+    }));
+    const options = {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub({
+        resolveFileConflict,
+        resolveSymlinkConflict,
+      }),
+    };
+    await run(["add", source, bundle], options);
+    updateRemoteBundleSource(remoteRepoPath, bundle, {
+      "AGENTS.md": "# v2\n",
+      ".agents/skills/react/SKILL.md": "# skill v2\n",
+    });
+
+    // When
+    await run(["update"], options);
+
+    // Then
+    expect(resolveFileConflict).toHaveBeenCalledTimes(1);
+    expect(resolveSymlinkConflict).toHaveBeenCalledTimes(1);
+    expect(fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8")).toContain(
+      "# v2",
+    );
+    expect(fs.readlinkSync(link)).toBe(path.join(homeDir, "external"));
+    fs.unlinkSync(link);
+    fs.symlinkSync(path.join(homeDir, "other"), link);
+    updateRemoteBundleSource(remoteRepoPath, bundle, { "AGENTS.md": "# v3\n" });
+    await run(["update"], options);
+    expect(resolveSymlinkConflict).toHaveBeenCalledTimes(2);
+  });
+
   it("dry-runs update without fetching or modifying files", async () => {
     // Given
     const homeDir = createHomeDir();
