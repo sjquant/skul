@@ -2133,6 +2133,8 @@ async function prepareSymlinkConflictResolver(
   scope: BundleMaterializationScope,
   writeTargets: string[],
   resolve: PromptClient["resolveSymlinkConflict"],
+  registryFile: string,
+  reuseDecisions: boolean,
 ): Promise<PromptClient["resolveSymlinkConflict"]> {
   const decisions = new Map<
     string,
@@ -2155,7 +2157,33 @@ async function prepareSymlinkConflictResolver(
     }
     if (decisions.has(link)) continue;
     const target = fs.readlinkSync(path.join(scope.repoRoot, link));
-    decisions.set(link, { target, resolution: await resolve(link, target) });
+    const decisionPath = path.join(
+      path.dirname(registryFile),
+      "symlink-decisions",
+      createHash("sha256")
+        .update(JSON.stringify([scope.repoRoot, link]))
+        .digest("hex"),
+    );
+    let previousTarget: string | undefined;
+    try {
+      previousTarget = fs.readFileSync(decisionPath, "utf8");
+    } catch {
+      // A missing or unreadable decision requires a fresh prompt.
+    }
+    if (previousTarget !== undefined && previousTarget !== target) {
+      fs.rmSync(decisionPath, { force: true });
+    }
+    const resolution =
+      reuseDecisions && previousTarget === target
+        ? { action: "skip" as const }
+        : await resolve(link, target);
+    if (resolution.action === "skip") {
+      fs.mkdirSync(path.dirname(decisionPath), { recursive: true });
+      writeFileAtomic(decisionPath, target);
+    } else {
+      fs.rmSync(decisionPath, { force: true });
+    }
+    decisions.set(link, { target, resolution });
   }
   return async (link, target) => {
     const decision = decisions.get(link);
@@ -2807,6 +2835,8 @@ async function updateBundles(options: {
         materializationScope,
         plannedWriteTargets,
         options.prompts.resolveSymlinkConflict,
+        options.registryFile,
+        true,
       );
       const plannedRootInstructionTargets = new Set(
         plannedWriteTargets.filter((filePath) =>
@@ -2876,6 +2906,9 @@ async function updateBundles(options: {
         targetPaths: plannedRootInstructionTargets,
         mode: entry.root_instruction_mode,
         prompts: options.prompts,
+        bundles: currentBundles,
+        desiredState: repoState?.desired_state ?? [],
+        shadowedFiles: currentShadowedFiles,
       });
 
       assertManagedRootInstructionSyncSourcesCached({
@@ -3268,6 +3301,8 @@ async function applyBundle(options: {
     materializationScope,
     plannedWriteTargets,
     options.prompts.resolveSymlinkConflict,
+    options.registryFile,
+    false,
   );
   const plannedRootInstructionTargets = new Set(
     plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -3311,6 +3346,9 @@ async function applyBundle(options: {
     targetPaths: plannedRootInstructionTargets,
     mode: effectiveRootInstructionMode,
     prompts: options.prompts,
+    bundles: existingWorktreeState?.bundles ?? {},
+    desiredState: existingDesiredState,
+    shadowedFiles: currentShadowedFiles,
   });
   assertManagedRootInstructionSyncSourcesCached({
     desiredState: existingDesiredState,
@@ -6177,6 +6215,8 @@ async function applyWorktree(options: {
       materializationScope,
       plannedWriteTargets,
       options.prompts.resolveSymlinkConflict,
+      options.registryFile,
+      true,
     );
     const plannedRootInstructionTargets = new Set(
       plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
@@ -6218,6 +6258,9 @@ async function applyWorktree(options: {
       targetPaths: plannedRootInstructionTargets,
       mode: entry.root_instruction_mode,
       prompts: options.prompts,
+      bundles: currentBundles,
+      desiredState: repoState.desired_state,
+      shadowedFiles: currentShadowedFiles,
     });
 
     assertManagedRootInstructionSyncSourcesCached({
@@ -8029,6 +8072,9 @@ async function confirmRootInstructionReplacements(options: {
   targetPaths: Set<string>;
   mode?: RootInstructionMode;
   prompts: PromptClient;
+  bundles: MaterializedState["bundles"];
+  desiredState: DesiredBundleEntry[];
+  shadowedFiles?: Record<string, ShadowedFileState>;
 }): Promise<void> {
   if (options.mode !== "replace") {
     return;
@@ -8040,6 +8086,25 @@ async function confirmRootInstructionReplacements(options: {
       continue;
     }
 
+    if (!findSymlinkInPath(options.repoRoot, relativePath)) {
+      const fingerprint = fingerprintFile(targetPath);
+      const shadow = options.shadowedFiles?.[relativePath];
+      const managed = options.desiredState.some(
+        (entry) =>
+          entry.root_instruction_mode === "replace" &&
+          Object.values(options.bundles[entry.bundle]?.tools ?? {}).some(
+            (tool) =>
+              tool.files.includes(relativePath) &&
+              tool.file_fingerprints?.[relativePath] === fingerprint,
+          ),
+      );
+      if (
+        managed ||
+        (shadow?.rendered_fingerprint === fingerprint &&
+          shadow.overlays.every((overlay) => overlay.strategy === "replace"))
+      )
+        continue;
+    }
     await options.prompts.resolveFileConflict(relativePath);
   }
 }
@@ -8281,6 +8346,8 @@ async function applyBundleGlobal(options: {
     materializationScope,
     plannedWriteTargets,
     options.prompts.resolveSymlinkConflict,
+    options.registryFile,
+    false,
   );
 
   const plannedRootInstructionTargets = new Set(
@@ -8307,6 +8374,8 @@ async function applyBundleGlobal(options: {
     targetPaths: plannedRootInstructionTargets,
     mode: effectiveRootInstructionMode,
     prompts: options.prompts,
+    bundles: existingBundles,
+    desiredState: existingDesiredState,
   });
 
   assertManagedRootInstructionSyncSourcesCached({

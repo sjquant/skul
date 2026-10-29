@@ -533,6 +533,43 @@ describe("run", () => {
     );
   });
 
+  it("asks again only when a replaced root instruction has been edited", async () => {
+    // Given
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeRootInstructionBundleFixture(homeDir, {
+      bundle: "repo-standards",
+      content: "# Repo standards\n",
+    });
+    fs.writeFileSync(path.join(repoRoot, "AGENTS.md"), "user rules\n");
+    const resolveFileConflict = vi.fn(async () => ({
+      action: "overwrite" as const,
+    }));
+    const options = {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub({ resolveFileConflict }),
+    };
+    const args = [
+      "add",
+      "repo-standards",
+      "--agent",
+      "codex",
+      "--root-instruction-mode",
+      "replace",
+    ];
+
+    // When
+    await run(args, options);
+    await run(args, options);
+
+    // Then
+    expect(resolveFileConflict).toHaveBeenCalledTimes(1);
+    fs.appendFileSync(path.join(repoRoot, "AGENTS.md"), "local edit\n");
+    await run(args, options);
+    expect(resolveFileConflict).toHaveBeenCalledTimes(2);
+  });
+
   it("uses manifest mode by default but lets the CLI override it", async () => {
     // Given
     const homeDir = createHomeDir();
