@@ -19,7 +19,7 @@ description: Every skul command and flag.
 | `shadow` | `--suspend` or `--refresh` tracked shadows by hand |
 | `reset` | Remove everything Skul manages here |
 
-## Flags everywhere
+## Common flags
 
 | Flag | Applies to | Effect |
 |---|---|---|
@@ -40,19 +40,19 @@ skul add [options] [source] [bundle]
 
 | Option | Effect |
 |---|---|
-| `-a, --agent <id>` | Target one tool; repeat for more. Default: every tool the bundle has content for. |
+| `-a, --agent <id>` | Target one tool; repeat for more. Without it, Skul asks which of the bundle's tools to target, and `SKUL_NO_TUI=1` fails if there's more than one. |
 | `--ref <selector>` | Track a branch, tag, or commit instead of `HEAD` (npm: a version or dist-tag). Remembered by `apply`. |
 | `--include <item>` | Install only one item; repeat for more: `skills/<name>`, `commands/<name>`, `agents/<name>`, `root-instruction`, `mcp` |
 | `--select-items` | Pick items interactively |
 | `--all` | Every bundle from the source |
 | `-s, --ssh` | Clone over SSH. `git@` URLs imply it. Remembered by `apply`. |
 | `--root-instruction-mode <mode>` | `append` (default) or `replace` |
-| `--disable-model-invocation` | Force it on for every skill |
+| `--disable-model-invocation` | Make every skill manual-only: the tool runs it only when you ask |
 
 ```bash
-skul add acme/ai-bundles react-expert --ref 2813b88
-skul add react-expert --agent codex --include skills/diagnose
-skul add npm:@acme/react-skills@1.2.0
+skul add sjquant/ghosts writing --ref main
+skul add writing --agent codex --include skills/rewrite
+skul add npm:@you/react-skills@1.2.0   # your own package
 ```
 
 If SSH auth fails, Skul prints the HTTPS equivalent.

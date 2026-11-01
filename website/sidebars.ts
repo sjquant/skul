@@ -1,7 +1,7 @@
 import type { SidebarsConfig } from "@docusaurus/plugin-content-docs";
 
 const sidebars: SidebarsConfig = {
-  docsSidebar: ["intro", "how-it-works", "bundles", "commands", "tools"],
+  docsSidebar: ["intro", "bundles", "how-it-works", "commands", "tools"],
 };
 
 export default sidebars;

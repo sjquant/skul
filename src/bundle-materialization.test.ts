@@ -890,6 +890,7 @@ describe("materializeBundle", () => {
     // later removal can find it
     expect(result.byTool["claude-code"]!.directories).toEqual([
       ".claude/agents",
+      ".claude",
     ]);
     expect(result.byTool["claude-code"]!.files).toEqual([
       ".claude/agents/reviewer.md",

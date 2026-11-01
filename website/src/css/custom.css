@@ -206,6 +206,11 @@ h3 {
     left: auto;
     transform: translateX(100%);
   }
+
+  /* The page navbar's logo stays visible beside the open menu. */
+  .navbar-sidebar__brand .navbar__logo {
+    display: none;
+  }
 }
 
 @media (max-width: 996px) {

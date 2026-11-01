@@ -2,15 +2,28 @@ import Head from "@docusaurus/Head";
 import Link from "@docusaurus/Link";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import Layout from "@theme/Layout";
+import ThemedImage from "@theme/ThemedImage";
 import type { ReactNode } from "react";
 import styles from "./index.module.css";
+
+const OTHER_TOOLS = [
+  "GitHub Copilot",
+  "Kiro",
+  "Antigravity",
+  "Grok Build",
+  "Qwen Code",
+  "Cline",
+  "Kimi Code CLI",
+  "ZCode",
+];
+const TOOL_COUNT = OTHER_TOOLS.length + 4;
 
 export default function Home(): ReactNode {
   const { siteConfig } = useDocusaurusContext();
   return (
     <Layout
       title="Your AI setup, kept out of Git"
-      description="Reuse AI skills, agents, instructions, and MCP servers across projects without Git noise."
+      description="Keep AI skills, subagents, instructions, and MCP servers in one bundle and use it in any project without Git noise."
     >
       <Head>
         <meta
@@ -19,7 +32,7 @@ export default function Home(): ReactNode {
         />
         <meta
           property="og:description"
-          content="Apply shared skills, subagents, instructions, and MCP servers to your coding tools without committing them to Git."
+          content="Keep AI skills, subagents, instructions, and MCP servers in one bundle and use it in any project without Git noise."
         />
         <meta
           property="og:image"
@@ -31,7 +44,7 @@ export default function Home(): ReactNode {
           <div className={styles.inner}>
             <div>
               <p className={styles.label}>
-                One setup. Many tools. Less Git noise.
+                Open-source CLI for AI coding tools
               </p>
               <h1>
                 Your AI setup,
@@ -39,13 +52,14 @@ export default function Home(): ReactNode {
                 kept out of Git.
               </h1>
               <p className={styles.lead}>
-                Skul applies reusable skills, agents, instructions, and MCP
-                servers across your coding tools, while keeping local AI
-                configuration out of your Git diff.
+                Stop copying AI config between repos. Keep skills, subagents,
+                instructions, and MCP servers in one bundle, then add it to any
+                project for {TOOL_COUNT} coding tools with a clean{" "}
+                <code>git status</code>.
               </p>
               <div className={styles.actions}>
                 <Link className={styles.primary} to="/docs/intro">
-                  Get started <span aria-hidden="true">→</span>
+                  Apply your first bundle <span aria-hidden="true">→</span>
                 </Link>
                 <Link
                   className={styles.secondary}
@@ -55,25 +69,24 @@ export default function Home(): ReactNode {
                 </Link>
               </div>
             </div>
-            <div className={styles.terminal}>
-              <div className={styles.terminalBar}>
-                <span />
-                <span />
-                <span />
-                <b>skul</b>
-              </div>
-              <pre>
-                <span>$</span> skul add acme/ai-bundles react-expert{"\n"}
-                <span className={styles.terminalOutput}>
-                  Applied react-expert for claude-code, codex, cursor
-                </span>
-                {"\n"}
-                <span>$</span> git status{"\n"}
-                <span className={styles.terminalOutput}>
-                  nothing to commit, working tree clean
-                </span>
-              </pre>
-            </div>
+            <Terminal>
+              <span className={styles.prompt}>$</span> skul add sjquant/ghosts
+              writing{"\n"}
+              <span className={styles.terminalOutput}>
+                Applied writing for claude-code, codex, cursor
+              </span>
+              {"\n\n"}
+              <span className={styles.prompt}>$</span> ls .claude/skills{"\n"}
+              <span className={styles.terminalOutput}>
+                ghosts:cold-reader ghosts:eli5 ghosts:humanize-korean
+                ghosts:make-skill ghosts:rewrite
+              </span>
+              {"\n\n"}
+              <span className={styles.prompt}>$</span> git status{"\n"}
+              <span className={styles.terminalOutput}>
+                nothing to commit, working tree clean
+              </span>
+            </Terminal>
           </div>
         </section>
 
@@ -83,8 +96,9 @@ export default function Home(): ReactNode {
               <p className={styles.label}>From a single source</p>
               <h2>One bundle. Everywhere you code.</h2>
               <p>
-                Keep reusable skills, agents, instructions, and MCP servers in
-                one bundle, then apply them to the coding tools you use.
+                Write your setup once. Skul translates it into the layout each
+                tool expects, per project or globally with <code>--global</code>
+                .
               </p>
             </div>
             <div className={styles.bundleDiagram}>
@@ -102,7 +116,7 @@ export default function Home(): ReactNode {
                     refY="5"
                     markerWidth="7"
                     markerHeight="7"
-                    orient="auto-start-reverse"
+                    orient="auto"
                   >
                     <path
                       d="M 1 1 L 9 5 L 1 9"
@@ -113,29 +127,48 @@ export default function Home(): ReactNode {
                   </marker>
                 </defs>
                 <path
-                  d="M 405 200 C 300 200 330 85 238 85 M 405 200 C 300 200 330 315 238 315 M 595 200 C 700 200 670 85 762 85 M 595 200 C 700 200 670 315 762 315"
+                  d="M 405 200 C 330 200 340 95 265 95"
+                  markerEnd="url(#arrow)"
+                />
+                <path
+                  d="M 405 200 C 330 200 340 305 265 305"
+                  markerEnd="url(#arrow)"
+                />
+                <path
+                  d="M 595 200 C 670 200 660 95 735 95"
+                  markerEnd="url(#arrow)"
+                />
+                <path
+                  d="M 595 200 C 670 200 660 305 735 305"
                   markerEnd="url(#arrow)"
                 />
               </svg>
               <div className={styles.toolColumn}>
-                <Tool name="Claude Code" path=".claude/" />
-                <Tool name="Codex" path=".agents/" />
+                <Tool name="Claude Code" icon="claude" path=".claude/" />
+                <Tool name="Codex" icon="codex" path=".agents/, .codex/" />
               </div>
               <div className={styles.bundle}>
-                <img src="/img/logo.svg" alt="" />
-                <strong>Your Skul bundle</strong>
+                <strong>
+                  <Logo />
+                  Your Skul bundle
+                </strong>
                 <BundleItem name="skills/" />
                 <BundleItem name="agents/" />
                 <BundleItem name="AGENTS.md" file />
                 <BundleItem name="mcp.json" file />
               </div>
               <div className={styles.toolColumn}>
-                <Tool name="Cursor" path=".cursor/" />
-                <Tool name="OpenCode" path=".opencode/" />
+                <Tool name="Cursor" icon="cursor" path=".cursor/" />
+                <Tool name="OpenCode" icon="opencode" path=".opencode/" />
               </div>
             </div>
+            <p className={styles.alsoWorks}>
+              Also works with {OTHER_TOOLS.join(", ")}.
+            </p>
             <p className={styles.centerLink}>
-              <Link to="/docs/tools">See supported tools and paths →</Link>
+              <Link to="/docs/tools">
+                See paths for all {TOOL_COUNT} tools →
+              </Link>
             </p>
           </div>
         </section>
@@ -143,39 +176,44 @@ export default function Home(): ReactNode {
         <section className={styles.section}>
           <div className={`${styles.inner} ${styles.highlight}`}>
             <div>
-              <p className={styles.label}>Built for individuals and teams</p>
+              <p className={styles.label}>For shared repos</p>
               <h2>
-                Team knowledge,
+                Your rules, on top
                 <br />
-                your personal edge.
+                of the team's.
               </h2>
               <p className={styles.body}>
-                Keep the instructions your team commits. Add your own layer for
-                the way you work, without a visible Git diff.
+                Already commit an <code>AGENTS.md</code>? Skul adds your
+                instructions to your local copy. Your tools read both, and your
+                teammates see no diff. Pull with <code>skul sync</code> to pick
+                up upstream changes.
               </p>
-              <Link className={styles.textLink} to="/docs/how-it-works">
-                Learn about tracked instructions →
+              <Link
+                className={styles.textLink}
+                to="/docs/how-it-works#tracked-the-shadow"
+              >
+                How tracked instructions work →
               </Link>
             </div>
             <div className={styles.layers}>
               <div>
                 <LayerIcon kind="team" />
                 <strong>Team instructions</strong>
-                <small>Committed project rules</small>
+                <small>Committed to the repo</small>
               </div>
               <span aria-hidden="true">+</span>
               <div>
                 <LayerIcon kind="person" />
-                <strong>Your personal layer</strong>
-                <small>Preferences and workflows from your bundle</small>
+                <strong>Your layer</strong>
+                <small>From your bundle, local to you</small>
               </div>
               <span aria-hidden="true">↓</span>
               <div>
                 <span className={styles.layerIcon}>
-                  <img src="/img/logo.svg" alt="" />
+                  <Logo />
                 </span>
-                <strong>Ready for your coding tool</strong>
-                <small>Team base with your instructions applied</small>
+                <strong>What your coding tool reads</strong>
+                <small>Both, with no change in Git</small>
               </div>
             </div>
           </div>
@@ -184,83 +222,60 @@ export default function Home(): ReactNode {
         <section className={styles.section}>
           <div className={styles.inner}>
             <div>
-              <p className={styles.label}>Keep it clean</p>
+              <p className={styles.label}>Safe to try</p>
               <h2>
-                Powerful AI setup.
+                Nothing to commit.
                 <br />
-                Less repository clutter.
+                Easy to undo.
               </h2>
               <p className={styles.body}>
-                Skul writes tool configuration where your tools expect it and
-                keeps managed project files out of your Git diff.
+                Skul lists what it writes in <code>.git/info/exclude</code>,
+                never <code>.gitignore</code>. Remove a bundle and your original
+                files come back.
               </p>
               <Link className={styles.textLink} to="/docs/how-it-works">
-                See how it works →
+                See how it stays out of Git →
               </Link>
             </div>
             <div className={styles.fileTrees}>
               <div>
-                <strong>Your project</strong>
-                <pre>
-                  {"my-project/\n  src/\n  tests/\n  package.json\n  README.md"}
-                </pre>
-              </div>
-              <div>
-                <strong>Applied locally</strong>
+                <strong>What your tools see</strong>
                 <pre>
                   {
-                    "my-project/\n  .claude/skills/\n  .agents/skills/\n  AGENTS.md"
+                    "my-project/\n  .agents/skills/\n  .claude/skills/\n  .cursor/skills/\n  src/\n  README.md"
                   }
                 </pre>
               </div>
+              <div>
+                <strong>What Git sees</strong>
+                <pre>{"my-project/\n  src/\n  README.md"}</pre>
+              </div>
             </div>
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.container}>
-            <div className={styles.centerHeading}>
-              <p className={styles.label}>Works where you work</p>
-              <h2>Fits the tools you use.</h2>
-              <p>
-                Apply a shared bundle to supported coding tools, with files
-                placed where each tool expects them.
-              </p>
-            </div>
-            <div className={styles.toolGrid}>
-              <Tool
-                name="Claude Code"
-                path="Skills, agents, instructions & MCP"
-              />
-              <Tool name="Codex" path="Skills, agents, instructions & MCP" />
-              <Tool
-                name="GitHub Copilot"
-                path="Skills, agents, instructions & MCP"
-              />
-              <Tool name="Cursor" path="Skills, agents, instructions & MCP" />
-              <Tool name="OpenCode" path="Skills, agents, instructions & MCP" />
-            </div>
-            <p className={styles.centerLink}>
-              <Link to="/docs/tools">See all supported tools and paths →</Link>
-            </p>
           </div>
         </section>
 
         <section className={`${styles.section} ${styles.final}`}>
           <div className={styles.centerHeading}>
-            <h2>Get started with Skul.</h2>
-            <p>Install the CLI, then apply your first bundle.</p>
+            <h2>Try it in your next project.</h2>
+            <p>Needs Node.js 20+ and Git.</p>
+            <Terminal>
+              <span className={styles.prompt}>$</span> npm install --global
+              @solaqua/skul{"\n"}
+              <span className={styles.prompt}>$</span> skul add sjquant/ghosts
+              writing
+            </Terminal>
+            <p>
+              <code>writing</code> is a public example bundle. Swap in your own
+              repo at any time.
+            </p>
             <div className={styles.actions}>
               <Link className={styles.primary} to="/docs/intro">
-                Get started →
+                Read the quick start <span aria-hidden="true">→</span>
+              </Link>
+              <Link className={styles.secondary} to="/docs/bundles">
+                Write your own bundle
               </Link>
             </div>
-            <Link
-              className={styles.textLink}
-              href="https://github.com/sjquant/skul"
-            >
-              Open source on GitHub ↗
-            </Link>
           </div>
         </section>
       </main>
@@ -268,16 +283,42 @@ export default function Home(): ReactNode {
   );
 }
 
-function Tool({ name, path }: { name: string; path: string }): ReactNode {
+function Logo(): ReactNode {
+  return (
+    <ThemedImage
+      alt=""
+      sources={{ light: "/img/logo.svg", dark: "/img/logo-dark.svg" }}
+    />
+  );
+}
+
+function Terminal({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <div className={styles.terminal}>
+      <div className={styles.terminalBar}>
+        <span />
+        <span />
+        <span />
+        <b>skul</b>
+      </div>
+      <pre>{children}</pre>
+    </div>
+  );
+}
+
+function Tool({
+  name,
+  icon,
+  path,
+}: {
+  name: string;
+  icon: string;
+  path: string;
+}): ReactNode {
   return (
     <div className={styles.tool}>
       <strong>
-        <span className={styles.toolIcon}>
-          <img
-            src={`/img/tools/${name === "Claude Code" ? "claude" : name === "GitHub Copilot" ? "githubcopilot" : name.toLowerCase()}.svg`}
-            alt=""
-          />
-        </span>
+        <img src={`/img/tools/${icon}.svg`} alt="" />
         {name}
       </strong>
       <code>{path}</code>

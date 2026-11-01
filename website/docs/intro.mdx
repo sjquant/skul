@@ -18,18 +18,26 @@ Needs Node.js 20+ and Git.
 
 ## Apply a bundle
 
+Run this inside a Git project:
+
 ```bash
-skul add acme/ai-bundles react-expert
+skul add sjquant/ghosts writing
 ```
 
-Skul clones `acme/ai-bundles` into `~/.skul/library/`, asks which tools to target, writes the files, and adds them to `.git/info/exclude`. Run `git status`: nothing changed.
+This uses a public example bundle. Skul clones `sjquant/ghosts` into `~/.skul/library/`, asks which tools to target, writes the `writing` bundle's files, and adds them to `.git/info/exclude`. Run `git status`: nothing changed.
 
-Narrow it down when you want less:
+## Use it
+
+Open your coding tool in the project. The bundle's skills are ready to use; in Claude Code, for example, run `/ghosts:rewrite`.
+
+## Make it yours
+
+[Write your own bundle](/docs/bundles#your-first-bundle) and add it the same way. Narrow an install when you want less:
 
 ```bash
-skul add react-expert --agent codex                       # one tool
-skul add react-expert --include skills/diagnose           # one item
-skul add react-expert --ref v2                            # a branch, tag, or commit
+skul add writing --agent codex                       # one tool
+skul add writing --include skills/rewrite            # one item
+skul add writing --ref main                          # a branch, tag, or commit
 ```
 
 ## Keep going
@@ -37,6 +45,15 @@ skul add react-expert --ref v2                            # a branch, tag, or co
 ```bash
 skul status     # what is applied, and where
 skul update     # pull newer bundle revisions
-skul apply      # reproduce the setup in a fresh worktree
-skul remove react-expert
+skul remove writing
 ```
+
+Starting a new worktree? Skul remembers what this repository wants, so one command brings the same setup back:
+
+```bash
+git worktree add ../my-feature
+cd ../my-feature
+skul apply
+```
+
+Before adding a bundle to a repository that commits its own `AGENTS.md` or `CLAUDE.md`, read [how tracked instructions work](/docs/how-it-works#root-instructions).

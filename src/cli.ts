@@ -653,7 +653,7 @@ function createProgram(
   program
     .name("skul")
     .description(
-      "Manage project-scoped AI configuration bundles\n\nEnv vars:\n  SKUL_NO_TUI=1   Run in headless/non-interactive mode (auto-resolves prompts)",
+      "Apply shared AI skills, subagents, instructions, and MCP servers to your coding tools, kept out of Git\n\nEnv vars:\n  SKUL_NO_TUI=1   Turn off prompts; commands that need an answer fail instead",
     )
     .version(getPackageVersion(), "-v, --version", "display version")
     .addHelpText("after", PROGRAM_HELP_DETAILS)

@@ -6,6 +6,16 @@ const config: Config = {
   title: "skul",
   tagline: "Your AI setup, kept out of Git",
   favicon: "img/favicon.ico",
+  headTags: [
+    {
+      tagName: "link",
+      attributes: {
+        rel: "icon",
+        type: "image/svg+xml",
+        href: "/img/favicon.svg",
+      },
+    },
+  ],
   future: {
     v4: true,
   },
@@ -58,6 +68,7 @@ const config: Config = {
       logo: {
         alt: "skul logo",
         src: "img/logo.svg",
+        srcDark: "img/logo-dark.svg",
       },
       items: [
         { to: "/docs/intro", label: "Docs", position: "left" },
