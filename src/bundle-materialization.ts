@@ -463,6 +463,8 @@ async function planBundleMaterialization(
       }
     }
 
+    planMissingAncestorDirectories(toolPlan.ownedDirectories, options.repoRoot);
+
     for (const directory of toolPlan.ownedDirectories) {
       if (
         [...symlinks].some(
@@ -1530,6 +1532,24 @@ function planOwnedParentDirectories(
   while (currentPath !== targetRootAbsPath && !fs.existsSync(currentPath)) {
     ownedDirectories.add(repoRelPathOf(repoRoot, currentPath));
     currentPath = path.dirname(currentPath);
+  }
+}
+
+/**
+ * Owns the missing parents of owned directories, so removing `.claude/skills`
+ * also removes a `.claude` that only exists because Skul had to create it.
+ */
+function planMissingAncestorDirectories(
+  ownedDirectories: Set<string>,
+  repoRoot: string,
+): void {
+  for (const directory of ownedDirectories) {
+    let parent = path.posix.dirname(directory);
+
+    while (parent !== "." && !fs.existsSync(repoAbsPath(repoRoot, parent))) {
+      ownedDirectories.add(parent);
+      parent = path.posix.dirname(parent);
+    }
   }
 }
 

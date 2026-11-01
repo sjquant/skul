@@ -1,12 +1,15 @@
 <p align="center">
-  <img src="assets/brand/skul-icon.svg" width="72" alt="" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/skul-mark-dark.svg" />
+    <img src="assets/brand/skul-mark.svg" width="60" alt="" />
+  </picture>
 </p>
 
 <h1 align="center">skul</h1>
 
 <p align="center">
   <strong>Your AI setup, kept out of Git.</strong><br />
-  Apply shared skills, subagents, instructions, and MCP servers to any coding tool — without a single line in <code>git status</code>.
+  Apply shared skills, subagents, instructions, and MCP servers to 12 coding tools — without a single line in <code>git status</code>.
 </p>
 
 ---
@@ -18,10 +21,10 @@ Skul keeps one bundle in a Git repo (or npm package), writes it where each tool 
 ```bash
 npm install --global @solaqua/skul
 
-skul add acme/ai-bundles react-expert    # fetch, write, hide
-skul status                              # what's applied, where
-skul apply                               # same setup in a new worktree
-skul remove react-expert                 # gone, as if it never happened
+skul add sjquant/ghosts writing    # fetch a public example, write, hide
+skul status                        # what's applied, where
+skul apply                         # same setup in a new worktree
+skul remove writing                # remove it, restore your originals
 ```
 
 ## Why
@@ -38,7 +41,7 @@ Claude Code · Cursor · Codex · OpenCode · GitHub Copilot · Kiro · Antigrav
 
 ## Learn more
 
-- [Getting started](https://skul.solaqua.dev/docs/intro) — first bundle in two minutes
+- [Getting started](https://skul.solaqua.dev/docs/intro) — install and apply your first bundle
 - [How it stays out of Git](https://skul.solaqua.dev/docs/how-it-works) — exclude, shadows, and the registry
 - [Writing a bundle](https://skul.solaqua.dev/docs/bundles) — layout, manifest, MCP servers, cross-repo references
 - [Commands](https://skul.solaqua.dev/docs/commands) and [supported tools](https://skul.solaqua.dev/docs/tools)

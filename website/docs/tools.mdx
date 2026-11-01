@@ -6,7 +6,7 @@ description: Where skul writes for each supported tool.
 
 # Supported tools
 
-Pass `--agent <id>` to target one tool; repeat it for several. `--agent` picks a coding tool, not a model — to use DeepSeek, configure it inside Codex or OpenCode and target that.
+Pass `--agent <id>` to target one tool; repeat it for several.
 
 | Tool | `--agent` | Skills | Commands | Agents | Instructions | MCP |
 |---|---|---|---|---|---|---|
@@ -24,6 +24,8 @@ Pass `--agent <id>` to target one tool; repeat it for several. `--agent` picks a
 | [ZCode](https://zcode.z.ai/en/docs/welcome) | `zcode` | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | `.zcode/config.json` |
 
 Grok Build and Kimi Code CLI expose skills as slash commands, so put those in `skills/`.
+
+`--agent` picks a coding tool, not a model. To use DeepSeek, configure it inside Codex or OpenCode and target that.
 
 ## Root instruction files
 

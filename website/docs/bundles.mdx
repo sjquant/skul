@@ -8,6 +8,26 @@ description: Layout, manifest, MCP servers, and references.
 
 A bundle is a Git repository (or an npm package) of plain files. There's nothing to register and no manifest required.
 
+## Your first bundle
+
+Create a repository with one skill. `description` is required; the name defaults to the folder.
+
+```markdown title="skills/say-hello/SKILL.md"
+---
+description: Say hello from my first Skul bundle.
+---
+
+Say hello.
+```
+
+Push it to GitHub, then add it from any Git project:
+
+```bash
+skul add you/my-bundle
+```
+
+Skul doesn't accept a local path as a source. To try changes before they reach your default branch, push a branch and add it with `--ref my-branch`.
+
 ## Layout
 
 Put `skills/`, `commands/`, `agents/`, and root instructions in a folder:

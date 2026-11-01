@@ -48,6 +48,40 @@ import {
 import { renderTrackedRootInstructionShadow } from "./root-instruction-render";
 
 describe("run", () => {
+  it("removes tool directories it created, but keeps ones that already existed", async () => {
+    // Given: a bundle targeting a nested path, with one tool directory already present
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    writeManifest(homeDir, "github.com/user/ai-vault", "react-expert", {
+      name: "react-expert",
+    });
+    writeBundleFile(
+      homeDir,
+      "github.com/user/ai-vault",
+      "react-expert",
+      "skills/react/SKILL.md",
+      "---\nname: react\ndescription: React guidance\n---\n# react\n",
+    );
+    fs.mkdirSync(path.join(repoRoot, ".agents"));
+    const agents = ["--agent", "claude-code", "--agent", "codex"];
+    await run(["add", "react-expert", ...agents], {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    });
+    expect(
+      pathExists(path.join(repoRoot, ".claude", "skills", "react", "SKILL.md")),
+    ).toBe(true);
+
+    // When
+    await run(["remove", "react-expert"], { homeDir, cwd: repoRoot });
+
+    // Then: Skul's directories are gone and the existing one stays
+    expect(pathExists(path.join(repoRoot, ".claude"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".agents", "skills"))).toBe(false);
+    expect(pathExists(path.join(repoRoot, ".agents"))).toBe(true);
+  });
+
   it("resets all materialized bundles from the current worktree", async () => {
     // Given: two bundles targeting different tools
     const homeDir = createHomeDir();

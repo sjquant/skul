@@ -27,6 +27,14 @@ Skul also fingerprints everything it writes. If you edit a managed file, removal
 
 `AGENTS.md`, `CLAUDE.md`, and `QWEN.md` are the hard case: your team may already commit them.
 
+:::note[If Git tracks the file]
+Your layer stays local, with three costs:
+
+- Pull with `skul sync`, and wrap other Git commands that move `HEAD` in `skul shadow --suspend` and `--refresh`.
+- Don't edit the file by hand while Skul manages it.
+- Only one bundle can own a tracked file's shadow at a time.
+:::
+
 ### Not tracked
 
 Skul writes the file like any other and hides it. A file that already existed locally is kept as the base, with bundle content appended inside `SKUL:BUNDLE` markers. Several bundles can share one file; when the last one leaves, your original comes back.

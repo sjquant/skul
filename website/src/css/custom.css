@@ -182,3 +182,39 @@ h3 {
 .theme-admonition {
   box-shadow: none;
 }
+
+.theme-code-block pre,
+.theme-code-block code,
+.theme-code-block .token-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 996px) {
+  .theme-layout-navbar-left .navbar__brand {
+    order: 0;
+  }
+
+  .theme-layout-navbar-left .navbar__toggle {
+    order: 1;
+    margin-left: auto;
+    margin-right: 0;
+  }
+
+  .navbar-sidebar {
+    right: 0;
+    left: auto;
+    transform: translateX(100%);
+  }
+
+  /* The page navbar's logo stays visible beside the open menu. */
+  .navbar-sidebar__brand .navbar__logo {
+    display: none;
+  }
+}
+
+@media (max-width: 996px) {
+  .navbar-sidebar--show .navbar-sidebar {
+    transform: translateX(0);
+  }
+}
