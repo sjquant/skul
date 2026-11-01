@@ -61,7 +61,7 @@ const config: Config = {
     ],
     colorMode: {
       defaultMode: "light",
-      respectPrefersColorScheme: true,
+      respectPrefersColorScheme: false,
     },
     navbar: {
       title: "skul",
