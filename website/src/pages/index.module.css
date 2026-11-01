@@ -583,3 +583,9 @@
     gap: 12px;
   }
 }
+
+.terminal pre,
+.fileTrees pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
