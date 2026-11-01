@@ -18,4 +18,4 @@ The landing tells one story in order: promise and example, bundle reuse, team an
 
 ## Responsive behavior and accessibility
 
-At 996px and below, stack two-column sections; at 600px and below, stack the bundle diagram and reduce display sizes. Preserve visible link focus, meaningful link labels, readable contrast, and a usable layout without animation. Terminal examples can scroll horizontally.
+At 996px and below, stack two-column sections; at 750px and below, stack the bundle diagram; at 600px and below, arrange tool cards in a single column and reduce display sizes. Preserve visible link focus, meaningful link labels, readable contrast, and a usable layout without animation. Terminal examples can scroll horizontally.
