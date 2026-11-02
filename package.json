@@ -1,6 +1,6 @@
 {
   "name": "@solaqua/skul",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Your AI setup, kept out of Git: apply shared skills, subagents, instructions, and MCP servers to your coding tools.",
   "homepage": "https://skul.solaqua.dev/",
   "bugs": {

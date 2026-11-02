@@ -60,6 +60,7 @@ import {
   createPromptClientForSelections,
   createSourceFetchProgress,
   isHeadlessMode,
+  PromptCancelledError,
   type PromptClient,
   parseCliArgs,
   type SymlinkConflictResolution,
@@ -626,54 +627,79 @@ async function applyAllBundles(options: {
   }
 
   const outputLines: string[] = [];
+  const blockedRootInstructionPaths = new Set<string>();
   for (const bundle of bundles) {
-    outputLines.push(
-      options.global
-        ? await applyBundleGlobal({
-            homeDir: options.homeDir,
-            prompts: options.prompts,
-            registryFile: options.registryFile,
-            libraryDir: options.libraryDir,
-            bundle: bundle.bundle,
-            source: bundle.source,
-            protocol: options.protocol,
-            agents: options.agents,
-            includeItems: [],
-            selectItems: false,
-            dryRun: options.dryRun,
-            ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
-            refreshedSources,
-            refreshedSourceUpdates,
-            disableModelInvocation: options.disableModelInvocation,
-            rootInstructionMode: options.rootInstructionMode,
-            sourceFetchProgress: options.sourceFetchProgress,
-          })
-        : await applyBundle({
-            cwd: options.cwd,
-            prompts: options.prompts,
-            registryFile: options.registryFile,
-            libraryDir: options.libraryDir,
-            bundle: bundle.bundle,
-            source: bundle.source,
-            protocol: options.protocol,
-            agents: options.agents,
-            includeItems: [],
-            selectItems: false,
-            dryRun: options.dryRun,
-            ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
-            refreshedSources,
-            refreshedSourceUpdates,
-            disableModelInvocation: options.disableModelInvocation,
-            rootInstructionMode: options.rootInstructionMode,
-            sourceFetchProgress: options.sourceFetchProgress,
-          }),
-    );
+    const bundleOptions = {
+      prompts: options.prompts,
+      registryFile: options.registryFile,
+      libraryDir: options.libraryDir,
+      bundle: bundle.bundle,
+      source: bundle.source,
+      protocol: options.protocol,
+      agents: options.agents,
+      includeItems: [],
+      selectItems: false,
+      dryRun: options.dryRun,
+      ...(sourceRef !== undefined ? { ref: sourceRef } : {}),
+      refreshedSources,
+      refreshedSourceUpdates,
+      disableModelInvocation: options.disableModelInvocation,
+      rootInstructionMode: options.rootInstructionMode,
+      sourceFetchProgress: options.sourceFetchProgress,
+      blockedRootInstructionPaths,
+    };
+    try {
+      outputLines.push(
+        options.global
+          ? await applyBundleGlobal({
+              ...bundleOptions,
+              homeDir: options.homeDir,
+            })
+          : await applyBundle({ ...bundleOptions, cwd: options.cwd }),
+      );
+    } catch (error) {
+      if (error instanceof PromptCancelledError) throw error;
+      const installedBundle = options.global
+        ? registry.global?.materialized_state.bundles[bundle.bundle]
+        : registry.worktrees[requireGitContext(options.cwd, "add").worktreeId]
+            ?.materialized_state.bundles[bundle.bundle];
+      for (const filePath of collectManagedRootInstructionTargets(
+        installedBundle ? { [bundle.bundle]: installedBundle } : {},
+      )) {
+        blockedRootInstructionPaths.add(filePath);
+      }
+      outputLines.push(
+        `${pc.red("ERROR:")} Failed to apply ${bundle.bundle}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   return [cloneLines, reconciliationOutput, outputLines]
     .flat()
     .filter(Boolean)
     .join("\n");
+}
+
+function assertRootInstructionDependencies(options: {
+  targetPaths: Set<string>;
+  existingBundleState?: MaterializedBundleState;
+  blockedPaths?: ReadonlySet<string>;
+}): void {
+  const paths = new Set([
+    ...options.targetPaths,
+    ...collectManagedRootInstructionTargets(
+      options.existingBundleState
+        ? { bundle: options.existingBundleState }
+        : {},
+    ),
+  ]);
+  for (const filePath of paths) {
+    if (options.blockedPaths?.has(filePath)) {
+      throw new Error(
+        `Cannot update shared root instruction ${filePath}: a contributing bundle failed`,
+      );
+    }
+  }
 }
 
 async function reconcileRemovedSourceBundles(options: {
@@ -3136,6 +3162,7 @@ async function applyBundle(options: {
   disableModelInvocation?: boolean;
   rootInstructionMode?: RootInstructionMode;
   sourceFetchProgress?: SourceFetchProgress;
+  blockedRootInstructionPaths?: ReadonlySet<string>;
 }): Promise<string> {
   const gitContext = requireGitContext(options.cwd, "add");
 
@@ -3295,15 +3322,22 @@ async function applyBundle(options: {
   };
   const plannedWriteTargets =
     previewMaterializeBundleWriteTargets(materializationScope);
+
+  const plannedRootInstructionTargets = new Set(
+    plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
+  );
+  assertRootInstructionDependencies({
+    targetPaths: plannedRootInstructionTargets,
+    existingBundleState,
+    blockedPaths: options.blockedRootInstructionPaths,
+  });
   const resolveSymlinkConflict = await prepareSymlinkConflictResolver(
     materializationScope,
     plannedWriteTargets,
     options.prompts.resolveSymlinkConflict,
     options.registryFile,
   );
-  const plannedRootInstructionTargets = new Set(
-    plannedWriteTargets.filter((filePath) => isRootInstructionPath(filePath)),
-  );
+
   const trackedShadowPlan = planTrackedShadows({
     repoRoot: gitContext.worktreeRoot,
     bundleDir: path.dirname(preparedBundle.cachedBundle.manifestFile),
@@ -8169,6 +8203,7 @@ async function applyBundleGlobal(options: {
   rootInstructionMode?: RootInstructionMode;
   warnings?: CommandWarningCollector;
   sourceFetchProgress?: SourceFetchProgress;
+  blockedRootInstructionPaths?: ReadonlySet<string>;
 }): Promise<string> {
   const supportedTools = globalCapableToolNames();
 
@@ -8338,6 +8373,15 @@ async function applyBundleGlobal(options: {
   };
   const plannedWriteTargets =
     previewMaterializeBundleWriteTargets(materializationScope);
+
+  const plannedRootInstructionTargets = new Set(
+    plannedWriteTargets.filter((p) => isRootInstructionPath(p)),
+  );
+  assertRootInstructionDependencies({
+    targetPaths: plannedRootInstructionTargets,
+    existingBundleState,
+    blockedPaths: options.blockedRootInstructionPaths,
+  });
   const resolveSymlinkConflict = await prepareSymlinkConflictResolver(
     materializationScope,
     plannedWriteTargets,
@@ -8345,9 +8389,6 @@ async function applyBundleGlobal(options: {
     options.registryFile,
   );
 
-  const plannedRootInstructionTargets = new Set(
-    plannedWriteTargets.filter((p) => isRootInstructionPath(p)),
-  );
   assertRootInstructionModeCompatibility({
     desiredState: existingDesiredState,
     materializedBundles: existingGlobal?.materialized_state.bundles ?? {},
