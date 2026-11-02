@@ -1,6 +1,7 @@
-import Head from "@docusaurus/Head";
 import Link from "@docusaurus/Link";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
+import SeoTitle from "@site/src/components/SeoTitle";
+import StructuredData from "@site/src/components/StructuredData";
 import Layout from "@theme/Layout";
 import ThemedImage from "@theme/ThemedImage";
 import type { ReactNode } from "react";
@@ -20,25 +21,17 @@ const TOOL_COUNT = OTHER_TOOLS.length + 4;
 
 export default function Home(): ReactNode {
   const { siteConfig } = useDocusaurusContext();
+  const title = "Your AI setup, kept out of Git";
+  const description =
+    "Keep AI skills, subagents, instructions, and MCP servers in one bundle and use it in any project without Git noise.";
   return (
-    <Layout
-      title="Your AI setup, kept out of Git"
-      description="Keep AI skills, subagents, instructions, and MCP servers in one bundle and use it in any project without Git noise."
-    >
-      <Head>
-        <meta
-          property="og:title"
-          content="skul: your AI setup, kept out of Git"
-        />
-        <meta
-          property="og:description"
-          content="Keep AI skills, subagents, instructions, and MCP servers in one bundle and use it in any project without Git noise."
-        />
-        <meta
-          property="og:image"
-          content={`${siteConfig.url}${siteConfig.baseUrl}img/social-preview.png`}
-        />
-      </Head>
+    <Layout title={title} description={description}>
+      <SeoTitle title={title} />
+      <StructuredData
+        title={title}
+        description={description}
+        permalink={siteConfig.baseUrl}
+      />
       <main className={styles.page}>
         <section className={styles.hero}>
           <div className={styles.inner}>

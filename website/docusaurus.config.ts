@@ -49,6 +49,8 @@ const config: Config = {
   themeConfig: {
     image: "img/social-preview.png",
     metadata: [
+      { property: "og:site_name", content: "skul" },
+      { property: "og:type", content: "website" },
       {
         name: "keywords",
         content:
