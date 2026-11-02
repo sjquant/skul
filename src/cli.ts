@@ -110,6 +110,8 @@ export type CliParseResult =
       };
     };
 
+export class PromptCancelledError extends Error {}
+
 export type FileConflictResolution = { action: "overwrite" };
 export type SymlinkConflictResolution = { action: "skip" | "replace" };
 
@@ -358,7 +360,9 @@ export function createPromptClientForSelections(
       });
 
       if (isCancel(choice)) {
-        throw new Error("Interactive bundle selection was cancelled");
+        throw new PromptCancelledError(
+          "Interactive bundle selection was cancelled",
+        );
       }
 
       return choice;
@@ -413,7 +417,7 @@ export function createPromptClientForSelections(
       });
 
       if (isCancel(selected)) {
-        throw new Error("Agent selection was cancelled");
+        throw new PromptCancelledError("Agent selection was cancelled");
       }
 
       return selected;
@@ -434,7 +438,9 @@ export function createPromptClientForSelections(
         ],
       });
       if (isCancel(action) || action === "cancel") {
-        throw new Error(`Symlink conflict cancelled: ${conflictPath}`);
+        throw new PromptCancelledError(
+          `Symlink conflict cancelled: ${conflictPath}`,
+        );
       }
       return { action };
     },
@@ -447,7 +453,12 @@ export function createPromptClientForSelections(
         message: `${conflictPath} already exists — overwrite it?`,
       });
 
-      if (isCancel(shouldOverwrite) || !shouldOverwrite) {
+      if (isCancel(shouldOverwrite)) {
+        throw new PromptCancelledError(
+          `File conflict cancelled: ${conflictPath}`,
+        );
+      }
+      if (!shouldOverwrite) {
         throw new Error(
           `Conflict not resolved: ${conflictPath} already exists`,
         );
@@ -472,7 +483,9 @@ export function createPromptClientForSelections(
       });
 
       if (isCancel(confirmed)) {
-        throw new Error("Managed file removal confirmation was cancelled");
+        throw new PromptCancelledError(
+          "Managed file removal confirmation was cancelled",
+        );
       }
 
       return confirmed;
@@ -499,7 +512,9 @@ async function promptForBundleItemChoices(
   });
 
   if (isCancel(choice)) {
-    throw new Error("Interactive bundle item selection was cancelled");
+    throw new PromptCancelledError(
+      "Interactive bundle item selection was cancelled",
+    );
   }
 
   return choice;

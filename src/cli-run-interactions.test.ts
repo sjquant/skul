@@ -551,6 +551,172 @@ describe("run", () => {
     ).toBe("# extras\n");
   });
 
+  it.each([
+    {
+      scope: "project",
+      args: [],
+      root: "cwd" as const,
+      instructionPath: "AGENTS.md",
+    },
+    {
+      scope: "global",
+      args: ["--global"],
+      root: "homeDir" as const,
+      instructionPath: ".codex/AGENTS.md",
+    },
+  ])("continues $scope add --all after a reference fails and preserves shared instructions", async ({
+    args,
+    root,
+    instructionPath,
+  }) => {
+    // Given: two bundles share instructions; a third installs an independent skill
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const source = "github.com/user/ai-vault";
+    writeManifest(homeDir, source, "core", {
+      tools: {
+        codex: {
+          skills: { path: ".agents/skills" },
+          root_instruction: { path: "AGENTS.md" },
+        },
+      },
+    });
+    writeBundleFile(
+      homeDir,
+      source,
+      "core",
+      ".agents/skills/core/SKILL.md",
+      "# core v1\n",
+    );
+    writeBundleFile(homeDir, source, "core", "AGENTS.md", "# core v1\n");
+    writeManifest(homeDir, source, "extras", {
+      tools: { codex: { root_instruction: { path: "AGENTS.md" } } },
+    });
+    writeBundleFile(homeDir, source, "extras", "AGENTS.md", "# extras v1\n");
+    writeManifest(homeDir, source, "z-skills", {
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      source,
+      "z-skills",
+      ".agents/skills/extra/SKILL.md",
+      "# skill v1\n",
+    );
+    const options = {
+      homeDir,
+      cwd: repoRoot,
+      prompts: createPromptClientStub(),
+    };
+    await run(["add", source, "--all", ...args], options);
+    const instructionFile = path.join(options[root], instructionPath);
+    const instructionsBefore = fs.readFileSync(instructionFile, "utf8");
+    writeBundleFile(homeDir, source, "core", "AGENTS.md", "# core v2\n");
+    writeBundleFile(homeDir, source, "extras", "AGENTS.md", "# extras v2\n");
+    writeBundleFile(
+      homeDir,
+      source,
+      "core",
+      "skul.refs.json",
+      JSON.stringify({
+        refs: [
+          {
+            target: "skills",
+            name: "missing",
+            source: "user/ai-vault",
+            bundle: "missing",
+            item: "skills/missing",
+          },
+        ],
+      }),
+    );
+    writeBundleFile(
+      homeDir,
+      source,
+      "z-skills",
+      ".agents/skills/extra/SKILL.md",
+      "# skill v2\n",
+    );
+
+    // When: bulk add encounters the broken bundle before the healthy bundle
+    const output = await run(["add", source, "--all", ...args], options);
+
+    // Then: the failure is reported, the installed bundle survives, and the later skill is updated
+    expect(output).toMatch(
+      /ERROR: Failed to apply core:.*Bundle not found: missing/s,
+    );
+    expect(output).toMatch(
+      /Failed to apply extras: Cannot update shared root instruction/,
+    );
+    expect(output).toContain("Applied z-skills");
+    expect(fs.readFileSync(instructionFile, "utf8")).toBe(instructionsBefore);
+    const skillRoot = path.join(options[root], ".agents", "skills");
+    expect(
+      fs.readFileSync(path.join(skillRoot, "core", "SKILL.md"), "utf8"),
+    ).toBe("# core v1\n");
+    expect(
+      fs.readFileSync(path.join(skillRoot, "extra", "SKILL.md"), "utf8"),
+    ).toBe("# skill v2\n");
+  });
+
+  it.each([
+    { scope: "project", args: [], root: "cwd" as const },
+    { scope: "global", args: ["--global"], root: "homeDir" as const },
+  ])("stops $scope add --all when the user cancels a symlink conflict", async ({
+    args,
+    root,
+  }) => {
+    // Given: the first bundle conflicts with a symlink and a second bundle is ready to install
+    const homeDir = createHomeDir();
+    const repoRoot = createRepository();
+    const source = "github.com/user/ai-vault";
+    writeManifest(homeDir, source, "core", {
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeManifest(homeDir, source, "extras", {
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      source,
+      "core",
+      ".agents/skills/core/SKILL.md",
+      "# core\n",
+    );
+    writeBundleFile(
+      homeDir,
+      source,
+      "extras",
+      ".agents/skills/extras/SKILL.md",
+      "# extras\n",
+    );
+    const roots = { cwd: repoRoot, homeDir };
+    const skillRoot = path.join(roots[root], ".agents/skills");
+    fs.mkdirSync(skillRoot, { recursive: true });
+    const link = path.join(skillRoot, "core");
+    fs.symlinkSync(path.join(homeDir, "external"), link);
+    const interactivePrompts = createPromptClientForSelections(
+      [],
+      vi.fn().mockResolvedValue({
+        isCancel: () => false,
+        select: async () => "cancel",
+      }),
+    );
+
+    // When: the user chooses Cancel in the real symlink prompt
+    const adding = run(["add", source, "--all", ...args], {
+      ...roots,
+      prompts: createPromptClientStub({
+        resolveSymlinkConflict: interactivePrompts.resolveSymlinkConflict,
+      }),
+    });
+
+    // Then: cancellation stops the batch before the second bundle is installed
+    await expect(adding).rejects.toThrow("Symlink conflict cancelled");
+    expect(fs.readlinkSync(link)).toBe(path.join(homeDir, "external"));
+    expect(fs.existsSync(path.join(skillRoot, "extras"))).toBe(false);
+  });
+
   it("reconciles a removed source bundle through the removal safety lifecycle", async () => {
     // Given: two bundles from one source and one bundle from another source
     const homeDir = createHomeDir();
