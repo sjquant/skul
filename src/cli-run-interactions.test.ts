@@ -717,6 +717,69 @@ describe("run", () => {
     expect(fs.existsSync(path.join(skillRoot, "extras"))).toBe(false);
   });
 
+  it("explains denied access during global bulk updates and updates later bundles", async () => {
+    // Given: an installed skill directory no longer allows its owner to remove files
+    const homeDir = createHomeDir();
+    const source = "github.com/user/ai-vault";
+    writeManifest(homeDir, source, "core", {
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeManifest(homeDir, source, "extras", {
+      tools: { codex: { skills: { path: ".agents/skills" } } },
+    });
+    writeBundleFile(
+      homeDir,
+      source,
+      "core",
+      ".agents/skills/core/SKILL.md",
+      "# core\n",
+    );
+    writeBundleFile(
+      homeDir,
+      source,
+      "extras",
+      ".agents/skills/extras/SKILL.md",
+      "# extras v1\n",
+    );
+    const args = ["add", "--global", source, "--all"];
+    const options = { homeDir, prompts: createPromptClientStub() };
+    await run(args, options);
+    writeBundleFile(
+      homeDir,
+      source,
+      "extras",
+      ".agents/skills/extras/SKILL.md",
+      "# extras v2\n",
+    );
+    const lockedDirectory = path.join(homeDir, ".agents/skills/core");
+    const lockedFile = path.join(lockedDirectory, "SKILL.md");
+    fs.chmodSync(lockedDirectory, 0o500);
+
+    try {
+      // When: a bulk update encounters a real filesystem permission error
+      const output = await run(args, options);
+
+      // Then: the error retains its path, explains recovery, and leaves later updates running
+      expect(output).toContain("Failed to apply core: EACCES");
+      expect(output).toContain(lockedFile);
+      expect(output).toContain(
+        "Check ownership and write permissions for this path and its parent directory",
+      );
+      expect(output).toContain(
+        "restore their ownership and retry without sudo",
+      );
+      expect(output).toContain("Applied extras");
+      expect(
+        fs.readFileSync(
+          path.join(homeDir, ".agents/skills/extras/SKILL.md"),
+          "utf8",
+        ),
+      ).toBe("# extras v2\n");
+    } finally {
+      fs.chmodSync(lockedDirectory, 0o700);
+    }
+  });
+
   it("reconciles a removed source bundle through the removal safety lifecycle", async () => {
     // Given: two bundles from one source and one bundle from another source
     const homeDir = createHomeDir();
