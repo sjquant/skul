@@ -1,4 +1,5 @@
 import Head from "@docusaurus/Head";
+import { translate } from "@docusaurus/Translate";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 
 export interface HowToStep {
@@ -22,10 +23,13 @@ export default function StructuredData({
 }) {
   const { siteConfig, i18n } = useDocusaurusContext();
   const siteUrl = new URL(siteConfig.baseUrl, siteConfig.url).href;
+  const defaultLocale = i18n.localeConfigs[i18n.defaultLocale];
+  const canonicalSiteUrl = new URL(defaultLocale.baseUrl, defaultLocale.url)
+    .href;
   const pageUrl = new URL(permalink, siteUrl).href;
   const websiteId = `${siteUrl}#website`;
-  const softwareId = `${siteUrl}#software`;
-  const sourceId = `${siteUrl}#sourcecode`;
+  const softwareId = `${canonicalSiteUrl}#software`;
+  const sourceId = `${canonicalSiteUrl}#sourcecode`;
   const authorId = "https://github.com/sjquant#person";
   const repositoryUrl = "https://github.com/sjquant/skul";
   const licenseUrl = `${repositoryUrl}/blob/main/LICENSE`;
@@ -35,7 +39,10 @@ export default function StructuredData({
       "@type": "WebSite",
       "@id": websiteId,
       name: siteConfig.title,
-      description: siteConfig.tagline,
+      description: translate({
+        id: "home.title",
+        message: "Your AI setup, kept out of Git",
+      }),
       url: siteUrl,
       inLanguage: i18n.currentLocale,
       publisher: { "@id": authorId },
@@ -52,11 +59,17 @@ export default function StructuredData({
       "@id": softwareId,
       name: siteConfig.title,
       identifier: "@solaqua/skul",
-      description:
-        "Your AI setup, kept out of Git: apply shared skills, subagents, instructions, and MCP servers to your coding tools.",
-      url: siteUrl,
+      description: translate({
+        id: "seo.software.description",
+        message:
+          "Your AI setup, kept out of Git: apply shared skills, subagents, instructions, and MCP servers to your coding tools.",
+      }),
+      url: canonicalSiteUrl,
       applicationCategory: "DeveloperApplication",
-      softwareRequirements: "Node.js 20+ and Git.",
+      softwareRequirements: translate({
+        id: "seo.software.requirements",
+        message: "Node.js 20+ and Git.",
+      }),
       installUrl: new URL("docs/intro#install", siteUrl).href,
       license: licenseUrl,
       author: { "@id": authorId },
@@ -103,6 +116,8 @@ export default function StructuredData({
               ? {
                   step: steps.map((step) => ({
                     "@type": "HowToStep",
+                    "@id": new URL(step.url, pageUrl).href,
+                    inLanguage: i18n.currentLocale,
                     ...step,
                     url: new URL(step.url, pageUrl).href,
                   })),

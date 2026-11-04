@@ -1,0 +1,59 @@
+---
+title: はじめに
+slug: /intro
+description: skulをインストールして、最初のバンドルをプロジェクトに適用します。
+---
+
+# はじめに
+
+Skulは、スキル、コマンド、エージェント、指示、MCPサーバーをまとめた共有**バンドル**をプロジェクトに適用します。各AIコーディングツールが必要とする場所にファイルを配置し、Gitには変更が表示されないようにします。
+
+## インストール {/* #install */}
+
+```bash
+npm install --global @solaqua/skul
+```
+
+Node.js 20以降とGitが必要です。
+
+## バンドルを適用する {/* #apply-a-bundle */}
+
+Gitプロジェクトのディレクトリで実行します。
+
+```bash
+skul add sjquant/ghosts writing
+```
+
+このコマンドは公開サンプルのバンドルを適用します。Skulは`sjquant/ghosts`を`~/.skul/library/`にクローンし、対象のツールを確認してから、`writing`バンドルのファイルを配置し、`.git/info/exclude`に登録します。`git status`で確認しても、変更は表示されません。
+
+## 使ってみる {/* #use-it */}
+
+プロジェクトでコーディングツールを開くと、バンドルのスキルをすぐに使えます。たとえばClaude Codeでは、`/ghosts:rewrite`を実行します。
+
+## 自分の設定に置き換える {/* #make-it-yours */}
+
+[自分のバンドルを作成して](/docs/bundles#your-first-bundle)、同じ方法で追加できます。必要なものだけをインストールすることもできます。
+
+```bash
+skul add writing --agent codex                       # one tool
+skul add writing --include skills/rewrite            # one item
+skul add writing --ref main                          # a branch, tag, or commit
+```
+
+## 続けて使う {/* #keep-going */}
+
+```bash
+skul status     # what is applied, and where
+skul update     # pull newer bundle revisions
+skul remove writing
+```
+
+新しいワークツリーを作成するときも、設定を選び直す必要はありません。Skulはこのリポジトリに適用する構成を記憶しているため、次のコマンドで同じ構成を適用できます。
+
+```bash
+git worktree add ../my-feature
+cd ../my-feature
+skul apply
+```
+
+`AGENTS.md`や`CLAUDE.md`をすでにコミットしているリポジトリにバンドルを追加する前に、[追跡中の指示ファイルの扱い](/docs/how-it-works#root-instructions)を確認してください。

@@ -1,0 +1,54 @@
+---
+title: 지원 도구
+slug: /tools
+description: 각 코딩 도구에서 skul이 파일을 작성하는 위치를 확인하세요.
+---
+
+# 지원 도구
+
+`--agent <id>`로 적용할 도구를 고르세요. 여러 도구를 선택하려면 이 옵션을 반복해서 지정하면 됩니다.
+
+| 도구 | `--agent` | 스킬 | 명령어 | 에이전트 | 지침 | MCP |
+|---|---|---|---|---|---|---|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude-code` | `.claude/skills` | `.claude/commands` | `.claude/agents` | `CLAUDE.md` | `.mcp.json` |
+| [Cursor](https://cursor.sh) | `cursor` | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `AGENTS.md` | `.cursor/mcp.json` |
+| [Codex](https://openai.com/index/openai-codex) | `codex` | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | `.codex/config.toml` |
+| [OpenCode](https://opencode.ai) | `opencode` | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `AGENTS.md` | `opencode.json` |
+| [GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli) | `copilot` | `.github/skills` | — | `.github/agents` | `AGENTS.md` | `.github/mcp.json` |
+| [Kiro](https://kiro.dev) | `kiro` | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
+| [Antigravity CLI](https://antigravity.google/) | `antigravity` | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
+| [Grok Build](https://docs.x.ai/build/overview) | `grok` | `.grok/skills` | — | `.grok/agents` | `AGENTS.md` | `.grok/config.toml` |
+| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/) | `qwen` | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
+| [Cline](https://docs.cline.bot/) | `cline` | `.cline/skills` | — | — | `AGENTS.md` | 전역에서만 지원 |
+| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/) | `kimi` | `.kimi-code/skills` | — | `.kimi-code/agents` | `AGENTS.md` | `.kimi-code/mcp.json` |
+| [ZCode](https://zcode.z.ai/en/docs/welcome) | `zcode` | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | `.zcode/config.json` |
+
+Grok Build와 Kimi Code CLI는 스킬을 슬래시 명령어로 제공하므로 `skills/`에 넣으세요.
+
+`--agent`는 모델이 아니라 코딩 도구를 선택하는 옵션입니다. DeepSeek를 사용하려면 Codex나 OpenCode 안에서 설정한 뒤 해당 도구를 지정하세요.
+
+## 루트 지침 파일 {/* #root-instruction-files */}
+
+| 파일 | 읽는 도구 |
+|---|---|
+| `CLAUDE.md` | Claude Code |
+| `AGENTS.md` | Cursor, Codex, OpenCode, Copilot, Kiro, Antigravity, Grok Build, Cline, Kimi Code CLI, ZCode |
+| `QWEN.md` | Qwen Code |
+| `.github/copilot-instructions.md` | Copilot |
+
+번들에는 이 파일들 중 하나만 넣으면 됩니다. 본문을 고치지 않고도 다른 도구에서 쓸 수 있다면, Skul이 같은 내용을 나머지 파일에도 넣어 줍니다.
+
+## 전역 설치 {/* #global-installs */}
+
+`--global`은 프로젝트 대신 `~` 아래에 파일을 작성합니다. 대부분의 도구는 같은 상대 경로를 사용합니다. 예외는 다음과 같습니다.
+
+| 도구 | 전역 경로 |
+|---|---|
+| Antigravity CLI | `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, `~/.gemini/GEMINI.md` |
+| Cline | `~/.agents/AGENTS.md`; MCP 설정: `~/.cline/data/settings/cline_mcp_settings.json` |
+| Kimi Code CLI | `~/.kimi-code/skills`, `~/.kimi-code/agents`, `~/.kimi-code/AGENTS.md` |
+| ZCode | `~/.zcode/skills`, `~/.zcode/commands`, `~/.zcode/AGENTS.md` (서브에이전트는 제외됩니다. ZCode 문서에서는 사용자 범위에서만 지원한다고 명시합니다.) |
+
+## Copilot {/* #copilot */}
+
+`copilot`은 Copilot CLI와 그 기반인 Agent Host를 뜻합니다. 저장소의 설정 파일은 VS Code의 Copilot도 읽으며, `~/.copilot/skills`도 읽으므로 한 번 설치하면 양쪽에서 사용할 수 있습니다. Skul은 `.vscode/mcp.json`을 작성하지 않습니다. VS Code 채팅이 별도의 형식으로 사용하는 전용 파일이기 때문입니다.

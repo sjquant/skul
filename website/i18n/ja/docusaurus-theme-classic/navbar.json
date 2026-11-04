@@ -1,0 +1,14 @@
+{
+  "logo.alt": {
+    "message": "skulのロゴ"
+  },
+  "item.label.Docs": {
+    "message": "ドキュメント"
+  },
+  "item.label.Commands": {
+    "message": "コマンド"
+  },
+  "item.label.Tools": {
+    "message": "対応ツール"
+  }
+}

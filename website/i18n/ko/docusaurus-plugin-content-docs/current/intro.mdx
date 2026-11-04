@@ -1,0 +1,59 @@
+---
+title: 시작하기
+slug: /intro
+description: skul을 설치하고 프로젝트에 첫 번들을 적용해 보세요.
+---
+
+# 시작하기
+
+Skul은 스킬, 명령어, 에이전트, 지침, MCP 서버를 묶은 공유 **번들**을 프로젝트에 적용합니다. 각 AI 코딩 도구에 맞는 위치에 파일을 배치하고, Git에는 변경 사항이 나타나지 않도록 합니다.
+
+## 설치하기 {/* #install */}
+
+```bash
+npm install --global @solaqua/skul
+```
+
+Node.js 20 이상과 Git이 필요합니다.
+
+## 번들 적용하기 {/* #apply-a-bundle */}
+
+Git 프로젝트 디렉터리에서 다음 명령을 실행하세요.
+
+```bash
+skul add sjquant/ghosts writing
+```
+
+이 명령은 공개 예제 번들을 적용합니다. Skul은 `sjquant/ghosts`를 `~/.skul/library/`에 복제한 뒤, 어떤 도구에 적용할지 물어봅니다. 이어서 `writing` 번들의 파일을 작성하고 `.git/info/exclude`에 등록합니다. `git status`로 확인해도 변경 사항은 나타나지 않습니다.
+
+## 사용하기 {/* #use-it */}
+
+프로젝트에서 코딩 도구를 열면 번들에 담긴 스킬을 바로 쓸 수 있습니다. Claude Code라면 `/ghosts:rewrite`를 실행해 보세요.
+
+## 내 설정으로 바꾸기 {/* #make-it-yours */}
+
+[나만의 번들을 만든 뒤](/docs/bundles#your-first-bundle) 같은 방법으로 추가하면 됩니다. 필요한 도구나 항목만 골라 설치할 수도 있습니다.
+
+```bash
+skul add writing --agent codex                       # one tool
+skul add writing --include skills/rewrite            # one item
+skul add writing --ref main                          # a branch, tag, or commit
+```
+
+## 계속 사용하기 {/* #keep-going */}
+
+```bash
+skul status     # what is applied, and where
+skul update     # pull newer bundle revisions
+skul remove writing
+```
+
+새 워크트리를 만들 때도 설정을 다시 고를 필요가 없습니다. Skul이 저장소에 적용할 구성을 기억하므로, 명령 하나로 같은 구성을 가져올 수 있습니다.
+
+```bash
+git worktree add ../my-feature
+cd ../my-feature
+skul apply
+```
+
+저장소에서 이미 `AGENTS.md`나 `CLAUDE.md`를 커밋하고 있다면, 번들을 추가하기 전에 [추적 중인 지침을 다루는 방식](/docs/how-it-works#root-instructions)을 읽어보세요.

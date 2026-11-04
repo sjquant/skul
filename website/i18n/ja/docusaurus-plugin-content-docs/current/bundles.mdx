@@ -1,0 +1,151 @@
+---
+title: バンドルの作成
+slug: /bundles
+description: バンドルの構成、マニフェスト、MCPサーバー、ほかのリポジトリへの参照を説明します。
+---
+
+# バンドルの作成
+
+バンドルは通常のファイルをまとめたGitリポジトリ、またはnpmパッケージです。登録作業は不要で、マニフェストも必須ではありません。
+
+## 最初のバンドルを作る {/* #your-first-bundle */}
+
+スキルを1つ含むリポジトリを作成します。`description`は必須です。名前を指定しない場合は、フォルダー名が使われます。
+
+```markdown title="skills/say-hello/SKILL.md"
+---
+description: Say hello from my first Skul bundle.
+---
+
+Say hello.
+```
+
+GitHubにプッシュすると、任意のGitプロジェクトから追加できます。
+
+```bash
+skul add you/my-bundle
+```
+
+取得元にローカルパスを指定することはできません。デフォルトブランチに取り込む前に変更を試すには、ブランチをプッシュして`--ref my-branch`で追加してください。
+
+## ファイル構成 {/* #layout */}
+
+1つのフォルダーに`skills/`、`commands/`、`agents/`、ルートの指示ファイルを配置します。
+
+```text
+skills/
+commands/
+agents/
+AGENTS.md          # or CLAUDE.md, QWEN.md
+mcp.json
+```
+
+Skulは、それぞれの項目に対応するすべてのツールにコピーします。特定のツールだけで使う内容は、`.claude/skills/`や`.cursor/commands/`など、そのツール専用のディレクトリに置きます。
+
+### 1つのバンドルと複数のバンドル {/* #one-bundle-or-many */}
+
+リポジトリのルートをバンドルにする場合、バンドル名はリポジトリ名になります。
+
+```text
+github.com/you/react-bundle
+├── skills/
+└── commands/
+```
+
+各サブディレクトリを別のバンドルにすることもできます。この場合は、ディレクトリ名がバンドル名になります。
+
+```text
+github.com/you/ai-bundles
+├── react-expert/
+│   ├── skills/
+│   └── agents/
+└── python-data/
+    └── skills/
+```
+
+構成に応じて、`skul add you/react-bundle`または`skul add you/ai-bundles react-expert`を実行します。複数のバンドルを含むリポジトリでは、ルートにある`AGENTS.md`、`CLAUDE.md`、`QWEN.md`はバンドルの内容に含まれず、Skulが警告を表示します。共有する指示は`bundles/common/`に置いてください。
+
+### npm {/* #npm */}
+
+同じ構成をパッケージとして公開し、`skul add npm:@you/react-skills`でインストールできます。`@1.2.0`または`--ref next`でバージョンやdist-tagを指定できます。非公開レジストリを使う場合は、`SKUL_NPM_REGISTRY`と`SKUL_NPM_TOKEN`を設定します。
+
+## ルートの指示はほかのツールでも使える {/* #root-instructions-travel */}
+
+`CLAUDE.md`を含めると、Codexにも`AGENTS.md`として渡されます。`AGENTS.md`を含めれば、Claude Codeにも`CLAUDE.md`として渡されます。Copilotには`.github/copilot-instructions.md`も生成されます。すべての対応関係は、[対応ツール](/docs/tools#root-instruction-files)を参照してください。
+
+## マニフェスト（任意） {/* #manifest-optional */}
+
+```json title="manifest.json"
+{
+  "root_instruction_mode": "replace"
+}
+```
+
+マニフェストではメタデータを追加します。Skulが自動で判断できる内容を繰り返し記述する必要はありません。`tools`を宣言すると、そこに記載したツールだけが対象になります。ルートの指示を渡すツールも明示的に含めてください。複数のバンドルを含むリポジトリでは、ルートのマニフェストがデフォルト値を提供し、各バンドルのマニフェストがその値を上書きします。`name`は表示用です。バンドルの識別には、ディレクトリ名またはリポジトリ名を使います。
+
+## MCPサーバー {/* #mcp-servers */}
+
+[Agent Plugins](https://agent-plugins.org/specification)スキーマを使い、`mcp.json`にサーバーを一度だけ宣言します。
+
+```json title="mcp.json"
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "docs": {
+      "type": "stdio",
+      "command": "docs-server",
+      "args": ["--root", "${PLUGIN_ROOT}/reference"],
+      "env": { "CACHE_DIR": "${PLUGIN_DATA}/cache" }
+    },
+    "remote": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp"
+    }
+  }
+}
+```
+
+Skulは各ツールのファイル形式に合わせて設定を書き込みます。`${PLUGIN_ROOT}`はキャッシュ内のバンドルのディレクトリ、`${PLUGIN_DATA}`は`~/.skul/data/`配下のバンドルごとのディレクトリです。Skulはこのディレクトリを作成しません。
+
+Skulはこれらの設定ファイル全体を所有せず、必要な項目だけを**マージ**します。
+
+- 自分で設定したサーバー、ほかのバンドルのサーバー、無関係な設定は保持します。
+- `skul remove`は、そのバンドルが追加した名前の項目だけを削除します。ファイル自体を削除するのは、Skulが作成したファイルが空になった場合だけです。
+- 宣言済みのサーバー名を置き換えることはありません。`skul add`は何も書き込む前に処理を拒否し、対象ファイルを表示します。
+- Codexの`.codex/config.toml`は、末尾にマーカーで区切ったブロックを追加して編集します。それ以外の内容はバイト単位で保持します。
+- 対象ファイルがGitで追跡されている場合は、ルートの指示と同様にシャドウを適用します。`opencode.json`はこのケースによく当たります。1つのファイルのシャドウを所有できるバンドルは1つだけです。
+- Clineにはプロジェクト単位のMCP設定先がありません。`--global`を使ったときだけサーバーを書き込みます。
+
+マージ後のファイルには、そのマシン固有の絶対パスが含まれます。そのため、Skulが作成したファイルでなくても除外ブロックに追加します。
+
+:::caution
+Claude Codeは実行中に`~/.claude.json`を書き換えます。`skul add|remove|reset --global`を実行する前にClaude Codeを終了してください。
+:::
+
+## ほかのリポジトリの項目を参照する {/* #reference-items-from-another-repo */}
+
+スキルをバンドルにコピーする代わりに、取得元を参照できます。`skul.refs.json`を追加します。
+
+```json title="skul.refs.json"
+{
+  "refs": [
+    { "target": "skills", "name": "insane-search", "source": "fivetaku/insane-search" },
+    { "target": "root-instruction", "source": "fivetaku/standards" }
+  ]
+}
+```
+
+| フィールド | 説明 |
+|---|---|
+| `target` | **必須。** `skills`、`agents`、`commands`、`root-instruction`のいずれかです |
+| `name` | `root-instruction`以外では必須です。ローカルで使う項目名です |
+| `source` | **必須。** `skul add`が受け付けるすべての取得元形式を使えます |
+| `bundle` | `source`内に対象の項目を含むバンドルが複数ある場合に必要です |
+| `item` | リモートの項目セレクターです。例：`skills/other-name`。デフォルトは`target`と`name`から決まります |
+| `ref` | 取得するブランチ、タグ、コミットです |
+| `path` | ルートの指示を参照する場合のローカルパスです。例：`AGENTS.md` |
+| `sourcePath` | 入れ子のマーケットプレイスやバンドルを含む、`source`内のサブディレクトリです |
+| `description` | スキル、コマンド、エージェントの説明を1行で上書きします |
+| `disable-model-invocation` | スキルの参照で、ユーザーが依頼したときだけ実行する設定を強制します |
+
+参照する取得元は、通常のバンドルと同じキャッシュを使います。`.claude-plugin/marketplace.json`を含むリポジトリは、プラグインをバンドルとして公開します。名前が衝突する場合は、プラグインで宣言された`name`を`bundle`に指定してください。モノレポ内のマーケットプレイスでは、それを含むディレクトリを`sourcePath`に指定します。Skulは`sourcePath`の中だけを探します。
