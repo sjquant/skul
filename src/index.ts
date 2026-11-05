@@ -668,9 +668,7 @@ async function applyAllBundles(options: {
       )) {
         blockedRootInstructionPaths.add(filePath);
       }
-      outputLines.push(
-        `${pc.red("ERROR:")} Failed to apply ${bundle.bundle}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      outputLines.push(formatBundleApplyFailure(bundle.bundle, error));
     }
   }
 
@@ -678,6 +676,21 @@ async function applyAllBundles(options: {
     .flat()
     .filter(Boolean)
     .join("\n");
+}
+
+/** Explains a bundle failure and how to recover from denied filesystem access. */
+function formatBundleApplyFailure(bundle: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const failure = `${pc.red("ERROR:")} Failed to apply ${bundle}: ${message}`;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EACCES"
+  ) {
+    return `${failure}\nHint: Check ownership and write permissions for this path and its parent directory. If a previous sudo run created root-owned files, restore their ownership and retry without sudo.`;
+  }
+  return failure;
 }
 
 function assertRootInstructionDependencies(options: {
@@ -9717,9 +9730,7 @@ async function applyGlobal(options: {
       });
       outputLines.push(result);
     } catch (err) {
-      outputLines.push(
-        `${pc.red("ERROR:")} Failed to apply ${entry.bundle}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      outputLines.push(formatBundleApplyFailure(entry.bundle, err));
     }
   }
 
