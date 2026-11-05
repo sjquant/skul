@@ -1,3 +1,4 @@
+import OpenGraphLocale from "@site/src/components/OpenGraphLocale";
 import useFallbackLocale from "@site/src/hooks/useFallbackLocale";
 import SiteMetadata from "@theme-original/SiteMetadata";
 
@@ -9,5 +10,10 @@ export default function LocalizedSiteMetadata() {
     return null;
   }
 
-  return <SiteMetadata />;
+  return (
+    <>
+      <SiteMetadata />
+      <OpenGraphLocale />
+    </>
+  );
 }

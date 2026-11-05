@@ -2,6 +2,7 @@ import Head from "@docusaurus/Head";
 import { useLocation } from "@docusaurus/router";
 import { translate } from "@docusaurus/Translate";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
+import OpenGraphLocale from "@site/src/components/OpenGraphLocale";
 import SeoTitle from "@site/src/components/SeoTitle";
 import useFallbackLocale from "@site/src/hooks/useFallbackLocale";
 import NotFound from "@theme-original/NotFound";
@@ -90,16 +91,6 @@ function LocalizedFallback({ locale }: { locale: "ko" | "ja" }) {
         <meta property="og:title" content={title} />
         <meta property="og:description" content={copy.description} />
         <meta property="og:url" content={canonicalUrl} />
-        <meta property="og:locale" content={locale} />
-        {i18n.locales
-          .filter((language) => language !== locale)
-          .map((language) => (
-            <meta
-              key={language}
-              property="og:locale:alternate"
-              content={language}
-            />
-          ))}
         <meta name="twitter:title" content={title} />
         <meta name="twitter:description" content={copy.description} />
         <link rel="canonical" href={canonicalUrl} />
@@ -113,6 +104,7 @@ function LocalizedFallback({ locale }: { locale: "ko" | "ja" }) {
         ))}
         <link rel="alternate" hrefLang="x-default" href={defaultUrl} />
       </Head>
+      <OpenGraphLocale locale={locale} />
       <main lang={locale} className="container margin-vert--xl">
         <nav aria-label={copy.languages}>
           {counterparts.map((target) => (
