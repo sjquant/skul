@@ -1,0 +1,174 @@
+{
+  "theme.colorToggle.ariaLabel.mode.system": {
+    "message": "시스템 설정 모드",
+    "description": "The name for the system color mode"
+  },
+  "theme.IconExternalLink.ariaLabel": {
+    "message": "(새 탭에서 열림)",
+    "description": "The ARIA label for the external link icon"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.expandAriaLabel": {
+    "message": "드롭다운 펼치기",
+    "description": "The ARIA label of the button to expand the mobile dropdown navbar item"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.collapseAriaLabel": {
+    "message": "드롭다운 접기",
+    "description": "The ARIA label of the button to collapse the mobile dropdown navbar item"
+  },
+  "home.title": {
+    "message": "나만의 AI 설정, Git에는 흔적 없이"
+  },
+  "home.description": {
+    "message": "AI 스킬, 서브에이전트, 지침, MCP 서버를 하나의 번들로 관리하세요. Git에 변경 사항을 남기지 않고 어느 프로젝트에서나 쓸 수 있습니다."
+  },
+  "home.lead": {
+    "message": "저장소마다 AI 설정을 복사할 필요가 없습니다. 스킬, 서브에이전트, 지침, MCP 서버를 번들 하나로 묶어 원하는 프로젝트에 적용하세요. {count}가지 코딩 도구에서 써도 {status}는 깔끔하게 유지됩니다."
+  },
+  "home.translateLayout": {
+    "message": "설정은 한 번만 작성하세요. Skul이 각 도구에 맞는 위치에 배치합니다. 프로젝트마다 적용할 수도 있고, {global}로 전역에 적용할 수도 있습니다."
+  },
+  "home.otherTools": {
+    "message": "{tools}에서도 사용할 수 있습니다."
+  },
+  "home.toolPaths": {
+    "message": "{count}가지 도구의 경로 보기 →"
+  },
+  "home.trackedInstructions": {
+    "message": "이미 {file}를 커밋하고 있나요? Skul은 내 로컬 사본에만 지침을 덧붙입니다. 코딩 도구는 팀 지침과 내 지침을 모두 읽지만, 팀원에게는 변경 사항이 보이지 않습니다. 업스트림 변경 사항을 가져올 때는 {sync}를 사용하세요."
+  },
+  "home.exclude": {
+    "message": "Skul은 작성한 파일을 {exclude}에 등록하고, {ignore}는 건드리지 않습니다. 번들을 제거하면 원래 파일로 돌아갑니다."
+  },
+  "home.exampleBundle": {
+    "message": "{bundle}은 공개 예제 번들입니다. 언제든 내 저장소의 번들로 바꿔 쓸 수 있습니다."
+  },
+  "home.label": {
+    "message": "AI 코딩 도구를 위한 오픈 소스 CLI"
+  },
+  "home.heroFirst": {
+    "message": "나만의 AI 설정,"
+  },
+  "home.heroSecond": {
+    "message": "Git에는 흔적 없이."
+  },
+  "home.apply": {
+    "message": "첫 번들 적용하기"
+  },
+  "home.github": {
+    "message": "GitHub에서 보기"
+  },
+  "home.source": {
+    "message": "설정은 한곳에"
+  },
+  "home.everywhere": {
+    "message": "번들 하나로, 어디서 코딩하든."
+  },
+  "home.bundle": {
+    "message": "나만의 Skul 번들"
+  },
+  "home.shared": {
+    "message": "함께 쓰는 저장소에서도"
+  },
+  "home.rulesFirst": {
+    "message": "팀의 지침 위에,"
+  },
+  "home.rulesSecond": {
+    "message": "나만의 규칙을."
+  },
+  "home.trackedLink": {
+    "message": "추적 중인 지침을 다루는 방식 →"
+  },
+  "home.team": {
+    "message": "팀 지침"
+  },
+  "home.committed": {
+    "message": "저장소에 커밋된 지침"
+  },
+  "home.layer": {
+    "message": "나만의 지침"
+  },
+  "home.local": {
+    "message": "내 번들에서 가져와 로컬에만 추가"
+  },
+  "home.reads": {
+    "message": "코딩 도구가 읽는 지침"
+  },
+  "home.both": {
+    "message": "두 지침을 함께 읽고, Git에는 변경 없이"
+  },
+  "home.safe": {
+    "message": "부담 없이 사용해 보세요"
+  },
+  "home.commit": {
+    "message": "커밋할 것도 없고."
+  },
+  "home.undo": {
+    "message": "되돌리기도 쉽습니다."
+  },
+  "home.howLink": {
+    "message": "Git에 흔적을 남기지 않는 방식 →"
+  },
+  "home.toolsSee": {
+    "message": "코딩 도구가 보는 파일"
+  },
+  "home.gitSees": {
+    "message": "Git이 보는 파일"
+  },
+  "home.try": {
+    "message": "다음 프로젝트에서 사용해 보세요."
+  },
+  "home.requirements": {
+    "message": "Node.js 20 이상과 Git이 필요합니다."
+  },
+  "home.quickstart": {
+    "message": "빠른 시작 읽기"
+  },
+  "home.write": {
+    "message": "나만의 번들 만들기"
+  },
+  "howto.install.name": {
+    "message": "설치하기"
+  },
+  "howto.install.text": {
+    "message": "npm install --global @solaqua/skul\n\nNode.js 20 이상과 Git이 필요합니다."
+  },
+  "howto.apply.name": {
+    "message": "번들 적용하기"
+  },
+  "howto.apply.text": {
+    "message": "Git 프로젝트 디렉터리에서 다음 명령을 실행하세요.\n\nskul add sjquant/ghosts writing\n\n이 명령은 공개 예제 번들을 적용합니다. Skul은 sjquant/ghosts를 ~/.skul/library/에 복제한 뒤, 어떤 도구에 적용할지 물어봅니다. 이어서 writing 번들의 파일을 작성하고 .git/info/exclude에 등록합니다. git status로 확인해도 변경 사항은 나타나지 않습니다."
+  },
+  "howto.use.name": {
+    "message": "사용하기"
+  },
+  "howto.use.text": {
+    "message": "프로젝트에서 코딩 도구를 열면 번들에 담긴 스킬을 바로 쓸 수 있습니다. Claude Code라면 /ghosts:rewrite를 실행해 보세요."
+  },
+  "seo.software.description": {
+    "message": "나만의 AI 설정, Git에는 흔적 없이. 공유 스킬, 서브에이전트, 지침, MCP 서버를 코딩 도구에 적용하세요."
+  },
+  "seo.software.requirements": {
+    "message": "Node.js 20 이상과 Git."
+  },
+  "seo.keywords": {
+    "message": "공유 AI 번들, AI 번들 CLI, Claude Code 스킬, Cursor 스킬, Codex 에이전트, OpenCode 에이전트, Copilot 스킬, Kiro 에이전트, AI 워크플로 CLI"
+  },
+  "seo.socialImageAlt": {
+    "message": "skul: 나만의 AI 설정, Git에는 흔적 없이"
+  },
+  "theme.admonition.note": {
+    "message": "참고"
+  },
+  "theme.TOCCollapsible.toggleButtonLabel": {
+    "message": "이 페이지의 내용"
+  },
+  "theme.NavBar.navAriaLabel": {
+    "message": "주 메뉴"
+  },
+  "theme.docs.paginator.navAriaLabel": {
+    "message": "문서 탐색"
+  },
+  "theme.NotFound.p2": {
+    "message": "이 주소로 연결한 사이트의 관리자에게 링크가 올바르지 않다고 알려주세요."
+  }
+}

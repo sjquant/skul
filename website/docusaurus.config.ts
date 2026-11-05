@@ -28,7 +28,12 @@ const config: Config = {
   onBrokenLinks: "throw",
   i18n: {
     defaultLocale: "en",
-    locales: ["en"],
+    locales: ["en", "ko", "ja"],
+    localeConfigs: {
+      en: { label: "English", htmlLang: "en" },
+      ko: { label: "한국어", htmlLang: "ko" },
+      ja: { label: "日本語", htmlLang: "ja" },
+    },
   },
   presets: [
     [
@@ -37,6 +42,7 @@ const config: Config = {
         docs: {
           sidebarPath: "./sidebars.ts",
           editUrl: "https://github.com/sjquant/skul/tree/main/website/",
+          editLocalizedFiles: true,
           showLastUpdateTime: true,
         },
         blog: false,
@@ -51,11 +57,6 @@ const config: Config = {
     metadata: [
       { property: "og:site_name", content: "skul" },
       { property: "og:type", content: "website" },
-      {
-        name: "keywords",
-        content:
-          "shared ai bundles, ai bundle cli, claude code skills, cursor skills, codex agents, opencode agents, copilot skills, kiro agents, ai workflow cli",
-      },
       {
         name: "twitter:card",
         content: "summary_large_image",
@@ -76,6 +77,7 @@ const config: Config = {
         { to: "/docs/intro", label: "Docs", position: "left" },
         { to: "/docs/commands", label: "Commands", position: "left" },
         { to: "/docs/tools", label: "Tools", position: "left" },
+        { type: "localeDropdown", position: "right" },
         {
           href: "https://github.com/sjquant/skul",
           label: "GitHub",

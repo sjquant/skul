@@ -1,0 +1,72 @@
+---
+title: コマンド
+slug: /commands
+description: skulで使えるすべてのコマンドとフラグを説明します。
+---
+
+# コマンド
+
+| コマンド | 動作 |
+|---|---|
+| [`add`](#add) | 必要に応じてバンドルを取得し、プロジェクトに書き込みます |
+| `list` | キャッシュ内のバンドルを一覧表示します。`--source <source>`で絞り込めます |
+| `status` | 適用したい構成と実際の書き込み状態を比較します |
+| `remove [source] [bundle]` | バンドルが管理するファイルを削除します。`--all`で全件を対象にします |
+| `apply` | 適用したいすべてのバンドルを、このワークツリーに書き込みます |
+| `check [bundle]` | アップストリームの更新を読み取り専用で確認します |
+| `update [bundle]` | バンドルをアップストリームの最新リビジョンに更新します |
+| `sync` | シャドウを中断してから`git pull --ff-only`を実行し、再適用します |
+| `shadow` | `--suspend`または`--refresh`で追跡中のファイルのシャドウを手動で操作します |
+| `reset` | この場所でSkulが管理するものをすべて削除します |
+
+## 共通フラグ {/* #common-flags */}
+
+| フラグ | 対象コマンド | 効果 |
+|---|---|---|
+| `-n, --dry-run` | 状態を変更するコマンド | 変更せずに結果をプレビューします |
+| `-y, --yes` | `add` `remove` `apply` `update` `reset` | 上書きと削除の確認を承認します |
+| `-j, --json` | `list` `status` `check` `remove` `reset` | プログラムで読み取れる形式で出力します |
+| `-g, --global` | `add` `remove` `apply` `status` `reset` | プロジェクトではなく`~`のツール設定を対象にします |
+
+状態を変更するコマンドに`--json`を指定すると、`{ "output": "…", "warnings": [] }`形式で出力します。`SKUL_NO_TUI=1`を設定すると、すべての確認や選択のプロンプトを無効にします。スクリプトやエージェントから実行する場合は、この設定を使ってください。
+
+## add {/* #add */}
+
+```text
+skul add [options] [source] [bundle]
+```
+
+`source`には、`github.com/owner/repo`、`owner/repo`、`git@github.com:owner/repo`などのSSH URL、または`npm:@scope/package`を指定できます。省略すると、名前で一意に特定できるキャッシュ済みバンドルを、ネットワークに接続せず再適用します。単一バンドルのリポジトリでは`bundle`を省略できます。複数ある場合に省略すると、選択画面が開きます。
+
+| オプション | 効果 |
+|---|---|
+| `-a, --agent <id>` | 対象のツールを1つ指定します。複数回指定できます。省略すると、バンドルのどのツールを対象にするか確認します。対象が複数あり、`SKUL_NO_TUI=1`の場合は失敗します。 |
+| `--ref <selector>` | `HEAD`の代わりにブランチ、タグ、コミットを追跡します。npmではバージョンまたはdist-tagを指定します。`apply`でもこの設定を使います。 |
+| `--include <item>` | 指定した項目だけをインストールします。`skills/<name>`、`commands/<name>`、`agents/<name>`、`root-instruction`、`mcp`を複数回指定できます。 |
+| `--select-items` | 項目を対話形式で選びます。 |
+| `--all` | 指定した取得元のすべてのバンドルを対象にします。 |
+| `-s, --ssh` | SSHでクローンします。`git@`形式のURLでは自動的に有効になります。`apply`でもこの設定を使います。 |
+| `--root-instruction-mode <mode>` | `append`（デフォルト）または`replace`を指定します。 |
+| `--disable-model-invocation` | すべてのスキルを、ユーザーが明示的に依頼したときだけ実行するようにします。 |
+
+```bash
+skul add sjquant/ghosts writing --ref main
+skul add writing --agent codex --include skills/rewrite
+skul add npm:@you/react-skills@1.2.0   # your own package
+```
+
+SSH認証に失敗すると、Skulは同じ操作に対応するHTTPSコマンドを表示します。
+
+## 環境変数 {/* #environment */}
+
+| 変数 | 効果 |
+|---|---|
+| `SKUL_NO_TUI` | `1`でプロンプトを無効にします。確認が必要な操作は失敗します。 |
+| `SKUL_NPM_REGISTRY` | `npm:`の取得元に使うレジストリです。未設定なら`npm_config_registry`、それも未設定ならnpmjs.orgを使います。 |
+| `SKUL_NPM_TOKEN` | 指定したレジストリのオリジンにだけ送信するBearerトークンです。 |
+
+## 最新の状態を保つ {/* #staying-current */}
+
+`skul check`はアップストリームの変更を表示し、`skul update`はその変更を適用します。`latest`などのdist-tagを指定すると、そのタグが指すバージョンを追跡します。正確なバージョンを指定した場合は、そのバージョンに固定されます。semverの範囲指定には対応していません。
+
+Gitが追跡する`AGENTS.md`や`CLAUDE.md`がある場合、pullには`skul sync`を使ってください。[Gitに変更を残さない仕組み](/docs/how-it-works#tracked-the-shadow)を参照してください。

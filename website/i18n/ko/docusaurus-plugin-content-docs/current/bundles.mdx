@@ -1,0 +1,151 @@
+---
+title: 번들 만들기
+slug: /bundles
+description: 번들 구조, 매니페스트, MCP 서버, 외부 항목 참조를 설명합니다.
+---
+
+# 번들 만들기
+
+번들은 일반 파일을 담은 Git 저장소나 npm 패키지입니다. 별도 등록 절차는 없고, 매니페스트도 없어도 됩니다.
+
+## 첫 번들 만들기 {/* #your-first-bundle */}
+
+스킬 하나가 들어 있는 저장소를 만드세요. `description`은 반드시 작성해야 합니다. 스킬 이름은 따로 지정하지 않으면 폴더 이름을 따릅니다.
+
+```markdown title="skills/say-hello/SKILL.md"
+---
+description: Say hello from my first Skul bundle.
+---
+
+Say hello.
+```
+
+GitHub에 푸시한 뒤 어떤 Git 프로젝트에서든 추가할 수 있습니다.
+
+```bash
+skul add you/my-bundle
+```
+
+Skul에는 로컬 경로를 원본으로 지정할 수 없습니다. 기본 브랜치에 반영하기 전에 시험해 보고 싶다면, 작업 브랜치를 푸시한 뒤 `--ref my-branch`로 추가하세요.
+
+## 구조 {/* #layout */}
+
+하나의 폴더에 `skills/`, `commands/`, `agents/`, 루트 지침을 넣으세요.
+
+```text
+skills/
+commands/
+agents/
+AGENTS.md          # or CLAUDE.md, QWEN.md
+mcp.json
+```
+
+Skul은 각 항목을 지원하는 모든 도구에 복사합니다. 특정 도구에서만 사용할 내용은 해당 도구의 전용 디렉터리(`.claude/skills/`, `.cursor/commands/` 등)에 넣으세요.
+
+### 저장소 하나에 번들 하나 또는 여러 개 {/* #one-bundle-or-many */}
+
+저장소 루트 자체를 번들로 사용하면 저장소 이름이 번들 이름이 됩니다.
+
+```text
+github.com/you/react-bundle
+├── skills/
+└── commands/
+```
+
+또는 각 하위 디렉터리를 별도의 번들로 사용할 수 있습니다. 이 경우 디렉터리 이름이 번들 이름이 됩니다.
+
+```text
+github.com/you/ai-bundles
+├── react-expert/
+│   ├── skills/
+│   └── agents/
+└── python-data/
+    └── skills/
+```
+
+구조에 따라 `skul add you/react-bundle` 또는 `skul add you/ai-bundles react-expert`로 추가하면 됩니다. 여러 번들이 있는 저장소에서 루트에 둔 `AGENTS.md`, `CLAUDE.md`, `QWEN.md`는 번들에 포함되지 않습니다. Skul이 이 경우 경고를 표시합니다. 공유 지침은 `bundles/common/`에 넣으세요.
+
+### npm {/* #npm */}
+
+같은 구조를 패키지로 배포하고 `skul add npm:@you/react-skills`로 설치할 수 있습니다. `@1.2.0` 또는 `--ref next`를 사용하면 특정 버전이나 dist-tag에 고정할 수 있습니다. 비공개 레지스트리를 사용하려면 `SKUL_NPM_REGISTRY`와 `SKUL_NPM_TOKEN`을 설정하세요.
+
+## 다른 도구에서도 그대로 쓰는 루트 지침 {/* #root-instructions-travel */}
+
+`CLAUDE.md`를 제공하면 Codex에도 `AGENTS.md`로 전달되고, `AGENTS.md`를 제공하면 Claude Code에도 `CLAUDE.md`로 전달됩니다. Copilot에는 `.github/copilot-instructions.md`도 생성됩니다. 전체 매핑은 [지원 도구](/docs/tools#root-instruction-files)를 참고하세요.
+
+## 매니페스트(선택 사항) {/* #manifest-optional */}
+
+```json title="manifest.json"
+{
+  "root_instruction_mode": "replace"
+}
+```
+
+매니페스트에는 필요한 메타데이터만 추가하면 됩니다. Skul이 자동으로 파악할 수 있는 내용까지 적을 필요는 없습니다. `tools`를 선언하면 그 목록에 있는 도구에만 적용하므로, 루트 지침을 전달할 도구도 빠짐없이 명시해야 합니다. 여러 번들을 담은 저장소에서는 루트 매니페스트의 값을 기본값으로 쓰고, 각 번들의 매니페스트에서 이를 덮어쓸 수 있습니다. `name`은 화면에 표시할 이름일 뿐입니다. 번들을 식별할 때는 디렉터리 이름이나 저장소 이름을 사용합니다.
+
+## MCP 서버 {/* #mcp-servers */}
+
+[Agent Plugins](https://agent-plugins.org/specification) 스키마를 사용해 `mcp.json`에 서버를 한 번만 선언하세요.
+
+```json title="mcp.json"
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "docs": {
+      "type": "stdio",
+      "command": "docs-server",
+      "args": ["--root", "${PLUGIN_ROOT}/reference"],
+      "env": { "CACHE_DIR": "${PLUGIN_DATA}/cache" }
+    },
+    "remote": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp"
+    }
+  }
+}
+```
+
+Skul은 각 도구의 파일 형식과 구조에 맞춰 설정을 작성합니다. `${PLUGIN_ROOT}`는 캐시 안의 번들 디렉터리이고, `${PLUGIN_DATA}`는 `~/.skul/data/` 아래에 있는 번들별 디렉터리입니다. Skul이 이 디렉터리를 생성하지는 않습니다.
+
+Skul은 이 설정 파일을 통째로 관리하지 않고, 필요한 항목만 **병합**합니다.
+
+- 직접 설정한 서버, 다른 번들의 서버, 관련 없는 설정은 보존합니다.
+- `skul remove`는 해당 번들이 추가한 이름의 서버 설정만 제거합니다. 파일 자체를 삭제하는 것은 Skul이 만든 파일에 더 이상 내용이 남아 있지 않을 때뿐입니다.
+- 이미 선언된 이름의 서버를 다른 설정으로 바꾸지 않습니다. `skul add`는 아무것도 작성하기 전에 작업을 거부하고 해당 파일을 알려줍니다.
+- Codex의 `.codex/config.toml`은 파일 끝에 마커로 구분한 블록을 추가하는 방식으로 편집합니다. 나머지 부분은 바이트 단위까지 그대로 유지합니다.
+- 대상 파일이 Git에서 추적 중이라면 루트 지침처럼 섀도를 적용합니다. `opencode.json`이 이런 경우가 많습니다. 한 파일의 섀도는 한 번들만 관리할 수 있습니다.
+- Cline은 프로젝트별 MCP 적용 경로가 없으므로 `--global`을 사용할 때만 서버를 작성합니다.
+
+병합한 파일에는 내 컴퓨터의 절대 경로가 들어갑니다. 따라서 Skul이 직접 만들지 않은 파일이라도 제외 블록에 추가합니다.
+
+:::caution
+Claude Code는 실행 중에 `~/.claude.json`을 다시 작성합니다. `skul add|remove|reset --global`을 실행하기 전에 Claude Code를 종료하세요.
+:::
+
+## 다른 저장소의 항목 참조 {/* #reference-items-from-another-repo */}
+
+스킬을 번들에 복사하는 대신 원본을 참조할 수 있습니다. `skul.refs.json`을 추가하세요.
+
+```json title="skul.refs.json"
+{
+  "refs": [
+    { "target": "skills", "name": "insane-search", "source": "fivetaku/insane-search" },
+    { "target": "root-instruction", "source": "fivetaku/standards" }
+  ]
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `target` | **필수.** `skills`, `agents`, `commands`, `root-instruction` 중 하나 |
+| `name` | `root-instruction`을 제외하면 필수이며, 로컬 항목의 이름 |
+| `source` | **필수.** `skul add`가 받는 모든 원본 형식 사용 가능 |
+| `bundle` | `source`에 해당 항목을 가진 번들이 여러 개 있을 때 필요 |
+| `item` | 원격 항목 선택자. 예: `skills/other-name`. 기본값은 `target`과 `name`으로 결정 |
+| `ref` | 가져올 브랜치, 태그 또는 커밋 |
+| `path` | 루트 지침 참조의 로컬 경로. 예: `AGENTS.md` |
+| `sourcePath` | 중첩된 마켓플레이스나 번들이 들어 있는 `source`의 하위 디렉터리 |
+| `description` | 스킬, 명령어, 에이전트에 사용할 한 줄 설명으로 교체 |
+| `disable-model-invocation` | 스킬 참조에서 사용자가 요청할 때만 실행하도록 강제 |
+
+참조로 가져온 원본도 일반 번들과 같은 캐시에 보관합니다. `.claude-plugin/marketplace.json`이 있는 저장소는 플러그인을 번들로 제공합니다. 이름이 충돌하면 플러그인에 선언된 `name`을 `bundle`로 사용하세요. 모노레포 안의 마켓플레이스라면 해당 마켓플레이스를 포함하는 디렉터리로 `sourcePath`를 지정하세요. Skul은 `sourcePath` 안에서만 항목을 찾습니다.

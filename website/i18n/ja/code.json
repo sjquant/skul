@@ -1,0 +1,161 @@
+{
+  "theme.colorToggle.ariaLabel.mode.system": {
+    "message": "システム設定"
+  },
+  "theme.IconExternalLink.ariaLabel": {
+    "message": "（新しいタブで開きます）"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.expandAriaLabel": {
+    "message": "メニューを展開"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.collapseAriaLabel": {
+    "message": "メニューを折りたたむ"
+  },
+  "theme.NotFound.p1": {
+    "message": "お探しのページは見つかりませんでした。"
+  },
+  "theme.NotFound.p2": {
+    "message": "このURLへのリンクが掲載されていたサイトの管理者に、リンクが切れていることをお知らせください。"
+  },
+  "home.title": {
+    "message": "自分のAI設定を、Gitに残さずに"
+  },
+  "home.description": {
+    "message": "AIスキル、サブエージェント、指示、MCPサーバーを1つのバンドルで管理し、Gitに変更を残さず、どのプロジェクトでも使えます。"
+  },
+  "home.lead": {
+    "message": "リポジトリごとにAI設定をコピーする必要はありません。スキル、サブエージェント、指示、MCPサーバーを1つのバンドルにまとめ、任意のプロジェクトに適用できます。{count}種類のコーディングツールで使っても、{status}はクリーンなままです。"
+  },
+  "home.translateLayout": {
+    "message": "設定を書くのは一度だけです。Skulが各ツールに合わせて配置します。プロジェクト単位でも、{global}でグローバルにも適用できます。"
+  },
+  "home.otherTools": {
+    "message": "{tools}にも対応しています。"
+  },
+  "home.toolPaths": {
+    "message": "全{count}ツールの配置先を見る →"
+  },
+  "home.trackedInstructions": {
+    "message": "すでに{file}をコミットしていますか？ Skulはローカルのコピーに自分の指示を追記します。ツールはチームと自分の指示を両方読み取り、ほかのメンバーには差分が見えません。アップストリームの変更を取り込むときは{sync}を使います。"
+  },
+  "home.exclude": {
+    "message": "Skulは書き込んだファイルを{exclude}に登録し、{ignore}には触れません。バンドルを削除すると、元のファイルに戻ります。"
+  },
+  "home.exampleBundle": {
+    "message": "{bundle}は公開サンプルのバンドルです。いつでも自分のリポジトリに置き換えられます。"
+  },
+  "home.label": {
+    "message": "AIコーディングツール向けのオープンソースCLI"
+  },
+  "home.heroFirst": {
+    "message": "自分のAI設定を、"
+  },
+  "home.heroSecond": {
+    "message": "Gitに残さずに。"
+  },
+  "home.apply": {
+    "message": "最初のバンドルを適用する"
+  },
+  "home.github": {
+    "message": "GitHubで見る"
+  },
+  "home.source": {
+    "message": "設定の管理は1か所で"
+  },
+  "home.everywhere": {
+    "message": "バンドル1つで、コーディングするすべての場所に。"
+  },
+  "home.bundle": {
+    "message": "自分のSkulバンドル"
+  },
+  "home.shared": {
+    "message": "共有リポジトリでも"
+  },
+  "home.rulesFirst": {
+    "message": "チームの指示に、"
+  },
+  "home.rulesSecond": {
+    "message": "自分のルールを重ねる。"
+  },
+  "home.trackedLink": {
+    "message": "追跡中の指示ファイルの仕組み →"
+  },
+  "home.team": {
+    "message": "チームの指示"
+  },
+  "home.committed": {
+    "message": "リポジトリにコミット済み"
+  },
+  "home.layer": {
+    "message": "自分の指示"
+  },
+  "home.local": {
+    "message": "自分のバンドルから、ローカルにだけ適用"
+  },
+  "home.reads": {
+    "message": "コーディングツールが読む内容"
+  },
+  "home.both": {
+    "message": "両方の指示を読み取り、Gitには変更なし"
+  },
+  "home.safe": {
+    "message": "気軽に試せます"
+  },
+  "home.commit": {
+    "message": "コミットは不要。"
+  },
+  "home.undo": {
+    "message": "元に戻すのも簡単です。"
+  },
+  "home.howLink": {
+    "message": "Gitに変更を残さない仕組みを見る →"
+  },
+  "home.toolsSee": {
+    "message": "ツールから見えるファイル"
+  },
+  "home.gitSees": {
+    "message": "Gitから見えるファイル"
+  },
+  "home.try": {
+    "message": "次のプロジェクトで試してみませんか。"
+  },
+  "home.requirements": {
+    "message": "Node.js 20以降とGitが必要です。"
+  },
+  "home.quickstart": {
+    "message": "クイックスタートを読む"
+  },
+  "home.write": {
+    "message": "自分のバンドルを作成する"
+  },
+  "seo.software.description": {
+    "message": "自分のAI設定を、Gitに残さずに。共有スキル、サブエージェント、指示、MCPサーバーをコーディングツールに適用します。"
+  },
+  "seo.software.requirements": {
+    "message": "Node.js 20以降とGit。"
+  },
+  "seo.keywords": {
+    "message": "共有AIバンドル, AIバンドルCLI, Claude Codeスキル, Cursorスキル, Codexエージェント, OpenCodeエージェント, Copilotスキル, Kiroエージェント, AIワークフローCLI"
+  },
+  "seo.socialImageAlt": {
+    "message": "skul：自分のAI設定を、Gitに残さずに"
+  },
+  "howto.install.name": {
+    "message": "インストール"
+  },
+  "howto.install.text": {
+    "message": "npm install --global @solaqua/skul\n\nNode.js 20以降とGitが必要です。"
+  },
+  "howto.apply.name": {
+    "message": "バンドルを適用する"
+  },
+  "howto.apply.text": {
+    "message": "Gitプロジェクトのディレクトリで実行します。\n\nskul add sjquant/ghosts writing\n\nこのコマンドは公開サンプルのバンドルを適用します。Skulはsjquant/ghostsを~/.skul/library/にクローンし、対象のツールを確認してから、writingバンドルのファイルを配置し、.git/info/excludeに登録します。git statusで確認しても、変更は表示されません。"
+  },
+  "howto.use.name": {
+    "message": "使ってみる"
+  },
+  "howto.use.text": {
+    "message": "プロジェクトでコーディングツールを開くと、バンドルのスキルをすぐに使えます。たとえばClaude Codeでは、/ghosts:rewriteを実行します。"
+  }
+}

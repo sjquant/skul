@@ -1,4 +1,5 @@
 import Link from "@docusaurus/Link";
+import Translate, { translate } from "@docusaurus/Translate";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import SeoTitle from "@site/src/components/SeoTitle";
 import StructuredData from "@site/src/components/StructuredData";
@@ -21,12 +22,18 @@ const TOOL_COUNT = OTHER_TOOLS.length + 4;
 
 export default function Home(): ReactNode {
   const { siteConfig } = useDocusaurusContext();
-  const title = "Your AI setup, kept out of Git";
-  const description =
-    "Keep AI skills, subagents, instructions, and MCP servers in one bundle and use it in any project without Git noise.";
+  const title = translate({
+    id: "home.title",
+    message: "Your AI setup, kept out of Git",
+  });
+  const description = translate({
+    id: "home.description",
+    message:
+      "Keep AI skills, subagents, instructions, and MCP servers in one bundle and use it in any project without Git noise.",
+  });
   return (
     <Layout title={title} description={description}>
-      <SeoTitle title={title} />
+      <SeoTitle title={title} description={description} />
       <StructuredData
         title={title}
         description={description}
@@ -37,28 +44,39 @@ export default function Home(): ReactNode {
           <div className={styles.inner}>
             <div>
               <p className={styles.label}>
-                Open-source CLI for AI coding tools
+                <Translate id="home.label">
+                  Open-source CLI for AI coding tools
+                </Translate>
               </p>
               <h1>
-                Your AI setup,
+                <Translate id="home.heroFirst">Your AI setup,</Translate>
                 <br />
-                kept out of Git.
+                <Translate id="home.heroSecond">kept out of Git.</Translate>
               </h1>
               <p className={styles.lead}>
-                Stop copying AI config between repos. Keep skills, subagents,
-                instructions, and MCP servers in one bundle, then add it to any
-                project for {TOOL_COUNT} coding tools with a clean{" "}
-                <code>git status</code>.
+                <Translate
+                  id="home.lead"
+                  values={{
+                    count: TOOL_COUNT,
+                    status: <code>git status</code>,
+                  }}
+                >
+                  {
+                    "Stop copying AI config between repos. Keep skills, subagents, instructions, and MCP servers in one bundle, then add it to any project for {count} coding tools with a clean {status}."
+                  }
+                </Translate>
               </p>
               <div className={styles.actions}>
                 <Link className={styles.primary} to="/docs/intro">
-                  Apply your first bundle <span aria-hidden="true">→</span>
+                  <Translate id="home.apply">Apply your first bundle</Translate>{" "}
+                  <span aria-hidden="true">→</span>
                 </Link>
                 <Link
                   className={styles.secondary}
                   href="https://github.com/sjquant/skul"
                 >
-                  View on GitHub <span aria-hidden="true">↗</span>
+                  <Translate id="home.github">View on GitHub</Translate>{" "}
+                  <span aria-hidden="true">↗</span>
                 </Link>
               </div>
             </div>
@@ -86,12 +104,23 @@ export default function Home(): ReactNode {
         <section className={styles.section}>
           <div className={styles.container}>
             <div className={styles.centerHeading}>
-              <p className={styles.label}>From a single source</p>
-              <h2>One bundle. Everywhere you code.</h2>
+              <p className={styles.label}>
+                <Translate id="home.source">From a single source</Translate>
+              </p>
+              <h2>
+                <Translate id="home.everywhere">
+                  One bundle. Everywhere you code.
+                </Translate>
+              </h2>
               <p>
-                Write your setup once. Skul translates it into the layout each
-                tool expects, per project or globally with <code>--global</code>
-                .
+                <Translate
+                  id="home.translateLayout"
+                  values={{ global: <code>--global</code> }}
+                >
+                  {
+                    "Write your setup once. Skul translates it into the layout each tool expects, per project or globally with {global}."
+                  }
+                </Translate>
               </p>
             </div>
             <div className={styles.bundleDiagram}>
@@ -143,7 +172,7 @@ export default function Home(): ReactNode {
               <div className={styles.bundle}>
                 <strong>
                   <Logo />
-                  Your Skul bundle
+                  <Translate id="home.bundle">Your Skul bundle</Translate>
                 </strong>
                 <BundleItem name="skills/" />
                 <BundleItem name="agents/" />
@@ -156,11 +185,18 @@ export default function Home(): ReactNode {
               </div>
             </div>
             <p className={styles.alsoWorks}>
-              Also works with {OTHER_TOOLS.join(", ")}.
+              <Translate
+                id="home.otherTools"
+                values={{ tools: OTHER_TOOLS.join(", ") }}
+              >
+                {"Also works with {tools}."}
+              </Translate>
             </p>
             <p className={styles.centerLink}>
               <Link to="/docs/tools">
-                See paths for all {TOOL_COUNT} tools →
+                <Translate id="home.toolPaths" values={{ count: TOOL_COUNT }}>
+                  {"See paths for all {count} tools →"}
+                </Translate>
               </Link>
             </p>
           </div>
@@ -169,44 +205,75 @@ export default function Home(): ReactNode {
         <section className={styles.section}>
           <div className={`${styles.inner} ${styles.highlight}`}>
             <div>
-              <p className={styles.label}>For shared repos</p>
+              <p className={styles.label}>
+                <Translate id="home.shared">For shared repos</Translate>
+              </p>
               <h2>
-                Your rules, on top
+                <Translate id="home.rulesFirst">Your rules, on top</Translate>
                 <br />
-                of the team's.
+                <Translate id="home.rulesSecond">of the team's.</Translate>
               </h2>
               <p className={styles.body}>
-                Already commit an <code>AGENTS.md</code>? Skul adds your
-                instructions to your local copy. Your tools read both, and your
-                teammates see no diff. Pull with <code>skul sync</code> to pick
-                up upstream changes.
+                <Translate
+                  id="home.trackedInstructions"
+                  values={{
+                    file: <code>AGENTS.md</code>,
+                    sync: <code>skul sync</code>,
+                  }}
+                >
+                  {
+                    "Already commit an {file}? Skul adds your instructions to your local copy. Your tools read both, and your teammates see no diff. Pull with {sync} to pick up upstream changes."
+                  }
+                </Translate>
               </p>
               <Link
                 className={styles.textLink}
                 to="/docs/how-it-works#tracked-the-shadow"
               >
-                How tracked instructions work →
+                <Translate id="home.trackedLink">
+                  How tracked instructions work →
+                </Translate>
               </Link>
             </div>
             <div className={styles.layers}>
               <div>
                 <LayerIcon kind="team" />
-                <strong>Team instructions</strong>
-                <small>Committed to the repo</small>
+                <strong>
+                  <Translate id="home.team">Team instructions</Translate>
+                </strong>
+                <small>
+                  <Translate id="home.committed">
+                    Committed to the repo
+                  </Translate>
+                </small>
               </div>
               <span aria-hidden="true">+</span>
               <div>
                 <LayerIcon kind="person" />
-                <strong>Your layer</strong>
-                <small>From your bundle, local to you</small>
+                <strong>
+                  <Translate id="home.layer">Your layer</Translate>
+                </strong>
+                <small>
+                  <Translate id="home.local">
+                    From your bundle, local to you
+                  </Translate>
+                </small>
               </div>
               <span aria-hidden="true">↓</span>
               <div>
                 <span className={styles.layerIcon}>
                   <Logo />
                 </span>
-                <strong>What your coding tool reads</strong>
-                <small>Both, with no change in Git</small>
+                <strong>
+                  <Translate id="home.reads">
+                    What your coding tool reads
+                  </Translate>
+                </strong>
+                <small>
+                  <Translate id="home.both">
+                    Both, with no change in Git
+                  </Translate>
+                </small>
               </div>
             </div>
           </div>
@@ -215,24 +282,38 @@ export default function Home(): ReactNode {
         <section className={styles.section}>
           <div className={styles.inner}>
             <div>
-              <p className={styles.label}>Safe to try</p>
+              <p className={styles.label}>
+                <Translate id="home.safe">Safe to try</Translate>
+              </p>
               <h2>
-                Nothing to commit.
+                <Translate id="home.commit">Nothing to commit.</Translate>
                 <br />
-                Easy to undo.
+                <Translate id="home.undo">Easy to undo.</Translate>
               </h2>
               <p className={styles.body}>
-                Skul lists what it writes in <code>.git/info/exclude</code>,
-                never <code>.gitignore</code>. Remove a bundle and your original
-                files come back.
+                <Translate
+                  id="home.exclude"
+                  values={{
+                    exclude: <code>.git/info/exclude</code>,
+                    ignore: <code>.gitignore</code>,
+                  }}
+                >
+                  {
+                    "Skul lists what it writes in {exclude}, never {ignore}. Remove a bundle and your original files come back."
+                  }
+                </Translate>
               </p>
               <Link className={styles.textLink} to="/docs/how-it-works">
-                See how it stays out of Git →
+                <Translate id="home.howLink">
+                  See how it stays out of Git →
+                </Translate>
               </Link>
             </div>
             <div className={styles.fileTrees}>
               <div>
-                <strong>What your tools see</strong>
+                <strong>
+                  <Translate id="home.toolsSee">What your tools see</Translate>
+                </strong>
                 <pre>
                   {
                     "my-project/\n  .agents/skills/\n  .claude/skills/\n  .cursor/skills/\n  src/\n  README.md"
@@ -240,7 +321,9 @@ export default function Home(): ReactNode {
                 </pre>
               </div>
               <div>
-                <strong>What Git sees</strong>
+                <strong>
+                  <Translate id="home.gitSees">What Git sees</Translate>
+                </strong>
                 <pre>{"my-project/\n  src/\n  README.md"}</pre>
               </div>
             </div>
@@ -249,8 +332,14 @@ export default function Home(): ReactNode {
 
         <section className={`${styles.section} ${styles.final}`}>
           <div className={styles.centerHeading}>
-            <h2>Try it in your next project.</h2>
-            <p>Needs Node.js 20+ and Git.</p>
+            <h2>
+              <Translate id="home.try">Try it in your next project.</Translate>
+            </h2>
+            <p>
+              <Translate id="home.requirements">
+                Needs Node.js 20+ and Git.
+              </Translate>
+            </p>
             <Terminal>
               <span className={styles.prompt}>$</span> npm install --global
               @solaqua/skul{"\n"}
@@ -258,15 +347,22 @@ export default function Home(): ReactNode {
               writing
             </Terminal>
             <p>
-              <code>writing</code> is a public example bundle. Swap in your own
-              repo at any time.
+              <Translate
+                id="home.exampleBundle"
+                values={{ bundle: <code>writing</code> }}
+              >
+                {
+                  "{bundle} is a public example bundle. Swap in your own repo at any time."
+                }
+              </Translate>
             </p>
             <div className={styles.actions}>
               <Link className={styles.primary} to="/docs/intro">
-                Read the quick start <span aria-hidden="true">→</span>
+                <Translate id="home.quickstart">Read the quick start</Translate>{" "}
+                <span aria-hidden="true">→</span>
               </Link>
               <Link className={styles.secondary} to="/docs/bundles">
-                Write your own bundle
+                <Translate id="home.write">Write your own bundle</Translate>
               </Link>
             </div>
           </div>

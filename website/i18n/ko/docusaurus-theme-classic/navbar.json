@@ -1,0 +1,18 @@
+{
+  "logo.alt": {
+    "message": "skul 로고",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.Docs": {
+    "message": "문서",
+    "description": "Navbar item with label Docs"
+  },
+  "item.label.Commands": {
+    "message": "명령어",
+    "description": "Navbar item with label Commands"
+  },
+  "item.label.Tools": {
+    "message": "지원 도구",
+    "description": "Navbar item with label Tools"
+  }
+}

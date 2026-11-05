@@ -1,0 +1,54 @@
+---
+title: 対応ツール
+slug: /tools
+description: 各コーディングツールでskulがファイルを書き込む場所を説明します。
+---
+
+# 対応ツール
+
+`--agent <id>`で対象のツールを指定します。複数のツールを選ぶ場合は、このオプションを繰り返し指定してください。
+
+| ツール | `--agent` | スキル | コマンド | エージェント | 指示 | MCP |
+|---|---|---|---|---|---|---|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude-code` | `.claude/skills` | `.claude/commands` | `.claude/agents` | `CLAUDE.md` | `.mcp.json` |
+| [Cursor](https://cursor.sh) | `cursor` | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `AGENTS.md` | `.cursor/mcp.json` |
+| [Codex](https://openai.com/index/openai-codex) | `codex` | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | `.codex/config.toml` |
+| [OpenCode](https://opencode.ai) | `opencode` | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `AGENTS.md` | `opencode.json` |
+| [GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli) | `copilot` | `.github/skills` | — | `.github/agents` | `AGENTS.md` | `.github/mcp.json` |
+| [Kiro](https://kiro.dev) | `kiro` | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
+| [Antigravity CLI](https://antigravity.google/) | `antigravity` | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
+| [Grok Build](https://docs.x.ai/build/overview) | `grok` | `.grok/skills` | — | `.grok/agents` | `AGENTS.md` | `.grok/config.toml` |
+| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/) | `qwen` | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
+| [Cline](https://docs.cline.bot/) | `cline` | `.cline/skills` | — | — | `AGENTS.md` | グローバルのみ |
+| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/) | `kimi` | `.kimi-code/skills` | — | `.kimi-code/agents` | `AGENTS.md` | `.kimi-code/mcp.json` |
+| [ZCode](https://zcode.z.ai/en/docs/welcome) | `zcode` | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | `.zcode/config.json` |
+
+Grok BuildとKimi Code CLIでは、スキルがスラッシュコマンドとして公開されます。そのため、`skills/`に配置してください。
+
+`--agent`で選ぶのはモデルではなくコーディングツールです。DeepSeekを使う場合は、CodexまたはOpenCodeの中で設定し、そのツールを対象に指定してください。
+
+## ルートの指示ファイル {/* #root-instruction-files */}
+
+| ファイル | 読み取るツール |
+|---|---|
+| `CLAUDE.md` | Claude Code |
+| `AGENTS.md` | Cursor, Codex, OpenCode, Copilot, Kiro, Antigravity, Grok Build, Cline, Kimi Code CLI, ZCode |
+| `QWEN.md` | Qwen Code |
+| `.github/copilot-instructions.md` | Copilot |
+
+バンドルには、このうち1つを含めれば十分です。内容を変更せずにほかのツールでも使える場合、Skulは同じ本文を残りのファイルにも使います。
+
+## グローバルインストール {/* #global-installs */}
+
+`--global`を指定すると、プロジェクトではなく`~`の下に書き込みます。ほとんどのツールでは相対パスが同じですが、次の例外があります。
+
+| ツール | グローバルの配置先 |
+|---|---|
+| Antigravity CLI | `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, `~/.gemini/GEMINI.md` |
+| Cline | `~/.agents/AGENTS.md`; MCP設定： `~/.cline/data/settings/cline_mcp_settings.json` |
+| Kimi Code CLI | `~/.kimi-code/skills`, `~/.kimi-code/agents`, `~/.kimi-code/AGENTS.md` |
+| ZCode | `~/.zcode/skills`, `~/.zcode/commands`, `~/.zcode/AGENTS.md` （サブエージェントは含みません。ZCodeのドキュメントではユーザースコープのみに制限されています） |
+
+## Copilot {/* #copilot */}
+
+`copilot`はCopilot CLIと、その基盤となるAgent Hostを指します。リポジトリ内の設定ファイルはVS CodeのCopilotも読み取り、`~/.copilot/skills`も読み取るため、1回のインストールで両方に適用できます。Skulは`.vscode/mcp.json`には書き込みません。このファイルはVS Codeチャット専用で、形式も異なります。
