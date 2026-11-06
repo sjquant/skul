@@ -43,12 +43,21 @@ const fallbackCopy = {
     home: "日本語ホーム",
     docs: "はじめに",
   },
+  "zh-Hans": {
+    title: "找不到页面",
+    description: "找不到你要访问的页面。",
+    help: "如果你是从其他网站的链接来到这里，请通知该网站的管理员更新链接。",
+    languages: "选择语言",
+    home: "中文首页",
+    docs: "快速开始",
+  },
 };
 
-function LocalizedFallback({ locale }: { locale: "ko" | "ja" }) {
+function LocalizedFallback({ locale }: { locale: "ko" | "ja" | "zh-Hans" }) {
   const { siteConfig, i18n } = useDocusaurusContext();
   const { pathname, search, hash } = useLocation();
   const baseUrl = i18n.localeConfigs[locale].baseUrl;
+  const htmlLang = i18n.localeConfigs[locale].htmlLang;
   const copy = fallbackCopy[locale];
   const canonicalUrl = new URL(pathname, siteConfig.url).href;
   const title = `${siteConfig.title} | ${copy.title}`;
@@ -72,6 +81,7 @@ function LocalizedFallback({ locale }: { locale: "ko" | "ja" }) {
     }
     return {
       locale: targetLocale,
+      language: targetConfig.htmlLang,
       label: targetConfig.label,
       path,
       url: new URL(path, home).href,
@@ -84,7 +94,7 @@ function LocalizedFallback({ locale }: { locale: "ko" | "ja" }) {
   return (
     <>
       <Head>
-        <html lang={locale} />
+        <html lang={htmlLang} />
         <title>{title}</title>
         <meta name="robots" content="noindex, follow" />
         <meta name="description" content={copy.description} />
@@ -98,28 +108,36 @@ function LocalizedFallback({ locale }: { locale: "ko" | "ja" }) {
           <link
             key={target.locale}
             rel="alternate"
-            hrefLang={target.locale}
+            hrefLang={target.language}
             href={target.locale === locale ? canonicalUrl : target.url}
           />
         ))}
         <link rel="alternate" hrefLang="x-default" href={defaultUrl} />
       </Head>
       <OpenGraphLocale locale={locale} />
-      <main lang={locale} className="container margin-vert--xl">
+      <main lang={htmlLang} className="container margin-vert--xl">
         <nav aria-label={copy.languages}>
-          {counterparts.map((target) => (
-            <span key={target.locale} className="margin-right--sm">
-              {target.locale === locale ? (
-                <span lang={locale} aria-current="page">
-                  {target.label}
-                </span>
-              ) : (
-                <a lang={target.locale} href={`${target.path}${search}${hash}`}>
-                  {target.label}
-                </a>
-              )}
-            </span>
-          ))}
+          <details>
+            <summary>{i18n.localeConfigs[locale].label}</summary>
+            <ul>
+              {counterparts.map((target) => (
+                <li key={target.locale}>
+                  {target.locale === locale ? (
+                    <span lang={htmlLang} aria-current="page">
+                      {target.label}
+                    </span>
+                  ) : (
+                    <a
+                      lang={target.language}
+                      href={`${target.path}${search}${hash}`}
+                    >
+                      {target.label}
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
         </nav>
         <h1 className="hero__title">{copy.title}</h1>
         <p>{copy.description}</p>

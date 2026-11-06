@@ -1,0 +1,72 @@
+---
+title: 命令参考
+slug: /commands
+description: skul 的全部命令、选项和环境变量。
+---
+
+# 命令参考
+
+| 命令 | 作用 |
+|---|---|
+| [`add`](#add) | 按需获取配置包，再将文件写入项目 |
+| `list` | 列出缓存中的配置包，可用 `--source <source>` 筛选 |
+| `status` | 对比预期配置与实际写入状态 |
+| `remove [source] [bundle]` | 删除配置包管理的文件；`--all` 表示全部移除 |
+| `apply` | 将所有预期配置包写入当前工作树 |
+| `check [bundle]` | 以只读方式检查上游更新 |
+| `update [bundle]` | 将配置包更新到上游最新版本 |
+| `sync` | 暂停影子副本，执行 `git pull --ff-only`，再重新应用 |
+| `shadow` | 用 `--suspend` 或 `--refresh` 手动管理已跟踪文件的影子副本 |
+| `reset` | 移除 Skul 在当前位置管理的全部内容 |
+
+## 通用选项 {/* #common-flags */}
+
+| 选项 | 适用命令 | 作用 |
+|---|---|---|
+| `-n, --dry-run` | 会修改状态的命令 | 预览结果，不做修改 |
+| `-y, --yes` | `add` `remove` `apply` `update` `reset` | 确认覆盖和移除提示 |
+| `-j, --json` | `list` `status` `check` `remove` `reset` | 输出可供程序读取的数据 |
+| `-g, --global` | `add` `remove` `apply` `status` `reset` | 操作 `~` 下的工具配置，而不是项目配置 |
+
+会修改状态的命令在 `--json` 模式下输出 `{ "output": "…", "warnings": [] }`。设置 `SKUL_NO_TUI=1` 可以关闭所有交互提示，脚本和代理应使用这一设置。
+
+## add {/* #add */}
+
+```text
+skul add [options] [source] [bundle]
+```
+
+`source` 可以是 `github.com/owner/repo`、`owner/repo`、`git@github.com:owner/repo` 这样的 SSH URL，或 `npm:@scope/package`。若省略 `source`，会在不访问网络的情况下，重新应用缓存中可按名称唯一确定的配置包。单配置包仓库可以省略 `bundle`；在多配置包仓库中省略时，会显示选择界面。
+
+| 选项 | 作用 |
+|---|---|
+| `-a, --agent <id>` | 指定一个目标工具，可重复使用以选择多个工具。省略时，Skul 会询问要应用到配置包支持的哪些工具；如果可选工具不止一个且设置了 `SKUL_NO_TUI=1`，操作会失败。 |
+| `--ref <selector>` | 跟踪分支、标签或提交，而不是 `HEAD`；npm 来源则使用版本或 dist-tag。`apply` 会保留此选择。 |
+| `--include <item>` | 只安装指定条目，可重复使用：`skills/<name>`、`commands/<name>`、`agents/<name>`、`root-instruction`、`mcp`。 |
+| `--select-items` | 交互式选择条目。 |
+| `--all` | 应用来源中的全部配置包。 |
+| `-s, --ssh` | 使用 SSH 克隆；`git@` URL 自动启用此选项。`apply` 会保留此选择。 |
+| `--root-instruction-mode <mode>` | 使用 `append`（默认）或 `replace`。 |
+| `--disable-model-invocation` | 将所有技能设为仅在用户明确请求时运行。 |
+
+```bash
+skul add sjquant/ghosts writing --ref main
+skul add writing --agent codex --include skills/rewrite
+skul add npm:@you/react-skills@1.2.0   # your own package
+```
+
+SSH 验证失败时，Skul 会输出对应的 HTTPS 命令。
+
+## 环境变量 {/* #environment */}
+
+| 变量 | 作用 |
+|---|---|
+| `SKUL_NO_TUI` | 设为 `1` 时禁用提示，需要确认的操作会失败 |
+| `SKUL_NPM_REGISTRY` | `npm:` 来源使用的注册表；未设置时依次使用 `npm_config_registry`、npmjs.org |
+| `SKUL_NPM_TOKEN` | Bearer 令牌，只发送到该注册表的同源地址 |
+
+## 保持更新 {/* #staying-current */}
+
+`skul check` 显示上游的变更，`skul update` 应用这些变更。`latest` 这样的 dist-tag 会持续跟踪该标签指向的版本；精确版本号则固定在该版本。不支持 semver 版本范围。
+
+对于 Git 已跟踪的 `AGENTS.md`、`CLAUDE.md`，拉取更新时应使用 `skul sync`。详见[不在 Git 中留下变更的原理](/docs/how-it-works#tracked-the-shadow)。

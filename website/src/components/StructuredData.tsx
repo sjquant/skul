@@ -22,6 +22,7 @@ export default function StructuredData({
   steps?: HowToStep[];
 }) {
   const { siteConfig, i18n } = useDocusaurusContext();
+  const language = i18n.localeConfigs[i18n.currentLocale].htmlLang;
   const siteUrl = new URL(siteConfig.baseUrl, siteConfig.url).href;
   const defaultLocale = i18n.localeConfigs[i18n.defaultLocale];
   const canonicalSiteUrl = new URL(defaultLocale.baseUrl, defaultLocale.url)
@@ -44,7 +45,7 @@ export default function StructuredData({
         message: "Your AI setup, kept out of Git",
       }),
       url: siteUrl,
-      inLanguage: i18n.currentLocale,
+      inLanguage: language,
       publisher: { "@id": authorId },
       about: { "@id": softwareId },
     },
@@ -93,7 +94,7 @@ export default function StructuredData({
       name: title,
       description,
       url: pageUrl,
-      inLanguage: i18n.currentLocale,
+      inLanguage: language,
       isPartOf: { "@id": websiteId },
       about: { "@id": softwareId },
       mainEntity: { "@id": article ? articleId : softwareId },
@@ -107,7 +108,7 @@ export default function StructuredData({
             name: title,
             description,
             url: pageUrl,
-            inLanguage: i18n.currentLocale,
+            inLanguage: language,
             isPartOf: { "@id": websiteId },
             mainEntityOfPage: { "@id": `${pageUrl}#webpage` },
             about: { "@id": softwareId },
@@ -117,7 +118,7 @@ export default function StructuredData({
                   step: steps.map((step) => ({
                     "@type": "HowToStep",
                     "@id": new URL(step.url, pageUrl).href,
-                    inLanguage: i18n.currentLocale,
+                    inLanguage: language,
                     ...step,
                     url: new URL(step.url, pageUrl).href,
                   })),

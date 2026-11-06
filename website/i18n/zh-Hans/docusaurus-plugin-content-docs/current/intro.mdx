@@ -1,0 +1,59 @@
+---
+title: 快速开始
+slug: /intro
+description: 安装 skul，并在项目中应用第一个配置包。
+---
+
+# 快速开始
+
+Skul 将技能、命令、代理、指令和 MCP 服务器打包成可共享的**配置包**，再应用到项目中。它会按照各个 AI 编程工具要求的目录结构放置文件，并让这些配置不出现在 Git 的变更列表中。
+
+## 安装 {/* #install */}
+
+```bash
+npm install --global @solaqua/skul
+```
+
+需要 Node.js 20 或更高版本，以及 Git。
+
+## 应用配置包 {/* #apply-a-bundle */}
+
+在 Git 项目目录中运行：
+
+```bash
+skul add sjquant/ghosts writing
+```
+
+这条命令使用的是公开示例配置包。Skul 会将 `sjquant/ghosts` 克隆到 `~/.skul/library/`，询问要应用到哪些工具，然后写入 `writing` 配置包的文件，并在 `.git/info/exclude` 中登记。此时运行 `git status`，不会看到新增变更。
+
+## 开始使用 {/* #use-it */}
+
+在项目中打开编程工具，就能使用配置包里的技能。例如，在 Claude Code 中运行 `/ghosts:rewrite`。
+
+## 换成自己的配置 {/* #make-it-yours */}
+
+[创建自己的配置包](/docs/bundles#your-first-bundle)，再用相同的方法添加。也可以只安装需要的工具配置或条目：
+
+```bash
+skul add writing --agent codex                       # one tool
+skul add writing --include skills/rewrite            # one item
+skul add writing --ref main                          # a branch, tag, or commit
+```
+
+## 日常使用 {/* #keep-going */}
+
+```bash
+skul status     # what is applied, and where
+skul update     # pull newer bundle revisions
+skul remove writing
+```
+
+新建工作树时不必重新选择配置。Skul 会记住这个仓库需要哪些配置，运行一条命令就能在新工作树中应用同一套设置：
+
+```bash
+git worktree add ../my-feature
+cd ../my-feature
+skul apply
+```
+
+如果仓库已经提交了自己的 `AGENTS.md` 或 `CLAUDE.md`，请先阅读[已跟踪指令文件的处理方式](/docs/how-it-works#root-instructions)，再添加配置包。
