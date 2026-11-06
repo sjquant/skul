@@ -1,0 +1,167 @@
+{
+  "theme.colorToggle.ariaLabel.mode.system": {
+    "message": "跟随系统"
+  },
+  "theme.IconExternalLink.ariaLabel": {
+    "message": "（在新标签页中打开）"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.expandAriaLabel": {
+    "message": "展开菜单"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.collapseAriaLabel": {
+    "message": "收起菜单"
+  },
+  "theme.NotFound.title": {
+    "message": "找不到页面"
+  },
+  "theme.NotFound.p1": {
+    "message": "找不到你要访问的页面。"
+  },
+  "theme.NotFound.p2": {
+    "message": "如果你是从其他网站的链接来到这里，请通知该网站的管理员更新链接。"
+  },
+  "home.title": {
+    "message": "在不同项目中复用 AI 配置"
+  },
+  "home.description": {
+    "message": "将常用的 AI 技能和指令整理成配置包，在需要的项目中使用。Skul 按各工具的目录结构写入文件，并通过本地 Git 规则让个人配置不纳入 Git 提交。"
+  },
+  "home.label": {
+    "message": "AI 编程工具的个人配置管理"
+  },
+  "home.heroFirst": {
+    "message": "常用 AI 配置，"
+  },
+  "home.heroSecond": {
+    "message": "换项目接着用"
+  },
+  "home.lead": {
+    "message": "不必为每个项目手动复制技能和指令。将它们整理成配置包后，就能在不同项目中复用。Skul 支持 {count} 种编程工具，按各工具要求放置文件，让个人配置不出现在 {status} 的变更列表中。"
+  },
+  "home.apply": {
+    "message": "安装与使用"
+  },
+  "home.github": {
+    "message": "GitHub 仓库"
+  },
+  "home.source": {
+    "message": "适配工具的目录结构"
+  },
+  "home.everywhere": {
+    "message": "同一份配置包，写入各工具需要的位置。"
+  },
+  "home.translateLayout": {
+    "message": "Claude Code、Codex 等工具支持的条目类型和文件路径各不相同，Skul 会将配置包中受支持的内容写入对应位置。可以按项目添加，也可以用 {global} 应用到用户主目录下。"
+  },
+  "home.otherTools": {
+    "message": "也支持 {tools}。"
+  },
+  "home.toolPaths": {
+    "message": "查看 {count} 种工具的配置路径 →"
+  },
+  "home.bundle": {
+    "message": "收集技能与指令的配置包"
+  },
+  "home.shared": {
+    "message": "在团队仓库中使用个人指令"
+  },
+  "home.rulesFirst": {
+    "message": "沿用团队指令，"
+  },
+  "home.rulesSecond": {
+    "message": "补充个人指令"
+  },
+  "home.trackedInstructions": {
+    "message": "在团队已经提交的 {file} 上，本地追加自己的指令。编程工具会同时读取两部分内容，而个人追加的内容不会显示为 Git 变更。拉取上游变更时使用 {sync}，不要直接编辑 Skul 管理的文件。"
+  },
+  "home.trackedLink": {
+    "message": "已提交的指令文件如何处理 →"
+  },
+  "home.team": {
+    "message": "团队共享的指令"
+  },
+  "home.committed": {
+    "message": "已经提交到仓库的文件"
+  },
+  "home.layer": {
+    "message": "自己追加的指令"
+  },
+  "home.local": {
+    "message": "来自个人配置包，只在本地应用"
+  },
+  "home.reads": {
+    "message": "编程工具读取的内容"
+  },
+  "home.both": {
+    "message": "团队指令和个人指令一起使用"
+  },
+  "home.safe": {
+    "message": "不纳入 Git 的方式"
+  },
+  "home.commit": {
+    "message": "个人配置留在本地，"
+  },
+  "home.undo": {
+    "message": "不必跟着代码提交。"
+  },
+  "home.exclude": {
+    "message": "个人配置会登记到 {exclude}，不会改动团队共享的 {ignore}。移除配置包时，Skul 会清理自己管理的配置，并恢复之前保留的原文件。"
+  },
+  "home.howLink": {
+    "message": "了解文件管理与移除方式 →"
+  },
+  "home.toolsSee": {
+    "message": "编程工具使用的文件"
+  },
+  "home.gitSees": {
+    "message": "Git 跟踪的文件"
+  },
+  "home.try": {
+    "message": "从公开示例了解使用方法"
+  },
+  "home.requirements": {
+    "message": "需要 Node.js 20 或更高版本，以及 Git。"
+  },
+  "home.exampleBundle": {
+    "message": "上面的命令会应用公开示例配置包 {bundle}。要使用自己的设置，可以指定按相同结构创建的配置包仓库。"
+  },
+  "home.quickstart": {
+    "message": "示例配置包的应用步骤"
+  },
+  "home.write": {
+    "message": "创建自己的配置包"
+  },
+  "seo.software.description": {
+    "message": "用于在不同项目中复用 AI 技能和指令的 CLI。配置按工具要求写入本地，并通过 Git 的本地规则排除个人变更。"
+  },
+  "seo.software.requirements": {
+    "message": "需要 Node.js 20 或更高版本，以及 Git。"
+  },
+  "seo.keywords": {
+    "message": "共享 AI 配置包, AI 配置 CLI, Claude Code 技能, Cursor 技能, Codex 代理, OpenCode 代理, Copilot 技能, Kiro 代理, AI 工作流 CLI"
+  },
+  "seo.socialImageAlt": {
+    "message": "skul：个人 AI 配置，不纳入 Git 提交"
+  },
+  "howto.install.name": {
+    "message": "安装"
+  },
+  "howto.install.text": {
+    "message": "npm install --global @solaqua/skul\n\n需要 Node.js 20 或更高版本，以及 Git。"
+  },
+  "howto.apply.name": {
+    "message": "应用配置包"
+  },
+  "howto.apply.text": {
+    "message": "在 Git 项目目录中运行：\n\nskul add sjquant/ghosts writing\n\n这条命令使用的是公开示例配置包。Skul 会将 sjquant/ghosts 克隆到 ~/.skul/library/，询问要应用到哪些工具，然后写入 writing 配置包的文件，并在 .git/info/exclude 中登记。此时运行 git status，不会看到新增变更。"
+  },
+  "howto.use.name": {
+    "message": "开始使用"
+  },
+  "howto.use.text": {
+    "message": "在项目中打开编程工具，就能使用配置包里的技能。例如，在 Claude Code 中运行 /ghosts:rewrite。"
+  },
+  "theme.docs.paginator.navAriaLabel": {
+    "message": "文档翻页导航"
+  }
+}

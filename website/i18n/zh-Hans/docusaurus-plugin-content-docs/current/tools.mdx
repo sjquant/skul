@@ -1,0 +1,54 @@
+---
+title: 支持的工具
+slug: /tools
+description: 查看 skul 为各编程工具写入文件的位置。
+---
+
+# 支持的工具
+
+使用 `--agent <id>` 选择目标工具，可重复指定以选择多个工具。
+
+| 工具 | `--agent` | 技能 | 命令 | 代理 | 指令 | MCP |
+|---|---|---|---|---|---|---|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude-code` | `.claude/skills` | `.claude/commands` | `.claude/agents` | `CLAUDE.md` | `.mcp.json` |
+| [Cursor](https://cursor.sh) | `cursor` | `.cursor/skills` | `.cursor/commands` | `.cursor/agents` | `AGENTS.md` | `.cursor/mcp.json` |
+| [Codex](https://openai.com/index/openai-codex) | `codex` | `.agents/skills` | — | `.codex/agents` | `AGENTS.md` | `.codex/config.toml` |
+| [OpenCode](https://opencode.ai) | `opencode` | `.opencode/skills` | `.opencode/commands` | `.opencode/agents` | `AGENTS.md` | `opencode.json` |
+| [GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli) | `copilot` | `.github/skills` | — | `.github/agents` | `AGENTS.md` | `.github/mcp.json` |
+| [Kiro](https://kiro.dev) | `kiro` | `.kiro/skills` | — | `.kiro/agents` | `AGENTS.md` | `.kiro/settings/mcp.json` |
+| [Antigravity CLI](https://antigravity.google/) | `antigravity` | `.agents/skills` | `.agent/workflows` | `.agents/agents` | `AGENTS.md` | `.agents/mcp_config.json` |
+| [Grok Build](https://docs.x.ai/build/overview) | `grok` | `.grok/skills` | — | `.grok/agents` | `AGENTS.md` | `.grok/config.toml` |
+| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/) | `qwen` | `.qwen/skills` | `.qwen/commands` | `.qwen/agents` | `QWEN.md` | `.qwen/settings.json` |
+| [Cline](https://docs.cline.bot/) | `cline` | `.cline/skills` | — | — | `AGENTS.md` | 仅全局 |
+| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/) | `kimi` | `.kimi-code/skills` | — | `.kimi-code/agents` | `AGENTS.md` | `.kimi-code/mcp.json` |
+| [ZCode](https://zcode.z.ai/en/docs/welcome) | `zcode` | `.zcode/skills` | `.zcode/commands` | — | `AGENTS.md` | `.zcode/config.json` |
+
+Grok Build 和 Kimi Code CLI 会将技能提供为斜杠命令，因此应放在 `skills/` 中。
+
+`--agent` 选择的是编程工具，而不是模型。要使用 DeepSeek，请在 Codex 或 OpenCode 中配置，再选择对应工具。
+
+## 根目录指令文件 {/* #root-instruction-files */}
+
+| 文件 | 使用该文件的工具 |
+|---|---|
+| `CLAUDE.md` | Claude Code |
+| `AGENTS.md` | Cursor, Codex, OpenCode, Copilot, Kiro, Antigravity, Grok Build, Cline, Kimi Code CLI, ZCode |
+| `QWEN.md` | Qwen Code |
+| `.github/copilot-instructions.md` | Copilot |
+
+配置包只需提供其中一个文件。只要正文无需修改就能供其他工具使用，Skul 会将同一份内容用于其他文件。
+
+## 全局安装 {/* #global-installs */}
+
+`--global` 会将文件写入 `~` 下，而不是项目中。大多数工具使用相同的相对路径，例外如下：
+
+| 工具 | 全局路径 |
+|---|---|
+| Antigravity CLI | `~/.gemini/antigravity-cli/skills`, `~/.gemini/config/agents`, `~/.gemini/GEMINI.md` |
+| Cline | `~/.agents/AGENTS.md`; MCP 配置位于 `~/.cline/data/settings/cline_mcp_settings.json` |
+| Kimi Code CLI | `~/.kimi-code/skills`, `~/.kimi-code/agents`, `~/.kimi-code/AGENTS.md` |
+| ZCode | `~/.zcode/skills`, `~/.zcode/commands`, `~/.zcode/AGENTS.md` （不包含子代理：ZCode 文档将其限制在用户范围内） |
+
+## Copilot {/* #copilot */}
+
+`copilot` 指 Copilot CLI 及其底层的 Agent Host。VS Code 中的 Copilot 也会读取这些仓库文件和 `~/.copilot/skills`，因此一次安装可以供两者使用。Skul 不会写入 `.vscode/mcp.json`；它是 VS Code 内置聊天功能的专用配置文件，采用另一种配置格式。

@@ -1,0 +1,76 @@
+---
+title: 不在 Git 中留下变更的原理
+slug: /how-it-works
+description: 了解本地排除规则、配置登记和已跟踪文件的影子副本。
+---
+
+# 不在 Git 中留下变更的原理
+
+对于自己创建的文件，Skul 不会修改 `.gitignore`、Git 历史或索引。这主要依靠以下三项机制实现。
+
+## 缓存与登记信息 {/* #the-cache-and-the-registry */}
+
+| 路径 | 保存的内容 |
+|---|---|
+| `~/.skul/library/` | 克隆的配置包来源，供所有项目复用 |
+| `~/.skul/registry.json` | 各仓库**需要的配置**，以及各工作树中**实际写入的内容** |
+
+预期配置与实际写入状态分别记录。新关联的工作树会立即继承预期配置，执行 `skul apply` 后才会写入文件。
+
+## 使用本地排除规则，而不是 `.gitignore` {/* #exclude-not-ignore */}
+
+Skul 创建的文件会登记到 `.git/info/exclude`。这些规则只在当前本地克隆中生效，不会被提交或推送。移除配置包时，对应条目也会一起删除。
+
+Skul 还会记录所有写入内容的指纹。如果你修改了受管理的文件，移除前会要求确认；在 `SKUL_NO_TUI=1` 下则会拒绝操作，避免在没有提示的情况下丢失修改。
+
+## 根目录指令文件 {/* #root-instructions */}
+
+`AGENTS.md`、`CLAUDE.md`、`QWEN.md` 需要特别处理，因为团队可能已经将这些文件提交到仓库。
+
+:::note[文件已被 Git 跟踪时]
+要让自己的指令只留在本地，需要遵守三点：
+
+- 拉取更新时使用 `skul sync`。执行其他会移动 `HEAD` 的 Git 命令前，先运行 `skul shadow --suspend` 暂停影子副本；执行后再用 `--refresh` 刷新。
+- Skul 管理文件期间，不要手动编辑该文件。
+- 一个已跟踪文件的影子副本，同一时间只能由一个配置包管理。
+:::
+
+### 文件未被跟踪 {/* #not-tracked */}
+
+Skul 会像处理其他文件一样写入文件并将其排除在 Git 之外。如果本地原本已有文件，会保留原内容作为基础，再把配置包内容追加到 `SKUL:BUNDLE` 标记内。多个配置包可以共用一个文件；移除最后一个配置包后，会恢复原文件。
+
+使用 `--root-instruction-mode replace` 可以替换原内容，而不是追加；移除配置包时仍会恢复原内容。
+
+### 文件已被跟踪：影子副本 {/* #tracked-the-shadow */}
+
+如果文件已被 Git 跟踪，排除规则就无法隐藏差异。Skul 会在 `HEAD` 的内容上叠加自己的指令，写入工作目录中的文件，并设置 `skip-worktree`。`git status` 不会显示变更；`skul status` 会在**影子指令（Shadowed Instructions）**下列出该文件。
+
+一个已跟踪文件的影子副本只能由一个配置包管理。Skul 将写入的文件视为生成结果，因此不要手动编辑。如果文件内容与 Skul 写入的内容不再一致，后续命令会拒绝覆盖。
+
+#### 获取上游变更 {/* #pulling-upstream-changes */}
+
+`skip-worktree` 也会隐藏上游变更，因此在执行任何会移动 `HEAD` 的操作前后，都需要暂停并重新应用影子副本：
+
+```bash
+skul sync
+```
+
+这条命令会暂停影子副本，执行 `git pull --ff-only`，再重新应用。即使拉取失败，也会先恢复影子副本。如果上游不再跟踪该文件，就会解除对应的影子副本。
+
+其他 Git 命令需要手动执行同样的流程：
+
+```bash
+skul shadow --suspend
+git rebase origin/main
+skul shadow --refresh
+```
+
+若文件存在已暂存、未暂存修改或未解决的合并冲突，Skul 会拒绝创建或刷新影子副本。
+
+## 清理 {/* #cleaning-up */}
+
+```bash
+skul reset
+```
+
+移除 Skul 在当前工作树中管理的全部内容，将影子文件恢复为 `HEAD` 的内容，并恢复之前保留的本地原文件。请在 `git worktree remove` 之前执行，否则登记信息中会残留已不存在的工作树记录。

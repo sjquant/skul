@@ -4,3 +4,4 @@ Allow: /
 Sitemap: https://skul.solaqua.dev/sitemap.xml
 Sitemap: https://skul.solaqua.dev/ko/sitemap.xml
 Sitemap: https://skul.solaqua.dev/ja/sitemap.xml
+Sitemap: https://skul.solaqua.dev/zh/sitemap.xml

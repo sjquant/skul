@@ -1,0 +1,151 @@
+---
+title: 创建配置包
+slug: /bundles
+description: 了解配置包的目录结构、清单、MCP 服务器配置和外部引用。
+---
+
+# 创建配置包
+
+配置包就是存放普通文件的 Git 仓库或 npm 包。不需要注册，也不强制要求清单文件。
+
+## 创建第一个配置包 {/* #your-first-bundle */}
+
+创建一个包含单个技能的仓库。`description` 必填；未指定名称时，默认使用文件夹名。
+
+```markdown title="skills/say-hello/SKILL.md"
+---
+description: Say hello from my first Skul bundle.
+---
+
+Say hello.
+```
+
+推送到 GitHub 后，就可以在任意 Git 项目中添加：
+
+```bash
+skul add you/my-bundle
+```
+
+Skul 不接受本地路径作为来源。要在合并到默认分支之前试用修改，可以先推送一个分支，再通过 `--ref my-branch` 添加。
+
+## 目录结构 {/* #layout */}
+
+将 `skills/`、`commands/`、`agents/` 和根目录指令文件放在同一个目录中：
+
+```text
+skills/
+commands/
+agents/
+AGENTS.md          # or CLAUDE.md, QWEN.md
+mcp.json
+```
+
+Skul 会将各项内容复制到支持它的所有工具中。只供某个工具使用的内容，应放在该工具专用的隐藏目录里，例如 `.claude/skills/`、`.cursor/commands/`。
+
+### 一个仓库放一个还是多个配置包 {/* #one-bundle-or-many */}
+
+如果直接使用仓库根目录作为配置包，包名就是仓库名：
+
+```text
+github.com/you/react-bundle
+├── skills/
+└── commands/
+```
+
+也可以让每个子目录分别成为一个配置包，包名就是目录名：
+
+```text
+github.com/you/ai-bundles
+├── react-expert/
+│   ├── skills/
+│   └── agents/
+└── python-data/
+    └── skills/
+```
+
+根据目录结构，用户可以运行 `skul add you/react-bundle` 或 `skul add you/ai-bundles react-expert`。在包含多个配置包的仓库中，根目录的 `AGENTS.md`、`CLAUDE.md`、`QWEN.md` 不属于任何配置包，Skul 会给出警告。共享指令应放在 `bundles/common/` 中。
+
+### npm {/* #npm */}
+
+可以将同样的目录结构发布为 npm 包，再通过 `skul add npm:@you/react-skills` 安装。使用 `@1.2.0` 或 `--ref next` 指定版本或 dist-tag。使用私有注册表时，设置 `SKUL_NPM_REGISTRY` 和 `SKUL_NPM_TOKEN`。
+
+## 在不同工具间复用根目录指令 {/* #root-instructions-travel */}
+
+配置包只提供 `CLAUDE.md` 时，Codex 仍会得到 `AGENTS.md`；只提供 `AGENTS.md` 时，Claude Code 也会得到 `CLAUDE.md`。Copilot 还会得到 `.github/copilot-instructions.md`。完整对应关系见[支持的工具](/docs/tools#root-instruction-files)。
+
+## 清单文件（可选） {/* #manifest-optional */}
+
+```json title="manifest.json"
+{
+  "root_instruction_mode": "replace"
+}
+```
+
+清单用于补充元数据，不必重复声明 Skul 可以推断的信息。如果声明了 `tools`，就只会应用到列表中的工具，根目录指令的目标工具也必须明确列出。在包含多个配置包的仓库中，根目录清单提供默认值，各配置包自己的清单可以覆盖这些值。`name` 仅用于显示；配置包使用目录名或仓库名作为标识。
+
+## MCP 服务器 {/* #mcp-servers */}
+
+按照 [Agent Plugins](https://agent-plugins.org/specification) 规范，在 `mcp.json` 中统一声明服务器：
+
+```json title="mcp.json"
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "docs": {
+      "type": "stdio",
+      "command": "docs-server",
+      "args": ["--root", "${PLUGIN_ROOT}/reference"],
+      "env": { "CACHE_DIR": "${PLUGIN_DATA}/cache" }
+    },
+    "remote": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp"
+    }
+  }
+}
+```
+
+Skul 会按各工具要求的文件和格式写入配置。`${PLUGIN_ROOT}` 指向缓存中的配置包目录；`${PLUGIN_DATA}` 指向 `~/.skul/data/` 下每个配置包独立的数据目录，Skul 不会创建这个目录。
+
+Skul 会**合并**这些配置文件中的条目，而不是接管整个文件：
+
+- 保留用户自行配置的服务器、其他配置包添加的服务器以及文件中已有的其他配置项。
+- `skul remove` 只移除该配置包添加的名称对应的条目。只有文件由 Skul 创建且移除后为空时，才会删除文件。
+- 不会替换已经声明的同名服务器。`skul add` 会在写入任何内容之前拒绝操作，并指出冲突文件。
+- Codex 的 `.codex/config.toml` 通过在末尾追加带标记的区块来编辑，其他内容逐字节保留。
+- 如果目标文件已被 Git 跟踪，就会像根目录指令一样创建影子副本，`opencode.json` 常见于这种情况。同一个文件只能由一个配置包管理影子副本。
+- Cline 没有项目级 MCP 配置路径，只有使用 `--global` 时才会写入服务器配置。
+
+合并后的文件包含本机的绝对路径，因此即使文件不是 Skul 创建的，也会被加入本地排除规则。
+
+:::caution
+Claude Code 运行时会重写 `~/.claude.json`。执行 `skul add|remove|reset --global` 之前，请先退出 Claude Code。
+:::
+
+## 引用其他仓库的条目 {/* #reference-items-from-another-repo */}
+
+不必把技能复制进自己的配置包，也可以直接引用来源。添加 `skul.refs.json`：
+
+```json title="skul.refs.json"
+{
+  "refs": [
+    { "target": "skills", "name": "insane-search", "source": "fivetaku/insane-search" },
+    { "target": "root-instruction", "source": "fivetaku/standards" }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `target` | **必填。** 可以是 `skills`、`agents`、`commands` 或 `root-instruction` |
+| `name` | 除 `root-instruction` 外均为必填，表示本地条目名 |
+| `source` | **必填。** 支持 `skul add` 接受的所有来源格式 |
+| `bundle` | 当 `source` 中有多个配置包包含所需条目时才需要 |
+| `item` | 远程条目选择器，例如 `skills/other-name`；默认由 `target` 和 `name` 决定 |
+| `ref` | 要获取的分支、标签或提交 |
+| `path` | 根目录指令引用的本地路径，例如 `AGENTS.md` |
+| `sourcePath` | `source` 中包含嵌套市场或配置包的子目录 |
+| `description` | 替换技能、命令或代理的单行说明 |
+| `disable-model-invocation` | 技能引用：强制设为仅在用户明确请求时运行 |
+
+引用的来源与普通配置包使用同一个缓存。包含 `.claude-plugin/marketplace.json` 的仓库会将插件作为配置包提供；名称冲突时，可以用插件声明的 `name` 作为 `bundle`。如果市场位于单一仓库的子目录中，将 `sourcePath` 设为包含该市场的目录。Skul 只会在 `sourcePath` 内查找。
