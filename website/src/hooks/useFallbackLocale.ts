@@ -8,7 +8,7 @@ export default function useFallbackLocale() {
   const isBrowser = useIsBrowser();
 
   return isBrowser
-    ? (["ko", "ja"] as const).find((locale) => {
+    ? (["ko", "ja", "zh-Hans"] as const).find((locale) => {
         const baseUrl = i18n.localeConfigs[locale].baseUrl;
         return (
           i18n.currentLocale !== locale &&

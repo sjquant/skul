@@ -18,118 +18,118 @@
     "message": "このURLへのリンクが掲載されていたサイトの管理者に、リンクが切れていることをお知らせください。"
   },
   "home.title": {
-    "message": "自分のAI設定を、Gitに残さずに"
+    "message": "AI設定を複数のプロジェクトで再利用"
   },
   "home.description": {
-    "message": "AIスキル、サブエージェント、指示、MCPサーバーを1つのバンドルで管理し、Gitに変更を残さず、どのプロジェクトでも使えます。"
+    "message": "よく使うAIスキルや指示をバンドルにまとめ、プロジェクトごとに適用できます。Skulがツールごとの配置とGitのローカル除外設定を管理し、個人の設定をコミットに含めずに使えます。"
   },
   "home.lead": {
-    "message": "リポジトリごとにAI設定をコピーする必要はありません。スキル、サブエージェント、指示、MCPサーバーを1つのバンドルにまとめ、任意のプロジェクトに適用できます。{count}種類のコーディングツールで使っても、{status}はクリーンなままです。"
+    "message": "よく使うスキルや指示をバンドルにまとめ、別のプロジェクトでも使えます。Skulは{count}種類のコーディングツールに対応し、それぞれが読む場所にファイルを配置します。個人用の設定は{status}の変更一覧に出ないように管理します。"
   },
   "home.translateLayout": {
-    "message": "設定を書くのは一度だけです。Skulが各ツールに合わせて配置します。プロジェクト単位でも、{global}でグローバルにも適用できます。"
+    "message": "Claude CodeやCodexなど、各ツールが対応している項目を所定の場所に書き込みます。プロジェクトごとに追加できるほか、{global}でホームディレクトリ配下にも適用できます。"
   },
   "home.otherTools": {
-    "message": "{tools}にも対応しています。"
+    "message": "{tools}でも利用できます。"
   },
   "home.toolPaths": {
-    "message": "全{count}ツールの配置先を見る →"
+    "message": "全{count}ツールの配置先を確認 →"
   },
   "home.trackedInstructions": {
-    "message": "すでに{file}をコミットしていますか？ Skulはローカルのコピーに自分の指示を追記します。ツールはチームと自分の指示を両方読み取り、ほかのメンバーには差分が見えません。アップストリームの変更を取り込むときは{sync}を使います。"
+    "message": "チームがコミットした{file}に、自分用の指示をローカルで追加します。ツールは両方の指示を読み取り、自分の追記はGitの変更一覧に表示されません。アップストリームの変更は{sync}で取り込み、Skulが管理するファイルは直接編集しません。"
   },
   "home.exclude": {
-    "message": "Skulは書き込んだファイルを{exclude}に登録し、{ignore}には触れません。バンドルを削除すると、元のファイルに戻ります。"
+    "message": "追加した設定は{exclude}に登録され、共有の{ignore}は変更しません。バンドルを削除するとSkulが管理していた設定を取り除き、保存しておいた元のファイルを復元します。"
   },
   "home.exampleBundle": {
-    "message": "{bundle}は公開サンプルのバンドルです。いつでも自分のリポジトリに置き換えられます。"
+    "message": "上のコマンドは公開サンプルの{bundle}を適用します。自分の設定を使う場合は、同じ形式で作ったバンドルのリポジトリを指定します。"
   },
   "home.label": {
-    "message": "AIコーディングツール向けのオープンソースCLI"
+    "message": "AIコーディングツールの個人設定を管理"
   },
   "home.heroFirst": {
-    "message": "自分のAI設定を、"
+    "message": "AI設定を、"
   },
   "home.heroSecond": {
-    "message": "Gitに残さずに。"
+    "message": "そのまま使う"
   },
   "home.apply": {
-    "message": "最初のバンドルを適用する"
+    "message": "インストールと使い方"
   },
   "home.github": {
-    "message": "GitHubで見る"
+    "message": "GitHubリポジトリ"
   },
   "home.source": {
-    "message": "設定の管理は1か所で"
+    "message": "ツールごとの配置をまとめて管理"
   },
   "home.everywhere": {
-    "message": "バンドル1つで、コーディングするすべての場所に。"
+    "message": "ツールごとの配置先はSkulが合わせます。"
   },
   "home.bundle": {
-    "message": "自分のSkulバンドル"
+    "message": "スキルや指示をまとめたバンドル"
   },
   "home.shared": {
-    "message": "共有リポジトリでも"
+    "message": "チームのリポジトリでも"
   },
   "home.rulesFirst": {
     "message": "チームの指示に、"
   },
   "home.rulesSecond": {
-    "message": "自分のルールを重ねる。"
+    "message": "自分用の指示を追加。"
   },
   "home.trackedLink": {
-    "message": "追跡中の指示ファイルの仕組み →"
+    "message": "コミット済みの指示ファイルの扱い →"
   },
   "home.team": {
-    "message": "チームの指示"
+    "message": "チームで共有する指示"
   },
   "home.committed": {
-    "message": "リポジトリにコミット済み"
+    "message": "コミット済みのファイル"
   },
   "home.layer": {
-    "message": "自分の指示"
+    "message": "自分が追加する指示"
   },
   "home.local": {
-    "message": "自分のバンドルから、ローカルにだけ適用"
+    "message": "自分のバンドルからローカルに適用"
   },
   "home.reads": {
-    "message": "コーディングツールが読む内容"
+    "message": "ツールが読み取る内容"
   },
   "home.both": {
-    "message": "両方の指示を読み取り、Gitには変更なし"
+    "message": "チームと自分、両方の指示を使用"
   },
   "home.safe": {
-    "message": "気軽に試せます"
+    "message": "Gitに含めない仕組み"
   },
   "home.commit": {
-    "message": "コミットは不要。"
+    "message": "自分用の設定は手元に、"
   },
   "home.undo": {
-    "message": "元に戻すのも簡単です。"
+    "message": "コミットには残さない。"
   },
   "home.howLink": {
-    "message": "Gitに変更を残さない仕組みを見る →"
+    "message": "ファイルの管理と削除の仕組み →"
   },
   "home.toolsSee": {
-    "message": "ツールから見えるファイル"
+    "message": "ツールが使うファイル"
   },
   "home.gitSees": {
-    "message": "Gitから見えるファイル"
+    "message": "Gitが追跡するファイル"
   },
   "home.try": {
-    "message": "次のプロジェクトで試してみませんか。"
+    "message": "公開サンプルで、使い方を確認。"
   },
   "home.requirements": {
     "message": "Node.js 20以降とGitが必要です。"
   },
   "home.quickstart": {
-    "message": "クイックスタートを読む"
+    "message": "サンプルの適用手順"
   },
   "home.write": {
-    "message": "自分のバンドルを作成する"
+    "message": "自分のバンドルを作る方法"
   },
   "seo.software.description": {
-    "message": "自分のAI設定を、Gitに残さずに。共有スキル、サブエージェント、指示、MCPサーバーをコーディングツールに適用します。"
+    "message": "AIコーディングツールのスキルや指示をバンドルとして配布し、個人の設定をGitの変更に含めずに複数のプロジェクトで使うためのCLIです。"
   },
   "seo.software.requirements": {
     "message": "Node.js 20以降とGit。"

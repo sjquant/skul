@@ -16,115 +16,115 @@
     "description": "The ARIA label of the button to collapse the mobile dropdown navbar item"
   },
   "home.title": {
-    "message": "나만의 AI 설정, Git에는 흔적 없이"
+    "message": "AI 설정을 여러 프로젝트에서 재사용"
   },
   "home.description": {
-    "message": "AI 스킬, 서브에이전트, 지침, MCP 서버를 하나의 번들로 관리하세요. Git에 변경 사항을 남기지 않고 어느 프로젝트에서나 쓸 수 있습니다."
+    "message": "자주 쓰는 AI 스킬과 지침을 번들로 묶어 프로젝트마다 적용합니다. Skul이 도구별 파일 경로와 로컬 Git 제외 설정을 관리해 개인 설정이 커밋에 남지 않도록 합니다."
   },
   "home.lead": {
-    "message": "저장소마다 AI 설정을 복사할 필요가 없습니다. 스킬, 서브에이전트, 지침, MCP 서버를 번들 하나로 묶어 원하는 프로젝트에 적용하세요. {count}가지 코딩 도구에서 써도 {status}는 깔끔하게 유지됩니다."
+    "message": "자주 쓰는 스킬과 지침을 번들로 묶어 다른 프로젝트에서도 사용할 수 있습니다. Skul이 {count}가지 코딩 도구의 경로에 맞춰 파일을 배치하고, {status}에 개인 설정 변경 사항이 나타나지 않게 합니다."
   },
   "home.translateLayout": {
-    "message": "설정은 한 번만 작성하세요. Skul이 각 도구에 맞는 위치에 배치합니다. 프로젝트마다 적용할 수도 있고, {global}로 전역에 적용할 수도 있습니다."
+    "message": "Claude Code나 Codex처럼 도구마다 지원 항목과 경로가 달라도 같은 번들에서 필요한 항목을 배치합니다. 프로젝트 단위로 추가하거나 {global} 옵션으로 사용자 홈에 적용할 수 있습니다."
   },
   "home.otherTools": {
-    "message": "{tools}에서도 사용할 수 있습니다."
+    "message": "{tools}에서도 같은 번들을 사용할 수 있습니다."
   },
   "home.toolPaths": {
-    "message": "{count}가지 도구의 경로 보기 →"
+    "message": "{count}가지 도구의 적용 경로 →"
   },
   "home.trackedInstructions": {
-    "message": "이미 {file}를 커밋하고 있나요? Skul은 내 로컬 사본에만 지침을 덧붙입니다. 코딩 도구는 팀 지침과 내 지침을 모두 읽지만, 팀원에게는 변경 사항이 보이지 않습니다. 업스트림 변경 사항을 가져올 때는 {sync}를 사용하세요."
+    "message": "팀이 커밋한 {file}에 내 지침을 로컬에서 덧붙입니다. 코딩 도구는 두 지침을 함께 읽지만, 내가 추가한 지침은 Git 변경 목록에 나타나지 않습니다. 업스트림 변경은 {sync}로 받아오며, Skul이 관리하는 파일은 직접 수정하지 않습니다."
   },
   "home.exclude": {
-    "message": "Skul은 작성한 파일을 {exclude}에 등록하고, {ignore}는 건드리지 않습니다. 번들을 제거하면 원래 파일로 돌아갑니다."
+    "message": "개인 설정은 {exclude}에 등록합니다. {ignore}를 수정하지 않으므로 팀의 제외 규칙에 영향을 주지 않습니다. 번들을 제거하면 Skul이 관리하던 설정을 정리하고, 보관해 둔 원본 파일을 복원합니다."
   },
   "home.exampleBundle": {
-    "message": "{bundle}은 공개 예제 번들입니다. 언제든 내 저장소의 번들로 바꿔 쓸 수 있습니다."
+    "message": "위 명령은 공개 예제 번들인 {bundle}을 적용합니다. 내 설정을 쓰려면 같은 형식으로 만든 번들의 저장소를 지정하면 됩니다."
   },
   "home.label": {
-    "message": "AI 코딩 도구를 위한 오픈 소스 CLI"
+    "message": "AI 코딩 도구의 개인 설정 관리"
   },
   "home.heroFirst": {
-    "message": "나만의 AI 설정,"
+    "message": "내 AI 설정을,"
   },
   "home.heroSecond": {
-    "message": "Git에는 흔적 없이."
+    "message": "프로젝트마다 그대로."
   },
   "home.apply": {
-    "message": "첫 번들 적용하기"
+    "message": "설치와 사용법"
   },
   "home.github": {
-    "message": "GitHub에서 보기"
+    "message": "GitHub 저장소"
   },
   "home.source": {
-    "message": "설정은 한곳에"
+    "message": "설정 파일 배치"
   },
   "home.everywhere": {
-    "message": "번들 하나로, 어디서 코딩하든."
+    "message": "도구마다 다른 경로는 Skul이 맞춥니다."
   },
   "home.bundle": {
-    "message": "나만의 Skul 번들"
+    "message": "스킬과 지침을 모은 번들"
   },
   "home.shared": {
-    "message": "함께 쓰는 저장소에서도"
+    "message": "팀 저장소에서 쓰는 개인 지침"
   },
   "home.rulesFirst": {
-    "message": "팀의 지침 위에,"
+    "message": "팀 지침은 유지하고,"
   },
   "home.rulesSecond": {
-    "message": "나만의 규칙을."
+    "message": "내 지침은 로컬에."
   },
   "home.trackedLink": {
-    "message": "추적 중인 지침을 다루는 방식 →"
+    "message": "이미 커밋된 지침 파일을 다루는 방법 →"
   },
   "home.team": {
-    "message": "팀 지침"
+    "message": "팀에서 공유하는 지침"
   },
   "home.committed": {
-    "message": "저장소에 커밋된 지침"
+    "message": "저장소에 커밋된 파일"
   },
   "home.layer": {
-    "message": "나만의 지침"
+    "message": "내가 추가한 지침"
   },
   "home.local": {
-    "message": "내 번들에서 가져와 로컬에만 추가"
+    "message": "내 번들에서 가져와 로컬에만 적용"
   },
   "home.reads": {
-    "message": "코딩 도구가 읽는 지침"
+    "message": "코딩 도구가 읽는 내용"
   },
   "home.both": {
-    "message": "두 지침을 함께 읽고, Git에는 변경 없이"
+    "message": "팀 지침과 내 지침을 함께 사용"
   },
   "home.safe": {
-    "message": "부담 없이 사용해 보세요"
+    "message": "Git에서 제외하는 방식"
   },
   "home.commit": {
-    "message": "커밋할 것도 없고."
+    "message": "개인 설정은 로컬에,"
   },
   "home.undo": {
-    "message": "되돌리기도 쉽습니다."
+    "message": "커밋에는 남지 않게."
   },
   "home.howLink": {
-    "message": "Git에 흔적을 남기지 않는 방식 →"
+    "message": "파일 관리와 제거 방식 →"
   },
   "home.toolsSee": {
-    "message": "코딩 도구가 보는 파일"
+    "message": "코딩 도구에서 사용하는 파일"
   },
   "home.gitSees": {
-    "message": "Git이 보는 파일"
+    "message": "Git에서 추적하는 파일"
   },
   "home.try": {
-    "message": "다음 프로젝트에서 사용해 보세요."
+    "message": "예제 번들로 동작 확인하기"
   },
   "home.requirements": {
     "message": "Node.js 20 이상과 Git이 필요합니다."
   },
   "home.quickstart": {
-    "message": "빠른 시작 읽기"
+    "message": "예제 번들 적용 방법"
   },
   "home.write": {
-    "message": "나만의 번들 만들기"
+    "message": "내 번들 만드는 법"
   },
   "howto.install.name": {
     "message": "설치하기"
@@ -145,7 +145,7 @@
     "message": "프로젝트에서 코딩 도구를 열면 번들에 담긴 스킬을 바로 쓸 수 있습니다. Claude Code라면 /ghosts:rewrite를 실행해 보세요."
   },
   "seo.software.description": {
-    "message": "나만의 AI 설정, Git에는 흔적 없이. 공유 스킬, 서브에이전트, 지침, MCP 서버를 코딩 도구에 적용하세요."
+    "message": "AI 코딩 도구의 스킬과 지침을 번들로 배포하고, 여러 프로젝트에서 개인 설정을 커밋에 남기지 않고 사용할 수 있게 하는 CLI입니다."
   },
   "seo.software.requirements": {
     "message": "Node.js 20 이상과 Git."

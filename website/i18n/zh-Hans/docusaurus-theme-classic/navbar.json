@@ -1,0 +1,14 @@
+{
+  "logo.alt": {
+    "message": "skul 标志"
+  },
+  "item.label.Docs": {
+    "message": "文档"
+  },
+  "item.label.Commands": {
+    "message": "命令"
+  },
+  "item.label.Tools": {
+    "message": "支持的工具"
+  }
+}
