@@ -1082,6 +1082,145 @@ describe("run", () => {
     void commitBefore; // silence unused-var warning
   });
 
+  it.each([
+    { bundleArgs: [] },
+    { bundleArgs: ["react-expert"] },
+  ])("updates global selections outside Git with bundle arguments %j", async ({
+    bundleArgs,
+  }) => {
+    // Given a global bundle with an explicitly selected skill and tool
+    const homeDir = createHomeDir();
+    const { source, bundle, remoteRepoPath } = createRemoteBundleSource(
+      homeDir,
+      {
+        bundle: "react-expert",
+        manifest: {
+          name: "react-expert",
+          tools: {
+            "claude-code": { skills: { path: ".claude/skills" } },
+            codex: { skills: { path: ".agents/skills" } },
+          },
+        },
+        files: {
+          ".claude/skills/react/SKILL.md": "# v1\n",
+          ".claude/skills/other/SKILL.md": "# other\n",
+          ".agents/skills/react/SKILL.md": "# codex\n",
+        },
+      },
+    );
+    await run(
+      [
+        "add",
+        "--global",
+        source,
+        bundle,
+        "--agent",
+        "claude-code",
+        "--include",
+        "skills/react",
+      ],
+      { homeDir, cwd: homeDir, prompts: createPromptClientStub() },
+    );
+    const registryFile = path.join(homeDir, ".skul", "registry.json");
+    const before = readRegistryFile(registryFile);
+    const skillFile = path.join(homeDir, ".claude/skills/react/SKILL.md");
+    updateRemoteBundleSource(remoteRepoPath, bundle, {
+      ".claude/skills/react/SKILL.md": "# v2\n",
+    });
+
+    // When previewing the upstream update outside a repository
+    expect(
+      await run(["update", "--global", ...bundleArgs, "--dry-run"], {
+        homeDir,
+        cwd: homeDir,
+      }),
+    ).toContain("Would update global react-expert");
+    expect(fs.readFileSync(skillFile, "utf8")).toBe("# v1\n");
+    expect(readRegistryFile(registryFile)).toEqual(before);
+
+    // Then applying refreshes only the saved selection and leaves project state alone
+    expect(
+      await run(["update", "--global", ...bundleArgs, "-y"], {
+        homeDir,
+        cwd: homeDir,
+      }),
+    ).toContain("Updated global react-expert");
+    expect(fs.readFileSync(skillFile, "utf8")).toBe("# v2\n");
+    expect(fs.existsSync(path.join(homeDir, ".claude/skills/other"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(homeDir, ".agents/skills/react"))).toBe(
+      false,
+    );
+    const after = readRegistryFile(registryFile);
+    expect(after.global!.desired_state[0]).toMatchObject({
+      tools: ["claude-code"],
+      items: ["skills/react"],
+    });
+    expect(after.repos).toEqual(before.repos);
+    expect(after.worktrees).toEqual(before.worktrees);
+    expect(
+      await run(["update", "--global"], { homeDir, cwd: homeDir }),
+    ).toContain("already up to date");
+  });
+
+  it("guides an unknown global bundle to the global status command outside Git", async () => {
+    // Given a directory outside Git with no matching global bundle
+    const homeDir = createHomeDir();
+
+    // When an unknown bundle is requested, then recovery points to global state
+    await expect(
+      run(["update", "--global", "missing"], { homeDir, cwd: homeDir }),
+    ).rejects.toThrow('Run "skul status --global"');
+  });
+
+  it("preserves global files, registry, and cache when a modified file blocks updating", async () => {
+    // Given an upstream update and a local edit to a globally managed skill
+    const homeDir = createHomeDir();
+    const { source, bundle, remoteRepoPath, initialCommit } =
+      createRemoteBundleSource(homeDir, {
+        bundle: "react-expert",
+        manifest: {
+          name: "react-expert",
+          tools: { "claude-code": { skills: { path: ".claude/skills" } } },
+        },
+        files: { ".claude/skills/react/SKILL.md": "# v1\n" },
+      });
+    await run(["add", "--global", source, bundle], {
+      homeDir,
+      cwd: homeDir,
+      prompts: createPromptClientStub(),
+    });
+    const registryFile = path.join(homeDir, ".skul/registry.json");
+    const before = readRegistryFile(registryFile);
+    const skillFile = path.join(homeDir, ".claude/skills/react/SKILL.md");
+    fs.writeFileSync(skillFile, "# personal edit\n");
+    updateRemoteBundleSource(remoteRepoPath, bundle, {
+      ".claude/skills/react/SKILL.md": "# v2\n",
+    });
+
+    // When the user keeps the modified file
+    await expect(
+      run(["update", "--global"], {
+        homeDir,
+        cwd: homeDir,
+        prompts: createPromptClientStub({
+          confirmManagedFileRemoval: async () => false,
+        }),
+      }),
+    ).rejects.toThrow("Replacement aborted");
+
+    // Then the edit, installation record, and cached source revision are preserved
+    expect(fs.readFileSync(skillFile, "utf8")).toBe("# personal edit\n");
+    expect(readRegistryFile(registryFile)).toEqual(before);
+    expect(
+      runGit(path.join(homeDir, ".skul/library", ...source.split("/")), [
+        "rev-parse",
+        "HEAD",
+      ]),
+    ).toBe(initialCommit);
+  });
+
   it("keeps MCP ownership through update so the final removal deletes the created file", async () => {
     // Given: a remote bundle that creates a project MCP configuration
     const homeDir = createHomeDir();

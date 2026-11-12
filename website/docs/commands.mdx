@@ -26,7 +26,7 @@ description: Every skul command and flag.
 | `-n, --dry-run` | mutating commands | Preview, change nothing |
 | `-y, --yes` | `add` `remove` `apply` `update` `reset` | Approve overwrite and removal prompts |
 | `-j, --json` | `list` `status` `check` `remove` `reset` | Machine-readable output |
-| `-g, --global` | `add` `remove` `apply` `status` `reset` | Operate on `~` tool config instead of the project |
+| `-g, --global` | `add` `remove` `apply` `update` `status` `reset` | Operate on `~` tool config instead of the project |
 
 Mutating commands print `{ "output": "…", "warnings": [] }` under `--json`. Set `SKUL_NO_TUI=1` to turn off every interactive prompt, which is what scripts and agents should do.
 
@@ -68,5 +68,7 @@ If SSH auth fails, Skul prints the HTTPS equivalent.
 ## Staying current
 
 `skul check` shows what changed upstream; `skul update` applies it. A dist-tag like `latest` is followed; an exact version is pinned; semver ranges aren't supported.
+
+Use `skul update --global [bundle]` to refresh globally installed bundles without a Git project. Saved tool and item selections are preserved; `--dry-run` previews changes.
 
 For tracked `AGENTS.md` / `CLAUDE.md`, use `skul sync` for pulls. See [How it stays out of Git](/docs/how-it-works#tracked-the-shadow).

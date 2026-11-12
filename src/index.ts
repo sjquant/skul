@@ -320,6 +320,8 @@ export async function run(
       });
     case "update":
       return updateBundles({
+        homeDir: options.homeDir ?? os.homedir(),
+        global: parsed.options.global,
         cwd,
         prompts: parsed.options.yes ? createYesPromptClient(prompts) : prompts,
         registryFile: stateLayout.registryFile,
@@ -2724,6 +2726,8 @@ async function renderUpdateCheck(options: {
 }
 
 async function updateBundles(options: {
+  homeDir: string;
+  global: boolean;
   cwd: string;
   prompts: PromptClient;
   registryFile: string;
@@ -2732,6 +2736,9 @@ async function updateBundles(options: {
   dryRun: boolean;
   sourceFetchProgress?: SourceFetchProgress;
 }): Promise<string> {
+  if (options.global) {
+    return updateGlobalBundles(options);
+  }
   const gitContext = requireGitContext(options.cwd, "update");
   let registry = readRegistryWithGuidance(options.registryFile);
   const repoState = registry.repos[gitContext.repoFingerprint];
@@ -3132,6 +3139,122 @@ async function updateBundles(options: {
   writeRegistryFile(options.registryFile, registry);
 
   return [localOnlyNote, ...outputLines].filter(Boolean).join("\n");
+}
+
+/** Updates global bundles while retaining their saved installation selections. */
+async function updateGlobalBundles(options: {
+  homeDir: string;
+  prompts: PromptClient;
+  registryFile: string;
+  libraryDir: string;
+  bundle?: string;
+  dryRun: boolean;
+  sourceFetchProgress?: SourceFetchProgress;
+}): Promise<string> {
+  const registry = readRegistryWithGuidance(options.registryFile);
+  const entries = selectDesiredEntries(
+    registry.global?.desired_state ?? [],
+    options.bundle,
+    "update",
+    "skul status --global",
+  );
+  if (entries.length === 0) {
+    return 'No global bundles configured. Run "skul add --global <bundle>" to add one';
+  }
+  const inspectCache = new Map<string, Promise<RemoteSourceStatus>>();
+  const lines: string[] = [];
+  const localOnly: string[] = [];
+  for (const entry of entries) {
+    if (!entry.source) {
+      localOnly.push(entry.bundle);
+      continue;
+    }
+    const remoteStatus = await inspectRemoteSourceCached(inspectCache, {
+      source: entry.source,
+      libraryDir: options.libraryDir,
+      protocol: entry.protocol,
+      ref: entry.ref,
+      progress: options.sourceFetchProgress,
+    });
+    const currentCommit = entry.resolved_commit ?? remoteStatus.currentCommit;
+    if (
+      remoteStatus.refKind === "commit" ||
+      (currentCommit !== undefined &&
+        currentCommit === remoteStatus.remoteCommit)
+    ) {
+      continue;
+    }
+    if (options.dryRun) {
+      lines.push(
+        `${pc.yellow("DRY RUN:")} Would update global ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
+      );
+      continue;
+    }
+    const initialRevision = readCachedSourceRevision({
+      source: entry.source,
+      libraryDir: options.libraryDir,
+      protocol: entry.protocol,
+    });
+    try {
+      await updateCachedRemoteSource({
+        source: entry.source,
+        libraryDir: options.libraryDir,
+        protocol: entry.protocol,
+        ref: entry.ref,
+        progress: options.sourceFetchProgress,
+        includeRootInstructions: entry.items?.includes("root-instruction"),
+      });
+      await applyBundleGlobal({
+        homeDir: options.homeDir,
+        prompts: options.prompts,
+        registryFile: options.registryFile,
+        libraryDir: options.libraryDir,
+        bundle: entry.bundle,
+        source: entry.source,
+        protocol: entry.protocol,
+        agents: entry.tools ?? [],
+        includeItems: entry.items ?? [],
+        selectItems: false,
+        replaceItems: true,
+        dryRun: false,
+        ref: entry.ref,
+        rootInstructionMode: entry.root_instruction_mode,
+        disableModelInvocation: entry.disable_model_invocation,
+        refreshedSources: new Set([entry.source]),
+        sourceFetchProgress: options.sourceFetchProgress,
+      });
+      lines.push(
+        pc.green(
+          `Updated global ${entry.bundle}${formatCommitTransition(currentCommit, remoteStatus.remoteCommit)}`,
+        ),
+      );
+    } catch (error) {
+      if (!initialRevision.cached) {
+        removeCachedRemoteSource({
+          source: entry.source,
+          libraryDir: options.libraryDir,
+          protocol: entry.protocol,
+        });
+      } else if (initialRevision.currentCommit) {
+        await restoreCachedRemoteSourceRevision({
+          source: entry.source,
+          libraryDir: options.libraryDir,
+          protocol: entry.protocol,
+          ref: entry.ref,
+          commit: initialRevision.currentCommit,
+          refName: initialRevision.currentRef,
+          includeRootInstructions: entry.items?.includes("root-instruction"),
+        });
+      }
+      throw error;
+    }
+  }
+  if (localOnly.length > 0)
+    lines.unshift(`Skipped (local-only): ${localOnly.join(", ")}`);
+  if (lines.length === 0 || localOnly.length === entries.length) {
+    lines.push("All selected global bundles are already up to date");
+  }
+  return lines.join("\n");
 }
 
 function inspectRemoteSourceCached(
@@ -7953,6 +8076,7 @@ function selectDesiredEntries(
   desiredState: DesiredBundleEntry[],
   bundle: string | undefined,
   command: "check" | "update",
+  statusCommand = "skul status",
 ): DesiredBundleEntry[] {
   if (!bundle) {
     return desiredState;
@@ -7962,7 +8086,7 @@ function selectDesiredEntries(
 
   if (!matchingEntry) {
     throw new Error(
-      `Bundle not found in active set: ${bundle}. Run "skul status" to see configured bundles`,
+      `Bundle not found in active set: ${bundle}. Run "${statusCommand}" to see configured bundles`,
     );
   }
 
