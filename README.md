@@ -51,6 +51,7 @@ Only install bundles you trust: skills and instructions influence your coding ag
 
 ```bash
 skul update           # fetch and apply newer revisions of your selected bundles
+skul update --global  # update your saved global bundles from any directory
 skul remove writing   # remove the example bundle from this worktree
 ```
 

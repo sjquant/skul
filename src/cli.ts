@@ -50,7 +50,12 @@ export type CliParseResult =
   | {
       kind: "command";
       command: "update";
-      options: { bundle?: string; dryRun: boolean; yes?: boolean };
+      options: {
+        bundle?: string;
+        dryRun: boolean;
+        global: boolean;
+        yes?: boolean;
+      };
     }
   | {
       kind: "command";
@@ -973,6 +978,7 @@ function createProgram(
   program
     .command("update")
     .description("Update remote-backed bundles to the latest upstream revision")
+    .option("-g, --global", "Update globally installed bundles")
     .argument("[bundle]", "Bundle name to update")
     .option(
       "-n, --dry-run",
@@ -982,12 +988,13 @@ function createProgram(
     .action(
       (
         bundle: string | undefined,
-        opts: { dryRun?: boolean; yes?: boolean },
+        opts: { dryRun?: boolean; global?: boolean; yes?: boolean },
       ) => {
         context.result = {
           kind: "command",
           command: "update",
           options: {
+            global: opts.global ?? false,
             ...(bundle !== undefined ? { bundle } : {}),
             dryRun: opts.dryRun ?? false,
             ...(opts.yes ? { yes: true } : {}),

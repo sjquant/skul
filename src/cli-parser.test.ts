@@ -69,7 +69,10 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(updateArgs)).resolves.toEqual({
       kind: "command",
       command: "update",
-      options: { dryRun: false },
+      options: {
+        global: false,
+        dryRun: false,
+      },
     });
     await expect(parseCliArgs(syncArgs)).resolves.toEqual({
       kind: "command",
@@ -637,7 +640,11 @@ describe("parseCliArgs", () => {
     ).resolves.toEqual({
       kind: "command",
       command: "update",
-      options: { bundle: "react-expert", dryRun: true },
+      options: {
+        global: false,
+        bundle: "react-expert",
+        dryRun: true,
+      },
     });
   });
 
@@ -791,7 +798,11 @@ describe("parseCliArgs", () => {
     await expect(parseCliArgs(["update", "--yes"])).resolves.toEqual({
       kind: "command",
       command: "update",
-      options: { dryRun: false, yes: true },
+      options: {
+        global: false,
+        dryRun: false,
+        yes: true,
+      },
     });
 
     await expect(parseCliArgs(["apply", "--yes"])).resolves.toEqual({
